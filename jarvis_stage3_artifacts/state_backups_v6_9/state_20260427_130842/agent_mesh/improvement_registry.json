@@ -1,0 +1,85 @@
+{
+  "items": [
+    {
+      "id": "reduce_cloud_ambiguity",
+      "priority": "high",
+      "title": "Reduce generic cloud routing labels",
+      "reason": "Too many executions still resolve as generic cloud instead of specific service.",
+      "suggested_action": "Prefer direct service stamping in runtime and keep trace rebuild active.",
+      "status": "active",
+      "first_seen_ts": 1776545554.1711872,
+      "last_seen_ts": 1776548157.257372,
+      "applied_ts": 0.0,
+      "retired_ts": 0.0,
+      "notes": [
+        "Tracked as active; requires runtime routing improvements, not just config.",
+        "Tracked as active; requires runtime routing improvements, not just config."
+      ]
+    },
+    {
+      "id": "eliminate_unknown_service_failures",
+      "priority": "high",
+      "title": "Eliminate unknown service failures",
+      "reason": "Unknown service failures still appear in telemetry.",
+      "suggested_action": "Strengthen service resolver fallback and keep force_specific_service_resolution enabled.",
+      "status": "active",
+      "first_seen_ts": 1776545554.1711872,
+      "last_seen_ts": 1776548157.257372,
+      "applied_ts": 0.0,
+      "retired_ts": 0.0,
+      "notes": [
+        "Still relevant while unknown service failures exist.",
+        "Still relevant while unknown service failures exist."
+      ]
+    },
+    {
+      "id": "anthropic_payload_compatibility",
+      "priority": "high",
+      "title": "Improve Claude payload compatibility",
+      "reason": "Repeated Claude 400 errors are still present.",
+      "suggested_action": "Keep anthropic_safe_mode on and validate candidate payload shapes before invoke.",
+      "status": "active",
+      "first_seen_ts": 1776545554.1711872,
+      "last_seen_ts": 1776548157.257372,
+      "applied_ts": 0.0,
+      "retired_ts": 0.0,
+      "notes": [
+        "Still relevant while Claude 400 errors exist."
+      ]
+    },
+    {
+      "id": "n8n_live_guarded_rollout",
+      "priority": "medium",
+      "title": "Keep n8n rollout guarded",
+      "reason": "n8n still has failures and should remain gated until verify/test are stable.",
+      "suggested_action": "Do not promote live until verify_api and dry-run webhook both succeed.",
+      "status": "active",
+      "first_seen_ts": 1776545554.1711872,
+      "last_seen_ts": 1776548157.257372,
+      "applied_ts": 0.0,
+      "retired_ts": 0.0,
+      "notes": [
+        "Remains active until verify_api and dry-run webhook succeed.",
+        "Remains active until verify_api and dry-run webhook succeed."
+      ]
+    },
+    {
+      "id": "active_snapshot_pressure",
+      "priority": "medium",
+      "title": "Reduce active snapshot pressure",
+      "reason": "Active snapshots remain elevated.",
+      "suggested_action": "Keep aggressive cleanup and archive completed missions earlier.",
+      "status": "active",
+      "first_seen_ts": 1776545554.1711872,
+      "last_seen_ts": 1776548157.257372,
+      "applied_ts": 1776548157.3481026,
+      "retired_ts": 0.0,
+      "notes": [
+        "Added cleanup note to adaptive policy.",
+        "Remains active while active snapshot count is elevated.",
+        "Added cleanup note to adaptive policy.",
+        "Remains active while active snapshot count is elevated."
+      ]
+    }
+  ]
+}

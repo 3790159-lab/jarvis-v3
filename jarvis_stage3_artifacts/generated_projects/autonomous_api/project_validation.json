@@ -1,0 +1,20 @@
+﻿{
+    "ok":  true,
+    "checks":  {
+                   "app_main_exists":  true,
+                   "app_init_exists":  true,
+                   "tests_exist":  true,
+                   "readme_exists":  true,
+                   "requirements_exists":  true,
+                   "gitignore_exists":  true,
+                   "pytest_ini_exists":  true,
+                   "run_api_exists":  true,
+                   "run_tests_exists":  true,
+                   "manifest_exists":  true,
+                   "env_snapshot_exists":  true,
+                   "requirements_lock_exists":  true
+               },
+    "failed_checks":  [
+
+                      ]
+}

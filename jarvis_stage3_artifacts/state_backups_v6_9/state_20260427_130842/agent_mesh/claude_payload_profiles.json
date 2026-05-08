@@ -1,0 +1,23 @@
+{
+  "active_profile": "safe_inline",
+  "profiles": [
+    {
+      "id": "strict_system",
+      "description": "system field + user message",
+      "enabled": true,
+      "status": "candidate"
+    },
+    {
+      "id": "safe_inline",
+      "description": "system content inlined into user message",
+      "enabled": true,
+      "status": "active"
+    },
+    {
+      "id": "compact_inline",
+      "description": "short inline prompt with reduced payload size",
+      "enabled": true,
+      "status": "candidate"
+    }
+  ]
+}

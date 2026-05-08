@@ -1,0 +1,12 @@
+{
+  "classification_id": "cls_20260423_222756_d6a3af8c",
+  "goal": "Improve validation with verify and smoke support",
+  "task": "Create a coordinated validation patch with support files",
+  "patch_class": "validation_patch",
+  "risk_lane": "low",
+  "confidence": 85.0,
+  "reasons": [
+    "matched_keywords_for:validation_patch"
+  ],
+  "created_at": "2026-04-23T22:27:56+00:00"
+}

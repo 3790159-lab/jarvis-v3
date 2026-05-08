@@ -1,0 +1,24 @@
+{
+  "name": "YouTube 30 Day Calendar",
+  "description": "Create a YouTube content calendar table for 30 days",
+  "rows": [
+    {
+      "title": "Channel intro",
+      "format": "short",
+      "day": 1,
+      "status": "planned"
+    },
+    {
+      "title": "Problem / solution",
+      "format": "short",
+      "day": 2,
+      "status": "planned"
+    },
+    {
+      "title": "Tool breakdown",
+      "format": "short",
+      "day": 3,
+      "status": "planned"
+    }
+  ]
+}

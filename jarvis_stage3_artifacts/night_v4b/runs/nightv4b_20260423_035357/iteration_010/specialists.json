@@ -1,0 +1,35 @@
+[
+    {
+        "response":  {
+                         "mode":  "smart_local",
+                         "source":  "local_fallback",
+                         "reply":  "Message received: Goal: Improve observability and failure diagnosis\n\nRole: architecture_reviewer\nInstruction: Focus on architecture, interfaces, dependencies, and module interaction.\n\nGive a compact specialist note:\n1) what should change;\n2) what file/module areas are likely touched;\n3) what validation is needed;\n4) keep it low-risk and additive.\n\nSupervisor fallback mode is active.",
+                         "confidence":  "0.78",
+                         "mission":  null,
+                         "route":  "chat"
+                     },
+        "agent":  "architecture_reviewer"
+    },
+    {
+        "response":  {
+                         "mode":  "smart_local",
+                         "source":  "local_fallback",
+                         "reply":  "Message received: Goal: Improve observability and failure diagnosis\n\nRole: validation_agent\nInstruction: Focus on validation, checks, failure prevention, and safe rollout.\n\nGive a compact specialist note:\n1) what should change;\n2) what file/module areas are likely touched;\n3) what validation is needed;\n4) keep it low-risk and additive.\n\nSupervisor fallback mode is active.",
+                         "confidence":  "0.78",
+                         "mission":  null,
+                         "route":  "chat"
+                     },
+        "agent":  "validation_agent"
+    },
+    {
+        "response":  {
+                         "mode":  "smart_local",
+                         "source":  "local_fallback",
+                         "reply":  "Message received: Goal: Improve observability and failure diagnosis\n\nRole: observability_agent\nInstruction: Focus on logs, health checks, metrics, and diagnostics.\n\nGive a compact specialist note:\n1) what should change;\n2) what file/module areas are likely touched;\n3) what validation is needed;\n4) keep it low-risk and additive.\n\nSupervisor fallback mode is active.",
+                         "confidence":  "0.78",
+                         "mission":  null,
+                         "route":  "chat"
+                     },
+        "agent":  "observability_agent"
+    }
+]

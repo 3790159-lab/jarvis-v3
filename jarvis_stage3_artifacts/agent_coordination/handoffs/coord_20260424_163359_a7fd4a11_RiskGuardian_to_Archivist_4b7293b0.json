@@ -1,0 +1,14 @@
+{
+  "run_id": "coord_20260424_163359_a7fd4a11",
+  "from_role": "RiskGuardian",
+  "to_role": "Archivist",
+  "status": "apply",
+  "payload": {
+    "mutation_id": "mut_20260424_163359_8cd4d889",
+    "score": 86.9
+  },
+  "notes": [
+    "approved_for_apply"
+  ],
+  "created_at": "2026-04-24T16:33:59+00:00"
+}

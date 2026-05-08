@@ -1,0 +1,14 @@
+{
+  "mutation_id": "mut_20260423_223245_65622831",
+  "allowed": false,
+  "reasons": [
+    "risk_level_not_allowed:medium"
+  ],
+  "score": 25,
+  "assessed_at": "2026-04-23T22:32:45+00:00",
+  "touched_files_planned": [
+    "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_modules\\dependency_bundle_probe_depplan_20260423_223245_a18a1d7e.py",
+    "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\temp\\dependency_bundle_probe_depplan_20260423_223245_a18a1d7e_verify.py",
+    "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\scripts\\dependency_bundle_probe_depplan_20260423_223245_a18a1d7e_smoke.ps1"
+  ]
+}

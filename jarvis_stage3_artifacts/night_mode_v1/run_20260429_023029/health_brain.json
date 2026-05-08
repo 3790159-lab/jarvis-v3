@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "result": {
+    "ok": true,
+    "service": "jarvis_brain_router",
+    "tools": [
+      "brain.think",
+      "brain.plan",
+      "brain.internet_decision"
+    ]
+  }
+}

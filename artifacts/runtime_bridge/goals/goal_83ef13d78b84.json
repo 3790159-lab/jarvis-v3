@@ -1,0 +1,19 @@
+{
+  "goal_id": "goal_83ef13d78b84",
+  "created_at": "2026-04-10T00:48:56.495397+00:00",
+  "objective": "Create a landing page for Jarvis Runtime Studio with a hero section and CTA",
+  "constraints": {
+    "cta": "Open Runtime",
+    "title": "Jarvis Runtime Studio",
+    "hero": "Runtime-linked autonomous artifact execution",
+    "subtitle": "This mission was submitted through runtime bridge"
+  },
+  "payload": {},
+  "preferred_task_type": null,
+  "auto_execute": true,
+  "latest_mission_id": "mission_6c5bdcc9c112",
+  "status": "completed",
+  "metadata": {
+    "source": "runtime_bridge"
+  }
+}

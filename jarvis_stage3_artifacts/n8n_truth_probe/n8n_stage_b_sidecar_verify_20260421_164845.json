@@ -1,0 +1,139 @@
+{
+  "health": {
+    "status_code": 200,
+    "ok": true,
+    "headers": {
+      "server": "uvicorn",
+      "content-type": "application/json"
+    },
+    "body": {
+      "status": "ok",
+      "service": "jarvis_n8n_stage_b_sidecar",
+      "module_file": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\app\\n8n_stage_b_sidecar.py",
+      "base_url": "http://127.0.0.1:5678",
+      "webhook_base_url": "http://127.0.0.1:5678",
+      "has_api_key": false,
+      "timeout_seconds": 45,
+      "create_payload_mode": "B1_v1_with_settings_empty",
+      "api_status": "unreachable",
+      "api_error": "n8n API request failed: GET http://127.0.0.1:5678/api/v1/workflows -> 401: {\"message\":\"'X-N8N-API-KEY' header required\"}"
+    }
+  },
+  "debug_state": {
+    "status_code": 200,
+    "ok": true,
+    "headers": {
+      "server": "uvicorn",
+      "content-type": "application/json"
+    },
+    "body": {
+      "service": "jarvis_n8n_stage_b_sidecar",
+      "module_file": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\app\\n8n_stage_b_sidecar.py",
+      "create_payload_mode": "B1_v1_with_settings_empty",
+      "workflow_name": "jarvis-sidecar-1776779325-79db9f",
+      "webhook_path": "jarvis-sidecar-1776779325-79db9f",
+      "payload_keys": [
+        "name",
+        "nodes",
+        "connections",
+        "settings"
+      ],
+      "payload": {
+        "name": "jarvis-sidecar-1776779325-79db9f",
+        "nodes": [
+          {
+            "name": "Jarvis Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 1,
+            "position": [
+              600,
+              300
+            ],
+            "parameters": {
+              "httpMethod": "POST",
+              "path": "jarvis-sidecar-1776779325-79db9f",
+              "options": {}
+            }
+          }
+        ],
+        "connections": {},
+        "settings": {}
+      }
+    }
+  },
+  "routes": {
+    "status_code": 200,
+    "ok": true,
+    "headers": {
+      "server": "uvicorn",
+      "content-type": "application/json"
+    },
+    "body": {
+      "paths": [
+        "/create-only",
+        "/debug-state",
+        "/docs",
+        "/docs/oauth2-redirect",
+        "/dry-run-payload",
+        "/health",
+        "/openapi.json",
+        "/publish-and-probe",
+        "/redoc",
+        "/routes"
+      ]
+    }
+  },
+  "dry_run": {
+    "status_code": 200,
+    "ok": true,
+    "headers": {
+      "server": "uvicorn",
+      "content-type": "application/json"
+    },
+    "body": {
+      "service": "jarvis_n8n_stage_b_sidecar",
+      "module_file": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\app\\n8n_stage_b_sidecar.py",
+      "create_payload_mode": "B1_v1_with_settings_empty",
+      "workflow_name": "jarvis-sidecar-20260421164845",
+      "webhook_path": "jarvis-sidecar-20260421164845",
+      "payload_keys": [
+        "name",
+        "nodes",
+        "connections",
+        "settings"
+      ],
+      "payload": {
+        "name": "jarvis-sidecar-20260421164845",
+        "nodes": [
+          {
+            "name": "Jarvis Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 1,
+            "position": [
+              600,
+              300
+            ],
+            "parameters": {
+              "httpMethod": "POST",
+              "path": "jarvis-sidecar-20260421164845",
+              "options": {}
+            }
+          }
+        ],
+        "connections": {},
+        "settings": {}
+      }
+    }
+  },
+  "create_only": {
+    "status_code": 500,
+    "ok": false,
+    "headers": {
+      "server": "uvicorn",
+      "content-type": "application/json"
+    },
+    "body": {
+      "detail": "n8n API request failed: POST http://127.0.0.1:5678/api/v1/workflows -> 401: {\"message\":\"'X-N8N-API-KEY' header required\"} | create_payload_mode=B1_v1_with_settings_empty | payload={'name': 'jarvis-sidecar-20260421164845', 'nodes': [{'name': 'Jarvis Webhook', 'type': 'n8n-nodes-base.webhook', 'typeVersion': 1, 'position': [600, 300], 'parameters': {'httpMethod': 'POST', 'path': 'jarvis-sidecar-20260421164845', 'options': {}}}], 'connections': {}, 'settings': {}}"
+    }
+  }
+}

@@ -1,0 +1,10 @@
+﻿CURRENT SOURCE OF TRUTH
+
+The earlier reconstructed version has been superseded.
+Use the corrected roadmap below as the authoritative Phase 11–15 plan:
+
+11. Execution Orchestrator / Mission Runner v2
+12. Tool Adapters Hardening
+13. Agent Performance Feedback Loop
+14. Supervisor Mission Memory v2
+15. Human-in-the-Loop Console / Approval Dashboard

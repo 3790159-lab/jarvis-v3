@@ -1,0 +1,42 @@
+{
+  "schema": "jarvis.full_creator.backlog.v8_0",
+  "created_at": "2026-04-27T16:04:14",
+  "items": [
+    {
+      "id": "fc_dash_backend_api",
+      "title": "Create backend API for dashboard data",
+      "priority": 10,
+      "risk": "low"
+    },
+    {
+      "id": "fc_dash_html_v1",
+      "title": "Create dashboard HTML v1",
+      "priority": 20,
+      "risk": "low"
+    },
+    {
+      "id": "fc_artifact_index_api",
+      "title": "Expose artifact index read-only endpoint",
+      "priority": 30,
+      "risk": "low"
+    },
+    {
+      "id": "fc_n8n_import_helper",
+      "title": "Create n8n import helper docs",
+      "priority": 40,
+      "risk": "low"
+    },
+    {
+      "id": "fc_operator_actions",
+      "title": "Add safe operator action buttons",
+      "priority": 50,
+      "risk": "medium"
+    },
+    {
+      "id": "fc_night_improvement_loop",
+      "title": "Use Night Mode to improve the product",
+      "priority": 60,
+      "risk": "medium"
+    }
+  ]
+}

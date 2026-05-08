@@ -1,0 +1,90 @@
+{
+  "plan_id": "n8nsuper_20260424_225044_6d43159a",
+  "user_task": "Create external API request workflow and test it",
+  "workflow_kind": "http_request_probe",
+  "name": "Jarvis Super Agent - http_request_probe",
+  "webhook_path": "jarvis-super-http-request-probe-6d43159a",
+  "workflow_json": {
+    "name": "Jarvis Super Agent - http_request_probe",
+    "nodes": [
+      {
+        "id": "5358d53e-f889-4e1b-a4a5-7e050c95cb45",
+        "name": "Jarvis Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          220,
+          300
+        ],
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "jarvis-super-http-request-probe-6d43159a",
+          "responseMode": "lastNode",
+          "options": {}
+        }
+      },
+      {
+        "id": "d622afc9-61ba-49b7-b562-53808bc65a81",
+        "name": "External HTTP Request",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 2,
+        "position": [
+          520,
+          300
+        ],
+        "parameters": {
+          "method": "GET",
+          "url": "https://api.github.com/zen",
+          "options": {}
+        }
+      },
+      {
+        "id": "26c733a0-4006-4e4a-8528-8924b94d7e85",
+        "name": "Build HTTP Result",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          820,
+          300
+        ],
+        "parameters": {
+          "jsCode": "const now = new Date().toISOString();\nreturn [{ json: {\n  ok: true,\n  kind: 'http_request_probe',\n  receivedAt: now,\n  externalResponse: $json,\n  note: 'External HTTP Request node executed successfully'\n} }];"
+        }
+      }
+    ],
+    "connections": {
+      "Jarvis Webhook": {
+        "main": [
+          [
+            {
+              "node": "External HTTP Request",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "External HTTP Request": {
+        "main": [
+          [
+            {
+              "node": "Build HTTP Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {}
+  },
+  "reasoning": [
+    "Classified task as workflow_kind=http_request_probe.",
+    "Using webhook trigger for safe external execution.",
+    "Using safe nodes with no hardcoded credentials.",
+    "Added real n8n HTTP Request node for external API calls."
+  ],
+  "production_webhook_url": "https://daniliyc.app.n8n.cloud/webhook/jarvis-super-http-request-probe-6d43159a",
+  "test_webhook_url": "https://daniliyc.app.n8n.cloud/webhook-test/jarvis-super-http-request-probe-6d43159a",
+  "created_at": "2026-04-24T22:50:44+00:00"
+}

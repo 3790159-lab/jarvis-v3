@@ -1,0 +1,46 @@
+{
+    "started_at":  "2026-04-19T17:14:08",
+    "n8n_base_url":  "https://daniliyc.app.n8n.cloud",
+    "jarvis_base_url":  "http://127.0.0.1:8015",
+    "workflow_name":  "jarvis-auto-improvements-to-sheet",
+    "webhook_path":  "jarvis-auto-improvements-log",
+    "sheet_title":  "Jarvis Auto Improvements LIVE",
+    "sheet_name":  "Improvements",
+    "webhook_secret_masked":  "bThy...PoJu",
+    "preflight":  {
+                      "n8n_public_api":  {
+                                             "name":  "n8n_public_api",
+                                             "ok":  true,
+                                             "url":  "https://daniliyc.app.n8n.cloud/api/v1/workflows",
+                                             "status_code":  200,
+                                             "content_type":  "application/json; charset=utf-8",
+                                             "body_preview":  "{\"data\":[{\"updatedAt\":\"2026-03-02T16:58:29.498Z\",\"createdAt\":\"2026-03-02T16:48:51.636Z\",\"id\":\"A5A6R59swT8Z3tmr\",\"name\":\"My workflow 2\",\"active\":false,\"isArchived\":false,\"nodes\":[{\"parameters\":{\"batchSize\":10,\"options\":{}},\"id\":\"66ad0e22-d599-4b04-9c08-ac1a3034a731\",\"name\":\"Loop Over Items\",\"type\":\"n8n-nodes-base.splitInBatches\",\"position\":[880,1680],\"typeVersion\":3},{\"parameters\":{\"content\":\"## llm node\\nJust change it to your usual one.\",\"height\":140,\"width\":220,\"color\":6},\"id\":\"bb4125fe-6c60-4529-a04a-7f844f7eca8b\",\"name\":\"Sticky Note\",\"type\":\"n8n-nodes-base.stickyNote\",\"position\":[1040,2016],\"typeVersion\":1},{\"parameters\":{\"content\":\"## URL configuration settings\\n\\nFeishu Group Chat - Settings - Create a new robot to obtain the webhook, then fill it in.\",\"color\":6},\"id\":\"8193124a-3698-4368-9f1f-7dc4ead10543\",\"name\":\"Sticky Note2\",\"type\":\"n8n-nodes-base.stickyNote\",\"position\":[3456,1536],\"typeVersion\":1},{\"parameters\":{\"formTitle\":\"选题捕手\",\"formDescription\":\"Please enter the core keywords you want to analyze, then click Submit.\",\"formFields\":{\"values\":[{\"fieldLabel\":\"keyword\",\"placeholder\":\"e.g.AI\",\"requiredField\":true}]},\"options\":{}},\"id\":\"10753514-ac27-4930-ae89-9c579564f583\",\"",
+                                             "error":  null
+                                         },
+                      "jarvis_health":  {
+                                            "name":  "jarvis_health",
+                                            "ok":  false,
+                                            "url":  "http://127.0.0.1:8015/health",
+                                            "status_code":  null,
+                                            "content_type":  null,
+                                            "body_preview":  "Невозможно соединиться с удаленным сервером",
+                                            "error":  "Невозможно соединиться с удаленным сервером"
+                                        },
+                      "jarvis_spreadsheets_api":  {
+                                                      "name":  "jarvis_spreadsheets_health",
+                                                      "ok":  false,
+                                                      "url":  "http://127.0.0.1:8015/api/spreadsheets/health",
+                                                      "status_code":  null,
+                                                      "content_type":  null,
+                                                      "body_preview":  "Невозможно соединиться с удаленным сервером",
+                                                      "error":  "Невозможно соединиться с удаленным сервером"
+                                                  }
+                  },
+    "spreadsheet_bootstrap":  null,
+    "workflow_deploy":  null,
+    "activation":  null,
+    "webhook_test":  null,
+    "spreadsheet_verify":  null,
+    "finished_at":  "2026-04-19T17:14:13",
+    "status":  "failed_preflight_jarvis"
+}

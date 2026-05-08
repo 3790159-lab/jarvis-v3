@@ -1,0 +1,20 @@
+{
+  "run_id": "coord_20260424_114844_2903731a",
+  "from_role": "Validator",
+  "to_role": "RiskGuardian",
+  "status": "ok",
+  "payload": {
+    "syntax_required": true,
+    "compile_required": true,
+    "health_required": true,
+    "smoke_required": false,
+    "target_files": [
+      "jarvis_stage3_artifacts/temp/agent_coordination_probe.py"
+    ],
+    "validation_scope": "local_compile_and_health"
+  },
+  "notes": [
+    "validation_plan_ready"
+  ],
+  "created_at": "2026-04-24T11:48:44+00:00"
+}

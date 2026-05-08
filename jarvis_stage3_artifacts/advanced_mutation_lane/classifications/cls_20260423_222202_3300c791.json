@@ -1,0 +1,12 @@
+{
+  "classification_id": "cls_20260423_222202_3300c791",
+  "goal": "Major migration and rewrite",
+  "task": "Rewrite main router and delete old logic",
+  "patch_class": "logging_patch",
+  "risk_lane": "medium",
+  "confidence": 65.0,
+  "reasons": [
+    "matched_keywords_for:logging_patch"
+  ],
+  "created_at": "2026-04-23T22:22:02+00:00"
+}

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Jarvis Clicker</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #111827;
+      color: #f9fafb;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+    .wrap {
+      text-align: center;
+      padding: 24px;
+    }
+    button {
+      font-size: 24px;
+      padding: 16px 24px;
+      border-radius: 12px;
+      border: 0;
+      cursor: pointer;
+    }
+    .score {
+      margin-top: 18px;
+      font-size: 28px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Jarvis Clicker</h1>
+    <p>Click the button and increase your score.</p>
+    <button id="clickBtn">+1 Click</button>
+    <div class="score">Score: <span id="score">0</span></div>
+  </div>
+  <script>
+    let score = 0;
+    const scoreEl = document.getElementById("score");
+    document.getElementById("clickBtn").addEventListener("click", () => {
+      score += 1;
+      scoreEl.textContent = String(score);
+    });
+  </script>
+</body>
+</html>

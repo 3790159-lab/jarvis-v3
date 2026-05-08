@@ -1,0 +1,25 @@
+﻿{
+    "generated_at":  "2026-04-01T02:52:15",
+    "tools":  [
+                  {
+                      "name":  "scaffold_fastapi",
+                      "scope":  "project_generation",
+                      "enabled":  true
+                  },
+                  {
+                      "name":  "project_pipeline_v2",
+                      "scope":  "build_test_health_git",
+                      "enabled":  true
+                  },
+                  {
+                      "name":  "jarvis_repair_v2",
+                      "scope":  "test_recovery",
+                      "enabled":  true
+                  },
+                  {
+                      "name":  "safe_shell",
+                      "scope":  "restricted_command_execution",
+                      "enabled":  true
+                  }
+              ]
+}

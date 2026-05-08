@@ -1,0 +1,177 @@
+{
+  "mission_demo_safe": {
+    "mission_id": "mission_demo_safe",
+    "objective": "Run local demo mission",
+    "status": "pending",
+    "summary": "",
+    "context": {
+      "source": "seed",
+      "project": "jarvis_stage3"
+    },
+    "tasks": [
+      {
+        "task_id": "list_root",
+        "title": "List project root",
+        "type": "directory_list",
+        "enabled": true,
+        "depends_on": [],
+        "timeout_seconds": 20,
+        "max_retries": 1,
+        "continue_on_error": false,
+        "payload": {
+          "path": "."
+        }
+      },
+      {
+        "task_id": "write_file",
+        "title": "Write artifact file",
+        "type": "file_write",
+        "enabled": true,
+        "depends_on": [
+          "list_root"
+        ],
+        "timeout_seconds": 20,
+        "max_retries": 1,
+        "continue_on_error": false,
+        "payload": {
+          "path": "jarvis_stage3_artifacts/demo_output.txt",
+          "content": "Jarvis Stage 3 demo artifact created successfully."
+        }
+      },
+      {
+        "task_id": "read_file",
+        "title": "Read artifact file",
+        "type": "file_read",
+        "enabled": true,
+        "depends_on": [
+          "write_file"
+        ],
+        "timeout_seconds": 20,
+        "max_retries": 1,
+        "continue_on_error": false,
+        "payload": {
+          "path": "jarvis_stage3_artifacts/demo_output.txt"
+        }
+      }
+    ]
+  },
+  "mission_demo_shell": {
+    "mission_id": "mission_demo_shell",
+    "objective": "Run shell demo mission",
+    "status": "pending",
+    "summary": "",
+    "context": {
+      "source": "seed",
+      "project": "jarvis_stage3"
+    },
+    "tasks": [
+      {
+        "task_id": "hello_shell",
+        "title": "Run hello shell command",
+        "type": "shell_command",
+        "enabled": true,
+        "depends_on": [],
+        "timeout_seconds": 600,
+        "max_retries": 1,
+        "continue_on_error": false,
+        "payload": {
+          "command": "powershell -Command Write-Output Hello_From_Jarvis_Stage3"
+        }
+      }
+    ]
+  },
+  "mission_test_ping": {
+    "mission_id": "mission_test_ping",
+    "objective": "ping",
+    "tasks": [],
+    "status": "pending",
+    "summary": "",
+    "context": {},
+    "logs": [],
+    "task_results": []
+  },
+  "mission_custom_001": {
+    "objective": "Create custom test file",
+    "context": {
+      "project": "jarvis_stage3",
+      "source": "manual"
+    },
+    "tasks": [
+      {
+        "type": "file_write",
+        "timeout_seconds": 20,
+        "continue_on_error": false,
+        "payload": {
+          "content": "Custom mission executed successfully.",
+          "path": "jarvis_stage3_artifacts/custom_test.txt"
+        },
+        "max_retries": 1,
+        "task_id": "write_custom_file",
+        "title": "Write custom file",
+        "depends_on": [],
+        "enabled": true
+      },
+      {
+        "type": "file_read",
+        "timeout_seconds": 20,
+        "continue_on_error": false,
+        "payload": {
+          "path": "jarvis_stage3_artifacts/custom_test.txt"
+        },
+        "max_retries": 1,
+        "task_id": "read_custom_file",
+        "title": "Read custom file",
+        "depends_on": [
+          "write_custom_file"
+        ],
+        "enabled": true
+      }
+    ],
+    "mission_id": "mission_custom_001",
+    "status": "completed",
+    "summary": "Mission finished with status 'MissionStatus.COMPLETED'. Total tasks: 2. Completed: 2. Failed: 0. Skipped: 0.",
+    "logs": [
+      "[INFO] Mission run requested.",
+      "[INFO] Mission status changed to running.",
+      "[INFO] Task write_custom_file finished with status completed. File written successfully",
+      "[INFO] Task read_custom_file finished with status completed. File read successfully",
+      "[INFO] Mission status changed to completed."
+    ],
+    "task_results": [
+      {
+        "task_id": "write_custom_file",
+        "title": "Write custom file",
+        "type": "file_write",
+        "status": "completed",
+        "attempt_count": 1,
+        "message": "File written successfully",
+        "output": {
+          "message": "File written successfully",
+          "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\custom_test.txt",
+          "bytes_written": 37
+        },
+        "error": null,
+        "started_at": "2026-03-31T16:01:56.831646+00:00",
+        "finished_at": "2026-03-31T16:01:56.844138+00:00",
+        "duration_ms": 12
+      },
+      {
+        "task_id": "read_custom_file",
+        "title": "Read custom file",
+        "type": "file_read",
+        "status": "completed",
+        "attempt_count": 1,
+        "message": "File read successfully",
+        "output": {
+          "message": "File read successfully",
+          "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\custom_test.txt",
+          "content": "Custom mission executed successfully."
+        },
+        "error": null,
+        "started_at": "2026-03-31T16:01:56.844497+00:00",
+        "finished_at": "2026-03-31T16:01:56.860769+00:00",
+        "duration_ms": 16
+      }
+    ]
+  }
+}

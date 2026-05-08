@@ -1,0 +1,167 @@
+{
+  "result_id": "n8nres_20260424_163135_5dfd1373",
+  "task": "Deploy Jarvis Night Report Webhook workflow to n8n",
+  "status": "completed",
+  "readiness": {
+    "status": "ready_for_deploy",
+    "base_url": "https://daniliyc.app.n8n.cloud",
+    "api_key_present": true,
+    "tcp_5678_open": true,
+    "http_root_ok": true,
+    "public_api_ok": true,
+    "notes": [],
+    "next_best_action": "You can create workflows through the n8n public API."
+  },
+  "blueprint": {
+    "blueprint_id": "n8nblue_20260424_163135_7b0502aa",
+    "name": "Jarvis Night Report Webhook",
+    "workflow_type": "webhook_logger",
+    "webhook_path": "jarvis-night-report-7b0502aa",
+    "workflow_json": {
+      "name": "Jarvis Night Report Webhook",
+      "nodes": [
+        {
+          "id": "c619a180-ea3c-4e3e-9719-61ce536f7694",
+          "name": "Jarvis Webhook",
+          "type": "n8n-nodes-base.webhook",
+          "typeVersion": 2,
+          "position": [
+            240,
+            300
+          ],
+          "parameters": {
+            "httpMethod": "POST",
+            "path": "jarvis-night-report-7b0502aa",
+            "responseMode": "lastNode",
+            "options": {}
+          }
+        },
+        {
+          "id": "ff469bea-9fe5-478a-ad55-fc6a332b47a0",
+          "name": "Normalize Payload",
+          "type": "n8n-nodes-base.code",
+          "typeVersion": 2,
+          "position": [
+            520,
+            300
+          ],
+          "parameters": {
+            "jsCode": "const now = new Date().toISOString();\nreturn [{ json: { ok: true, receivedAt: now, source: 'jarvis', payload: $json } }];"
+          }
+        }
+      ],
+      "connections": {
+        "Jarvis Webhook": {
+          "main": [
+            [
+              {
+                "node": "Normalize Payload",
+                "type": "main",
+                "index": 0
+              }
+            ]
+          ]
+        }
+      },
+      "settings": {}
+    },
+    "production_webhook_url": "https://daniliyc.app.n8n.cloud/webhook/jarvis-night-report-7b0502aa",
+    "test_webhook_url": "https://daniliyc.app.n8n.cloud/webhook-test/jarvis-night-report-7b0502aa",
+    "created_at": "2026-04-24T16:31:35+00:00"
+  },
+  "deploy_result": {
+    "ok": true,
+    "status": 200,
+    "body": {
+      "updatedAt": "2026-04-24T16:31:35.047Z",
+      "createdAt": "2026-04-24T16:31:35.047Z",
+      "id": "ar8duRDnlG0ABkzd",
+      "name": "Jarvis Night Report Webhook",
+      "description": null,
+      "active": false,
+      "isArchived": false,
+      "nodes": [
+        {
+          "id": "c619a180-ea3c-4e3e-9719-61ce536f7694",
+          "name": "Jarvis Webhook",
+          "type": "n8n-nodes-base.webhook",
+          "typeVersion": 2,
+          "position": [
+            240,
+            300
+          ],
+          "parameters": {
+            "httpMethod": "POST",
+            "path": "jarvis-night-report-7b0502aa",
+            "responseMode": "lastNode",
+            "options": {}
+          },
+          "webhookId": "f4ff5187-6d47-4bad-ae1f-3ff7c495b7ef"
+        },
+        {
+          "id": "ff469bea-9fe5-478a-ad55-fc6a332b47a0",
+          "name": "Normalize Payload",
+          "type": "n8n-nodes-base.code",
+          "typeVersion": 2,
+          "position": [
+            520,
+            300
+          ],
+          "parameters": {
+            "jsCode": "const now = new Date().toISOString();\nreturn [{ json: { ok: true, receivedAt: now, source: 'jarvis', payload: $json } }];"
+          }
+        }
+      ],
+      "connections": {
+        "Jarvis Webhook": {
+          "main": [
+            [
+              {
+                "node": "Normalize Payload",
+                "type": "main",
+                "index": 0
+              }
+            ]
+          ]
+        }
+      },
+      "settings": {},
+      "staticData": null,
+      "meta": null,
+      "pinData": null,
+      "versionId": "5db07f62-bf9a-4289-a8a8-92b30a694545",
+      "activeVersionId": null,
+      "versionCounter": 1,
+      "triggerCount": 0,
+      "shared": [
+        {
+          "updatedAt": "2026-04-24T16:31:35.049Z",
+          "createdAt": "2026-04-24T16:31:35.049Z",
+          "role": "workflow:owner",
+          "workflowId": "ar8duRDnlG0ABkzd",
+          "projectId": "8aPubdf7jkKE6V5g",
+          "project": {
+            "updatedAt": "2026-01-20T10:41:04.645Z",
+            "createdAt": "2026-01-20T10:40:58.637Z",
+            "id": "8aPubdf7jkKE6V5g",
+            "name": "Daniil Lapin <3790159@gmail.com>",
+            "type": "personal",
+            "icon": null,
+            "description": null,
+            "creatorId": "30e95836-767f-4606-9e2d-b7775186bd03"
+          }
+        }
+      ],
+      "tags": [],
+      "parentFolder": null,
+      "activeVersion": null
+    },
+    "mode": "public_api_create_workflow"
+  },
+  "webhook_test": null,
+  "recommendations": [
+    "n8n API is ready. Next step: deploy blueprint and activate workflow.",
+    "You can import the exported *_workflow_import.json file into n8n manually."
+  ],
+  "created_at": "2026-04-24T16:31:35+00:00"
+}

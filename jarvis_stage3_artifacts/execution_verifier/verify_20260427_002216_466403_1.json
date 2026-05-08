@@ -1,0 +1,42 @@
+{
+  "created_at": "2026-04-27T00:22:16+00:00",
+  "task": "Autonomous strategic goal: design or implement real Google Sheets execution lane that returns spreadsheet_id and spreadsheet_url before claiming success.",
+  "attempt": 1,
+  "max_attempts": 2,
+  "verdict": "needs_retry",
+  "next_action": "retry_with_stricter_evidence",
+  "evidence": {
+    "lane": null,
+    "workflow_id": null,
+    "workflow_status": "compiled_only",
+    "run_id": null,
+    "artifact": null,
+    "spreadsheet_url": null,
+    "truth_ok": false,
+    "truth_claim_type": "google_sheet_creation",
+    "truth_missing": [
+      "spreadsheet_id",
+      "spreadsheet_url"
+    ]
+  },
+  "truth": {
+    "ok": false,
+    "confidence": "low",
+    "claim_type": "google_sheet_creation",
+    "missing_evidence": [
+      "spreadsheet_id",
+      "spreadsheet_url"
+    ],
+    "safe_message": "Не могу подтвердить Google Таблицу: нет spreadsheet_id и реальной ссылки docs.google.com/spreadsheets.",
+    "evidence": {
+      "version": "hard_reset_google_v3",
+      "urls": [],
+      "has_result": true,
+      "lane": null,
+      "task_norm": "autonomous strategic goal: design or implement real google sheets execution lane that returns spreadsheet_id and spreadsheet_url before claiming success.",
+      "google_detected": true,
+      "spreadsheet_id": null,
+      "spreadsheet_url": null
+    }
+  }
+}

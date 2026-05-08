@@ -1,0 +1,722 @@
+{
+  "brainexec_20260426_125910_4bbd30d0:1777208350": {
+    "task_id": "brainexec_20260426_125910_4bbd30d0",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260426_125910_4bbd30d0.json",
+    "status": "completed",
+    "sent_at": 1777239712.8435473
+  },
+  "codefix_20260426_125908_9b679864:1777208350": {
+    "task_id": "codefix_20260426_125908_9b679864",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260426_125908_9b679864\\result.json",
+    "status": "completed",
+    "sent_at": 1777239713.0478308
+  },
+  "brainexec_20260426_125738_29618e88:1777208258": {
+    "task_id": "brainexec_20260426_125738_29618e88",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260426_125738_29618e88.json",
+    "status": "completed",
+    "sent_at": 1777239713.2432373
+  },
+  "codefix_20260426_125737_20b4af0d:1777208258": {
+    "task_id": "codefix_20260426_125737_20b4af0d",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260426_125737_20b4af0d\\result.json",
+    "status": "completed",
+    "sent_at": 1777239713.4108763
+  },
+  "brainexec_20260426_125607_7c4c6a99:1777208167": {
+    "task_id": "brainexec_20260426_125607_7c4c6a99",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260426_125607_7c4c6a99.json",
+    "status": "completed",
+    "sent_at": 1777239713.5558908
+  },
+  "codefix_20260426_125605_8dfcec43:1777208167": {
+    "task_id": "codefix_20260426_125605_8dfcec43",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260426_125605_8dfcec43\\result.json",
+    "status": "completed",
+    "sent_at": 1777239713.722831
+  },
+  "brainexec_20260426_125435_7f64c5b9:1777208075": {
+    "task_id": "brainexec_20260426_125435_7f64c5b9",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260426_125435_7f64c5b9.json",
+    "status": "completed",
+    "sent_at": 1777239713.889087
+  },
+  "codefix_20260426_125434_9d194f1b:1777208075": {
+    "task_id": "codefix_20260426_125434_9d194f1b",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260426_125434_9d194f1b\\result.json",
+    "status": "completed",
+    "sent_at": 1777239714.0477152
+  },
+  "brainexec_20260426_125304_3ddef4b6:1777207984": {
+    "task_id": "brainexec_20260426_125304_3ddef4b6",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260426_125304_3ddef4b6.json",
+    "status": "completed",
+    "sent_at": 1777239714.2028227
+  },
+  "codefix_20260426_125303_917c289b:1777207984": {
+    "task_id": "codefix_20260426_125303_917c289b",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260426_125303_917c289b\\result.json",
+    "status": "completed",
+    "sent_at": 1777239714.3796184
+  },
+  "brainexec_20260426_125133_5e236578:1777207893": {
+    "task_id": "brainexec_20260426_125133_5e236578",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260426_125133_5e236578.json",
+    "status": "completed",
+    "sent_at": 1777239714.5367665
+  },
+  "codefix_20260426_125131_3a013fa8:1777207892": {
+    "task_id": "codefix_20260426_125131_3a013fa8",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260426_125131_3a013fa8\\result.json",
+    "status": "completed",
+    "sent_at": 1777239714.724828
+  },
+  "brainexec_20260426_125001_0d4c3c54:1777207801": {
+    "task_id": "brainexec_20260426_125001_0d4c3c54",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260426_125001_0d4c3c54.json",
+    "status": "completed",
+    "sent_at": 1777239715.031299
+  },
+  "codefix_20260426_125000_597b640a:1777207801": {
+    "task_id": "codefix_20260426_125000_597b640a",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260426_125000_597b640a\\result.json",
+    "status": "completed",
+    "sent_at": 1777239715.2663217
+  },
+  "brainexec_20260426_124830_1e2653e8:1777207710": {
+    "task_id": "brainexec_20260426_124830_1e2653e8",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260426_124830_1e2653e8.json",
+    "status": "completed",
+    "sent_at": 1777239715.4147267
+  },
+  "codefix_20260426_124828_51779b2f:1777207710": {
+    "task_id": "codefix_20260426_124828_51779b2f",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260426_124828_51779b2f\\result.json",
+    "status": "completed",
+    "sent_at": 1777239715.567979
+  },
+  "brainexec_20260426_124658_dbc8f79d:1777207618": {
+    "task_id": "brainexec_20260426_124658_dbc8f79d",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260426_124658_dbc8f79d.json",
+    "status": "completed",
+    "sent_at": 1777239715.7429645
+  },
+  "codefix_20260426_124657_dc1ac6b5:1777207618": {
+    "task_id": "codefix_20260426_124657_dc1ac6b5",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260426_124657_dc1ac6b5\\result.json",
+    "status": "completed",
+    "sent_at": 1777239715.9224083
+  },
+  "brainexec_20260426_124527_b6a0daf9:1777207527": {
+    "task_id": "brainexec_20260426_124527_b6a0daf9",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260426_124527_b6a0daf9.json",
+    "status": "completed",
+    "sent_at": 1777239716.0922763
+  },
+  "codefix_20260426_124525_4359f836:1777207527": {
+    "task_id": "codefix_20260426_124525_4359f836",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260426_124525_4359f836\\result.json",
+    "status": "completed",
+    "sent_at": 1777239716.2437456
+  },
+  "brainexec_20260426_124355_2881575c:1777207435": {
+    "task_id": "brainexec_20260426_124355_2881575c",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260426_124355_2881575c.json",
+    "status": "completed",
+    "sent_at": 1777239716.4064114
+  },
+  "codefix_20260426_124354_7bb9d4d9:1777207435": {
+    "task_id": "codefix_20260426_124354_7bb9d4d9",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260426_124354_7bb9d4d9\\result.json",
+    "status": "completed",
+    "sent_at": 1777239716.5484812
+  },
+  "brainexec_20260426_124224_54409e7a:1777207344": {
+    "task_id": "brainexec_20260426_124224_54409e7a",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260426_124224_54409e7a.json",
+    "status": "completed",
+    "sent_at": 1777239716.6985967
+  },
+  "codefix_20260426_124223_e0b1741a:1777207344": {
+    "task_id": "codefix_20260426_124223_e0b1741a",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260426_124223_e0b1741a\\result.json",
+    "status": "completed",
+    "sent_at": 1777239716.86699
+  },
+  "brainexec_20260426_124053_1ae7838e:1777207253": {
+    "task_id": "brainexec_20260426_124053_1ae7838e",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260426_124053_1ae7838e.json",
+    "status": "completed",
+    "sent_at": 1777239717.021997
+  },
+  "codefix_20260426_124051_b93dfb30:1777207253": {
+    "task_id": "codefix_20260426_124051_b93dfb30",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260426_124051_b93dfb30\\result.json",
+    "status": "completed",
+    "sent_at": 1777239717.2267218
+  },
+  "brainexec_20260426_123921_8bcf0e1d:1777207161": {
+    "task_id": "brainexec_20260426_123921_8bcf0e1d",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260426_123921_8bcf0e1d.json",
+    "status": "completed",
+    "sent_at": 1777239717.4004562
+  },
+  "codefix_20260426_123920_f5688fb3:1777207161": {
+    "task_id": "codefix_20260426_123920_f5688fb3",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260426_123920_f5688fb3\\result.json",
+    "status": "completed",
+    "sent_at": 1777239717.5848176
+  },
+  "brainexec_20260426_123749_7ac36543:1777207069": {
+    "task_id": "brainexec_20260426_123749_7ac36543",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260426_123749_7ac36543.json",
+    "status": "completed",
+    "sent_at": 1777239717.7361784
+  },
+  "codefix_20260426_123748_d672a19c:1777207069": {
+    "task_id": "codefix_20260426_123748_d672a19c",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260426_123748_d672a19c\\result.json",
+    "status": "completed",
+    "sent_at": 1777239717.9079409
+  },
+  "brainexec_20260426_123618_99d4a1fb:1777206978": {
+    "task_id": "brainexec_20260426_123618_99d4a1fb",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260426_123618_99d4a1fb.json",
+    "status": "completed",
+    "sent_at": 1777239718.0634072
+  },
+  "codefix_20260426_123617_92209898:1777206978": {
+    "task_id": "codefix_20260426_123617_92209898",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260426_123617_92209898\\result.json",
+    "status": "completed",
+    "sent_at": 1777239718.248735
+  },
+  "brainexec_20260426_123446_73344475:1777206886": {
+    "task_id": "brainexec_20260426_123446_73344475",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260426_123446_73344475.json",
+    "status": "completed",
+    "sent_at": 1777239718.4303665
+  },
+  "codefix_20260426_123445_280b3a06:1777206886": {
+    "task_id": "codefix_20260426_123445_280b3a06",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260426_123445_280b3a06\\result.json",
+    "status": "completed",
+    "sent_at": 1777239718.6017838
+  },
+  "brainexec_20260426_123315_3cfb5fd7:1777206795": {
+    "task_id": "brainexec_20260426_123315_3cfb5fd7",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260426_123315_3cfb5fd7.json",
+    "status": "completed",
+    "sent_at": 1777239718.8221831
+  },
+  "codefix_20260426_123314_0da3399f:1777206795": {
+    "task_id": "codefix_20260426_123314_0da3399f",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260426_123314_0da3399f\\result.json",
+    "status": "completed",
+    "sent_at": 1777239719.0640094
+  },
+  "brainexec_20260426_123144_944076ad:1777206704": {
+    "task_id": "brainexec_20260426_123144_944076ad",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260426_123144_944076ad.json",
+    "status": "completed",
+    "sent_at": 1777239719.2369175
+  },
+  "codefix_20260426_123142_10560609:1777206704": {
+    "task_id": "codefix_20260426_123142_10560609",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260426_123142_10560609\\result.json",
+    "status": "completed",
+    "sent_at": 1777239719.3870606
+  },
+  "brainexec_20260426_123012_88ccbc46:1777206612": {
+    "task_id": "brainexec_20260426_123012_88ccbc46",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260426_123012_88ccbc46.json",
+    "status": "completed",
+    "sent_at": 1777239719.5439248
+  },
+  "codefix_20260426_123011_d25f1c1a:1777206612": {
+    "task_id": "codefix_20260426_123011_d25f1c1a",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260426_123011_d25f1c1a\\result.json",
+    "status": "completed",
+    "sent_at": 1777239719.7004566
+  },
+  "n8nsuperrun_20260425_235626_e4be7dc3:1777161386": {
+    "task_id": "n8nsuperrun_20260425_235626_e4be7dc3",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\n8n_super_agent\\runs\\n8nsuperrun_20260425_235626_e4be7dc3.json",
+    "status": "tested",
+    "sent_at": 1777239719.8908863
+  },
+  "task_20260425_195433_e1f5a10e:1777146876": {
+    "task_id": "task_20260425_195433_e1f5a10e",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\operator_task_center\\executions\\task_20260425_195433_e1f5a10e.json",
+    "status": "completed",
+    "sent_at": 1777239720.0669146
+  },
+  "task_20260425_164808_e7dbbf94:1777135691": {
+    "task_id": "task_20260425_164808_e7dbbf94",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\operator_task_center\\executions\\task_20260425_164808_e7dbbf94.json",
+    "status": "completed",
+    "sent_at": 1777239720.233007
+  },
+  "n8nsuperrun_20260425_164400_324f2008:1777135440": {
+    "task_id": "n8nsuperrun_20260425_164400_324f2008",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\n8n_super_agent\\runs\\n8nsuperrun_20260425_164400_324f2008.json",
+    "status": "tested",
+    "sent_at": 1777239720.4218063
+  },
+  "brainexec_20260425_135758_877fe3c5:1777125478": {
+    "task_id": "brainexec_20260425_135758_877fe3c5",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_135758_877fe3c5.json",
+    "status": "completed",
+    "sent_at": 1777239720.613855
+  },
+  "codefix_20260425_135758_7592c0fd:1777125478": {
+    "task_id": "codefix_20260425_135758_7592c0fd",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_135758_7592c0fd\\result.json",
+    "status": "completed",
+    "sent_at": 1777239720.7908876
+  },
+  "brainexec_20260425_135628_d68a1e98:1777125388": {
+    "task_id": "brainexec_20260425_135628_d68a1e98",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_135628_d68a1e98.json",
+    "status": "completed",
+    "sent_at": 1777239720.9544046
+  },
+  "codefix_20260425_135627_b808f8d5:1777125388": {
+    "task_id": "codefix_20260425_135627_b808f8d5",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_135627_b808f8d5\\result.json",
+    "status": "completed",
+    "sent_at": 1777239721.136517
+  },
+  "brainexec_20260425_135457_fb7d8428:1777125297": {
+    "task_id": "brainexec_20260425_135457_fb7d8428",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_135457_fb7d8428.json",
+    "status": "completed",
+    "sent_at": 1777239721.321157
+  },
+  "codefix_20260425_135457_f32d5aa4:1777125297": {
+    "task_id": "codefix_20260425_135457_f32d5aa4",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_135457_f32d5aa4\\result.json",
+    "status": "completed",
+    "sent_at": 1777239721.5027597
+  },
+  "brainexec_20260425_135327_ac48f096:1777125207": {
+    "task_id": "brainexec_20260425_135327_ac48f096",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_135327_ac48f096.json",
+    "status": "completed",
+    "sent_at": 1777239721.676588
+  },
+  "codefix_20260425_135326_dd32cf77:1777125207": {
+    "task_id": "codefix_20260425_135326_dd32cf77",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_135326_dd32cf77\\result.json",
+    "status": "completed",
+    "sent_at": 1777239721.8216803
+  },
+  "codefix_20260425_135156_88472ef7:1777125116": {
+    "task_id": "codefix_20260425_135156_88472ef7",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_135156_88472ef7\\result.json",
+    "status": "completed",
+    "sent_at": 1777239722.009732
+  },
+  "brainexec_20260425_135156_6c318bf6:1777125116": {
+    "task_id": "brainexec_20260425_135156_6c318bf6",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_135156_6c318bf6.json",
+    "status": "completed",
+    "sent_at": 1777239722.191987
+  },
+  "brainexec_20260425_135026_7b0a976f:1777125026": {
+    "task_id": "brainexec_20260425_135026_7b0a976f",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_135026_7b0a976f.json",
+    "status": "completed",
+    "sent_at": 1777239722.3576157
+  },
+  "codefix_20260425_135025_cfc4fabb:1777125026": {
+    "task_id": "codefix_20260425_135025_cfc4fabb",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_135025_cfc4fabb\\result.json",
+    "status": "completed",
+    "sent_at": 1777239722.584462
+  },
+  "brainexec_20260425_134855_eaee36be:1777124935": {
+    "task_id": "brainexec_20260425_134855_eaee36be",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_134855_eaee36be.json",
+    "status": "completed",
+    "sent_at": 1777239722.8845642
+  },
+  "codefix_20260425_134855_8ca7ca87:1777124935": {
+    "task_id": "codefix_20260425_134855_8ca7ca87",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_134855_8ca7ca87\\result.json",
+    "status": "completed",
+    "sent_at": 1777239723.0798447
+  },
+  "brainexec_20260425_134725_6a4a501c:1777124845": {
+    "task_id": "brainexec_20260425_134725_6a4a501c",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_134725_6a4a501c.json",
+    "status": "completed",
+    "sent_at": 1777239723.2368717
+  },
+  "codefix_20260425_134724_cd5390d5:1777124845": {
+    "task_id": "codefix_20260425_134724_cd5390d5",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_134724_cd5390d5\\result.json",
+    "status": "completed",
+    "sent_at": 1777239723.402006
+  },
+  "brainexec_20260425_134554_b91c109e:1777124754": {
+    "task_id": "brainexec_20260425_134554_b91c109e",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_134554_b91c109e.json",
+    "status": "completed",
+    "sent_at": 1777239723.5569184
+  },
+  "codefix_20260425_134553_475b2db2:1777124754": {
+    "task_id": "codefix_20260425_134553_475b2db2",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_134553_475b2db2\\result.json",
+    "status": "completed",
+    "sent_at": 1777239723.7441661
+  },
+  "brainexec_20260425_134423_b9784438:1777124663": {
+    "task_id": "brainexec_20260425_134423_b9784438",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_134423_b9784438.json",
+    "status": "completed",
+    "sent_at": 1777239723.9212358
+  },
+  "codefix_20260425_134423_c28d4763:1777124663": {
+    "task_id": "codefix_20260425_134423_c28d4763",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_134423_c28d4763\\result.json",
+    "status": "completed",
+    "sent_at": 1777239724.1453223
+  },
+  "brainexec_20260425_134253_4df8d2ba:1777124573": {
+    "task_id": "brainexec_20260425_134253_4df8d2ba",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_134253_4df8d2ba.json",
+    "status": "completed",
+    "sent_at": 1777239724.3326309
+  },
+  "codefix_20260425_134252_f50fe408:1777124573": {
+    "task_id": "codefix_20260425_134252_f50fe408",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_134252_f50fe408\\result.json",
+    "status": "completed",
+    "sent_at": 1777239724.4775553
+  },
+  "codefix_20260425_134122_ea667ad2:1777124482": {
+    "task_id": "codefix_20260425_134122_ea667ad2",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_134122_ea667ad2\\result.json",
+    "status": "completed",
+    "sent_at": 1777239724.622938
+  },
+  "brainexec_20260425_134122_292037d5:1777124482": {
+    "task_id": "brainexec_20260425_134122_292037d5",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_134122_292037d5.json",
+    "status": "completed",
+    "sent_at": 1777239724.7782958
+  },
+  "brainexec_20260425_133952_b5e217bc:1777124392": {
+    "task_id": "brainexec_20260425_133952_b5e217bc",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_133952_b5e217bc.json",
+    "status": "completed",
+    "sent_at": 1777239724.9214754
+  },
+  "codefix_20260425_133951_b64b3b68:1777124392": {
+    "task_id": "codefix_20260425_133951_b64b3b68",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_133951_b64b3b68\\result.json",
+    "status": "completed",
+    "sent_at": 1777239725.121946
+  },
+  "brainexec_20260425_133821_e9fdb59e:1777124301": {
+    "task_id": "brainexec_20260425_133821_e9fdb59e",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_133821_e9fdb59e.json",
+    "status": "completed",
+    "sent_at": 1777239725.3245232
+  },
+  "codefix_20260425_133821_f4a22fb7:1777124301": {
+    "task_id": "codefix_20260425_133821_f4a22fb7",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_133821_f4a22fb7\\result.json",
+    "status": "completed",
+    "sent_at": 1777239725.4925547
+  },
+  "brainexec_20260425_133651_19ea73ff:1777124211": {
+    "task_id": "brainexec_20260425_133651_19ea73ff",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_133651_19ea73ff.json",
+    "status": "completed",
+    "sent_at": 1777239725.633191
+  },
+  "codefix_20260425_133650_b22efd49:1777124211": {
+    "task_id": "codefix_20260425_133650_b22efd49",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_133650_b22efd49\\result.json",
+    "status": "completed",
+    "sent_at": 1777239725.7885349
+  },
+  "brainexec_20260425_133520_db490267:1777124120": {
+    "task_id": "brainexec_20260425_133520_db490267",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_133520_db490267.json",
+    "status": "completed",
+    "sent_at": 1777239725.953218
+  },
+  "codefix_20260425_133519_1f8bcce4:1777124120": {
+    "task_id": "codefix_20260425_133519_1f8bcce4",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_133519_1f8bcce4\\result.json",
+    "status": "completed",
+    "sent_at": 1777239726.1993642
+  },
+  "brainexec_20260425_133349_18dc7abe:1777124029": {
+    "task_id": "brainexec_20260425_133349_18dc7abe",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_133349_18dc7abe.json",
+    "status": "completed",
+    "sent_at": 1777239726.3667214
+  },
+  "codefix_20260425_133349_977e55f9:1777124029": {
+    "task_id": "codefix_20260425_133349_977e55f9",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_133349_977e55f9\\result.json",
+    "status": "completed",
+    "sent_at": 1777239726.5403056
+  },
+  "brainexec_20260425_133219_210a1922:1777123939": {
+    "task_id": "brainexec_20260425_133219_210a1922",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_133219_210a1922.json",
+    "status": "completed",
+    "sent_at": 1777239726.6995087
+  },
+  "codefix_20260425_133218_8fb40073:1777123939": {
+    "task_id": "codefix_20260425_133218_8fb40073",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_133218_8fb40073\\result.json",
+    "status": "completed",
+    "sent_at": 1777239726.8652985
+  },
+  "brainexec_20260425_133048_2160369b:1777123848": {
+    "task_id": "brainexec_20260425_133048_2160369b",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_133048_2160369b.json",
+    "status": "completed",
+    "sent_at": 1777239727.0307107
+  },
+  "codefix_20260425_133048_579c5daa:1777123848": {
+    "task_id": "codefix_20260425_133048_579c5daa",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_133048_579c5daa\\result.json",
+    "status": "completed",
+    "sent_at": 1777239727.2539709
+  },
+  "brainexec_20260425_132918_2f3643e8:1777123758": {
+    "task_id": "brainexec_20260425_132918_2f3643e8",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_132918_2f3643e8.json",
+    "status": "completed",
+    "sent_at": 1777239727.5106273
+  },
+  "codefix_20260425_132917_37d9f57f:1777123758": {
+    "task_id": "codefix_20260425_132917_37d9f57f",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_132917_37d9f57f\\result.json",
+    "status": "completed",
+    "sent_at": 1777239727.6770823
+  },
+  "brainexec_20260425_022510_42cdad54:1777083910": {
+    "task_id": "brainexec_20260425_022510_42cdad54",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_022510_42cdad54.json",
+    "status": "completed",
+    "sent_at": 1777239727.8515213
+  },
+  "codefix_20260425_022510_56c66efe:1777083910": {
+    "task_id": "codefix_20260425_022510_56c66efe",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_022510_56c66efe\\result.json",
+    "status": "completed",
+    "sent_at": 1777239728.0216823
+  },
+  "brainexec_20260425_022340_9dafe281:1777083820": {
+    "task_id": "brainexec_20260425_022340_9dafe281",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_022340_9dafe281.json",
+    "status": "completed",
+    "sent_at": 1777239728.1957974
+  },
+  "codefix_20260425_022339_445c61b8:1777083820": {
+    "task_id": "codefix_20260425_022339_445c61b8",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_022339_445c61b8\\result.json",
+    "status": "completed",
+    "sent_at": 1777239728.345885
+  },
+  "brainexec_20260425_022209_0e35d6ea:1777083729": {
+    "task_id": "brainexec_20260425_022209_0e35d6ea",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_022209_0e35d6ea.json",
+    "status": "completed",
+    "sent_at": 1777239728.516619
+  },
+  "codefix_20260425_022209_ccb8ff16:1777083729": {
+    "task_id": "codefix_20260425_022209_ccb8ff16",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_022209_ccb8ff16\\result.json",
+    "status": "completed",
+    "sent_at": 1777239728.6776476
+  },
+  "brainexec_20260425_022039_b328fea4:1777083639": {
+    "task_id": "brainexec_20260425_022039_b328fea4",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_022039_b328fea4.json",
+    "status": "completed",
+    "sent_at": 1777239728.9016757
+  },
+  "codefix_20260425_022038_da0e8587:1777083639": {
+    "task_id": "codefix_20260425_022038_da0e8587",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_022038_da0e8587\\result.json",
+    "status": "completed",
+    "sent_at": 1777239729.0772228
+  },
+  "codefix_20260425_021908_ba4aa5d6:1777083548": {
+    "task_id": "codefix_20260425_021908_ba4aa5d6",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_021908_ba4aa5d6\\result.json",
+    "status": "completed",
+    "sent_at": 1777239729.2383666
+  },
+  "brainexec_20260425_021908_8c63610d:1777083548": {
+    "task_id": "brainexec_20260425_021908_8c63610d",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_021908_8c63610d.json",
+    "status": "completed",
+    "sent_at": 1777239729.405756
+  },
+  "codefix_20260425_021737_dda8ea2d:1777083458": {
+    "task_id": "codefix_20260425_021737_dda8ea2d",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_021737_dda8ea2d\\result.json",
+    "status": "completed",
+    "sent_at": 1777239729.5554943
+  },
+  "brainexec_20260425_021738_62075492:1777083458": {
+    "task_id": "brainexec_20260425_021738_62075492",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_021738_62075492.json",
+    "status": "completed",
+    "sent_at": 1777239730.0486505
+  },
+  "brainexec_20260425_021607_bec4ca73:1777083367": {
+    "task_id": "brainexec_20260425_021607_bec4ca73",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_021607_bec4ca73.json",
+    "status": "completed",
+    "sent_at": 1777239730.234394
+  },
+  "codefix_20260425_021607_69cbf25b:1777083367": {
+    "task_id": "codefix_20260425_021607_69cbf25b",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_021607_69cbf25b\\result.json",
+    "status": "completed",
+    "sent_at": 1777239730.399194
+  },
+  "brainexec_20260425_021436_f56ede6e:1777083276": {
+    "task_id": "brainexec_20260425_021436_f56ede6e",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_021436_f56ede6e.json",
+    "status": "completed",
+    "sent_at": 1777239730.5652506
+  },
+  "codefix_20260425_021436_b84dede8:1777083276": {
+    "task_id": "codefix_20260425_021436_b84dede8",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_021436_b84dede8\\result.json",
+    "status": "completed",
+    "sent_at": 1777239730.7248406
+  },
+  "brainexec_20260425_021306_edd7b88c:1777083186": {
+    "task_id": "brainexec_20260425_021306_edd7b88c",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_021306_edd7b88c.json",
+    "status": "completed",
+    "sent_at": 1777239751.0517478
+  },
+  "codefix_20260425_021305_cb362f76:1777083186": {
+    "task_id": "codefix_20260425_021305_cb362f76",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_021305_cb362f76\\result.json",
+    "status": "completed",
+    "sent_at": 1777239751.2080574
+  },
+  "brainexec_20260425_021135_e7d2f50b:1777083095": {
+    "task_id": "brainexec_20260425_021135_e7d2f50b",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_021135_e7d2f50b.json",
+    "status": "completed",
+    "sent_at": 1777239751.3614056
+  },
+  "codefix_20260425_021135_ab53b545:1777083095": {
+    "task_id": "codefix_20260425_021135_ab53b545",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_021135_ab53b545\\result.json",
+    "status": "completed",
+    "sent_at": 1777239751.5440264
+  },
+  "brainexec_20260425_021005_c49a622e:1777083005": {
+    "task_id": "brainexec_20260425_021005_c49a622e",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_021005_c49a622e.json",
+    "status": "completed",
+    "sent_at": 1777239751.6773705
+  },
+  "codefix_20260425_021004_299197d5:1777083005": {
+    "task_id": "codefix_20260425_021004_299197d5",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_021004_299197d5\\result.json",
+    "status": "completed",
+    "sent_at": 1777239751.8237839
+  },
+  "brainexec_20260425_020834_4d51d5ef:1777082914": {
+    "task_id": "brainexec_20260425_020834_4d51d5ef",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_020834_4d51d5ef.json",
+    "status": "completed",
+    "sent_at": 1777239751.9775715
+  },
+  "codefix_20260425_020834_e4bde5f3:1777082914": {
+    "task_id": "codefix_20260425_020834_e4bde5f3",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_020834_e4bde5f3\\result.json",
+    "status": "completed",
+    "sent_at": 1777239752.1319954
+  },
+  "brainexec_20260425_020704_18019a58:1777082824": {
+    "task_id": "brainexec_20260425_020704_18019a58",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_020704_18019a58.json",
+    "status": "completed",
+    "sent_at": 1777239752.2939334
+  },
+  "codefix_20260425_020703_7db23889:1777082824": {
+    "task_id": "codefix_20260425_020703_7db23889",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_020703_7db23889\\result.json",
+    "status": "completed",
+    "sent_at": 1777239752.435739
+  },
+  "brainexec_20260425_020533_99bca02f:1777082733": {
+    "task_id": "brainexec_20260425_020533_99bca02f",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_020533_99bca02f.json",
+    "status": "completed",
+    "sent_at": 1777239752.600391
+  },
+  "codefix_20260425_020533_6ee3a742:1777082733": {
+    "task_id": "codefix_20260425_020533_6ee3a742",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_020533_6ee3a742\\result.json",
+    "status": "completed",
+    "sent_at": 1777239752.7535412
+  },
+  "brainexec_20260425_020402_6225c9e5:1777082642": {
+    "task_id": "brainexec_20260425_020402_6225c9e5",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_020402_6225c9e5.json",
+    "status": "completed",
+    "sent_at": 1777239752.8997853
+  },
+  "codefix_20260425_020402_590279a0:1777082642": {
+    "task_id": "codefix_20260425_020402_590279a0",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_020402_590279a0\\result.json",
+    "status": "completed",
+    "sent_at": 1777239753.055066
+  },
+  "brainexec_20260425_020232_f8cb8060:1777082552": {
+    "task_id": "brainexec_20260425_020232_f8cb8060",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_020232_f8cb8060.json",
+    "status": "completed",
+    "sent_at": 1777239753.2232592
+  },
+  "codefix_20260425_020231_0ce78c74:1777082552": {
+    "task_id": "codefix_20260425_020231_0ce78c74",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_020231_0ce78c74\\result.json",
+    "status": "completed",
+    "sent_at": 1777239753.3771427
+  },
+  "brainexec_20260425_020101_eba26c01:1777082461": {
+    "task_id": "brainexec_20260425_020101_eba26c01",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_020101_eba26c01.json",
+    "status": "completed",
+    "sent_at": 1777239753.5365674
+  },
+  "codefix_20260425_020101_2276126f:1777082461": {
+    "task_id": "codefix_20260425_020101_2276126f",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_020101_2276126f\\result.json",
+    "status": "completed",
+    "sent_at": 1777239753.6905608
+  },
+  "brainexec_20260425_015930_2b4b937c:1777082370": {
+    "task_id": "brainexec_20260425_015930_2b4b937c",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\brain_executor\\runs\\brainexec_20260425_015930_2b4b937c.json",
+    "status": "completed",
+    "sent_at": 1777239753.8482006
+  },
+  "codefix_20260425_015930_411e2737:1777082370": {
+    "task_id": "codefix_20260425_015930_411e2737",
+    "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\code_improvement_lane\\runs\\codefix_20260425_015930_411e2737\\result.json",
+    "status": "completed",
+    "sent_at": 1777239754.004742
+  }
+}

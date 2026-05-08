@@ -1,0 +1,72 @@
+{
+  "steps": [
+    {
+      "step_id": "step_youtube_pack",
+      "title": "Build YouTube Pack",
+      "task_type": "youtube_pack",
+      "status": "completed",
+      "attempts": 1,
+      "depends_on": [],
+      "constraints": {
+        "name": "Failure Test Pack",
+        "niche": "AI testing",
+        "audience": "builders",
+        "tone": "technical"
+      },
+      "payload": {},
+      "output": {
+        "run_id": "mission_artifact_9e92e7b143c2",
+        "run_record_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\mission_runs\\mission_artifact_9e92e7b143c2.json",
+        "artifact_task_id": "artifact_36f40d05117a",
+        "artifact_manifest_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\youtube\\20260410_122445_failure-test-pack\\manifest.json",
+        "artifact_output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\youtube\\20260410_122445_failure-test-pack",
+        "artifact_name": "Failure Test Pack",
+        "selected_task_type": "youtube_pack"
+      }
+    },
+    {
+      "step_id": "step_content_table",
+      "title": "Build Content Table",
+      "task_type": "table",
+      "status": "completed",
+      "attempts": 2,
+      "depends_on": [
+        "step_youtube_pack"
+      ],
+      "constraints": {
+        "name": "Failure Test Calendar"
+      },
+      "payload": {
+        "rows": [
+          {
+            "day": 1,
+            "title": "Channel intro",
+            "format": "short",
+            "status": "planned"
+          },
+          {
+            "day": 2,
+            "title": "Problem / solution",
+            "format": "short",
+            "status": "planned"
+          },
+          {
+            "day": 3,
+            "title": "Tool breakdown",
+            "format": "short",
+            "status": "planned"
+          }
+        ]
+      },
+      "output": {
+        "run_id": "mission_artifact_8449ed63c50d",
+        "run_record_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\mission_runs\\mission_artifact_8449ed63c50d.json",
+        "artifact_task_id": "artifact_091b3fd04fac",
+        "artifact_manifest_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\tables\\20260410_122446_failure-test-calendar\\manifest.json",
+        "artifact_output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\tables\\20260410_122446_failure-test-calendar",
+        "artifact_name": "Failure Test Calendar",
+        "selected_task_type": "table"
+      }
+    }
+  ]
+}

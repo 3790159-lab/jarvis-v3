@@ -1,0 +1,34 @@
+Real SOP Package Report
+Mission ID: real_run_sop_2b68f727
+Topic: Telegram workflow for handling real Jarvis operator requests
+
+Artifacts:
+- Claude draft: C:\Users\Daniil Lapin\Downloads\supervisor_v1_5_smart_telegram (1)\supervisor_v1_5_smart_telegram\jarvis_stage3_artifacts\real_runs\sop_20260415_223643\claude_draft.md
+- OpenAI review: C:\Users\Daniil Lapin\Downloads\supervisor_v1_5_smart_telegram (1)\supervisor_v1_5_smart_telegram\jarvis_stage3_artifacts\real_runs\sop_20260415_223643\openai_review.md
+- Final SOP: C:\Users\Daniil Lapin\Downloads\supervisor_v1_5_smart_telegram (1)\supervisor_v1_5_smart_telegram\jarvis_stage3_artifacts\real_runs\sop_20260415_223643\final_sop.md
+
+Metrics:
+- Claude chars: 1456
+- OpenAI chars: 2210
+- Final chars: 3149
+
+Checks:
+- Claude draft present: True
+- OpenAI review present: True
+- Final SOP present: True
+
+Preview:
+# Jarvis Real Task Execution SOP
+
+> Generated via real operator workflow.
+> Mission ID: real_run_sop_2b68f727
+> Topic: Telegram workflow for handling real Jarvis operator requests
+
+## Final SOP
+### Document Structure and Codebase Mapping
+
+| Section | Based on |
+|---|---|
+| **Preconditions** | `.env` config vars, `TELEGRAM_ALLOWED_CHAT_ID`, OLLAMA startup checks, directory requirements |
+| **Pre-run Checks** | `/health`, `/status`, `/missions` commands in `supervisor_core.py`; path guard logic in `safety.py` |
+| **Approval & Risk Control**

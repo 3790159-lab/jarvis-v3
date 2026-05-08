@@ -1,0 +1,52 @@
+{
+  "ok": true,
+  "tool": "internet.search",
+  "provider": "tavily",
+  "query": "Compare current best AI image generation APIs and recommend what Jarvis should integrate next",
+  "created_at": "2026-04-28T22:05:32.741899Z",
+  "data": {
+    "query": "Compare current best AI image generation APIs and recommend what Jarvis should integrate next",
+    "follow_up_questions": null,
+    "answer": "For 2026, Gemini and Flux are top AI image generation APIs, offering high-quality outputs and competitive pricing. Stability AI and Replicate also stand out for their advanced features. Consider these for integration.",
+    "images": [],
+    "results": [
+      {
+        "url": "https://chasejarvis.com/blog/best-ai-image-generators/",
+        "title": "The Best AI Image Generators: A Guide For Creative Pros",
+        "content": "Adobe Firefly & Creative Cloud. Position: The “Safe” Assistant. Key Differentiator: Deep integration into Photoshop and Illustrator with full IP indemnification",
+        "score": 0.76992935,
+        "raw_content": null
+      },
+      {
+        "url": "https://maginary.ai/best-ai-image-generator-api",
+        "title": "Best AI Image Generation API (2026) — Developer Comparison",
+        "content": "Compare the best AI image generation APIs for developers. OpenAI, Stability AI, Replicate, FAL, and Maginary — features, pricing,",
+        "score": 0.71088976,
+        "raw_content": null
+      },
+      {
+        "url": "https://wavespeed.ai/blog/posts/complete-guide-ai-image-apis-2026/",
+        "title": "Complete Guide to AI Image Generation APIs in 2026 - WaveSpeed AI",
+        "content": "Complete guide to AI image generation APIs in 2026 with LM Arena rankings. Compare GPT Image, Gemini, Flux, Seedream, and more.",
+        "score": 0.6396691,
+        "raw_content": null
+      },
+      {
+        "url": "https://blog.laozhang.ai/en/posts/ai-image-generation-api-comparison-2026",
+        "title": "AI Image Generation API Comparison 2026: Pricing, Quality, and the ...",
+        "content": "For developers choosing between 12+ AI image generation APIs, the right pick depends on your volume, quality needs, and budget. This guide",
+        "score": 0.49040702,
+        "raw_content": null
+      },
+      {
+        "url": "https://www.atlascloud.ai/blog/guides/best-ai-image-generation-apis-in-2026-complete-developer-guide",
+        "title": "Best AI Image Generation APIs in 2026: Complete Developer Guide",
+        "content": "This guide covers every major image generation API you can actually use in 2026 — working code, straight comparisons, and how to wire it all",
+        "score": 0.45696765,
+        "raw_content": null
+      }
+    ],
+    "response_time": 1.64,
+    "request_id": "40bc5b69-ab39-426a-a289-99e72154eeff"
+  }
+}

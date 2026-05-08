@@ -1,0 +1,63 @@
+{
+  "plan_id": "n8nsuper_20260425_005426_341aee2f",
+  "user_task": "Create dynamic n8n pipeline: webhook, validate data, external API, logical decision and final report",
+  "workflow_kind": "dynamic_pipeline",
+  "name": "Jarvis Super Agent - dynamic_pipeline",
+  "webhook_path": "jarvis-super-dynamic-pipeline-341aee2f",
+  "workflow_json": {
+    "name": "Jarvis Super Agent - dynamic_pipeline",
+    "nodes": [
+      {
+        "id": "fc6fd7d5-a7ce-4c70-9959-1066e76cb1fd",
+        "name": "Jarvis Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          220,
+          300
+        ],
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "jarvis-super-dynamic-pipeline-341aee2f",
+          "responseMode": "lastNode",
+          "options": {}
+        }
+      },
+      {
+        "id": "61d550d1-83fe-4694-93df-eac5ffa76ae2",
+        "name": "Echo Payload",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          520,
+          300
+        ],
+        "parameters": {
+          "jsCode": "const now = new Date().toISOString();\nreturn [{ json: {\n  ok: true,\n  kind: 'webhook_echo',\n  receivedAt: now,\n  source: 'jarvis_super_agent',\n  payload: $json\n} }];"
+        }
+      }
+    ],
+    "connections": {
+      "Jarvis Webhook": {
+        "main": [
+          [
+            {
+              "node": "Echo Payload",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {}
+  },
+  "reasoning": [
+    "Classified task as workflow_kind=dynamic_pipeline.",
+    "Using webhook trigger for safe external execution.",
+    "Using safe nodes with no hardcoded credentials."
+  ],
+  "production_webhook_url": "https://daniliyc.app.n8n.cloud/webhook/jarvis-super-dynamic-pipeline-341aee2f",
+  "test_webhook_url": "https://daniliyc.app.n8n.cloud/webhook-test/jarvis-super-dynamic-pipeline-341aee2f",
+  "created_at": "2026-04-25T00:54:26+00:00"
+}

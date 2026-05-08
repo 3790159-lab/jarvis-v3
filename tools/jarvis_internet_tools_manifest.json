@@ -1,0 +1,31 @@
+﻿{
+    "tools":  [
+                  {
+                      "endpoint":  "/api/jarvis/tools/internet/search",
+                      "description":  "Search the live web through Tavily.",
+                      "name":  "internet.search"
+                  },
+                  {
+                      "endpoint":  "/api/jarvis/tools/internet/research",
+                      "description":  "Research and reason with Perplexity.",
+                      "name":  "internet.research"
+                  },
+                  {
+                      "endpoint":  "/api/jarvis/tools/internet/find-pipelines",
+                      "description":  "Find real pipeline examples, APIs, integrations, and implementation patterns.",
+                      "name":  "internet.find_pipelines"
+                  },
+                  {
+                      "endpoint":  "/api/jarvis/tools/internet/compare-services",
+                      "description":  "Compare services for a given task.",
+                      "name":  "internet.compare_services"
+                  },
+                  {
+                      "endpoint":  "/api/jarvis/tools/internet/engineer-brief",
+                      "description":  "Create an AI-engineer implementation brief using live web/research tools.",
+                      "name":  "internet.engineer_brief"
+                  }
+              ],
+    "ok":  true,
+    "tool_group":  "internet"
+}

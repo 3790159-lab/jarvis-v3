@@ -1,0 +1,12 @@
+{"event": "schema_extension_approved", "agent_id": "planner_main", "task_id": "plan_goal", "field_name": "execution_recommendations", "approval_id": "approval_83dce7f5f8", "ts": "2026-04-18 01:20:43"}
+{"event": "task_completed", "task_id": "plan_goal", "agent_id": "planner_main", "provider": "cloud", "qa_summary": "QA average=0.90 passed=True", "ts": "2026-04-18 01:20:43"}
+{"event": "consultation_resolved", "task_id": "research_context", "from_agent": "research_agent_main", "helper_agent": "memory_agent_main", "requested_capability": "context_bundle", "consult_depth": 1, "ts": "2026-04-18 01:20:43"}
+{"event": "task_completed", "task_id": "research_context", "agent_id": "research_agent_main", "provider": "cloud", "qa_summary": "QA average=0.90 passed=True", "ts": "2026-04-18 01:20:43"}
+{"event": "consultation_resolved", "task_id": "generate_artifact", "from_agent": "coding_agent_main", "helper_agent": "qa_agent_main", "requested_capability": "validate", "consult_depth": 1, "ts": "2026-04-18 01:20:43"}
+{"event": "consultation_resolved", "task_id": "generate_artifact", "from_agent": "coding_agent_main", "helper_agent": "research_agent_main", "requested_capability": "analyze", "consult_depth": 2, "ts": "2026-04-18 01:20:43"}
+{"event": "capability_proposed", "agent_id": "coding_agent_main", "capability": "patch_review", "approval_id": "approval_cae08337ca", "ts": "2026-04-18 01:20:43"}
+{"event": "capability_approved", "agent_id": "coding_agent_main", "capability": "patch_review", "approval_id": "approval_cae08337ca", "ts": "2026-04-18 01:20:43"}
+{"event": "task_completed", "task_id": "generate_artifact", "agent_id": "coding_agent_main", "provider": "cloud", "qa_summary": "QA average=0.90 passed=True", "ts": "2026-04-18 01:20:43"}
+{"event": "task_completed", "task_id": "qa_review", "agent_id": "qa_agent_main", "provider": "cloud", "qa_summary": "QA average=0.90 passed=True", "ts": "2026-04-18 01:20:43"}
+{"event": "task_completed", "task_id": "n8n_stub", "agent_id": "n8n_agent_main", "provider": "cloud", "qa_summary": "QA average=0.90 passed=True", "ts": "2026-04-18 01:20:43"}
+{"event": "task_completed", "task_id": "memory_commit", "agent_id": "memory_agent_main", "provider": "ollama", "qa_summary": "QA average=0.90 passed=True", "ts": "2026-04-18 01:20:43"}

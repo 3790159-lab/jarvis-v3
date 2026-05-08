@@ -1,0 +1,63 @@
+{
+  "plan_id": "n8nsuper_20260424_234453_e0df7049",
+  "user_task": "Создай многошаговый пайплайн: webhook, проверка данных, внешний Api обработка результата и финальный отчёт",
+  "workflow_kind": "multi_step_pipeline",
+  "name": "Jarvis Super Agent - multi_step_pipeline",
+  "webhook_path": "jarvis-super-multi-step-pipeline-e0df7049",
+  "workflow_json": {
+    "name": "Jarvis Super Agent - multi_step_pipeline",
+    "nodes": [
+      {
+        "id": "539dbc11-c148-4f49-817b-ef3b5139bb8e",
+        "name": "Jarvis Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          220,
+          300
+        ],
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "jarvis-super-multi-step-pipeline-e0df7049",
+          "responseMode": "lastNode",
+          "options": {}
+        }
+      },
+      {
+        "id": "7a708b89-8212-46f6-b257-66a68605c19b",
+        "name": "Echo Payload",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          520,
+          300
+        ],
+        "parameters": {
+          "jsCode": "const now = new Date().toISOString();\nreturn [{ json: {\n  ok: true,\n  kind: 'webhook_echo',\n  receivedAt: now,\n  source: 'jarvis_super_agent',\n  payload: $json\n} }];"
+        }
+      }
+    ],
+    "connections": {
+      "Jarvis Webhook": {
+        "main": [
+          [
+            {
+              "node": "Echo Payload",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {}
+  },
+  "reasoning": [
+    "Classified task as workflow_kind=multi_step_pipeline.",
+    "Using webhook trigger for safe external execution.",
+    "Using safe nodes with no hardcoded credentials."
+  ],
+  "production_webhook_url": "https://daniliyc.app.n8n.cloud/webhook/jarvis-super-multi-step-pipeline-e0df7049",
+  "test_webhook_url": "https://daniliyc.app.n8n.cloud/webhook-test/jarvis-super-multi-step-pipeline-e0df7049",
+  "created_at": "2026-04-24T23:44:53+00:00"
+}

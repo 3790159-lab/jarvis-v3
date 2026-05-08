@@ -1,0 +1,173 @@
+{
+  "status": "ok_with_readiness_gap",
+  "idempotent_memory": {
+    "status": "ok",
+    "dry_run": false,
+    "events_before": 37,
+    "unique_events": 37,
+    "duplicates": 0,
+    "removed": 0,
+    "archive_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\memory_learning\\events_deduped_archive"
+  },
+  "telegram_readiness": {
+    "status": "not_ready",
+    "token_present": true,
+    "allowed_chat_id_present": false,
+    "missing": [
+      "TELEGRAM_ALLOWED_CHAT_ID"
+    ],
+    "chat_id_preview": null,
+    "next_best_action": "Set missing env vars in .env or current shell: TELEGRAM_ALLOWED_CHAT_ID",
+    "safe_actions_when_ready": [
+      "send_session_summary",
+      "send_operator_alert",
+      "send_night_mode_completion_report"
+    ]
+  },
+  "session_summary": {
+    "status": "ok",
+    "sessions_count": 3,
+    "completed_sessions": 3,
+    "degraded_sessions": 0,
+    "failed_sessions": 0,
+    "total_applies": 5,
+    "sessions": [
+      {
+        "session_id": "nightbridge_20260424_100932_01cd60ae",
+        "status": "completed",
+        "mode": "api_safe_unified_night_mode",
+        "completed_count": 1,
+        "degraded_count": 0,
+        "failed_count": 0,
+        "apply_count": 1,
+        "iterations_count": 1,
+        "loop_run_ids": [
+          "uloop_20260424_100932_43755e3e"
+        ],
+        "blocked_reasons": [
+          "readiness_not_ready:telegram_bridge"
+        ],
+        "next_best_actions": [
+          "Proceed to richer orchestration cases."
+        ],
+        "operator_summary": "Night bridge completed successfully with safe apply-capable iterations and operator-facing summaries.",
+        "created_at": "2026-04-24T10:09:32+00:00",
+        "finished_at": "2026-04-24T10:09:34+00:00",
+        "source_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\unified_night_bridge\\sessions\\nightbridge_20260424_100932_01cd60ae.json"
+      },
+      {
+        "session_id": "nightbridge_20260423_135540_140f8091",
+        "status": "completed",
+        "mode": "safe_unified_night_mode",
+        "completed_count": 2,
+        "degraded_count": 0,
+        "failed_count": 0,
+        "apply_count": 2,
+        "iterations_count": 2,
+        "loop_run_ids": [
+          "uloop_20260423_135541_5808253e",
+          "uloop_20260423_135541_5b6fe7ab"
+        ],
+        "blocked_reasons": [
+          "readiness_not_ready:telegram_bridge"
+        ],
+        "next_best_actions": [
+          "Proceed to richer orchestration cases."
+        ],
+        "operator_summary": "Night bridge completed successfully with safe apply-capable iterations and operator-facing summaries.",
+        "created_at": "2026-04-23T13:55:40+00:00",
+        "finished_at": "2026-04-23T13:55:41+00:00",
+        "source_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\unified_night_bridge\\sessions\\nightbridge_20260423_135540_140f8091.json"
+      },
+      {
+        "session_id": "nightbridge_20260423_135510_52f419b9",
+        "status": "completed",
+        "mode": "safe_unified_night_mode",
+        "completed_count": 2,
+        "degraded_count": 0,
+        "failed_count": 0,
+        "apply_count": 2,
+        "iterations_count": 2,
+        "loop_run_ids": [
+          "uloop_20260423_135510_fac7bd3f",
+          "uloop_20260423_135511_01db2bc1"
+        ],
+        "blocked_reasons": [
+          "readiness_not_ready:telegram_bridge"
+        ],
+        "next_best_actions": [
+          "Proceed to richer orchestration cases."
+        ],
+        "operator_summary": "Night bridge completed successfully with safe apply-capable iterations and operator-facing summaries.",
+        "created_at": "2026-04-23T13:55:10+00:00",
+        "finished_at": "2026-04-23T13:55:11+00:00",
+        "source_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\unified_night_bridge\\sessions\\nightbridge_20260423_135510_52f419b9.json"
+      }
+    ],
+    "created_at": "2026-04-24T10:34:36+00:00"
+  },
+  "retention": {
+    "status": "ok",
+    "dry_run": true,
+    "total_cleanup_candidates": 0,
+    "total_moved": 0,
+    "details": [
+      {
+        "dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\advanced_mutation_lane\\decisions",
+        "files_count": 22,
+        "keep_latest": 40,
+        "cleanup_candidates": 0,
+        "moved": 0
+      },
+      {
+        "dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\advanced_mutation_lane\\blast_radius",
+        "files_count": 22,
+        "keep_latest": 40,
+        "cleanup_candidates": 0,
+        "moved": 0
+      },
+      {
+        "dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\memory_learning\\snapshots",
+        "files_count": 9,
+        "keep_latest": 40,
+        "cleanup_candidates": 0,
+        "moved": 0
+      },
+      {
+        "dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\explainability_operator_control\\explanations",
+        "files_count": 7,
+        "keep_latest": 40,
+        "cleanup_candidates": 0,
+        "moved": 0
+      },
+      {
+        "dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\explainability_operator_control\\snapshots",
+        "files_count": 7,
+        "keep_latest": 40,
+        "cleanup_candidates": 0,
+        "moved": 0
+      },
+      {
+        "dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\unified_autonomous_loop\\runs",
+        "files_count": 7,
+        "keep_latest": 40,
+        "cleanup_candidates": 0,
+        "moved": 0
+      },
+      {
+        "dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\unified_night_bridge\\sessions",
+        "files_count": 3,
+        "keep_latest": 40,
+        "cleanup_candidates": 0,
+        "moved": 0
+      }
+    ],
+    "archive_root": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\quality_hardening\\retention_archive",
+    "created_at": "2026-04-24T10:34:36+00:00"
+  },
+  "recommendations": [
+    "Set missing env vars in .env or current shell: TELEGRAM_ALLOWED_CHAT_ID",
+    "Unified night sessions are stable. Continue expanding controlled mutation capabilities."
+  ],
+  "created_at": "2026-04-24T10:34:36+00:00"
+}

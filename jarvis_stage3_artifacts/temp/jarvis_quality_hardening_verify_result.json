@@ -1,0 +1,40 @@
+{
+  "status": "ok",
+  "memory": {
+    "status": "ok",
+    "dry_run": false,
+    "events_before": 37,
+    "unique_events": 37,
+    "duplicates": 0,
+    "removed": 0,
+    "archive_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\memory_learning\\events_deduped_archive"
+  },
+  "telegram": {
+    "status": "ready",
+    "token_present": true,
+    "allowed_chat_id_present": true,
+    "missing": [],
+    "chat_id_preview": "2376***",
+    "next_best_action": "Telegram bridge is ready for controlled status messages.",
+    "safe_actions_when_ready": [
+      "send_session_summary",
+      "send_operator_alert",
+      "send_night_mode_completion_report"
+    ]
+  },
+  "sessions": {
+    "status": "ok",
+    "sessions_count": 3,
+    "completed_sessions": 3,
+    "failed_sessions": 0,
+    "total_applies": 5
+  },
+  "retention": {
+    "dry_run": true,
+    "total_cleanup_candidates": 0,
+    "total_moved": 0
+  },
+  "recommendations": [
+    "Unified night sessions are stable. Continue expanding controlled mutation capabilities."
+  ]
+}

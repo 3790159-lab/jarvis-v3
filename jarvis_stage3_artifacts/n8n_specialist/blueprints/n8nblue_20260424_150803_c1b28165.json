@@ -1,0 +1,60 @@
+{
+  "blueprint_id": "n8nblue_20260424_150803_c1b28165",
+  "name": "Jarvis Night Report Webhook",
+  "workflow_type": "webhook_logger",
+  "webhook_path": "jarvis-night-report-c1b28165",
+  "workflow_json": {
+    "name": "Jarvis Night Report Webhook",
+    "active": false,
+    "nodes": [
+      {
+        "parameters": {
+          "path": "jarvis-night-report-c1b28165",
+          "httpMethod": "POST",
+          "responseMode": "lastNode",
+          "options": {}
+        },
+        "id": "webhook_trigger",
+        "name": "Jarvis Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          240,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const now = new Date().toISOString();\nreturn [{ json: { ok: true, receivedAt: now, source: 'jarvis', payload: $json } }];"
+        },
+        "id": "normalize_payload",
+        "name": "Normalize Payload",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          520,
+          300
+        ]
+      }
+    ],
+    "connections": {
+      "Jarvis Webhook": {
+        "main": [
+          [
+            {
+              "node": "Normalize Payload",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1"
+    }
+  },
+  "production_webhook_url": "https://daniliyc.app.n8n.cloud/webhook/jarvis-night-report-c1b28165",
+  "test_webhook_url": "https://daniliyc.app.n8n.cloud/webhook-test/jarvis-night-report-c1b28165",
+  "created_at": "2026-04-24T15:08:03+00:00"
+}

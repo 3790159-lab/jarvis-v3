@@ -1,0 +1,6 @@
+When coordinating agents, keep roles explicit and avoid over-consultation.
+Use second opinions mainly for risky tasks.
+Claude is usually strongest for concrete engineering and refactor work.
+OpenAI can remain strong for planning and QA framing.
+n8n should stay guarded until auth and live webhook configuration are verified.
+Knowledge should be organized by domain so programming guidance, communication rules, and integration patterns do not collapse into one flat memory.

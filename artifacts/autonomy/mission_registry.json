@@ -1,0 +1,14 @@
+{
+  "missions": [
+    {
+      "mission_id": "mission_custom_001",
+      "mission_type": "generic_supervisor_mission",
+      "entrypoint": "mission_bridge",
+      "execution_mode": "supervised",
+      "supports_resume": true,
+      "supports_repair": true,
+      "verification_policy": "basic_completion",
+      "updated_at": "2026-04-08T16:09:09.840133+00:00"
+    }
+  ]
+}

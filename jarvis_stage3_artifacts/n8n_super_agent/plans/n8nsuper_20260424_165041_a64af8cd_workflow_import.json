@@ -1,0 +1,48 @@
+{
+  "name": "Jarvis Super Agent - night_report_logger",
+  "nodes": [
+    {
+      "id": "5f91d740-6a49-4528-b8b6-e112700060d6",
+      "name": "Jarvis Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "jarvis-super-night-report-logger-a64af8cd",
+        "responseMode": "lastNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "01d3ee1f-4051-460c-8bd3-e8cad56e126d",
+      "name": "Build Night Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const now = new Date().toISOString();\nconst body = $json.body || $json;\nreturn [{ json: {\n  ok: true,\n  kind: 'night_report_logger',\n  receivedAt: now,\n  source: 'jarvis',\n  report: {\n    title: body.title || 'Jarvis Night Report',\n    status: body.status || 'received',\n    summary: body.summary || body.message || 'No summary provided',\n    applies: body.applies || 0,\n    failed: body.failed || 0\n  },\n  original: body\n} }];"
+      }
+    }
+  ],
+  "connections": {
+    "Jarvis Webhook": {
+      "main": [
+        [
+          {
+            "node": "Build Night Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {}
+}

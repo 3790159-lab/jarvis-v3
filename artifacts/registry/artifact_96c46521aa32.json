@@ -1,0 +1,61 @@
+{
+  "task_id": "artifact_96c46521aa32",
+  "task_type": "site",
+  "name": "Jarvis Studio Web Bundle",
+  "slug": "jarvis-studio-web-bundle",
+  "created_at": "2026-04-10T12:48:19.230515+00:00",
+  "output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\sites\\20260410_124819_jarvis-studio-web-bundle",
+  "files": [
+    {
+      "relative_path": "index.html",
+      "size_bytes": 1176
+    },
+    {
+      "relative_path": "about.html",
+      "size_bytes": 766
+    },
+    {
+      "relative_path": "contact.html",
+      "size_bytes": 726
+    },
+    {
+      "relative_path": "styles.css",
+      "size_bytes": 1235
+    },
+    {
+      "relative_path": "app.js",
+      "size_bytes": 149
+    },
+    {
+      "relative_path": "assets/brand.json",
+      "size_bytes": 217
+    },
+    {
+      "relative_path": "README.md",
+      "size_bytes": 111
+    }
+  ],
+  "summary": {
+    "artifact_kind": "site_bundle_v2",
+    "title": "Jarvis Studio",
+    "hero": "Autonomous systems that create real outputs",
+    "pages": [
+      "index.html",
+      "about.html",
+      "contact.html"
+    ],
+    "deliverables": [
+      "styles.css",
+      "app.js",
+      "assets/brand.json",
+      "README.md"
+    ]
+  },
+  "validation": {
+    "output_dir_exists": true,
+    "created_files_count": 7,
+    "total_bytes": 4380,
+    "valid": true
+  },
+  "status": "created"
+}

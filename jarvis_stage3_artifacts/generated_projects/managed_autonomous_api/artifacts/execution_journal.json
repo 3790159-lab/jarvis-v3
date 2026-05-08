@@ -1,0 +1,727 @@
+{
+  "version": 1,
+  "updated_at": "2026-04-05T22:46:00.745274+00:00",
+  "runs": [
+    {
+      "run_id": "df5a892881d4ab7013af",
+      "mission_id": "phase7_api_mission",
+      "task_id": "phase7_api_task_001",
+      "objective": "Implement endpoint patch and validate result",
+      "task_type": "code",
+      "requested_tools": [
+        "python",
+        "filesystem"
+      ],
+      "constraints": {},
+      "input_payload": {},
+      "decision": {
+        "agent_id": "code_core",
+        "role": "code",
+        "reason": [
+          "task_type matched code role"
+        ]
+      },
+      "handoff_path": [
+        "planner_core",
+        "code_core",
+        "qa_core"
+      ],
+      "status": "quarantined",
+      "retry_count": 1,
+      "created_at": "2026-04-05T22:26:09.088726+00:00",
+      "updated_at": "2026-04-05T22:26:09.802023+00:00",
+      "idempotency_key": "23b70e9bf65db7b6b44e2d1f",
+      "stages": [
+        {
+          "order": 1,
+          "agent_id": "planner_core",
+          "stage_name": "stage_1",
+          "status": "completed",
+          "created_at": "2026-04-05T22:26:09.088684+00:00",
+          "updated_at": "2026-04-05T22:26:09.509777+00:00",
+          "rollback_marker": "rb_df5a892881d4ab7013af_1",
+          "note": "planner finished"
+        },
+        {
+          "order": 2,
+          "agent_id": "code_core",
+          "stage_name": "stage_2",
+          "status": "pending",
+          "created_at": "2026-04-05T22:26:09.088697+00:00",
+          "updated_at": "2026-04-05T22:26:09.088702+00:00",
+          "rollback_marker": "rb_df5a892881d4ab7013af_2"
+        },
+        {
+          "order": 3,
+          "agent_id": "qa_core",
+          "stage_name": "stage_3",
+          "status": "pending",
+          "created_at": "2026-04-05T22:26:09.088708+00:00",
+          "updated_at": "2026-04-05T22:26:09.088711+00:00",
+          "rollback_marker": "rb_df5a892881d4ab7013af_3"
+        }
+      ],
+      "last_retry_reason": "transient test retry",
+      "quarantine_reason": "safety quarantine test"
+    },
+    {
+      "run_id": "94ebb418e2db0a47a6d7",
+      "mission_id": "phase7_mission",
+      "task_id": "phase7_task_001",
+      "objective": "Implement patch and validate result",
+      "task_type": "code",
+      "requested_tools": [
+        "python",
+        "filesystem"
+      ],
+      "constraints": {},
+      "input_payload": {},
+      "decision": {
+        "agent_id": "code_core",
+        "role": "code",
+        "reason": [
+          "task_type matched code role"
+        ]
+      },
+      "handoff_path": [
+        "planner_core",
+        "code_core",
+        "qa_core"
+      ],
+      "status": "running",
+      "retry_count": 0,
+      "created_at": "2026-04-05T22:26:11.000703+00:00",
+      "updated_at": "2026-04-05T22:45:58.885880+00:00",
+      "idempotency_key": "37c378061a0065eda9d29318",
+      "stages": [
+        {
+          "order": 1,
+          "agent_id": "planner_core",
+          "stage_name": "stage_1",
+          "status": "running",
+          "created_at": "2026-04-05T22:26:11.000667+00:00",
+          "updated_at": "2026-04-05T22:45:58.885860+00:00",
+          "rollback_marker": "rb_94ebb418e2db0a47a6d7_1"
+        },
+        {
+          "order": 2,
+          "agent_id": "code_core",
+          "stage_name": "stage_2",
+          "status": "pending",
+          "created_at": "2026-04-05T22:26:11.000681+00:00",
+          "updated_at": "2026-04-05T22:26:11.000685+00:00",
+          "rollback_marker": "rb_94ebb418e2db0a47a6d7_2"
+        },
+        {
+          "order": 3,
+          "agent_id": "qa_core",
+          "stage_name": "stage_3",
+          "status": "pending",
+          "created_at": "2026-04-05T22:26:11.000690+00:00",
+          "updated_at": "2026-04-05T22:26:11.000694+00:00",
+          "rollback_marker": "rb_94ebb418e2db0a47a6d7_3"
+        }
+      ]
+    },
+    {
+      "run_id": "83467bc9667ac7524e55",
+      "mission_id": "phase7_mission",
+      "task_id": "phase7_task_002",
+      "objective": "Run execution flow",
+      "task_type": "execute",
+      "requested_tools": [
+        "shell"
+      ],
+      "constraints": {},
+      "input_payload": {},
+      "decision": {
+        "agent_id": "executor_core",
+        "role": "executor",
+        "reason": [
+          "requested tools require executor capabilities"
+        ]
+      },
+      "handoff_path": [
+        "planner_core",
+        "executor_core",
+        "qa_core"
+      ],
+      "status": "quarantined",
+      "retry_count": 1,
+      "created_at": "2026-04-05T22:26:11.057831+00:00",
+      "updated_at": "2026-04-05T22:26:11.116564+00:00",
+      "idempotency_key": "5fa54821070ec6906464ede0",
+      "stages": [
+        {
+          "order": 1,
+          "agent_id": "planner_core",
+          "stage_name": "stage_1",
+          "status": "completed",
+          "created_at": "2026-04-05T22:26:11.057765+00:00",
+          "updated_at": "2026-04-05T22:26:11.079050+00:00",
+          "rollback_marker": "rb_83467bc9667ac7524e55_1",
+          "note": "planner ok"
+        },
+        {
+          "order": 2,
+          "agent_id": "executor_core",
+          "stage_name": "stage_2",
+          "status": "pending",
+          "created_at": "2026-04-05T22:26:11.057791+00:00",
+          "updated_at": "2026-04-05T22:26:11.057799+00:00",
+          "rollback_marker": "rb_83467bc9667ac7524e55_2"
+        },
+        {
+          "order": 3,
+          "agent_id": "qa_core",
+          "stage_name": "stage_3",
+          "status": "pending",
+          "created_at": "2026-04-05T22:26:11.057811+00:00",
+          "updated_at": "2026-04-05T22:26:11.057818+00:00",
+          "rollback_marker": "rb_83467bc9667ac7524e55_3"
+        }
+      ],
+      "last_retry_reason": "transient failure",
+      "quarantine_reason": "manual safety stop"
+    },
+    {
+      "run_id": "0e318a575a5528a530f1",
+      "mission_id": "phase7_1_api_mission",
+      "task_id": "phase7_1_api_task_001",
+      "objective": "Implement endpoint patch and validate result",
+      "task_type": "code",
+      "requested_tools": [
+        "python",
+        "filesystem"
+      ],
+      "constraints": {},
+      "input_payload": {},
+      "decision": {
+        "agent_id": "code_core",
+        "role": "code",
+        "reason": [
+          "task_type matched code role"
+        ]
+      },
+      "handoff_path": [
+        "planner_core",
+        "code_core",
+        "qa_core"
+      ],
+      "status": "quarantined",
+      "retry_count": 1,
+      "created_at": "2026-04-05T22:32:40.579478+00:00",
+      "updated_at": "2026-04-05T22:32:40.883149+00:00",
+      "idempotency_key": "9ad3087356c450d838a0f94e",
+      "stages": [
+        {
+          "order": 1,
+          "agent_id": "planner_core",
+          "stage_name": "stage_1",
+          "status": "completed",
+          "created_at": "2026-04-05T22:32:40.579434+00:00",
+          "updated_at": "2026-04-05T22:32:40.715783+00:00",
+          "rollback_marker": "rb_0e318a575a5528a530f1_1",
+          "note": "planner finished"
+        },
+        {
+          "order": 2,
+          "agent_id": "code_core",
+          "stage_name": "stage_2",
+          "status": "blocked",
+          "created_at": "2026-04-05T22:32:40.579451+00:00",
+          "updated_at": "2026-04-05T22:32:40.883177+00:00",
+          "rollback_marker": "rb_0e318a575a5528a530f1_2",
+          "note": "blocked_by_quarantine"
+        },
+        {
+          "order": 3,
+          "agent_id": "qa_core",
+          "stage_name": "stage_3",
+          "status": "blocked",
+          "created_at": "2026-04-05T22:32:40.579463+00:00",
+          "updated_at": "2026-04-05T22:32:40.883186+00:00",
+          "rollback_marker": "rb_0e318a575a5528a530f1_3",
+          "note": "blocked_by_quarantine"
+        }
+      ],
+      "last_retry_reason": "transient test retry",
+      "quarantine_reason": "safety quarantine test"
+    },
+    {
+      "run_id": "85e2f690e0081767c913",
+      "mission_id": "phase7_1_mission",
+      "task_id": "phase7_1_task_001",
+      "objective": "Implement patch and validate result",
+      "task_type": "code",
+      "requested_tools": [
+        "python",
+        "filesystem"
+      ],
+      "constraints": {},
+      "input_payload": {},
+      "decision": {
+        "agent_id": "code_core",
+        "role": "code",
+        "reason": [
+          "task_type matched code role"
+        ]
+      },
+      "handoff_path": [
+        "planner_core",
+        "code_core",
+        "qa_core"
+      ],
+      "status": "running",
+      "retry_count": 0,
+      "created_at": "2026-04-05T22:32:41.979705+00:00",
+      "updated_at": "2026-04-05T22:32:41.979712+00:00",
+      "idempotency_key": "24f0ca9f1651fd5327d9afbc",
+      "stages": [
+        {
+          "order": 1,
+          "agent_id": "planner_core",
+          "stage_name": "stage_1",
+          "status": "running",
+          "created_at": "2026-04-05T22:32:41.979652+00:00",
+          "updated_at": "2026-04-05T22:32:41.979659+00:00",
+          "rollback_marker": "rb_85e2f690e0081767c913_1"
+        },
+        {
+          "order": 2,
+          "agent_id": "code_core",
+          "stage_name": "stage_2",
+          "status": "pending",
+          "created_at": "2026-04-05T22:32:41.979671+00:00",
+          "updated_at": "2026-04-05T22:32:41.979678+00:00",
+          "rollback_marker": "rb_85e2f690e0081767c913_2"
+        },
+        {
+          "order": 3,
+          "agent_id": "qa_core",
+          "stage_name": "stage_3",
+          "status": "pending",
+          "created_at": "2026-04-05T22:32:41.979688+00:00",
+          "updated_at": "2026-04-05T22:32:41.979694+00:00",
+          "rollback_marker": "rb_85e2f690e0081767c913_3"
+        }
+      ]
+    },
+    {
+      "run_id": "48afb6173881309cdfb1",
+      "mission_id": "phase7_1_mission",
+      "task_id": "phase7_1_task_002",
+      "objective": "Implement patch and validate result 2",
+      "task_type": "code",
+      "requested_tools": [
+        "python",
+        "filesystem"
+      ],
+      "constraints": {},
+      "input_payload": {},
+      "decision": {
+        "agent_id": "code_core",
+        "role": "code",
+        "reason": [
+          "task_type matched code role"
+        ]
+      },
+      "handoff_path": [
+        "planner_core",
+        "code_core",
+        "qa_core"
+      ],
+      "status": "running",
+      "retry_count": 0,
+      "created_at": "2026-04-05T22:32:42.024696+00:00",
+      "updated_at": "2026-04-05T22:32:42.069594+00:00",
+      "idempotency_key": "c99fc143d7ea996a4de03aff",
+      "stages": [
+        {
+          "order": 1,
+          "agent_id": "planner_core",
+          "stage_name": "stage_1",
+          "status": "completed",
+          "created_at": "2026-04-05T22:32:42.024657+00:00",
+          "updated_at": "2026-04-05T22:32:42.069544+00:00",
+          "rollback_marker": "rb_48afb6173881309cdfb1_1",
+          "note": "planner ok"
+        },
+        {
+          "order": 2,
+          "agent_id": "code_core",
+          "stage_name": "stage_2",
+          "status": "pending",
+          "created_at": "2026-04-05T22:32:42.024672+00:00",
+          "updated_at": "2026-04-05T22:32:42.024676+00:00",
+          "rollback_marker": "rb_48afb6173881309cdfb1_2"
+        },
+        {
+          "order": 3,
+          "agent_id": "qa_core",
+          "stage_name": "stage_3",
+          "status": "pending",
+          "created_at": "2026-04-05T22:32:42.024682+00:00",
+          "updated_at": "2026-04-05T22:32:42.024686+00:00",
+          "rollback_marker": "rb_48afb6173881309cdfb1_3"
+        }
+      ]
+    },
+    {
+      "run_id": "e78b7fbd140d21cf2453",
+      "mission_id": "phase7_1_mission",
+      "task_id": "phase7_1_task_003",
+      "objective": "Run execution flow",
+      "task_type": "execute",
+      "requested_tools": [
+        "shell"
+      ],
+      "constraints": {},
+      "input_payload": {},
+      "decision": {
+        "agent_id": "executor_core",
+        "role": "executor",
+        "reason": [
+          "requested tools require executor capabilities"
+        ]
+      },
+      "handoff_path": [
+        "planner_core",
+        "executor_core",
+        "qa_core"
+      ],
+      "status": "running",
+      "retry_count": 0,
+      "created_at": "2026-04-05T22:32:42.092801+00:00",
+      "updated_at": "2026-04-05T22:32:42.092804+00:00",
+      "idempotency_key": "f4edd723bc7c74b30f74ea3f",
+      "stages": [
+        {
+          "order": 1,
+          "agent_id": "planner_core",
+          "stage_name": "stage_1",
+          "status": "running",
+          "created_at": "2026-04-05T22:32:42.092766+00:00",
+          "updated_at": "2026-04-05T22:32:42.092772+00:00",
+          "rollback_marker": "rb_e78b7fbd140d21cf2453_1"
+        },
+        {
+          "order": 2,
+          "agent_id": "executor_core",
+          "stage_name": "stage_2",
+          "status": "pending",
+          "created_at": "2026-04-05T22:32:42.092780+00:00",
+          "updated_at": "2026-04-05T22:32:42.092784+00:00",
+          "rollback_marker": "rb_e78b7fbd140d21cf2453_2"
+        },
+        {
+          "order": 3,
+          "agent_id": "qa_core",
+          "stage_name": "stage_3",
+          "status": "pending",
+          "created_at": "2026-04-05T22:32:42.092789+00:00",
+          "updated_at": "2026-04-05T22:32:42.092793+00:00",
+          "rollback_marker": "rb_e78b7fbd140d21cf2453_3"
+        }
+      ]
+    },
+    {
+      "run_id": "c4d6f2a37999dbf01c7f",
+      "mission_id": "phase7_1_mission",
+      "task_id": "phase7_1_task_004",
+      "objective": "Run execution flow 2",
+      "task_type": "execute",
+      "requested_tools": [
+        "shell"
+      ],
+      "constraints": {},
+      "input_payload": {},
+      "decision": {
+        "agent_id": "executor_core",
+        "role": "executor",
+        "reason": [
+          "requested tools require executor capabilities"
+        ]
+      },
+      "handoff_path": [
+        "planner_core",
+        "executor_core",
+        "qa_core"
+      ],
+      "status": "quarantined",
+      "retry_count": 0,
+      "created_at": "2026-04-05T22:32:42.154134+00:00",
+      "updated_at": "2026-04-05T22:32:42.181135+00:00",
+      "idempotency_key": "0a12df66e8c22bbf4798e616",
+      "stages": [
+        {
+          "order": 1,
+          "agent_id": "planner_core",
+          "stage_name": "stage_1",
+          "status": "blocked",
+          "created_at": "2026-04-05T22:32:42.154095+00:00",
+          "updated_at": "2026-04-05T22:32:42.181155+00:00",
+          "rollback_marker": "rb_c4d6f2a37999dbf01c7f_1",
+          "note": "blocked_by_quarantine"
+        },
+        {
+          "order": 2,
+          "agent_id": "executor_core",
+          "stage_name": "stage_2",
+          "status": "blocked",
+          "created_at": "2026-04-05T22:32:42.154110+00:00",
+          "updated_at": "2026-04-05T22:32:42.181164+00:00",
+          "rollback_marker": "rb_c4d6f2a37999dbf01c7f_2",
+          "note": "blocked_by_quarantine"
+        },
+        {
+          "order": 3,
+          "agent_id": "qa_core",
+          "stage_name": "stage_3",
+          "status": "blocked",
+          "created_at": "2026-04-05T22:32:42.154121+00:00",
+          "updated_at": "2026-04-05T22:32:42.181170+00:00",
+          "rollback_marker": "rb_c4d6f2a37999dbf01c7f_3",
+          "note": "blocked_by_quarantine"
+        }
+      ],
+      "quarantine_reason": "manual stop"
+    },
+    {
+      "run_id": "b9345d516e05ae3c71d1",
+      "mission_id": "phase7_1_mission",
+      "task_id": "phase7_1_task_005",
+      "objective": "Run execution flow 3",
+      "task_type": "execute",
+      "requested_tools": [
+        "shell"
+      ],
+      "constraints": {},
+      "input_payload": {},
+      "decision": {
+        "agent_id": "executor_core",
+        "role": "executor",
+        "reason": [
+          "requested tools require executor capabilities"
+        ]
+      },
+      "handoff_path": [
+        "planner_core",
+        "executor_core",
+        "qa_core"
+      ],
+      "status": "retrying",
+      "retry_count": 1,
+      "created_at": "2026-04-05T22:32:42.202856+00:00",
+      "updated_at": "2026-04-05T22:32:42.267624+00:00",
+      "idempotency_key": "b668a9a222e149a79c0869d7",
+      "stages": [
+        {
+          "order": 1,
+          "agent_id": "planner_core",
+          "stage_name": "stage_1",
+          "status": "running",
+          "created_at": "2026-04-05T22:32:42.202818+00:00",
+          "updated_at": "2026-04-05T22:32:42.267648+00:00",
+          "rollback_marker": "rb_b9345d516e05ae3c71d1_1",
+          "note": "reopened_by_retry"
+        },
+        {
+          "order": 2,
+          "agent_id": "executor_core",
+          "stage_name": "stage_2",
+          "status": "pending",
+          "created_at": "2026-04-05T22:32:42.202832+00:00",
+          "updated_at": "2026-04-05T22:32:42.202836+00:00",
+          "rollback_marker": "rb_b9345d516e05ae3c71d1_2"
+        },
+        {
+          "order": 3,
+          "agent_id": "qa_core",
+          "stage_name": "stage_3",
+          "status": "pending",
+          "created_at": "2026-04-05T22:32:42.202844+00:00",
+          "updated_at": "2026-04-05T22:32:42.202847+00:00",
+          "rollback_marker": "rb_b9345d516e05ae3c71d1_3"
+        }
+      ],
+      "last_retry_reason": "retry test"
+    },
+    {
+      "run_id": "3858f4344365af1988fb",
+      "mission_id": "phase8_mission",
+      "task_id": "phase8_task_001",
+      "objective": "Implement patch and validate result",
+      "task_type": "code",
+      "requested_tools": [
+        "python",
+        "filesystem"
+      ],
+      "constraints": {},
+      "input_payload": {},
+      "decision": {
+        "agent_id": "code_core",
+        "role": "code",
+        "reason": [
+          "task_type matched code role"
+        ]
+      },
+      "handoff_path": [
+        "planner_core",
+        "code_core",
+        "qa_core"
+      ],
+      "status": "running",
+      "retry_count": 0,
+      "created_at": "2026-04-05T22:38:11.037855+00:00",
+      "updated_at": "2026-04-05T22:38:11.037862+00:00",
+      "idempotency_key": "1ff0f0abb7f1ec5ee0d1d99d",
+      "stages": [
+        {
+          "order": 1,
+          "agent_id": "planner_core",
+          "stage_name": "stage_1",
+          "status": "running",
+          "created_at": "2026-04-05T22:38:11.037805+00:00",
+          "updated_at": "2026-04-05T22:38:11.037811+00:00",
+          "rollback_marker": "rb_3858f4344365af1988fb_1"
+        },
+        {
+          "order": 2,
+          "agent_id": "code_core",
+          "stage_name": "stage_2",
+          "status": "pending",
+          "created_at": "2026-04-05T22:38:11.037819+00:00",
+          "updated_at": "2026-04-05T22:38:11.037828+00:00",
+          "rollback_marker": "rb_3858f4344365af1988fb_2"
+        },
+        {
+          "order": 3,
+          "agent_id": "qa_core",
+          "stage_name": "stage_3",
+          "status": "pending",
+          "created_at": "2026-04-05T22:38:11.037837+00:00",
+          "updated_at": "2026-04-05T22:38:11.037843+00:00",
+          "rollback_marker": "rb_3858f4344365af1988fb_3"
+        }
+      ]
+    },
+    {
+      "run_id": "16070305dcd0c1102b28",
+      "mission_id": "phase8_mission",
+      "task_id": "phase8_task_002",
+      "objective": "Run execution flow",
+      "task_type": "execute",
+      "requested_tools": [
+        "shell"
+      ],
+      "constraints": {},
+      "input_payload": {},
+      "decision": {
+        "agent_id": "executor_core",
+        "role": "executor",
+        "reason": [
+          "requested tools require executor capabilities"
+        ]
+      },
+      "handoff_path": [
+        "planner_core",
+        "executor_core",
+        "qa_core"
+      ],
+      "status": "running",
+      "retry_count": 0,
+      "created_at": "2026-04-05T22:38:11.101051+00:00",
+      "updated_at": "2026-04-05T22:38:11.101058+00:00",
+      "idempotency_key": "6c637e537f2c93237a4772ca",
+      "stages": [
+        {
+          "order": 1,
+          "agent_id": "planner_core",
+          "stage_name": "stage_1",
+          "status": "running",
+          "created_at": "2026-04-05T22:38:11.100998+00:00",
+          "updated_at": "2026-04-05T22:38:11.101007+00:00",
+          "rollback_marker": "rb_16070305dcd0c1102b28_1"
+        },
+        {
+          "order": 2,
+          "agent_id": "executor_core",
+          "stage_name": "stage_2",
+          "status": "pending",
+          "created_at": "2026-04-05T22:38:11.101019+00:00",
+          "updated_at": "2026-04-05T22:38:11.101025+00:00",
+          "rollback_marker": "rb_16070305dcd0c1102b28_2"
+        },
+        {
+          "order": 3,
+          "agent_id": "qa_core",
+          "stage_name": "stage_3",
+          "status": "pending",
+          "created_at": "2026-04-05T22:38:11.101032+00:00",
+          "updated_at": "2026-04-05T22:38:11.101038+00:00",
+          "rollback_marker": "rb_16070305dcd0c1102b28_3"
+        }
+      ]
+    },
+    {
+      "run_id": "78aa258ef602776dacb9",
+      "mission_id": "phase8_1_mission",
+      "task_id": "phase8_1_task_001",
+      "objective": "Implement patch and validate result",
+      "task_type": "code",
+      "requested_tools": [
+        "python",
+        "filesystem"
+      ],
+      "constraints": {},
+      "input_payload": {},
+      "decision": {
+        "agent_id": "code_core",
+        "role": "code",
+        "reason": [
+          "task_type matched code role"
+        ]
+      },
+      "handoff_path": [
+        "planner_core",
+        "code_core",
+        "qa_core"
+      ],
+      "status": "running",
+      "retry_count": 0,
+      "created_at": "2026-04-05T22:46:00.743924+00:00",
+      "updated_at": "2026-04-05T22:46:00.743930+00:00",
+      "idempotency_key": "5796acf2d08ba6ea4328b05b",
+      "stages": [
+        {
+          "order": 1,
+          "agent_id": "planner_core",
+          "stage_name": "stage_1",
+          "status": "running",
+          "created_at": "2026-04-05T22:46:00.743874+00:00",
+          "updated_at": "2026-04-05T22:46:00.743882+00:00",
+          "rollback_marker": "rb_78aa258ef602776dacb9_1"
+        },
+        {
+          "order": 2,
+          "agent_id": "code_core",
+          "stage_name": "stage_2",
+          "status": "pending",
+          "created_at": "2026-04-05T22:46:00.743893+00:00",
+          "updated_at": "2026-04-05T22:46:00.743900+00:00",
+          "rollback_marker": "rb_78aa258ef602776dacb9_2"
+        },
+        {
+          "order": 3,
+          "agent_id": "qa_core",
+          "stage_name": "stage_3",
+          "status": "pending",
+          "created_at": "2026-04-05T22:46:00.743908+00:00",
+          "updated_at": "2026-04-05T22:46:00.743913+00:00",
+          "rollback_marker": "rb_78aa258ef602776dacb9_3"
+        }
+      ]
+    }
+  ]
+}

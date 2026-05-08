@@ -1,0 +1,38 @@
+{
+    "modified_files_count":  1,
+    "new_files_count":  0,
+    "services_detected_count":  3,
+    "modified_files":  [
+                           "state\\agent_mesh\\knowledge_graph.json"
+                       ],
+    "checked_at":  "2026-04-23T03:18:15.0227125+03:00",
+    "new_files":  [
+
+                  ],
+    "state_backed_execution":  true,
+    "code_backed_execution":  false,
+    "touched_state_files":  "state\\agent_mesh\\knowledge_graph.json",
+    "planning_artifact_exists":  true,
+    "action_summary_present":  true,
+    "touched_state_files_count":  1,
+    "artifact_backed_execution":  true,
+    "task":  "Audit logs and fix problems. Prefer real project changes.",
+    "execution_response_length":  758,
+    "touched_code_files":  {
+
+                           },
+    "touched_code_files_count":  0,
+    "detected_file_mentions":  [
+
+                               ],
+    "execution_artifact_exists":  true,
+    "macro_goal":  "Strengthen Director lifecycle and adjacent reliability",
+    "looked_substantive":  true,
+    "detected_service_mentions":  [
+                                      "supervisor",
+                                      "director",
+                                      "module"
+                                  ],
+    "planning_response_length":  700,
+    "files_detected_count":  0
+}

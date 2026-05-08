@@ -1,0 +1,63 @@
+{
+  "plan_id": "n8nsuper_20260425_001748_236fea8b",
+  "user_task": "Create dynamic intelligent multi-service pipeline",
+  "workflow_kind": "dynamic_pipeline",
+  "name": "Jarvis Super Agent - dynamic_pipeline",
+  "webhook_path": "jarvis-super-dynamic-pipeline-236fea8b",
+  "workflow_json": {
+    "name": "Jarvis Super Agent - dynamic_pipeline",
+    "nodes": [
+      {
+        "id": "eb079ae5-95fc-4fac-8f75-5cc18fa31a6a",
+        "name": "Jarvis Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          220,
+          300
+        ],
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "jarvis-super-dynamic-pipeline-236fea8b",
+          "responseMode": "lastNode",
+          "options": {}
+        }
+      },
+      {
+        "id": "e7949148-3ede-40ba-bc16-633d303c56fe",
+        "name": "Echo Payload",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          520,
+          300
+        ],
+        "parameters": {
+          "jsCode": "const now = new Date().toISOString();\nreturn [{ json: {\n  ok: true,\n  kind: 'webhook_echo',\n  receivedAt: now,\n  source: 'jarvis_super_agent',\n  payload: $json\n} }];"
+        }
+      }
+    ],
+    "connections": {
+      "Jarvis Webhook": {
+        "main": [
+          [
+            {
+              "node": "Echo Payload",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {}
+  },
+  "reasoning": [
+    "Classified task as workflow_kind=dynamic_pipeline.",
+    "Using webhook trigger for safe external execution.",
+    "Using safe nodes with no hardcoded credentials."
+  ],
+  "production_webhook_url": "https://daniliyc.app.n8n.cloud/webhook/jarvis-super-dynamic-pipeline-236fea8b",
+  "test_webhook_url": "https://daniliyc.app.n8n.cloud/webhook-test/jarvis-super-dynamic-pipeline-236fea8b",
+  "created_at": "2026-04-25T00:17:48+00:00"
+}

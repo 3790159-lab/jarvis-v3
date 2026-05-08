@@ -1,0 +1,25 @@
+{
+  "ok": true,
+  "schema": "jarvis.full_creator.v8_8_1",
+  "created_at": "2026-04-27T17:58:39",
+  "product": {
+    "name": "Jarvis Mini SaaS Builder",
+    "description": "A local product generator that creates idea, design brief, backend plan, n8n workflow plan, GitHub PR plan and improvement backlog.",
+    "target_user": "Founder, automation builder, AI operator",
+    "value": "Turns a product idea into a ready implementation package with safe execution gates."
+  },
+  "product_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\full_creator_v8_8_1\\products\\creator_20260427_175839_fe5f8a",
+  "queue_added": [
+    "full_creator_v8_8_1_jarvis_mini_saas_builder_artifact_index",
+    "full_creator_v8_8_1_jarvis_mini_saas_builder_design_review",
+    "full_creator_v8_8_1_jarvis_mini_saas_builder_github_pr_package"
+  ],
+  "queue_size": 6,
+  "queue_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\state\\jarvis_brain\\action_queue_v6_4.json",
+  "fixed": [
+    "utf_8_sig_queue_read",
+    "no_bom_queue_write",
+    "low_risk_gateway_tasks",
+    "operator_review_for_git_push"
+  ]
+}

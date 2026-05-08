@@ -1,0 +1,13 @@
+{
+  "module": "dependency_bundle_probe_depplan_20260423_223404_ff39ba4b_verify.py",
+  "success_count": 1,
+  "failure_count": 0,
+  "blocked_count": 0,
+  "recent_statuses": [
+    "accepted"
+  ],
+  "common_reasons": [
+    "validation_passed"
+  ],
+  "last_seen_at": "2026-04-25T19:54:36+00:00"
+}

@@ -1,0 +1,28 @@
+{
+  "loop_run_id": "uloop_20260423_133153_9e3a76ac",
+  "status": "completed",
+  "coordination_status": "completed",
+  "recommended_action": "apply",
+  "apply_lane_state": "open",
+  "mutation_outcome": "validation_passed",
+  "blocked_reasons_count": 1,
+  "next_best_action": "Proceed to richer orchestration cases.",
+  "operator_message": "System is healthy. Safe apply lane is open for controlled low-risk mutations.",
+  "subsystem_statuses": {
+    "coordination": "ok",
+    "memory_learning": "ok",
+    "external_readiness": "ok",
+    "explainability": "ok"
+  },
+  "phases_count": 4,
+  "metrics": {
+    "runs_count": 2,
+    "completed_count": 2,
+    "degraded_count": 0,
+    "failed_count": 0,
+    "apply_runs": 2,
+    "subsystem_failures": {},
+    "collected_at": "2026-04-23T13:31:53+00:00",
+    "artifacts_root": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\unified_autonomous_loop"
+  }
+}

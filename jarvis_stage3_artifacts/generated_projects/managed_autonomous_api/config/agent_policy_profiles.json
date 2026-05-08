@@ -1,0 +1,35 @@
+{
+  "safe": {
+    "allow_shell": false,
+    "allow_python": false,
+    "allow_file_read": true,
+    "allow_file_write": false,
+    "allow_http": false,
+    "allow_registry_write": false,
+    "max_steps": 8,
+    "timeout_seconds": 600,
+    "risk_level": "low"
+  },
+  "dev": {
+    "allow_shell": true,
+    "allow_python": true,
+    "allow_file_read": true,
+    "allow_file_write": true,
+    "allow_http": true,
+    "allow_registry_write": true,
+    "max_steps": 20,
+    "timeout_seconds": 6000,
+    "risk_level": "medium"
+  },
+  "admin": {
+    "allow_shell": true,
+    "allow_python": true,
+    "allow_file_read": true,
+    "allow_file_write": true,
+    "allow_http": true,
+    "allow_registry_write": true,
+    "max_steps": 40,
+    "timeout_seconds": 6000,
+    "risk_level": "high"
+  }
+}

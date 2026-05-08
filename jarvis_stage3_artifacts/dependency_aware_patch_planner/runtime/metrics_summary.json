@@ -1,0 +1,10 @@
+{
+  "plans_count": 4,
+  "executions_count": 4,
+  "completed_count": 2,
+  "not_applied_count": 0,
+  "rejected_count": 2,
+  "accepted_mutations": 2,
+  "collected_at": "2026-04-23T22:34:09+00:00",
+  "artifacts_root": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\dependency_aware_patch_planner"
+}

@@ -1,0 +1,12 @@
+{
+  "schema": "jarvis.gateway_plan_executor.v7_2",
+  "created_at": "2026-04-27T18:56:31",
+  "run_id": "gateway_plan_exec_20260427_185631",
+  "executed_count": 1,
+  "completed": [
+    "scheduled_demo_time_brain_due_task"
+  ],
+  "failed": [],
+  "run_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\gateway_plan_executor_v7_2\\runs\\gateway_plan_exec_20260427_185631",
+  "queue_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\state\\jarvis_brain\\action_queue_v6_4.json"
+}

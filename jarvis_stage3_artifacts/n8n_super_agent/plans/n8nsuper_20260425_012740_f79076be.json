@@ -1,0 +1,63 @@
+{
+  "plan_id": "n8nsuper_20260425_012740_f79076be",
+  "user_task": "Night Mode V6 iteration: improve service connector registry for Telegram, Google Sheets, Gmail, Calendar, n8n and HTTP API. Do not expose secrets.",
+  "workflow_kind": "telegram_operator_alert",
+  "name": "Jarvis Super Agent - telegram_operator_alert",
+  "webhook_path": "jarvis-super-telegram-operator-alert-f79076be",
+  "workflow_json": {
+    "name": "Jarvis Super Agent - telegram_operator_alert",
+    "nodes": [
+      {
+        "id": "f30ee419-4b75-4f06-b4e2-832569a8322b",
+        "name": "Jarvis Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          220,
+          300
+        ],
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "jarvis-super-telegram-operator-alert-f79076be",
+          "responseMode": "lastNode",
+          "options": {}
+        }
+      },
+      {
+        "id": "8f1f3850-78a1-435c-ab45-287c53095b5f",
+        "name": "Build Operator Alert",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          520,
+          300
+        ],
+        "parameters": {
+          "jsCode": "const now = new Date().toISOString();\nconst body = $json.body || $json;\nreturn [{ json: {\n  ok: true,\n  kind: 'telegram_operator_alert',\n  receivedAt: now,\n  alert: {\n    severity: body.severity || 'info',\n    title: body.title || 'Jarvis Alert',\n    message: body.message || 'Alert received',\n    nextAction: body.nextAction || 'Review Jarvis status'\n  },\n  original: body\n} }];"
+        }
+      }
+    ],
+    "connections": {
+      "Jarvis Webhook": {
+        "main": [
+          [
+            {
+              "node": "Build Operator Alert",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {}
+  },
+  "reasoning": [
+    "Classified task as workflow_kind=telegram_operator_alert.",
+    "Using webhook trigger for safe external execution.",
+    "Using safe nodes with no hardcoded credentials."
+  ],
+  "production_webhook_url": "https://daniliyc.app.n8n.cloud/webhook/jarvis-super-telegram-operator-alert-f79076be",
+  "test_webhook_url": "https://daniliyc.app.n8n.cloud/webhook-test/jarvis-super-telegram-operator-alert-f79076be",
+  "created_at": "2026-04-25T01:27:40+00:00"
+}

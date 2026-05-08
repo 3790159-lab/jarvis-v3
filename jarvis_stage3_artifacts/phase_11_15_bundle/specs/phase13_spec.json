@@ -1,0 +1,28 @@
+﻿{
+  "phase": 13,
+  "name": "Agent Performance Feedback Loop",
+  "goals": [
+    "Score agents by real execution quality",
+    "Store KPI history",
+    "Improve automatic control decisions",
+    "Support downgrade and upgrade logic"
+  ],
+  "components": [
+    "agent_scoring_engine",
+    "kpi_registry",
+    "performance_history_store",
+    "decision_engine"
+  ],
+  "metrics": [
+    "stage_success_rate",
+    "qa_pass_rate",
+    "retry_rate",
+    "execution_latency",
+    "role_kpi_score"
+  ],
+  "acceptance_criteria": [
+    "Scores persist across runs",
+    "Historical performance is queryable",
+    "Decision logic uses performance data"
+  ]
+}

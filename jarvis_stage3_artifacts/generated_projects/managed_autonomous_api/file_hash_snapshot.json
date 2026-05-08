@@ -1,0 +1,136 @@
+﻿{
+    "generated_at":  "2026-04-01T02:52:16",
+    "file_count":  26,
+    "files":  [
+                  {
+                      "path":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\.gitignore",
+                      "sha256":  "C2C5F27F4443E08A80D13DCFC38F5E6DA0738AE5DE52C4C5340D01D88B9ED16E",
+                      "length":  86
+                  },
+                  {
+                      "path":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\environment_snapshot.json",
+                      "sha256":  "F1073D0EDF7A4D8E7F318B3BB591E9E00B29B844F420E9FA8DB5375642E3D853",
+                      "length":  534
+                  },
+                  {
+                      "path":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\file_hash_snapshot.json",
+                      "sha256":  "56DEED0BBC9E9B5A76612F3E4E6E6806682FD3A938C3A43DEDD42B46F5697C9F",
+                      "length":  8331
+                  },
+                  {
+                      "path":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\mission_manifest.json",
+                      "sha256":  "46ADD8550C1F877841FB94C52EEF4E738BA74D4395E90A7CB9A1FFFAD00BF54A",
+                      "length":  467
+                  },
+                  {
+                      "path":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\pipeline_summary.json",
+                      "sha256":  "7724505044A79A682753ECB174DD2E85C3EBB4573121BD2A962A1DAEA68134BC",
+                      "length":  3721
+                  },
+                  {
+                      "path":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\project_control.ps1",
+                      "sha256":  "E94BD63B8ECFAEDA62EB4C87B872DFEF71CD4A70F8B510338BC42409A1369604",
+                      "length":  1440
+                  },
+                  {
+                      "path":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\project_manifest.json",
+                      "sha256":  "A6FA2CEFF6E23FFE3475A55A7E97AF9176B22A24B2619C399CDEEFFE2AECF1A9",
+                      "length":  765
+                  },
+                  {
+                      "path":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\project_runtime_policy.json",
+                      "sha256":  "E2F596AE094CFC3413BE086C07170A5E63137BA8633BC89E1B2DDCE9468023BC",
+                      "length":  398
+                  },
+                  {
+                      "path":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\project_self_check.json",
+                      "sha256":  "53AC222EBEF2A8C383F7079FF73C9D409612BAF529C69BB7EF4D3249B839A9E6",
+                      "length":  206
+                  },
+                  {
+                      "path":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\project_state_snapshot.json",
+                      "sha256":  "017CEC7D61EBDB7990E79EC7ECFE9E6841B13B772F790398D8F56B48234B1F0D",
+                      "length":  1516
+                  },
+                  {
+                      "path":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\project_validation.json",
+                      "sha256":  "9DC0842133CD7B197CF28755829CF83550C12CFB8316B0EE8109D435D30A3431",
+                      "length":  681
+                  },
+                  {
+                      "path":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\pytest.ini",
+                      "sha256":  "64440832DA590FA7A7E93CED1070DEAB94F7467EF96908A46E9F9DD7E228BC38",
+                      "length":  69
+                  },
+                  {
+                      "path":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\README.md",
+                      "sha256":  "A5CE3EC5AF7605289754EF03BC1FDC5E7C67918D760DD003920CA5A859DF23D0",
+                      "length":  259
+                  },
+                  {
+                      "path":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\requirements.lock.txt",
+                      "sha256":  "2330709A58429216A50C0AB65D550C25CAC66ED8B63F9AFE77560E92EE6AF134",
+                      "length":  494
+                  },
+                  {
+                      "path":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\requirements.txt",
+                      "sha256":  "005E4E0FF5B89A2A7CC1A407EDA5B3BF3ADE15566E63BB4DC5945B9818DFA200",
+                      "length":  75
+                  },
+                  {
+                      "path":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\run_api.ps1",
+                      "sha256":  "0B786F0B869F366540BB9CD1A3DCEC595810DE8BD506FC3C17B28E58178B1398",
+                      "length":  215
+                  },
+                  {
+                      "path":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\run_tests.ps1",
+                      "sha256":  "2881379E98A51B173D5BB69BCD6BA4ED29B8463844DAB9164DB1631836A08226",
+                      "length":  205
+                  },
+                  {
+                      "path":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\tool_registry.json",
+                      "sha256":  "7E2B42FD114B1AFAF488E67AB4E680075C70A4BF0B9B98D78C8349413BD5136B",
+                      "length":  852
+                  },
+                  {
+                      "path":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\validate_project.ps1",
+                      "sha256":  "8F3C1C98FBACC0F94B8679EA90F3C0539F35313422A825D4640018C04FA9DE8D",
+                      "length":  767
+                  },
+                  {
+                      "path":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\.pytest_cache\\.gitignore",
+                      "sha256":  "E7C6BB30148CF667606DCD63E7CA77ACAA3CFB0C8303BF09E6419E1E1669DC6D",
+                      "length":  39
+                  },
+                  {
+                      "path":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\.pytest_cache\\CACHEDIR.TAG",
+                      "sha256":  "37DC88EF9A0ABEDDBE81053A6DD8FDFB13AFB613045EA1EB4A5C815A74A3BDE4",
+                      "length":  191
+                  },
+                  {
+                      "path":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\.pytest_cache\\README.md",
+                      "sha256":  "420E808D79A6C25D3CDA0AF33BC4782314A14949866682C68CE8149E89B66B70",
+                      "length":  310
+                  },
+                  {
+                      "path":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\.pytest_cache\\v\\cache\\nodeids",
+                      "sha256":  "8554FC046EDA56556E30B92BE70B8E3C66FB527C535BC59F6B30F56AD0B94805",
+                      "length":  43
+                  },
+                  {
+                      "path":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\app\\main.py",
+                      "sha256":  "8D821362E32B0DF402263847A2FB9E57FC02F96EBBD24F835B315C6DA70866AE",
+                      "length":  188
+                  },
+                  {
+                      "path":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\app\\__init__.py",
+                      "sha256":  "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+                      "length":  0
+                  },
+                  {
+                      "path":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\tests\\test_health.py",
+                      "sha256":  "976B607C5A150DD2F65E069FC8F193A2EFD095DE21097DD211869DACAC010A71",
+                      "length":  447
+                  }
+              ]
+}

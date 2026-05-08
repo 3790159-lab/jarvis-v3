@@ -1,0 +1,20 @@
+{
+  "run_id": "coord_20260423_124739_2e471573",
+  "status": "completed",
+  "recommended_action": "apply",
+  "accepted_mutation_id": "mut_20260423_124739_4768c829",
+  "final_reason": "validation_passed",
+  "next_best_action": "Proceed to richer orchestration cases.",
+  "role_records_count": 6,
+  "handoffs_count": 5,
+  "metrics": {
+    "runs_count": 2,
+    "completed_count": 2,
+    "blocked_count": 0,
+    "degraded_count": 0,
+    "apply_runs": 2,
+    "artifact_only_runs": 0,
+    "collected_at": "2026-04-23T12:47:39+00:00",
+    "artifacts_root": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\agent_coordination"
+  }
+}

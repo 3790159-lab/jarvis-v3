@@ -1,0 +1,11 @@
+{
+  "run_id": "coord_20260424_111539_801c3a5d",
+  "goal": "Execute operator task safely",
+  "task": "Check that operator task center can track parallel tasks",
+  "mode": "safe_mutation",
+  "priority": "normal",
+  "constraints": [],
+  "target_paths": [],
+  "metadata": {},
+  "created_at": "2026-04-24T11:15:39+00:00"
+}

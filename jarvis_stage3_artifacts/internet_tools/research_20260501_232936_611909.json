@@ -1,0 +1,89 @@
+{
+  "ok": true,
+  "tool": "internet.research",
+  "provider": "perplexity",
+  "query": "some slow query",
+  "created_at": "2026-05-01T23:29:36.611909Z",
+  "answer": "**Jarvis V3 Supervisor здесь. Статус: онлайн, backend/tools/mission routes активны. Режим: engineer + research для диагностики и оптимизации slow SQL query.**\n\n## Диагностика медленных SQL-запросов\nОсновные причины: отсутствие индексов, неоптимальная структура запроса (лишние JOIN, неверные фильтры), работа с большими данными, устаревшая статистика, лимиты hardware (CPU/RAM/диск), блокировки при concurrency[1][3].\n\n**Шаг 1: Найди проблемный запрос (зависит от DBMS).**\n- **MySQL/MariaDB**: Включи slow query log (`slow_query_log=ON`, `long_query_time=2`). Анализируй через `pt-query-digest /var/log/mysql/mysql-slow.log` или `performance_schema.events_statements_summary_by_digest`[2].\n- **SQL Server**: Запрос на sys.dm_exec_query_stats для avg_elapsed_time > threshold (например, 300ms):\n  ```\n  SELECT t.text, (qs.total_elapsed_time/1000)/qs.execution_count AS avg_elapsed_time,\n  (qs.total_worker_time/1000)/qs.execution_count AS avg_cpu_time\n  FROM sys.dm_exec_query_stats qs CROSS APPLY sys.dm_exec_sql_text(sql_handle) t\n  ORDER BY avg_elapsed_time DESC;\n  ``` \n  Раздели на WAITING (wait_time >20%) vs RUNNING (CPU-bound)[3].\n- **PostgreSQL**: Проверь GUC (shared_buffers=10-25% RAM, effective_cache_size=75% RAM). Тестируй с меньшими данными[5].\n- **Общее**: Включи Execution Plan (Actual), смотри QueryTimeStats: ElapsedTime vs CpuTime[3].\n\n**Шаг 2: Operator-ready план оптимизации.**\n```\n1. UPDATE STATISTICS (все DBMS).\n2. CREATE/анализируй INDEXES: missing index suggestions в SQL Server[3].\n3. Перепиши query: убери лишние JOIN, LIMIT/TOP, sargable условия (WHERE col = param, не func(col)).\n4. Проверь locks: SHOW PROCESSLIST (MySQL) или sys.dm_exec_requests (SQL Server).\n5. Hardware: мониторь CPU/RAM/IO. Для big data — GPU как SQream[1].\n```\n\n## Быстрый тест\nПоделись текстом твоего slow query + DBMS (MySQL/PostgreSQL/SQL Server?) + пример execution time. Запущу точный анализ через research/brain mode.\n\n**Дальше: mission \"optimize_query\" или n8n pipeline для мониторинга?**",
+  "raw": {
+    "id": "703cd072-1fe0-42cd-ad3c-be1244d98534",
+    "model": "sonar-pro",
+    "created": 1777678175,
+    "usage": {
+      "prompt_tokens": 373,
+      "completion_tokens": 596,
+      "total_tokens": 969,
+      "search_context_size": "low",
+      "cost": {
+        "input_tokens_cost": 0.00112,
+        "output_tokens_cost": 0.00894,
+        "request_cost": 0.006,
+        "total_cost": 0.01606
+      }
+    },
+    "citations": [
+      "https://sqream.com/blog/slow-sql-queries/",
+      "https://severalnines.com/blog/how-identify-mysql-performance-issues-slow-queries/",
+      "https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/performance/troubleshoot-slow-running-queries",
+      "https://www.docs.inductiveautomation.com/docs/8.1/platform/sql-in-ignition/basic-sql-troubleshooting/slow-queries",
+      "https://wiki.postgresql.org/wiki/Slow_Query_Questions"
+    ],
+    "search_results": [
+      {
+        "title": "Slow SQL Queries: How to Diagnose and Optimize Them",
+        "url": "https://sqream.com/blog/slow-sql-queries/",
+        "date": "2024-01-11",
+        "last_updated": "2026-05-01",
+        "snippet": "In this guide, we'll walk you through how to diagnose slow SQL queries and provide best practices for optimization.",
+        "source": "web"
+      },
+      {
+        "title": "How to Identify MySQL Performance Issues with Slow ...",
+        "url": "https://severalnines.com/blog/how-identify-mysql-performance-issues-slow-queries/",
+        "date": "2025-11-27",
+        "last_updated": "2026-04-11",
+        "snippet": "The most common and efficient way is to use the slow query logs. You need to determine first if your slow query logs are enabled.",
+        "source": "web"
+      },
+      {
+        "title": "Troubleshoot slow-running queries - SQL Server",
+        "url": "https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/performance/troubleshoot-slow-running-queries",
+        "date": "2025-01-10",
+        "last_updated": "2026-04-26",
+        "snippet": "This article describes how to handle a performance issue that database applications may experience when using SQL Server: slow performance of a specific query ...",
+        "source": "web"
+      },
+      {
+        "title": "Slow Queries - Ignition User Manual - Inductive Automation",
+        "url": "https://www.docs.inductiveautomation.com/docs/8.1/platform/sql-in-ignition/basic-sql-troubleshooting/slow-queries",
+        "date": "2025-04-07",
+        "last_updated": "2026-03-30",
+        "snippet": "Slow running queries can be a big problem. Not only can data take a long time to display on the screen, but it can end up slowing down the whole client.",
+        "source": "web"
+      },
+      {
+        "title": "Slow Query Questions - PostgreSQL wiki",
+        "url": "https://wiki.postgresql.org/wiki/Slow_Query_Questions",
+        "date": "2023-04-07",
+        "last_updated": "2026-04-26",
+        "snippet": "In any given week, some 50% of the questions on #postgresql IRC and 75% on pgsql-performance are requests for help with a slow query.",
+        "source": "web"
+      }
+    ],
+    "object": "chat.completion",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "**Jarvis V3 Supervisor здесь. Статус: онлайн, backend/tools/mission routes активны. Режим: engineer + research для диагностики и оптимизации slow SQL query.**\n\n## Диагностика медленных SQL-запросов\nОсновные причины: отсутствие индексов, неоптимальная структура запроса (лишние JOIN, неверные фильтры), работа с большими данными, устаревшая статистика, лимиты hardware (CPU/RAM/диск), блокировки при concurrency[1][3].\n\n**Шаг 1: Найди проблемный запрос (зависит от DBMS).**\n- **MySQL/MariaDB**: Включи slow query log (`slow_query_log=ON`, `long_query_time=2`). Анализируй через `pt-query-digest /var/log/mysql/mysql-slow.log` или `performance_schema.events_statements_summary_by_digest`[2].\n- **SQL Server**: Запрос на sys.dm_exec_query_stats для avg_elapsed_time > threshold (например, 300ms):\n  ```\n  SELECT t.text, (qs.total_elapsed_time/1000)/qs.execution_count AS avg_elapsed_time,\n  (qs.total_worker_time/1000)/qs.execution_count AS avg_cpu_time\n  FROM sys.dm_exec_query_stats qs CROSS APPLY sys.dm_exec_sql_text(sql_handle) t\n  ORDER BY avg_elapsed_time DESC;\n  ``` \n  Раздели на WAITING (wait_time >20%) vs RUNNING (CPU-bound)[3].\n- **PostgreSQL**: Проверь GUC (shared_buffers=10-25% RAM, effective_cache_size=75% RAM). Тестируй с меньшими данными[5].\n- **Общее**: Включи Execution Plan (Actual), смотри QueryTimeStats: ElapsedTime vs CpuTime[3].\n\n**Шаг 2: Operator-ready план оптимизации.**\n```\n1. UPDATE STATISTICS (все DBMS).\n2. CREATE/анализируй INDEXES: missing index suggestions в SQL Server[3].\n3. Перепиши query: убери лишние JOIN, LIMIT/TOP, sargable условия (WHERE col = param, не func(col)).\n4. Проверь locks: SHOW PROCESSLIST (MySQL) или sys.dm_exec_requests (SQL Server).\n5. Hardware: мониторь CPU/RAM/IO. Для big data — GPU как SQream[1].\n```\n\n## Быстрый тест\nПоделись текстом твоего slow query + DBMS (MySQL/PostgreSQL/SQL Server?) + пример execution time. Запущу точный анализ через research/brain mode.\n\n**Дальше: mission \"optimize_query\" или n8n pipeline для мониторинга?**"
+        },
+        "delta": {
+          "role": "assistant",
+          "content": ""
+        },
+        "finish_reason": "stop"
+      }
+    ]
+  }
+}

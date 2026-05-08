@@ -1,0 +1,116 @@
+{
+  "ok": true,
+  "tool": "internet.research",
+  "provider": "perplexity",
+  "query": "some slow query",
+  "created_at": "2026-05-01T17:03:30.408480Z",
+  "answer": "**Jarvis V3 Supervisor здесь. Статус системы: backend онлайн, research/research mode активен для анализа \"some slow query\".**\n\nМедленные SQL-запросы (slow queries) — распространенная проблема, вызывающая задержки в приложениях, потерю производительности и проблемы с пользователями. Основные причины и решения на основе анализа источников[1][2][4][8]:\n\n### Диагностика (найди проблемный запрос)\n1. **Проверь метрики latency**: Используй P50/P95/P99 для оценки (P95 >1ms — сигнал тревоги). В SQL Server: выполни запрос на sys.dm_exec_query_stats для avg_elapsed_time > порога (например, 300ms)[3][4].\n   ```\n   SELECT t.text, (qs.total_elapsed_time/1000) / qs.execution_count AS avg_elapsed_time\n   FROM sys.dm_exec_query_stats qs CROSS APPLY sys.dm_exec_sql_text(sql_handle) t\n   ORDER BY avg_elapsed_time DESC;\n   ```\n2. **Инструменты**: Query Insights (Sentry), Redis monitor, или логи Gateway для выявления пиков[5][6].\n3. **Разбей запрос**: Упрости/аббревируй для тестов (цель: ~1s на итерацию)[7].\n\n### Причины (топ-6)\n- **Отсутствие индексов**: Полное сканирование таблиц[2].\n- **Плохие JOIN/WHERE**: Лишние связи, неоптимальные условия[1][2].\n- **Устаревшая статистика/планы**: Обнови stats и проверь query plan[2][4].\n- **Ресурсы/locks**: CPU/RAM/disk limits, concurrency[1][2][5].\n- **Большие данные**: Обрабатывай меньше строк[2].\n\n### Фиксы (приоритизируй по impact)\n| Метод | Действие | Источник |\n|-------|----------|----------|\n| **Индексы** | Добавь missing indexes (SQL Server DMVs)[4] | [2][4] |\n| **Перепиши SQL** | Убери лишние JOIN, оптимизируй WHERE[1][2] | [1][7] |\n| **Stats/Plans** | UPDATE STATISTICS; проверь планы[4] | [2][4] |\n| **Автоматизация** | Tools для анализа (e.g., Ignition, Sentry)[5][6] | [1][5] |\n| **Конфиг** | PostgreSQL: shared_buffers=10-25% RAM[8] | [8] |\n\n**Дальше**: Если есть конкретный запрос/лог/DB (PostgreSQL/SQL Server?), пришли — engineer/research mode разберет план + даст фикс-скрипт. Или mission: \"Оптимизировать slow query в [DB]\" для полного пайплайна.",
+  "raw": {
+    "id": "0cd2f85e-c8c3-4369-9d7d-ce27d2df8003",
+    "model": "sonar-pro",
+    "created": 1777655010,
+    "usage": {
+      "prompt_tokens": 373,
+      "completion_tokens": 674,
+      "total_tokens": 1047,
+      "search_context_size": "low",
+      "cost": {
+        "input_tokens_cost": 0.00112,
+        "output_tokens_cost": 0.01011,
+        "request_cost": 0.006,
+        "total_cost": 0.01723
+      }
+    },
+    "citations": [
+      "https://redis.io/blog/how-slow-queries-hurt-your-business/",
+      "https://sqream.com/blog/slow-sql-queries/",
+      "https://www.youtube.com/watch?v=8z4fWt6Y8HY",
+      "https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/performance/troubleshoot-slow-running-queries",
+      "https://blog.sentry.io/find-slow-database-queries-with-query-insights/",
+      "https://www.docs.inductiveautomation.com/docs/8.1/platform/sql-in-ignition/basic-sql-troubleshooting/slow-queries",
+      "https://www.dolthub.com/blog/2023-03-23-debugging-perf/",
+      "https://wiki.postgresql.org/wiki/Slow_Query_Questions"
+    ],
+    "search_results": [
+      {
+        "title": "How Slow Queries Hurt Your Business (and How to Fix Them) - Redis",
+        "url": "https://redis.io/blog/how-slow-queries-hurt-your-business/",
+        "date": "2023-09-18",
+        "last_updated": "2026-04-10",
+        "snippet": "Slow queries aren't just technical obstacles. They represent potential fissures in customer loyalty and confidence.",
+        "source": "web"
+      },
+      {
+        "title": "Slow SQL Queries: How to Diagnose and Optimize Them - SQream",
+        "url": "https://sqream.com/blog/slow-sql-queries/",
+        "date": "2024-01-11",
+        "last_updated": "2026-04-30",
+        "snippet": "In this guide, we'll walk you through how to diagnose slow SQL queries and provide best practices for optimization.",
+        "source": "web"
+      },
+      {
+        "title": "Find your slow database queries - YouTube",
+        "url": "https://www.youtube.com/watch?v=8z4fWt6Y8HY",
+        "date": "2025-09-08",
+        "last_updated": "2025-09-16",
+        "snippet": "Minimizing query latency is crucial for keeping your databases performant and your applications fast. Learn how to use Insights to identify ...",
+        "source": "web"
+      },
+      {
+        "title": "Troubleshoot slow-running queries - SQL Server - Microsoft Learn",
+        "url": "https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/performance/troubleshoot-slow-running-queries",
+        "date": "2025-01-10",
+        "last_updated": "2026-04-26",
+        "snippet": "This article describes how to handle a performance issue that database applications may experience when using SQL Server: slow performance of a specific query ...",
+        "source": "web"
+      },
+      {
+        "title": "Find slow database queries with Query Insights - Sentry Blog",
+        "url": "https://blog.sentry.io/find-slow-database-queries-with-query-insights/",
+        "date": "2023-09-28",
+        "last_updated": "2026-04-26",
+        "snippet": "To see if a database query is behind the performance issue, click on the Queries from the left navigation menu under Performance.",
+        "source": "web"
+      },
+      {
+        "title": "Slow Queries - Ignition User Manual - Inductive Automation",
+        "url": "https://www.docs.inductiveautomation.com/docs/8.1/platform/sql-in-ignition/basic-sql-troubleshooting/slow-queries",
+        "date": "2025-04-07",
+        "last_updated": "2026-03-30",
+        "snippet": "Slow running queries can be a big problem. Not only can data take a long time to display on the screen, but it can end up slowing down the whole client.",
+        "source": "web"
+      },
+      {
+        "title": "Debugging Slow SQL Queries | DoltHub Blog",
+        "url": "https://www.dolthub.com/blog/2023-03-23-debugging-perf/",
+        "date": "2023-03-23",
+        "last_updated": "2026-04-27",
+        "snippet": "This blog walks through how to debug slow queries. We start by decomposing a query into its constituent parts. Then we simplify the query to iterate more ...",
+        "source": "web"
+      },
+      {
+        "title": "Slow Query Questions - PostgreSQL wiki",
+        "url": "https://wiki.postgresql.org/wiki/Slow_Query_Questions",
+        "date": "2023-04-07",
+        "last_updated": "2026-04-26",
+        "snippet": "In any given week, some 50% of the questions on #postgresql IRC and 75% on pgsql-performance are requests for help with a slow query.",
+        "source": "web"
+      }
+    ],
+    "object": "chat.completion",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "**Jarvis V3 Supervisor здесь. Статус системы: backend онлайн, research/research mode активен для анализа \"some slow query\".**\n\nМедленные SQL-запросы (slow queries) — распространенная проблема, вызывающая задержки в приложениях, потерю производительности и проблемы с пользователями. Основные причины и решения на основе анализа источников[1][2][4][8]:\n\n### Диагностика (найди проблемный запрос)\n1. **Проверь метрики latency**: Используй P50/P95/P99 для оценки (P95 >1ms — сигнал тревоги). В SQL Server: выполни запрос на sys.dm_exec_query_stats для avg_elapsed_time > порога (например, 300ms)[3][4].\n   ```\n   SELECT t.text, (qs.total_elapsed_time/1000) / qs.execution_count AS avg_elapsed_time\n   FROM sys.dm_exec_query_stats qs CROSS APPLY sys.dm_exec_sql_text(sql_handle) t\n   ORDER BY avg_elapsed_time DESC;\n   ```\n2. **Инструменты**: Query Insights (Sentry), Redis monitor, или логи Gateway для выявления пиков[5][6].\n3. **Разбей запрос**: Упрости/аббревируй для тестов (цель: ~1s на итерацию)[7].\n\n### Причины (топ-6)\n- **Отсутствие индексов**: Полное сканирование таблиц[2].\n- **Плохие JOIN/WHERE**: Лишние связи, неоптимальные условия[1][2].\n- **Устаревшая статистика/планы**: Обнови stats и проверь query plan[2][4].\n- **Ресурсы/locks**: CPU/RAM/disk limits, concurrency[1][2][5].\n- **Большие данные**: Обрабатывай меньше строк[2].\n\n### Фиксы (приоритизируй по impact)\n| Метод | Действие | Источник |\n|-------|----------|----------|\n| **Индексы** | Добавь missing indexes (SQL Server DMVs)[4] | [2][4] |\n| **Перепиши SQL** | Убери лишние JOIN, оптимизируй WHERE[1][2] | [1][7] |\n| **Stats/Plans** | UPDATE STATISTICS; проверь планы[4] | [2][4] |\n| **Автоматизация** | Tools для анализа (e.g., Ignition, Sentry)[5][6] | [1][5] |\n| **Конфиг** | PostgreSQL: shared_buffers=10-25% RAM[8] | [8] |\n\n**Дальше**: Если есть конкретный запрос/лог/DB (PostgreSQL/SQL Server?), пришли — engineer/research mode разберет план + даст фикс-скрипт. Или mission: \"Оптимизировать slow query в [DB]\" для полного пайплайна."
+        },
+        "delta": {
+          "role": "assistant",
+          "content": ""
+        },
+        "finish_reason": "stop"
+      }
+    ]
+  }
+}

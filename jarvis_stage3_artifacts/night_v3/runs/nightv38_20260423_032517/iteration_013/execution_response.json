@@ -1,0 +1,8 @@
+{
+    "reply":  "Message received: Macro goal: Strengthen Director lifecycle and adjacent reliability\n\nFocused task: Improve Director lifecycle system. Prioritize code-backed changes in .py or .ps1 files.\n\nExecute a higher-productivity package:\n1) prefer a compact bundle of 2-3 related low-risk/additive changes;\n2) strongly prefer touching real code/project files instead of only state/knowledge files;\n3) do not keep editing knowledge_graph.json repeatedly unless it directly unlocks a real code change;\n4) list what was actually changed: files, modules, services, restarts, checks;\n5) end with a short action-summary.\n\nSupervisor fallback mode is active.",
+    "mode":  "smart_local",
+    "source":  "local_fallback",
+    "confidence":  0.78,
+    "route":  "chat",
+    "mission":  null
+}

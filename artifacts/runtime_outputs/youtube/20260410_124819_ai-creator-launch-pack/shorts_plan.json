@@ -1,0 +1,77 @@
+{
+  "channel_name": "AI Creator Launch Pack",
+  "niche": "AI productivity",
+  "shorts_count": 10,
+  "items": [
+    {
+      "day": 1,
+      "title": "Top 10 mistakes beginners make in AI productivity",
+      "format": "short",
+      "platform": "youtube",
+      "status": "planned"
+    },
+    {
+      "day": 2,
+      "title": "How to start in AI productivity with zero budget",
+      "format": "short",
+      "platform": "youtube",
+      "status": "planned"
+    },
+    {
+      "day": 3,
+      "title": "3 tools that instantly improve your AI productivity workflow",
+      "format": "short",
+      "platform": "youtube",
+      "status": "planned"
+    },
+    {
+      "day": 4,
+      "title": "My honest AI productivity setup for 2026",
+      "format": "short",
+      "platform": "youtube",
+      "status": "planned"
+    },
+    {
+      "day": 5,
+      "title": "Beginner guide to consistency in AI productivity",
+      "format": "short",
+      "platform": "youtube",
+      "status": "planned"
+    },
+    {
+      "day": 6,
+      "title": "Fast wins in AI productivity you can apply today",
+      "format": "short",
+      "platform": "youtube",
+      "status": "planned"
+    },
+    {
+      "day": 7,
+      "title": "What nobody tells you about AI productivity",
+      "format": "short",
+      "platform": "youtube",
+      "status": "planned"
+    },
+    {
+      "day": 8,
+      "title": "How I would build from zero in AI productivity",
+      "format": "short",
+      "platform": "youtube",
+      "status": "planned"
+    },
+    {
+      "day": 9,
+      "title": "1-week challenge for improving in AI productivity",
+      "format": "short",
+      "platform": "youtube",
+      "status": "planned"
+    },
+    {
+      "day": 10,
+      "title": "Best habits for long-term growth in AI productivity",
+      "format": "short",
+      "platform": "youtube",
+      "status": "planned"
+    }
+  ]
+}

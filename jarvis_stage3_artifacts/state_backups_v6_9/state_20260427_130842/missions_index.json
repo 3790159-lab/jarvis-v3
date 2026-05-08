@@ -1,0 +1,44 @@
+{
+  "mission_0a383207": {
+    "mission_id": "mission_0a383207",
+    "goal_id": "goal_a7795fa0",
+    "objective": "Create test file",
+    "status": "planned",
+    "created_at": "2026-04-06T21:26:32Z"
+  },
+  "mission_69c26d59": {
+    "mission_id": "mission_69c26d59",
+    "goal_id": "goal_53601deb",
+    "objective": "Create test file",
+    "status": "completed",
+    "created_at": "2026-04-06T21:35:17Z"
+  },
+  "mission_0cb3b254": {
+    "mission_id": "mission_0cb3b254",
+    "goal_id": "goal_b6f8d0b5",
+    "objective": "Create report file",
+    "status": "completed",
+    "created_at": "2026-04-06T21:55:58Z"
+  },
+  "mission_72b1f012": {
+    "mission_id": "mission_72b1f012",
+    "goal_id": "goal_5c6e240d",
+    "objective": "Create report file",
+    "status": "completed",
+    "created_at": "2026-04-06T22:34:11Z"
+  },
+  "mission_8ab50877": {
+    "mission_id": "mission_8ab50877",
+    "goal_id": "goal_d1b55382",
+    "objective": "Отлично, тогда сделай это ))",
+    "status": "planned",
+    "created_at": "2026-04-06T22:52:00Z"
+  },
+  "mission_0437331e": {
+    "mission_id": "mission_0437331e",
+    "goal_id": "goal_8df73a77",
+    "objective": "создай новый goal для отчёта",
+    "status": "planned",
+    "created_at": "2026-04-06T22:55:11Z"
+  }
+}

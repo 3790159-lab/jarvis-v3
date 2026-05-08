@@ -1,0 +1,417 @@
+{
+  "run_id": "n8nsuperrun_20260424_230309_fe5d8845",
+  "user_task": "Create external HTTP request workflow and test it",
+  "workflow_kind": "http_request_probe",
+  "status": "tested",
+  "plan": {
+    "plan_id": "n8nsuper_20260424_230306_fa66796e",
+    "user_task": "Create external HTTP request workflow and test it",
+    "workflow_kind": "http_request_probe",
+    "name": "Jarvis Super Agent - http_request_probe",
+    "webhook_path": "jarvis-super-http-request-probe-fa66796e",
+    "workflow_json": {
+      "name": "Jarvis Super Agent - http_request_probe",
+      "nodes": [
+        {
+          "id": "4c18e679-3f48-40a9-bddc-6c90188e6452",
+          "name": "Jarvis Webhook",
+          "type": "n8n-nodes-base.webhook",
+          "typeVersion": 2,
+          "position": [
+            220,
+            300
+          ],
+          "parameters": {
+            "httpMethod": "POST",
+            "path": "jarvis-super-http-request-probe-fa66796e",
+            "responseMode": "lastNode",
+            "options": {}
+          }
+        },
+        {
+          "id": "7edd015e-7b6a-49b5-a4bc-e7d2b016df6b",
+          "name": "External HTTP Request",
+          "type": "n8n-nodes-base.httpRequest",
+          "typeVersion": 2,
+          "position": [
+            520,
+            300
+          ],
+          "parameters": {
+            "method": "GET",
+            "url": "https://jsonplaceholder.typicode.com/todos/1",
+            "options": {}
+          }
+        },
+        {
+          "id": "bc282673-b94a-40eb-8952-56481c483c8e",
+          "name": "Build HTTP Result",
+          "type": "n8n-nodes-base.code",
+          "typeVersion": 2,
+          "position": [
+            820,
+            300
+          ],
+          "parameters": {
+            "jsCode": "const now = new Date().toISOString();\nreturn [{ json: {\n  ok: true,\n  kind: 'http_request_probe',\n  receivedAt: now,\n  externalResponse: $json,\n  note: 'External HTTP Request node executed successfully'\n} }];"
+          }
+        }
+      ],
+      "connections": {
+        "Jarvis Webhook": {
+          "main": [
+            [
+              {
+                "node": "External HTTP Request",
+                "type": "main",
+                "index": 0
+              }
+            ]
+          ]
+        },
+        "External HTTP Request": {
+          "main": [
+            [
+              {
+                "node": "Build HTTP Result",
+                "type": "main",
+                "index": 0
+              }
+            ]
+          ]
+        }
+      },
+      "settings": {}
+    },
+    "reasoning": [
+      "Classified task as workflow_kind=http_request_probe.",
+      "Using webhook trigger for safe external execution.",
+      "Using safe nodes with no hardcoded credentials.",
+      "Added real n8n HTTP Request node for external API calls."
+    ],
+    "production_webhook_url": "https://daniliyc.app.n8n.cloud/webhook/jarvis-super-http-request-probe-fa66796e",
+    "test_webhook_url": "https://daniliyc.app.n8n.cloud/webhook-test/jarvis-super-http-request-probe-fa66796e",
+    "created_at": "2026-04-24T23:03:06+00:00"
+  },
+  "deploy_result": {
+    "ok": true,
+    "status": 200,
+    "body": {
+      "updatedAt": "2026-04-24T23:03:06.410Z",
+      "createdAt": "2026-04-24T23:03:06.410Z",
+      "id": "JoJv4Or84ktsyEvV",
+      "name": "Jarvis Super Agent - http_request_probe",
+      "description": null,
+      "active": false,
+      "isArchived": false,
+      "nodes": [
+        {
+          "id": "4c18e679-3f48-40a9-bddc-6c90188e6452",
+          "name": "Jarvis Webhook",
+          "type": "n8n-nodes-base.webhook",
+          "typeVersion": 2,
+          "position": [
+            220,
+            300
+          ],
+          "parameters": {
+            "httpMethod": "POST",
+            "path": "jarvis-super-http-request-probe-fa66796e",
+            "responseMode": "lastNode",
+            "options": {}
+          },
+          "webhookId": "d7bbf047-01c9-442a-971f-252c6db33294"
+        },
+        {
+          "id": "7edd015e-7b6a-49b5-a4bc-e7d2b016df6b",
+          "name": "External HTTP Request",
+          "type": "n8n-nodes-base.httpRequest",
+          "typeVersion": 2,
+          "position": [
+            520,
+            300
+          ],
+          "parameters": {
+            "method": "GET",
+            "url": "https://jsonplaceholder.typicode.com/todos/1",
+            "options": {}
+          }
+        },
+        {
+          "id": "bc282673-b94a-40eb-8952-56481c483c8e",
+          "name": "Build HTTP Result",
+          "type": "n8n-nodes-base.code",
+          "typeVersion": 2,
+          "position": [
+            820,
+            300
+          ],
+          "parameters": {
+            "jsCode": "const now = new Date().toISOString();\nreturn [{ json: {\n  ok: true,\n  kind: 'http_request_probe',\n  receivedAt: now,\n  externalResponse: $json,\n  note: 'External HTTP Request node executed successfully'\n} }];"
+          }
+        }
+      ],
+      "connections": {
+        "Jarvis Webhook": {
+          "main": [
+            [
+              {
+                "node": "External HTTP Request",
+                "type": "main",
+                "index": 0
+              }
+            ]
+          ]
+        },
+        "External HTTP Request": {
+          "main": [
+            [
+              {
+                "node": "Build HTTP Result",
+                "type": "main",
+                "index": 0
+              }
+            ]
+          ]
+        }
+      },
+      "settings": {},
+      "staticData": null,
+      "meta": null,
+      "pinData": null,
+      "versionId": "4064720f-e182-455e-a139-3a9d348cb679",
+      "activeVersionId": null,
+      "versionCounter": 1,
+      "triggerCount": 0,
+      "shared": [
+        {
+          "updatedAt": "2026-04-24T23:03:06.412Z",
+          "createdAt": "2026-04-24T23:03:06.412Z",
+          "role": "workflow:owner",
+          "workflowId": "JoJv4Or84ktsyEvV",
+          "projectId": "8aPubdf7jkKE6V5g",
+          "project": {
+            "updatedAt": "2026-01-20T10:41:04.645Z",
+            "createdAt": "2026-01-20T10:40:58.637Z",
+            "id": "8aPubdf7jkKE6V5g",
+            "name": "Daniil Lapin <3790159@gmail.com>",
+            "type": "personal",
+            "icon": null,
+            "description": null,
+            "creatorId": "30e95836-767f-4606-9e2d-b7775186bd03"
+          }
+        }
+      ],
+      "tags": [],
+      "parentFolder": null,
+      "activeVersion": null
+    }
+  },
+  "activate_result": {
+    "ok": true,
+    "status": 200,
+    "body": {
+      "updatedAt": "2026-04-24T23:03:06.410Z",
+      "createdAt": "2026-04-24T23:03:06.410Z",
+      "id": "JoJv4Or84ktsyEvV",
+      "name": "Jarvis Super Agent - http_request_probe",
+      "description": null,
+      "active": true,
+      "isArchived": false,
+      "nodes": [
+        {
+          "id": "4c18e679-3f48-40a9-bddc-6c90188e6452",
+          "name": "Jarvis Webhook",
+          "type": "n8n-nodes-base.webhook",
+          "typeVersion": 2,
+          "position": [
+            220,
+            300
+          ],
+          "parameters": {
+            "httpMethod": "POST",
+            "path": "jarvis-super-http-request-probe-fa66796e",
+            "responseMode": "lastNode",
+            "options": {}
+          },
+          "webhookId": "d7bbf047-01c9-442a-971f-252c6db33294"
+        },
+        {
+          "id": "7edd015e-7b6a-49b5-a4bc-e7d2b016df6b",
+          "name": "External HTTP Request",
+          "type": "n8n-nodes-base.httpRequest",
+          "typeVersion": 2,
+          "position": [
+            520,
+            300
+          ],
+          "parameters": {
+            "method": "GET",
+            "url": "https://jsonplaceholder.typicode.com/todos/1",
+            "options": {}
+          }
+        },
+        {
+          "id": "bc282673-b94a-40eb-8952-56481c483c8e",
+          "name": "Build HTTP Result",
+          "type": "n8n-nodes-base.code",
+          "typeVersion": 2,
+          "position": [
+            820,
+            300
+          ],
+          "parameters": {
+            "jsCode": "const now = new Date().toISOString();\nreturn [{ json: {\n  ok: true,\n  kind: 'http_request_probe',\n  receivedAt: now,\n  externalResponse: $json,\n  note: 'External HTTP Request node executed successfully'\n} }];"
+          }
+        }
+      ],
+      "connections": {
+        "Jarvis Webhook": {
+          "main": [
+            [
+              {
+                "node": "External HTTP Request",
+                "type": "main",
+                "index": 0
+              }
+            ]
+          ]
+        },
+        "External HTTP Request": {
+          "main": [
+            [
+              {
+                "node": "Build HTTP Result",
+                "type": "main",
+                "index": 0
+              }
+            ]
+          ]
+        }
+      },
+      "settings": {},
+      "staticData": null,
+      "meta": null,
+      "pinData": null,
+      "versionId": "4064720f-e182-455e-a139-3a9d348cb679",
+      "activeVersionId": "4064720f-e182-455e-a139-3a9d348cb679",
+      "versionCounter": 3,
+      "triggerCount": 1,
+      "activeVersion": {
+        "updatedAt": "2026-04-24T23:03:06.413Z",
+        "createdAt": "2026-04-24T23:03:06.413Z",
+        "versionId": "4064720f-e182-455e-a139-3a9d348cb679",
+        "workflowId": "JoJv4Or84ktsyEvV",
+        "nodes": [
+          {
+            "id": "4c18e679-3f48-40a9-bddc-6c90188e6452",
+            "name": "Jarvis Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 2,
+            "position": [
+              220,
+              300
+            ],
+            "parameters": {
+              "httpMethod": "POST",
+              "path": "jarvis-super-http-request-probe-fa66796e",
+              "responseMode": "lastNode",
+              "options": {}
+            },
+            "webhookId": "d7bbf047-01c9-442a-971f-252c6db33294"
+          },
+          {
+            "id": "7edd015e-7b6a-49b5-a4bc-e7d2b016df6b",
+            "name": "External HTTP Request",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 2,
+            "position": [
+              520,
+              300
+            ],
+            "parameters": {
+              "method": "GET",
+              "url": "https://jsonplaceholder.typicode.com/todos/1",
+              "options": {}
+            }
+          },
+          {
+            "id": "bc282673-b94a-40eb-8952-56481c483c8e",
+            "name": "Build HTTP Result",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+              820,
+              300
+            ],
+            "parameters": {
+              "jsCode": "const now = new Date().toISOString();\nreturn [{ json: {\n  ok: true,\n  kind: 'http_request_probe',\n  receivedAt: now,\n  externalResponse: $json,\n  note: 'External HTTP Request node executed successfully'\n} }];"
+            }
+          }
+        ],
+        "connections": {
+          "Jarvis Webhook": {
+            "main": [
+              [
+                {
+                  "node": "External HTTP Request",
+                  "type": "main",
+                  "index": 0
+                }
+              ]
+            ]
+          },
+          "External HTTP Request": {
+            "main": [
+              [
+                {
+                  "node": "Build HTTP Result",
+                  "type": "main",
+                  "index": 0
+                }
+              ]
+            ]
+          }
+        },
+        "authors": "Daniil Lapin",
+        "name": null,
+        "description": null,
+        "autosaved": false,
+        "workflowPublishHistory": [
+          {
+            "createdAt": "2026-04-24T23:03:06.786Z",
+            "id": 23,
+            "workflowId": "JoJv4Or84ktsyEvV",
+            "versionId": "4064720f-e182-455e-a139-3a9d348cb679",
+            "event": "activated",
+            "userId": "30e95836-767f-4606-9e2d-b7775186bd03"
+          }
+        ]
+      }
+    }
+  },
+  "webhook_test_result": {
+    "ok": true,
+    "status": 200,
+    "body": {
+      "ok": true,
+      "kind": "http_request_probe",
+      "receivedAt": "2026-04-24T23:03:08.800Z",
+      "externalResponse": {
+        "userId": 1,
+        "id": 1,
+        "title": "delectus aut autem",
+        "completed": false
+      },
+      "note": "External HTTP Request node executed successfully"
+    }
+  },
+  "workflow_id": "JoJv4Or84ktsyEvV",
+  "summary": "n8n Super Agent Result\n\nStatus: tested\nWorkflow kind: http_request_probe\nWorkflow name: Jarvis Super Agent - http_request_probe\nWorkflow ID: JoJv4Or84ktsyEvV\nDeploy: ok\nActivated: ok\nWebhook test: ok\n\nProduction webhook: https://daniliyc.app.n8n.cloud/webhook/jarvis-super-http-request-probe-fa66796e\n\nReasoning:\n- Classified task as workflow_kind=http_request_probe.\n- Using webhook trigger for safe external execution.\n- Using safe nodes with no hardcoded credentials.\n- Added real n8n HTTP Request node for external API calls.",
+  "recommendations": [
+    "Workflow deployed successfully.",
+    "Workflow activated successfully.",
+    "Production webhook test passed."
+  ],
+  "created_at": "2026-04-24T23:03:09+00:00"
+}

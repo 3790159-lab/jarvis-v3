@@ -1,0 +1,14 @@
+{
+  "blueprint_id": "workflow_sentinel_agent",
+  "display_name": "Workflow Sentinel Agent",
+  "risk": "additive_low",
+  "summary": "Managed watcher module for workflow health, timeout detection and self-check alerts.",
+  "ports_offset": 2,
+  "default_files": [
+    "manifest.json",
+    "README.md",
+    "app.py",
+    "scripts/start_module.ps1",
+    "config/module.env.example"
+  ]
+}

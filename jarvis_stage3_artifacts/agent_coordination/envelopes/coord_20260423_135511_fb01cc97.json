@@ -1,0 +1,11 @@
+{
+  "run_id": "coord_20260423_135511_fb01cc97",
+  "goal": "Improve observability and failure diagnosis",
+  "task": "Use unified autonomous loop to execute a guarded observability-oriented improvement and refresh explanation artifacts",
+  "mode": "safe_mutation",
+  "priority": "normal",
+  "constraints": [],
+  "target_paths": [],
+  "metadata": {},
+  "created_at": "2026-04-23T13:55:11+00:00"
+}

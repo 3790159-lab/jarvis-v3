@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <title>Jarvis V3 Supervisor Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+    }
+    .wrap {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    h1, h2, h3 {
+      margin-top: 0;
+    }
+    .topbar {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    .btn {
+      background: #2563eb;
+      color: white;
+      border: 0;
+      border-radius: 8px;
+      padding: 10px 14px;
+      cursor: pointer;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 16px;
+    }
+    .card {
+      background: #111827;
+      border: 1px solid #1f2937;
+      border-radius: 14px;
+      padding: 16px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    }
+    .span-3 { grid-column: span 3; }
+    .span-4 { grid-column: span 4; }
+    .span-6 { grid-column: span 6; }
+    .span-8 { grid-column: span 8; }
+    .span-12 { grid-column: span 12; }
+
+    @media (max-width: 1100px) {
+      .span-3, .span-4, .span-6, .span-8, .span-12 { grid-column: span 12; }
+    }
+
+    .metric {
+      font-size: 28px;
+      font-weight: bold;
+      margin: 6px 0;
+    }
+    .muted {
+      color: #94a3b8;
+      font-size: 13px;
+    }
+    .list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-height: 360px;
+      overflow: auto;
+    }
+    .item {
+      border: 1px solid #1f2937;
+      border-radius: 10px;
+      padding: 10px;
+      background: #0b1220;
+    }
+    .row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .tag {
+      font-size: 12px;
+      border-radius: 999px;
+      padding: 4px 8px;
+      background: #1e293b;
+      color: #cbd5e1;
+    }
+    pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: #0b1220;
+      border-radius: 10px;
+      padding: 12px;
+      overflow: auto;
+      max-height: 360px;
+    }
+    .footer-note {
+      margin-top: 16px;
+      font-size: 12px;
+      color: #94a3b8;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div>
+        <h1>Jarvis V3 Supervisor Dashboard</h1>
+        <div class="muted">Operator visibility / mission control overview</div>
+      </div>
+      <div class="row">
+        <button class="btn" onclick="loadData()">Обновить</button>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card span-3">
+        <h3>Миссии</h3>
+        <div class="metric" id="missions_total">-</div>
+        <div class="muted">Всего миссий</div>
+      </div>
+
+      <div class="card span-3">
+        <h3>Очередь</h3>
+        <div class="metric" id="queue_total">-</div>
+        <div class="muted">Всего queue items</div>
+      </div>
+
+      <div class="card span-3">
+        <h3>Память</h3>
+        <div class="metric" id="memory_events_total">-</div>
+        <div class="muted">Events in mission memory</div>
+      </div>
+
+      <div class="card span-3">
+        <h3>Активные задачи</h3>
+        <div class="metric" id="active_runs_total">-</div>
+        <div class="muted">Running snapshots</div>
+      </div>
+
+      <div class="card span-6">
+        <h3>Миссии</h3>
+        <div class="list" id="missions_list"></div>
+      </div>
+
+      <div class="card span-6">
+        <h3>Очередь</h3>
+        <div class="list" id="queue_list"></div>
+      </div>
+
+      <div class="card span-4">
+        <h3>Воркеры</h3>
+        <div class="list" id="workers_list"></div>
+      </div>
+
+      <div class="card span-4">
+        <h3>Инструменты</h3>
+        <div class="list" id="tools_list"></div>
+      </div>
+
+      <div class="card span-4">
+        <h3>Файлы output</h3>
+        <div class="list" id="output_files_list"></div>
+      </div>
+
+      <div class="card span-6">
+        <h3>Диагностика</h3>
+        <pre id="diag_block">loading...</pre>
+      </div>
+
+      <div class="card span-6">
+        <h3>LLM / Ollama</h3>
+        <pre id="llm_block">loading...</pre>
+      </div>
+
+      <div class="card span-12">
+        <h3>Mission detail</h3>
+        <div class="muted">Нажми на любую mission_id в списке миссий</div>
+        <pre id="mission_detail">mission detail will appear here</pre>
+      </div>
+    </div>
+
+    <div class="footer-note">
+      Dashboard читает данные из <code>/api/dashboard/data</code> и <code>/api/dashboard/missions/{mission_id}</code>.
+    </div>
+  </div>
+
+  <script>
+    async function fetchJson(url) {
+      const resp = await fetch(url);
+      if (!resp.ok) {
+        throw new Error("HTTP " + resp.status + " for " + url);
+      }
+      return await resp.json();
+    }
+
+    function renderList(containerId, items, renderer) {
+      const container = document.getElementById(containerId);
+      container.innerHTML = "";
+      if (!items || !items.length) {
+        container.innerHTML = '<div class="item muted">Пусто</div>';
+        return;
+      }
+      for (const item of items) {
+        const div = document.createElement("div");
+        div.className = "item";
+        div.innerHTML = renderer(item);
+        container.appendChild(div);
+      }
+    }
+
+    async function loadMissionDetail(missionId) {
+      try {
+        const data = await fetchJson("/api/dashboard/missions/" + encodeURIComponent(missionId));
+        document.getElementById("mission_detail").textContent = JSON.stringify(data, null, 2);
+      } catch (e) {
+        document.getElementById("mission_detail").textContent = "Ошибка загрузки mission detail: " + e.message;
+      }
+    }
+
+    async function loadData() {
+      try {
+        const data = await fetchJson("/api/dashboard/data");
+
+        document.getElementById("missions_total").textContent = data.mission_stats?.missions_total ?? "-";
+        document.getElementById("queue_total").textContent = data.queue_stats?.queue_total ?? "-";
+        document.getElementById("memory_events_total").textContent = data.memory_stats?.memory_events_total ?? "-";
+        document.getElementById("active_runs_total").textContent = data.active_run_stats?.active_runs_total ?? "-";
+
+        renderList("missions_list", data.missions || [], (m) => `
+          <div class="row">
+            <span class="tag">${m.status}</span>
+            <span class="tag">${m.context?.priority || "normal"}</span>
+            <strong style="cursor:pointer;color:#60a5fa" onclick="loadMissionDetail('${m.mission_id}')">${m.mission_id}</strong>
+          </div>
+          <div>${m.objective || ""}</div>
+          <div class="muted">tasks=${(m.tasks || []).length} | updated_at=${m.updated_at || "-"}</div>
+        `);
+
+        renderList("queue_list", data.queue_items || [], (q) => `
+          <div class="row">
+            <span class="tag">${q.status}</span>
+            <span class="tag">${q.priority || "normal"}</span>
+            <strong>${q.task_id}</strong>
+          </div>
+          <div class="muted">mission=${q.mission_id} | worker=${q.worker_id || "-"} | type=${q.type || "-"}</div>
+        `);
+
+        renderList("workers_list", data.worker_registry || [], (w) => `
+          <div class="row">
+            <span class="tag">${w.status}</span>
+            <strong>${w.worker_id}</strong>
+          </div>
+          <div class="muted">pid=${w.pid} | last_heartbeat=${w.last_heartbeat}</div>
+          <div class="muted">${w.last_error || ""}</div>
+        `);
+
+        renderList("tools_list", Object.entries(data.tools || {}).map(([k, v]) => ({key:k, value:v})), (t) => `
+          <div class="row">
+            <strong>${t.key}</strong>
+            <span class="tag">${t.value.executor}</span>
+            <span class="tag">${t.value.safe ? "safe" : "restricted"}</span>
+          </div>
+          <div class="muted">${t.value.description || ""}</div>
+        `);
+
+        renderList("output_files_list", data.output_files || [], (f) => `
+          <div><strong>${f.name}</strong></div>
+          <div class="muted">size=${f.size_bytes} | modified_at=${f.modified_at}</div>
+        `);
+
+        document.getElementById("diag_block").textContent = JSON.stringify({
+          policy: data.policy,
+          mission_stats: data.mission_stats,
+          queue_stats: data.queue_stats,
+          memory_stats: data.memory_stats,
+          worker_state: data.worker_state,
+          worker_registry_stats: data.worker_registry_stats,
+          active_run_stats: data.active_run_stats
+        }, null, 2);
+
+        document.getElementById("llm_block").textContent = JSON.stringify({
+          ollama: data.ollama,
+          llm_stats: data.llm_stats
+        }, null, 2);
+
+      } catch (e) {
+        document.getElementById("diag_block").textContent = "Ошибка загрузки dashboard: " + e.message;
+      }
+    }
+
+    loadData();
+    setInterval(loadData, 8000);
+  </script>
+</body>
+</html>

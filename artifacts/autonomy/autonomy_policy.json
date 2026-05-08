@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "max_runs_per_hour": 2,
+  "max_replans_per_hour": 2,
+  "max_consecutive_failures": 2,
+  "max_pending_jobs_per_mission": 2,
+  "auto_pause_on_instability": true,
+  "allow_manual_continue_when_paused": false,
+  "instability_window_minutes": 60,
+  "memory_snapshot_on_success": true,
+  "memory_snapshot_on_guard_pause": true
+}

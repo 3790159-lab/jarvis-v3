@@ -1,0 +1,107 @@
+{
+  "ok": true,
+  "tool": "internet.research",
+  "provider": "perplexity",
+  "query": "some slow query",
+  "created_at": "2026-05-05T17:37:01.526449Z",
+  "answer": "# Jarvis V3 Supervisor | SQL Performance Analysis\n\n**Mode: RESEARCH + ENGINEER**\n\n---\n\n## 📊 Synthesis: Root Causes of Slow SQL Queries\n\nBased on search results, slow queries stem from **three predictable bottleneck layers** (priority order):\n\n### **Layer 1: I/O Bottleneck** ⚠️ PRIMARY\n- **Full table scans** instead of indexed lookups\n- **Partition/clustering misses** — data layout doesn't match query access pattern\n- **Cold cache reads** from object storage on first access\n- **\"Needle in haystack\"** problem — scanning massive datasets to find few rows\n\n**Symptom:** Dashboard fetch taking seconds when it should be instant.\n\n---\n\n### **Layer 2: Network Bottleneck** \n- **Large data shuffles** across the pipeline\n- **Disk spills** to slower storage during processing\n\n---\n\n### **Layer 3: CPU Bottleneck** (LEAST COMMON)\n- Suboptimal query structure (unnecessary JOINs, wrong filtering)\n- CPU resource constraints\n- Outdated optimizer statistics\n\n---\n\n## 🔧 Diagnostic Framework\n\n**Step 1: Identify bottleneck using execution plan**\n```sql\n-- SQL Server example: Find queries with high wait time\nSELECT t.text,\n  (qs.total_elapsed_time - qs.total_worker_time) / qs.execution_count AS avg_wait_time,\n  qs.total_logical_reads / qs.execution_count AS avg_logical_reads\nFROM sys.dm_exec_query_stats qs\nCROSS APPLY sys.dm_exec_sql_text(sql_handle) t\nORDER BY (qs.total_elapsed_time - qs.total_worker_time) DESC\n```\n\n**Step 2: Check latency percentiles (P50/P95/P99)**\n- If P95+ queries spike above baseline → targeting 95th percentile fixes handles majority\n\n**Step 3: Audit physical data layout**\n- Parquet file sizes: 128MB–1GB optimal\n- Data sorted by filter columns?\n- Partitioning strategy aligned with query patterns?\n\n---\n\n## ✅ Fixes (Priority Order)\n\n1. **Add missing indexes** on frequently filtered columns\n2. **Fix partition strategy** — align with WHERE clause patterns\n3. **Update optimizer statistics** — let query planner make informed decisions\n4. **Redesign query logic** — remove unnecessary JOINs, improve WHERE conditions\n5. **Scale hardware** — only if I/O is optimized and still constrained\n\n---\n\n## ❓ Next Steps\n\n**To help you optimize:**\n- What's your database engine? (SQL Server, PostgreSQL, DuckDB, BigQuery?)\n- Can you share the slow query + its execution plan?\n- What's your data volume & access pattern?\n\n**Mode available:** engineer (query rewrite) or n8n (performance monitoring automation)",
+  "raw": {
+    "id": "9c9d8acf-7906-401b-a32e-1199be001dd1",
+    "model": "sonar-pro",
+    "created": 1778002620,
+    "usage": {
+      "prompt_tokens": 373,
+      "completion_tokens": 566,
+      "total_tokens": 939,
+      "search_context_size": "low",
+      "cost": {
+        "input_tokens_cost": 0.00112,
+        "output_tokens_cost": 0.00849,
+        "request_cost": 0.006,
+        "total_cost": 0.01561
+      }
+    },
+    "citations": [
+      "https://sqream.com/blog/slow-sql-queries/",
+      "https://motherduck.com/learn/diagnose-fix-slow-queries/",
+      "https://www.youtube.com/watch?v=8z4fWt6Y8HY",
+      "https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/performance/troubleshoot-slow-running-queries",
+      "https://blog.sentry.io/find-slow-database-queries-with-query-insights/",
+      "https://www.docs.inductiveautomation.com/docs/8.1/platform/sql-in-ignition/basic-sql-troubleshooting/slow-queries",
+      "https://www.purestorage.com/video/webinars/why-is-one-query-sometimes-slow-and-sometimes-fast/6314074901112.html"
+    ],
+    "search_results": [
+      {
+        "title": "Slow SQL Queries: How to Diagnose and Optimize Them - SQream",
+        "url": "https://sqream.com/blog/slow-sql-queries/",
+        "date": "2024-01-11",
+        "last_updated": "2026-05-05",
+        "snippet": "There are several potential causes of slow SQL queries, but most stem from inefficient database design, query formulation, or resource ...",
+        "source": "web"
+      },
+      {
+        "title": "Fix Slow Query: A Developer's Guide to Data Warehouse Performance",
+        "url": "https://motherduck.com/learn/diagnose-fix-slow-queries/",
+        "date": "2026-03-16",
+        "last_updated": "2026-05-05",
+        "snippet": "Diagnose and fix slow queries by targeting the true bottlenecks: I/O, Network, & CPU. This developer's guide helps you optimize data layout & joins for ...",
+        "source": "web"
+      },
+      {
+        "title": "Find your slow database queries - YouTube",
+        "url": "https://www.youtube.com/watch?v=8z4fWt6Y8HY",
+        "date": "2025-09-08",
+        "last_updated": "2025-09-16",
+        "snippet": "Minimizing query latency is crucial for keeping your databases ... How to Make Any AI Agent Bypass Bot Protection (Free and Open Source).",
+        "source": "web"
+      },
+      {
+        "title": "Troubleshoot slow-running queries - SQL Server - Microsoft Learn",
+        "url": "https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/performance/troubleshoot-slow-running-queries",
+        "date": "2025-01-10",
+        "last_updated": "2026-04-26",
+        "snippet": "This article describes how to handle a performance issue that database applications may experience when using SQL Server: slow performance of a specific query ...",
+        "source": "web"
+      },
+      {
+        "title": "Find slow database queries with Query Insights - Sentry Blog",
+        "url": "https://blog.sentry.io/find-slow-database-queries-with-query-insights/",
+        "date": "2023-09-28",
+        "last_updated": "2026-05-05",
+        "snippet": "To see if a database query is behind the performance issue, click on the Queries from the left navigation menu under Performance.",
+        "source": "web"
+      },
+      {
+        "title": "Slow Queries - Ignition User Manual - Inductive Automation",
+        "url": "https://www.docs.inductiveautomation.com/docs/8.1/platform/sql-in-ignition/basic-sql-troubleshooting/slow-queries",
+        "date": "2025-04-07",
+        "last_updated": "2026-03-30",
+        "snippet": "For instance, a sign that a component has a slow query is if a window is opened and the component takes time before database data is displayed.",
+        "source": "web"
+      },
+      {
+        "title": "Why is One Query Sometimes Slow and Sometimes Fast?",
+        "url": "https://www.purestorage.com/video/webinars/why-is-one-query-sometimes-slow-and-sometimes-fast/6314074901112.html",
+        "date": "2022-10-24",
+        "last_updated": "2025-07-18",
+        "snippet": "Sometimes the exact same query goes slow out of nowhere. Your current fix is to update statistics, rebuild indexes, or restart the SQL Server.",
+        "source": "web"
+      }
+    ],
+    "object": "chat.completion",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "# Jarvis V3 Supervisor | SQL Performance Analysis\n\n**Mode: RESEARCH + ENGINEER**\n\n---\n\n## 📊 Synthesis: Root Causes of Slow SQL Queries\n\nBased on search results, slow queries stem from **three predictable bottleneck layers** (priority order):\n\n### **Layer 1: I/O Bottleneck** ⚠️ PRIMARY\n- **Full table scans** instead of indexed lookups\n- **Partition/clustering misses** — data layout doesn't match query access pattern\n- **Cold cache reads** from object storage on first access\n- **\"Needle in haystack\"** problem — scanning massive datasets to find few rows\n\n**Symptom:** Dashboard fetch taking seconds when it should be instant.\n\n---\n\n### **Layer 2: Network Bottleneck** \n- **Large data shuffles** across the pipeline\n- **Disk spills** to slower storage during processing\n\n---\n\n### **Layer 3: CPU Bottleneck** (LEAST COMMON)\n- Suboptimal query structure (unnecessary JOINs, wrong filtering)\n- CPU resource constraints\n- Outdated optimizer statistics\n\n---\n\n## 🔧 Diagnostic Framework\n\n**Step 1: Identify bottleneck using execution plan**\n```sql\n-- SQL Server example: Find queries with high wait time\nSELECT t.text,\n  (qs.total_elapsed_time - qs.total_worker_time) / qs.execution_count AS avg_wait_time,\n  qs.total_logical_reads / qs.execution_count AS avg_logical_reads\nFROM sys.dm_exec_query_stats qs\nCROSS APPLY sys.dm_exec_sql_text(sql_handle) t\nORDER BY (qs.total_elapsed_time - qs.total_worker_time) DESC\n```\n\n**Step 2: Check latency percentiles (P50/P95/P99)**\n- If P95+ queries spike above baseline → targeting 95th percentile fixes handles majority\n\n**Step 3: Audit physical data layout**\n- Parquet file sizes: 128MB–1GB optimal\n- Data sorted by filter columns?\n- Partitioning strategy aligned with query patterns?\n\n---\n\n## ✅ Fixes (Priority Order)\n\n1. **Add missing indexes** on frequently filtered columns\n2. **Fix partition strategy** — align with WHERE clause patterns\n3. **Update optimizer statistics** — let query planner make informed decisions\n4. **Redesign query logic** — remove unnecessary JOINs, improve WHERE conditions\n5. **Scale hardware** — only if I/O is optimized and still constrained\n\n---\n\n## ❓ Next Steps\n\n**To help you optimize:**\n- What's your database engine? (SQL Server, PostgreSQL, DuckDB, BigQuery?)\n- Can you share the slow query + its execution plan?\n- What's your data volume & access pattern?\n\n**Mode available:** engineer (query rewrite) or n8n (performance monitoring automation)"
+        },
+        "delta": {
+          "role": "assistant",
+          "content": ""
+        },
+        "finish_reason": "stop"
+      }
+    ]
+  }
+}

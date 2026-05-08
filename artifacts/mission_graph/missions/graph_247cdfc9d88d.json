@@ -1,0 +1,72 @@
+{
+  "graph_mission_id": "graph_247cdfc9d88d",
+  "created_at": "2026-04-10T01:10:00.759199+00:00",
+  "updated_at": "2026-04-10T01:10:00.962538+00:00",
+  "objective": "Build a site and a browser game bundle",
+  "graph_kind": "site_game_bundle",
+  "auto_execute": false,
+  "status": "completed",
+  "steps": [
+    {
+      "step_id": "step_site",
+      "title": "Build Site",
+      "objective": "Create a landing page",
+      "task_type": "site",
+      "depends_on": [],
+      "status": "completed",
+      "attempts": 1,
+      "constraints": {
+        "title": "Bundle Landing",
+        "hero": "Site first, game second",
+        "subtitle": "Dependency-aware mission graph",
+        "cta": "Open Bundle"
+      },
+      "payload": {},
+      "output": {
+        "run_id": "mission_artifact_6897eb478a88",
+        "run_record_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\mission_runs\\mission_artifact_6897eb478a88.json",
+        "artifact_task_id": "artifact_a46c620c8087",
+        "artifact_manifest_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\sites\\20260410_011000_bundle-landing\\manifest.json",
+        "artifact_output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\sites\\20260410_011000_bundle-landing",
+        "artifact_name": "Bundle Landing",
+        "selected_task_type": "site"
+      }
+    },
+    {
+      "step_id": "step_game",
+      "title": "Build Game",
+      "objective": "Build a browser mini-game",
+      "task_type": "game",
+      "depends_on": [
+        "step_site"
+      ],
+      "status": "completed",
+      "attempts": 1,
+      "constraints": {
+        "title": "Bundle Landing"
+      },
+      "payload": {},
+      "output": {
+        "run_id": "mission_artifact_6d3c5f55903c",
+        "run_record_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\mission_runs\\mission_artifact_6d3c5f55903c.json",
+        "artifact_task_id": "artifact_6a80cc37e71b",
+        "artifact_manifest_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\games\\20260410_011000_bundle-landing\\manifest.json",
+        "artifact_output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\games\\20260410_011000_bundle-landing",
+        "artifact_name": "Bundle Landing",
+        "selected_task_type": "game"
+      }
+    }
+  ],
+  "summary": {
+    "steps_total": 2,
+    "steps_completed": 2,
+    "steps_failed": 0,
+    "steps_skipped": 0,
+    "steps_ready": 0,
+    "steps_pending": 0,
+    "steps_running": 0
+  },
+  "links": {
+    "mission_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\mission_graph\\missions\\graph_247cdfc9d88d.json"
+  }
+}

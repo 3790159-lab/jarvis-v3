@@ -1,0 +1,118 @@
+{
+  "state_id": "jarvis_guarded_merge_executor_state",
+  "version": 1,
+  "packaged_plans": {
+    "se-supervisor_router_hardening-30293a08": {
+      "package_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\guarded_merge_executor\\packages\\supervisor_router_hardening__se-supervisor_router_hardening-30293a08",
+      "manifest_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\guarded_merge_executor\\packages\\supervisor_router_hardening__se-supervisor_router_hardening-30293a08\\manifest.json",
+      "summary_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\guarded_merge_executor\\packages\\supervisor_router_hardening__se-supervisor_router_hardening-30293a08\\README.md",
+      "candidate_notes_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\guarded_merge_executor\\packages\\supervisor_router_hardening__se-supervisor_router_hardening-30293a08\\candidate_patch_notes.md",
+      "backup_script": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\guarded_merge_executor\\packages\\supervisor_router_hardening__se-supervisor_router_hardening-30293a08\\backup_targets.ps1",
+      "smoke_script": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\guarded_merge_executor\\packages\\supervisor_router_hardening__se-supervisor_router_hardening-30293a08\\smoke_after.ps1",
+      "apply_script": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\guarded_merge_executor\\packages\\supervisor_router_hardening__se-supervisor_router_hardening-30293a08\\apply_candidate.ps1",
+      "proposal_id": "se-supervisor_router_hardening-30293a08",
+      "kind": "supervisor_router_hardening"
+    },
+    "se-director_lifecycle_tuneup-a9ca0767": {
+      "package_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\guarded_merge_executor\\packages\\director_lifecycle_tuneup__se-director_lifecycle_tuneup-a9ca0767",
+      "manifest_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\guarded_merge_executor\\packages\\director_lifecycle_tuneup__se-director_lifecycle_tuneup-a9ca0767\\manifest.json",
+      "summary_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\guarded_merge_executor\\packages\\director_lifecycle_tuneup__se-director_lifecycle_tuneup-a9ca0767\\README.md",
+      "candidate_notes_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\guarded_merge_executor\\packages\\director_lifecycle_tuneup__se-director_lifecycle_tuneup-a9ca0767\\candidate_patch_notes.md",
+      "backup_script": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\guarded_merge_executor\\packages\\director_lifecycle_tuneup__se-director_lifecycle_tuneup-a9ca0767\\backup_targets.ps1",
+      "smoke_script": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\guarded_merge_executor\\packages\\director_lifecycle_tuneup__se-director_lifecycle_tuneup-a9ca0767\\smoke_after.ps1",
+      "apply_script": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\guarded_merge_executor\\packages\\director_lifecycle_tuneup__se-director_lifecycle_tuneup-a9ca0767\\apply_candidate.ps1",
+      "proposal_id": "se-director_lifecycle_tuneup-a9ca0767",
+      "kind": "director_lifecycle_tuneup"
+    }
+  },
+  "blueprints": {
+    "telegram_message_responder_agent": {
+      "blueprint_id": "telegram_message_responder_agent",
+      "display_name": "Telegram Message Responder Agent",
+      "risk": "additive_low",
+      "summary": "Managed module skeleton for Telegram message intake and supervised response routing.",
+      "ports_offset": 0,
+      "default_files": [
+        "manifest.json",
+        "README.md",
+        "app.py",
+        "scripts/start_module.ps1",
+        "config/module.env.example"
+      ]
+    },
+    "operator_notifier_agent": {
+      "blueprint_id": "operator_notifier_agent",
+      "display_name": "Operator Notifier Agent",
+      "risk": "additive_low",
+      "summary": "Managed notifier module for operator alerts, digests and escalation messages.",
+      "ports_offset": 1,
+      "default_files": [
+        "manifest.json",
+        "README.md",
+        "app.py",
+        "scripts/start_module.ps1",
+        "config/module.env.example"
+      ]
+    },
+    "workflow_sentinel_agent": {
+      "blueprint_id": "workflow_sentinel_agent",
+      "display_name": "Workflow Sentinel Agent",
+      "risk": "additive_low",
+      "summary": "Managed watcher module for workflow health, timeout detection and self-check alerts.",
+      "ports_offset": 2,
+      "default_files": [
+        "manifest.json",
+        "README.md",
+        "app.py",
+        "scripts/start_module.ps1",
+        "config/module.env.example"
+      ]
+    },
+    "research_planner_agent": {
+      "blueprint_id": "research_planner_agent",
+      "display_name": "Research Planner Agent",
+      "risk": "additive_low",
+      "summary": "Managed planning module for research queues, evidence packs and task decomposition.",
+      "ports_offset": 3,
+      "default_files": [
+        "manifest.json",
+        "README.md",
+        "app.py",
+        "scripts/start_module.ps1",
+        "config/module.env.example"
+      ]
+    }
+  },
+  "modules": {
+    "telegram_sms_responder_v1": {
+      "module_id": "telegram_sms_responder_v1",
+      "display_name": "Telegram SMS Responder v1",
+      "blueprint_id": "telegram_message_responder_agent",
+      "purpose": "Respond to Telegram text messages under supervisor control",
+      "port": 8110,
+      "module_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_modules\\telegram_sms_responder_v1",
+      "status": "scaffolded",
+      "created_at": "2026-04-22T15:04:29Z"
+    }
+  },
+  "history": [
+    {
+      "ts": "2026-04-22T15:03:15Z",
+      "event": "plan_packaged",
+      "proposal_id": "se-supervisor_router_hardening-30293a08",
+      "kind": "supervisor_router_hardening"
+    },
+    {
+      "ts": "2026-04-22T15:03:15Z",
+      "event": "plan_packaged",
+      "proposal_id": "se-director_lifecycle_tuneup-a9ca0767",
+      "kind": "director_lifecycle_tuneup"
+    },
+    {
+      "ts": "2026-04-22T15:04:29Z",
+      "event": "module_scaffolded",
+      "module_id": "telegram_sms_responder_v1",
+      "blueprint_id": "telegram_message_responder_agent"
+    }
+  ]
+}

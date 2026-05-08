@@ -1,0 +1,209 @@
+{
+  "ok": true,
+  "query": "Сделай мне таблицу Топ AI сервисом которые лучше всего интегрировать в Джарвиса. Ответ и таблицу сделай на русском языке. Названия сервисов, компаний, моделей и продуктов оставляй в оригинале. Добавь источники/ссылки, если они доступны. Сделай результат полезным для принятия решения",
+  "max_results": 10,
+  "csv_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\telegram_tables\\Сделай_мне_таблицу_Топ_AI_сервисом_которые_лучше_всего_интег_20260430_173542.csv",
+  "xlsx_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\telegram_tables\\Сделай_мне_таблицу_Топ_AI_сервисом_которые_лучше_всего_интег_20260430_173542.xlsx",
+  "table_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\telegram_tables\\Сделай_мне_таблицу_Топ_AI_сервисом_которые_лучше_всего_интег_20260430_173542.xlsx",
+  "rows_count": 10,
+  "search": {
+    "ok": true,
+    "tool": "internet.search",
+    "provider": "tavily",
+    "query": "Сделай мне таблицу Топ AI сервисом которые лучше всего интегрировать в Джарвиса. Ответ и таблицу сделай на русском языке. Названия сервисов, компаний, моделей и продуктов оставляй в оригинале. Добавь источники/ссылки, если они доступны. Сделай результат полезным для принятия решения",
+    "created_at": "2026-04-30T17:35:45.854059Z",
+    "data": {
+      "query": "Сделай мне таблицу Топ AI сервисом которые лучше всего интегрировать в Джарвиса. Ответ и таблицу сделай на русском языке. Названия сервисов, компаний, моделей и продуктов оставляй в оригинале. Добавь источники/ссылки, если они доступны. Сделай результат полезным для принятия решения",
+      "follow_up_questions": null,
+      "answer": "Для интеграции в Джарвиса рекомендуются сервисы Synthesia и Composio, которые предлагают мощные AI-инструменты и гибкие интеграционные возможности.",
+      "images": [],
+      "results": [
+        {
+          "url": "https://kodexolabs.com/top-ai-integration-companies/",
+          "title": "Top 10 AI Integration Companies in 2026 (Expert Ranked)",
+          "content": "### Generative AI. ### AI Development. ### Software Development. Top AI integration development companies in 2026 illustration showing artificial intelligence, automation, and enterprise system integration. Most organizations in 2026 are running AI. McKinsey’s 2025 State of AI survey, conducted across 1,993 participants in 105 countries, found that 88% of organizations now report regular AI use in at least one business function, up from 78% the year prior. Enterprise spending on generative AI reached $37 billion in 2025, tripling in a single year, according to Menlo Ventures’ State of Generative AI in the Enterprise report. The causes are structural, not technical: teams mismanage the business problem, organizations lack quality training data, infrastructure is inadequate for production deployment, and projects apply AI to problems that are fundamentally unsolvable with current techniques. This guide profiles the ten AI integration companies that are actually delivering in 2026, ranked by verified delivery track record, validated client outcomes, technical depth, and value proposition across a range of buyer profiles.",
+          "score": 0.9999584,
+          "raw_content": null
+        },
+        {
+          "url": "https://www.g2.com/products/jarvis-ai-assistant/competitors/alternatives",
+          "title": "Top 10 Jarvis AI Assistant Alternatives & Competitors in 2026 - G2",
+          "content": "The best overall Jarvis AI Assistant alternative is Miro. Other similar apps like Jarvis AI Assistant are Creately, Alteryx, Jitterbit, and QA USA. Jarvis AI",
+          "score": 0.99991846,
+          "raw_content": null
+        },
+        {
+          "url": "https://dev.to/composiodev/top-ai-integration-platforms-for-2026-32pm",
+          "title": "Top AI Integration Platforms for 2026 - DEV Community",
+          "content": "## What Makes a Great AI Agent Integration Platform in 2026? Not every integration platform works well for agents. Platforms designed with agents in mind, especially around MCP and dynamic execution, handle LLM-driven workflows far better than older automation tools. Composio is a developer-first platform that connects AI agents with 500+ apps, APIs, and workflows. It is built for teams who want their agents to move beyond demos and actually work across real tools. Rube is a universal MCP server that lets agents connect to tools through a single setup and work across clients like Cursor, Claude Desktop, and other MCP-enabled apps, without heavy custom wiring. It supports both pre-built tools and custom tools, works with most agent frameworks, and includes features like logs, error handling, and flexible deployment options such as cloud, VPC, or on-prem. In addition, it provides a workflow builder for automations, a Connect Portal for user onboarding, and ActionKit, a single API for real-time actions, including AI-driven commands and agent tool calls.",
+          "score": 0.99989843,
+          "raw_content": null
+        },
+        {
+          "url": "https://vc.ru/ai/2791317-luchshie-sayty-s-neyrosetyami-top-15-servisov-dlya-rabotyi-s-ii",
+          "title": "ТОП-15 сайтов с нейросетями: Рейтинг лучших сервисов с многими ИИ в одном месте (2026) — AI на vc.ru",
+          "content": "Сервис заточен под быстрый маршрут от запроса к результату: в одном рабочем поле можно чередовать текст, голос, изображения и файлы, не расползаясь по вкладкам. Под какие задачи подходит: Для бытовых нужд — писать тексты, искать идеи, общаться на любые темы, разбирать документы и решать учебные задачи; для работы — писать код, сравнивать ответы разных моделей, тестировать промпты, анализировать отчеты и встраивать AI в свои продукты через API. Цена и способы оплаты: От 26₽ за 1 млн входящих токенов DeepSeek; оплата СБП, банковской картой, по реквизитам счета для юрлиц. Хороший сервис с нейросетями в одном месте экономит время, потому что не заставляет держать десять аккаунтов, переключаться между окнами и отдельно оплачивать текст, изображения, код и анализ документов. Для большинства пользователей из России хаб нейросетей удобнее уже потому, что объединяет оплату, доступ и тестирование моделей в одном месте. А потом выясняется, что удобство работы зависит не только от модели, но и от того, можно ли быстро зайти с телефона, отправить запрос из Telegram или встроить ИИ в свой рабочий процесс через API.",
+          "score": 0.9998894,
+          "raw_content": null
+        },
+        {
+          "url": "https://partnerkin.com/services/c/iskusstvennyj-intellekt",
+          "title": "ТОП 50 сервисов на основе искусственного интеллекта — Честный рейтинг лучших нейросетей и AI-сервисов 2026",
+          "content": "| Synthesia  Synthesia  Платформа для генерации и озвучки видео с искусственным интеллектом от $0 | от $0 |  | Обзор    на сайт |. Сервис для создания и оптимизации текстов с высоким качеством, включая контент-анализ, создание шаблонов и сравнение контента. ### Translate.Video. Сервис для создания логотипов и элементов фирменного стиля с помощью ИИ, предлагающий сотни уникальных дизайнов на основе предпочтений клиента. Сервис с инструментами ИИ (GPT-4, Claude 3 Opus, Google Gemini, Mistral) для создания и редактирования контента в различных форматах. Инструмент для создания дублированных роликов с переводом на разные языки, использующий ИИ для точного перевода и синхронизации аудио с видео. Инструмент на базе ИИ для создания уникальных и красивых веб-страниц, предлагающий пользователям простоту генерации сайтов с высокими эстетическими характеристиками. Сервис для создания презентаций с использованием ИИ, упрощающий процесс создания профессиональных слайдов и фокусируясь на содержании. AI-помощник для написания текстов на Mac, улучшает продуктивность и качество письменных задач с мощными функциями редактирования. Платформа для создания чат-ботов с ИИ, упрощающая внедрение ботов на сайты и улучшение клиентской поддержки без программирования.",
+          "score": 0.9994684,
+          "raw_content": null
+        },
+        {
+          "url": "https://vc.ru/ai/2791821-luchshie-neuroseti-2026-goda-top-25-ii-servisov",
+          "title": "Лучшие нейросети: ТОП-25 лучших ИИ сервисов 2026 года для разных задач — AI на vc.ru",
+          "content": "Здесь можно не только работать с текстом, но и генерировать изображения в Midjourney и DALL-E 3, создавать видео с помощью Kling и Sora, писать музыку в SUNO AI, делать презентации и анализировать таблицы. Платформа доступна в нескольких версиях: обычная Nano Banana для быстрых задач, Nano Banana Pro для профессиональной работы с разрешением до 4K и Nano Banana 2, которая сочетает скорость Flash с качеством Pro. Главная фишка — нейросеть умеет «рассуждать» во время генерации, создавать до трёх промежуточных вариантов и выбирать лучший. Google Gemini — это семейство мощных мультимодальных нейросетей от Google, которые работают с текстом, изображениями, видео, аудио и кодом в едином интерфейсе. Модель доступна в нескольких вариантах: быстрая Flash для повседневных задач, сбалансированная Pro для работы и учёбы, а также Nano Banana — встроенный генератор изображений, который создаёт фотореалистичные картинки с разрешением до 4K. Kling — это передовая нейросеть для генерации видео, разработанная китайской компанией Kuaishou, создателем одноименной платформы коротких видео и прямого конкурента TikTok. В отличие от большинства видео-моделей, Kling специализируется на создании кинематографически качественных роликов из текстового описания или статичного изображения.",
+          "score": 0.9982317,
+          "raw_content": null
+        },
+        {
+          "url": "https://dtf.ru/id1828466/5001196-luchshie-neirosseti-vybor-ai-serevisov",
+          "title": "Лучшие нейросети 2026 — ТОП сервисов, цены на подписки и как выбрать лучшую AI — Exnode на DTF",
+          "content": "# Лучшие нейросети 2026 — ТОП сервисов, цены на подписки и как выбрать лучшую AI. Но вместе с этим появляется главный вопрос: какую нейросеть выбрать среди десятков популярных сервисов и как получить к ним полный доступ. Большинство мощных функций доступны только по подписке, поэтому пользователи ищут не только лучшие нейросети в 2026 году, но и удобные способы оплаты — например, через мониторинги виртуальных карт вроде Exnode, которые помогают без лишних сложностей оплачивать нужные сервисы. ## Лучшие нейросети 2026 — что изменилось и как выбрать подходящую. Параллельно развиваются и специализированные нейросети — например, Midjourney для генерации изображений или Runway для работы с видео. Таким образом, выбирая лучшие нейросети в 2026, важно ориентироваться не только на популярность, но и на задачи: универсальные решения подходят для большинства пользователей, а специализированные — дают максимальное качество в конкретной сфере. WantToPay — финтех-сервис для выпуска виртуальных карт, который подходит для оплаты зарубежных сервисов, в том числе и нейросетей.",
+          "score": 0.99620515,
+          "raw_content": null
+        },
+        {
+          "url": "https://habr.com/ru/companies/bothub/articles/983014/",
+          "title": "Арсенал 2026: Топ-10 ИИ-сервисов для кодинга, работы и креатива, с которыми нужно врываться в этот год / Хабр",
+          "content": "Это те инструменты, которые помогут не просто разобраться в мире ИИ, но и заставить его работать на вас, пока остальные всё еще пытаются правильно составить промпт для генерации котиков. Разминайте пальцы и готовьтесь - сейчас будем смотреть на то, с чем мы влетаем в этот год. Но если LMArena - это скорее научный инструмент для исследователей и энтузиастов, то Yupp превратил этот процесс в полноценную экосистему с вознаграждением. Мы только что прогнали несколько раундов, и выглядит это на удивление залипательно, прямо как на старых Nokia, только в браузере. ## HeyGen. Это тот самый инструмент, который вы наверняка видели в лентах блогеров и маркетологов, даже если не догадывались об этом. Когда вы даете команду вроде «спланируй отпуск» или «подготовь отчет», Genspark не выплевывает стену текста, а генерирует Sparkpage - интерактивную страницу, где собрана вся нужная информация, виджеты и встроенный ИИ-копилот, с которым можно докручивать результат в режиме диалога. И не забывайте, именно вы направляете всё это в нужное русло!",
+          "score": 0.99174845,
+          "raw_content": null
+        },
+        {
+          "url": "https://www.sostav.ru/blogs/286574/79658",
+          "title": "Лучшие агрегаторы нейросетей: Все ИИ в одном месте. Рейтинг ...",
+          "content": "Лучшие агрегаторы нейросетей 2026 года · Study AI — абсолютный лидер индустрии. · GPTunnel — профессиональный ИИ агрегатор моделей для",
+          "score": 0.9914225,
+          "raw_content": null
+        },
+        {
+          "url": "https://www.junia.ai/blog/ru/jasper-ai-alternatives",
+          "title": "12 альтернатив Jasper AI в 2026 — протестировали 20+ (проверено)",
+          "content": "# Jasper AI не стоит своих денег: 12 лучших альтернатив в 2026. лучшие альтернативы Jasper AI 2026. Мы попробовали больше 20 разных альтернатив Jasper AI и, в итоге, отобрали 12 лучших программ для написания текстов на 2026 год. Смотрели на функции, как они работают в реальности, и, конечно, на цены. Неважно, вы разработчик, владелец бизнеса или просто человек, который хочет разобраться в мире инструментов для написания текстов с помощью ИИ, эта статья должна помочь найти идеальную альтернативу Jasper AI. В частности, обсуждаем Jasper AI, одного из лидеров среди инструментов для написания текстов на основе ИИ, а еще и его альтернативы. Когда вы думаете, почему выбор альтернативы Jasper AI может оказаться вообще-то лучшим решением для вашего бизнеса, имеет смысл обратить внимание на вот это:. Вы ищете писателя ИИ, который делает длинные тексты с SEO-оптимизацией, или вам нужен какой-то более универсальный помощник по маркетингу? У каждой альтернативы есть свои фишки и преимущества, которые могут, ну, гораздо лучше подойти под ваши конкретные задачи, чем Jasper AI.",
+          "score": 0.98803884,
+          "raw_content": null
+        }
+      ],
+      "response_time": 2.51,
+      "request_id": "dd16fe80-a679-4719-aa83-6e97cb7b2c88"
+    },
+    "artifact_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\internet_tools\\search_20260430_173545_854097.json"
+  },
+  "research": {
+    "ok": true,
+    "tool": "internet.research",
+    "provider": "perplexity",
+    "query": "Summarize this search topic and give practical recommendations: Сделай мне таблицу Топ AI сервисом которые лучше всего интегрировать в Джарвиса. Ответ и таблицу сделай на русском языке. Названия сервисов, компаний, моделей и продуктов оставляй в оригинале. Добавь источники/ссылки, если они доступны. Сделай результат полезным для принятия решения",
+    "created_at": "2026-04-30T17:35:56.797734Z",
+    "answer": "**Jarvis V3 Supervisor здесь. Статус системы: backend активен, Telegram bridge онлайн, n8n частично (пайплайны research и mission готовы), агенты engineer/research доступны. Инструменты: поиск/синтез фактов — full access; execution layer — по запросу.**\n\n### Топ AI-сервисов для интеграции в Джарвиса\nНа основе анализа поисковых результатов, вот таблица с **топ-8 AI-сервисами и фреймворками**, оптимальными для интеграции в локальную систему Джарвиса (через API, n8n, backend или агенты). Выбраны по критериям: простота подключения, поддержка множества моделей (GPT, Claude, LLaMA), автоматизация задач (агенты, RAG, мониторинг), безопасность и бесплатный/низкозатратный старт. Приоритет — фреймворки для агентов (LangChain/AutoGen) и платформы с multi-model (Prompts.ai), так как они усиливают brain/engineer/mission-режимы без полной перестройки инфраструктуры[2][4].\n\n| Сервис/Фреймворк | Тип | Ключевые возможности для Джарвиса | Сложность интеграции | Цена | Источник |\n|-------------------|-----|-----------------------------------|----------------------|------|----------|\n| **LangChain**    | Фреймворк | Создание агентов, RAG, function calling, интеграция с Python/JS для миссий и n8n[4] | Средняя (Python/JS) | Бесплатно | [4] |\n| **Prompts.ai**   | Платформа | 35+ моделей (GPT-5, Claude, LLaMA, Gemini, Grok-4), интеграция с Slack/Gmail, TOKN-кредиты для экономии[2] | Низкая (API) | От $0 (pay-per-use) | [2] |\n| **AutoGen**      | Фреймворк | Многоагентные системы, автоматизация задач (Microsoft), для brain/strategy[4] | Средняя (Python) | Бесплатно | [4] |\n| **LlamaIndex**   | Фреймворк | RAG, индексация данных, Retrieval Plugin для внешних знаний[4] | Низкая (Python) | Бесплатно | [4] |\n| **Vellum.ai**    | Платформа | Построение агентов на plain English, автоматизация support/tracking, enterprise security[2] | Низкая (no-code/low-code) | Pay-per-use | [2] |\n| **LangSmith**    | Платформа | Мониторинг/отладка AI-приложений в реальном времени, для engineer-режима[4] | Низкая | От $39/мес | [4] |\n| **Hugging Face Hub** | Репозиторий | Готовые модели/датасеты (LLaMA, Whisper), для быстрого старта code interpreter[4] | Низкая (API/Python) | Бесплатно | [4] |\n| **OpenAI API (GPT-4o/Claude)** | Модели/API | Чат, code interpreter, DALL-E, Whisper для TTS/STT, база для Jarvis AI[1][3][5] | Низкая (API-токен) | Pay-per-use | [1][3][5] |\n\n### Практические рекомендации по интеграции (operator-ready план)\n1. **Старт с фреймворков (режим engineer)**: Установи **LangChain** + **LlamaIndex** локально (pip install). Пример n8n-пайплайн: webhook → LangChain agent → OpenAI API → Telegram response. Тестируй RAG на твоих данных для mission[4].\n2. **Multi-model доступ (режим research/brain)**: Подключи **Prompts.ai** через API в backend — A/B-тест GPT-5 vs Claude для задач. Экономь на TOKN, интегрируй в Slack для команд[2].\n3. **Мониторинг и агенты**: **LangSmith** + **AutoGen** для отладки многоагентных миссий (e.g. planner → executor). Добавь **Whisper API** для voice (SileroTTS как альтернатива)[4][5].\n4. **Быстрый тест**: В n8n создай workflow: Telegram query → Prompts.ai (Claude/Gemini) → Jarvis response. Токены: возьми free-tier OpenAI/Hugging Face.\n5. **Риски/следующие шаги**: Проверь SOC 2 в Prompts.ai/Vellum для security[2]. Если нужно — mission: \"Интегрировать LangChain в backend к 2026-05-01\". Дай команду, запустим agent.\n\nЭто даёт +200% продуктивности: агенты вместо ручных скриптов. Готов к действию — укажи режим (engineer/n8n)?",
+    "raw": {
+      "id": "2c4218d3-adfd-43fe-b462-c501e35d59d7",
+      "model": "sonar-pro",
+      "created": 1777570555,
+      "usage": {
+        "prompt_tokens": 468,
+        "completion_tokens": 1186,
+        "total_tokens": 1654,
+        "search_context_size": "low",
+        "cost": {
+          "input_tokens_cost": 0.0014,
+          "output_tokens_cost": 0.01779,
+          "request_cost": 0.006,
+          "total_cost": 0.02519
+        }
+      },
+      "citations": [
+        "https://neural-courses.ru/ai/jarvis-ai/",
+        "https://prompts.ai/ru/blog/best-platforms-integrating-ai-solutions.html",
+        "https://chromewebstore.google.com/detail/jarvis-ai-assistant-%E2%80%94-ai/kbhaffhbhcfmogkkbfanilniagcefnhi?hl=ru",
+        "https://sdvg.vc/blog/luchshie-instrumenty-i-servisy-dlya-ai-tools/",
+        "https://www.youtube.com/watch?v=pTDTIkLRQKQ",
+        "https://apps.microsoft.com/related/9nqd3gh8b826?hl=ru-RU",
+        "https://www.youtube.com/watch?v=-CpyHsIk5UA",
+        "https://www.youtube.com/watch?v=_bP48XGCETw"
+      ],
+      "search_results": [
+        {
+          "title": "Нейросеть Jarvis AI — AI сервис - Neural Courses",
+          "url": "https://neural-courses.ru/ai/jarvis-ai/",
+          "last_updated": "2026-03-27",
+          "snippet": "Jarvis-AI — интеллектуальный помощник, который значительно повышает продуктивность за счёт интегрированных функций общения и обработки текста.",
+          "source": "web"
+        },
+        {
+          "title": "Лучшие платформы, интегрирующие решения искусственного ...",
+          "url": "https://prompts.ai/ru/blog/best-platforms-integrating-ai-solutions.html",
+          "last_updated": "2026-03-16",
+          "snippet": "Лучшие платформы, интегрирующие решения искусственного интеллекта · Prompts.ai: Connects 35+ AI models (e.g., GPT-5, Claude) with tools like Slack and Gmail.",
+          "source": "web"
+        },
+        {
+          "title": "Jarvis AI Assistant — AI Copilot for Your Browser - Chrome Web Store",
+          "url": "https://chromewebstore.google.com/detail/jarvis-ai-assistant-%E2%80%94-ai/kbhaffhbhcfmogkkbfanilniagcefnhi?hl=ru",
+          "last_updated": "2026-04-18",
+          "snippet": "В продукте \"Jarvis AI Assistant — AI Copilot for Your Browser\" обрабатываются следующие типы данных: · Личная коммуникация · Действия пользователей · Содержимое ...",
+          "source": "web"
+        },
+        {
+          "title": "Лучшие инструменты и сервисы для AI tools | SDVG Labs",
+          "url": "https://sdvg.vc/blog/luchshie-instrumenty-i-servisy-dlya-ai-tools/",
+          "date": "2026-02-02",
+          "last_updated": "2026-04-27",
+          "snippet": "Code Interpreter: выполнение Python-кода для анализа данных и вычислений · DALL-E Integration: генерация изображений по текстовым описаниям ...",
+          "source": "web"
+        },
+        {
+          "title": "Я сделал НАСТОЯЩЕГО ДЖАРВИСА! | Siri и Алиса больше не ...",
+          "url": "https://www.youtube.com/watch?v=pTDTIkLRQKQ",
+          "date": "2023-04-13",
+          "last_updated": "2026-03-10",
+          "snippet": "Никогда такого не было и вот опять!) Сделал настоящего Джарвиса, соединив ChatGPT + SileroTTS + Voicemod. Исходный код Опубликую в нашем ...",
+          "source": "web"
+        },
+        {
+          "title": "Альтернативное решение вместо Jarvix Personal AI в Windows",
+          "url": "https://apps.microsoft.com/related/9nqd3gh8b826?hl=ru-RU",
+          "snippet": "Jarvis Assistant ; DataBot Ассистент: Искусственный интеллект. 4.4 ; Lively Wallpaper. 4.5 ; Seelen UI. 2.9 ; TranslucentTB. 4.3.",
+          "source": "web"
+        },
+        {
+          "title": "Это НЕ фантастика — Мой ИИ Джарвис Сам Выполняет Задачи ...",
+          "url": "https://www.youtube.com/watch?v=-CpyHsIk5UA",
+          "date": "2025-04-22",
+          "last_updated": "2026-02-14",
+          "snippet": "... AI-помощника без кода ✓ Как связать нейросети и автоматизацию ... сервисами без контекста. типо взять апи токен в каком-то сервисе ...",
+          "source": "web"
+        },
+        {
+          "title": "Твой личный AI Jarvis за 5 минут! - YouTube",
+          "url": "https://www.youtube.com/watch?v=_bP48XGCETw",
+          "date": "2025-10-09",
+          "last_updated": "2026-02-24",
+          "snippet": "В этом видео мы научимся создавать голосовых ИИ-агентов в режиме работы realtime на платформе Voicyfy.ru -Создадим на сайте -Встроим в ...",
+          "source": "web"
+        }
+      ],
+      "object": "chat.completion",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "**Jarvis V3 Supervisor здесь. Статус системы: backend активен, Telegram bridge онлайн, n8n частично (пайплайны research и mission готовы), агенты engineer/research доступны. Инструменты: поиск/синтез фактов — full access; execution layer — по запросу.**\n\n### Топ AI-сервисов для интеграции в Джарвиса\nНа основе анализа поисковых результатов, вот таблица с **топ-8 AI-сервисами и фреймворками**, оптимальными для интеграции в локальную систему Джарвиса (через API, n8n, backend или агенты). Выбраны по критериям: простота подключения, поддержка множества моделей (GPT, Claude, LLaMA), автоматизация задач (агенты, RAG, мониторинг), безопасность и бесплатный/низкозатратный старт. Приоритет — фреймворки для агентов (LangChain/AutoGen) и платформы с multi-model (Prompts.ai), так как они усиливают brain/engineer/mission-режимы без полной перестройки инфраструктуры[2][4].\n\n| Сервис/Фреймворк | Тип | Ключевые возможности для Джарвиса | Сложность интеграции | Цена | Источник |\n|-------------------|-----|-----------------------------------|----------------------|------|----------|\n| **LangChain**    | Фреймворк | Создание агентов, RAG, function calling, интеграция с Python/JS для миссий и n8n[4] | Средняя (Python/JS) | Бесплатно | [4] |\n| **Prompts.ai**   | Платформа | 35+ моделей (GPT-5, Claude, LLaMA, Gemini, Grok-4), интеграция с Slack/Gmail, TOKN-кредиты для экономии[2] | Низкая (API) | От $0 (pay-per-use) | [2] |\n| **AutoGen**      | Фреймворк | Многоагентные системы, автоматизация задач (Microsoft), для brain/strategy[4] | Средняя (Python) | Бесплатно | [4] |\n| **LlamaIndex**   | Фреймворк | RAG, индексация данных, Retrieval Plugin для внешних знаний[4] | Низкая (Python) | Бесплатно | [4] |\n| **Vellum.ai**    | Платформа | Построение агентов на plain English, автоматизация support/tracking, enterprise security[2] | Низкая (no-code/low-code) | Pay-per-use | [2] |\n| **LangSmith**    | Платформа | Мониторинг/отладка AI-приложений в реальном времени, для engineer-режима[4] | Низкая | От $39/мес | [4] |\n| **Hugging Face Hub** | Репозиторий | Готовые модели/датасеты (LLaMA, Whisper), для быстрого старта code interpreter[4] | Низкая (API/Python) | Бесплатно | [4] |\n| **OpenAI API (GPT-4o/Claude)** | Модели/API | Чат, code interpreter, DALL-E, Whisper для TTS/STT, база для Jarvis AI[1][3][5] | Низкая (API-токен) | Pay-per-use | [1][3][5] |\n\n### Практические рекомендации по интеграции (operator-ready план)\n1. **Старт с фреймворков (режим engineer)**: Установи **LangChain** + **LlamaIndex** локально (pip install). Пример n8n-пайплайн: webhook → LangChain agent → OpenAI API → Telegram response. Тестируй RAG на твоих данных для mission[4].\n2. **Multi-model доступ (режим research/brain)**: Подключи **Prompts.ai** через API в backend — A/B-тест GPT-5 vs Claude для задач. Экономь на TOKN, интегрируй в Slack для команд[2].\n3. **Мониторинг и агенты**: **LangSmith** + **AutoGen** для отладки многоагентных миссий (e.g. planner → executor). Добавь **Whisper API** для voice (SileroTTS как альтернатива)[4][5].\n4. **Быстрый тест**: В n8n создай workflow: Telegram query → Prompts.ai (Claude/Gemini) → Jarvis response. Токены: возьми free-tier OpenAI/Hugging Face.\n5. **Риски/следующие шаги**: Проверь SOC 2 в Prompts.ai/Vellum для security[2]. Если нужно — mission: \"Интегрировать LangChain в backend к 2026-05-01\". Дай команду, запустим agent.\n\nЭто даёт +200% продуктивности: агенты вместо ручных скриптов. Готов к действию — укажи режим (engineer/n8n)?"
+          },
+          "delta": {
+            "role": "assistant",
+            "content": ""
+          },
+          "finish_reason": "stop"
+        }
+      ]
+    },
+    "artifact_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\internet_tools\\research_20260430_173556_797766.json"
+  }
+}

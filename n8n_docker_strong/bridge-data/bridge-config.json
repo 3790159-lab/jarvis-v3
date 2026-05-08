@@ -1,0 +1,6 @@
+{
+  "n8n_base_url": "http://n8n-main:5678",
+  "n8n_editor_base_url": "http://127.0.0.1:5680",
+  "n8n_webhook_base_url": "http://n8n-main:5678",
+  "api_key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMzAwMzMwZC0wZWI1LTQzYzEtODFjYi1jZGNjMTlmOGI2YzIiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwianRpIjoiOTA5ZWJjODgtNTdhNy00NzE1LWIxZGItZDA4ZDBhY2RmNTE5IiwiaWF0IjoxNzc2ODA0NTQ2fQ.WCxakKA4f4qzv-n0oNJTh9fptMIeV0vJylZvRriZLpM"
+}

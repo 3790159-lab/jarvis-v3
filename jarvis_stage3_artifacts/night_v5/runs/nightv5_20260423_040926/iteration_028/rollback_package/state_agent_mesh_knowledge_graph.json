@@ -1,0 +1,780 @@
+{
+  "domains": [
+    {
+      "domain_id": "programming_and_codegen",
+      "name": "Programming and Codegen",
+      "description": "",
+      "blocks": [
+        {
+          "block_id": "claude_and_engineering",
+          "name": "Claude and Engineering",
+          "description": "",
+          "item_ids": [
+            "knowledge_item_cc25fa7cca",
+            "knowledge_item_66d3756916",
+            "knowledge_item_8fff5b08e0"
+          ]
+        }
+      ]
+    },
+    {
+      "domain_id": "planning_and_quality",
+      "name": "Planning and Quality",
+      "description": "",
+      "blocks": [
+        {
+          "block_id": "openai_planning_and_qa",
+          "name": "OpenAI Planning and QA",
+          "description": "",
+          "item_ids": [
+            "knowledge_item_fcb9d1836c",
+            "knowledge_item_a0a18f5847",
+            "knowledge_item_9ce5b3540b"
+          ]
+        }
+      ]
+    },
+    {
+      "domain_id": "automation_and_integrations",
+      "name": "Automation and Integrations",
+      "description": "",
+      "blocks": [
+        {
+          "block_id": "workflow_and_connector_operations",
+          "name": "Workflow and Connector Operations",
+          "description": "",
+          "item_ids": [
+            "knowledge_item_4c567c55ed",
+            "knowledge_item_4a3c38fa3c",
+            "knowledge_item_1bafec2e12"
+          ]
+        }
+      ]
+    },
+    {
+      "domain_id": "memory_and_knowledge",
+      "name": "Memory and Knowledge",
+      "description": "",
+      "blocks": [
+        {
+          "block_id": "context_reuse_and_knowledge_retention",
+          "name": "Context Reuse and Knowledge Retention",
+          "description": "",
+          "item_ids": [
+            "knowledge_item_8edabb0290",
+            "knowledge_item_5780304dcf",
+            "knowledge_item_9cc3f0f4d9"
+          ]
+        }
+      ]
+    },
+    {
+      "domain_id": "agent_communication_and_coordination",
+      "name": "Agent Communication and Coordination",
+      "description": "",
+      "blocks": [
+        {
+          "block_id": "coordination_patterns_and_consultation",
+          "name": "Coordination Patterns and Consultation",
+          "description": "",
+          "item_ids": [
+            "knowledge_item_4bd4444ad8",
+            "knowledge_item_c1e4512278",
+            "knowledge_item_d9f72a7a7a"
+          ]
+        }
+      ]
+    },
+    {
+      "domain_id": "safety_and_reliability",
+      "name": "Safety and Reliability",
+      "description": "",
+      "blocks": [
+        {
+          "block_id": "guardrails_and_approval_logic",
+          "name": "Guardrails and Approval Logic",
+          "description": "",
+          "item_ids": [
+            "knowledge_item_7cbebf442f",
+            "knowledge_item_4a7d31ef07",
+            "knowledge_item_4e293ed856"
+          ]
+        }
+      ]
+    }
+  ],
+  "items": [
+    {
+      "item_id": "knowledge_item_cc25fa7cca",
+      "title": "V12 domain-structured knowledge ingest demo",
+      "summary": "Text discusses Claude/codegen/programming guidance. Key points: When coordinating agents, keep roles explicit and avoid over-consultation; Use second opinions mainly for risky tasks; Claude is usually strongest for concrete engineering and refactor work",
+      "domain_id": "programming_and_codegen",
+      "block_id": "claude_and_engineering",
+      "preferred_service": "claude_bridge",
+      "tags": [
+        "agents",
+        "anthropic",
+        "automation",
+        "claude",
+        "communication",
+        "context",
+        "coordination",
+        "gpt",
+        "memory",
+        "n8n",
+        "obsidian",
+        "openai",
+        "qa",
+        "reliability"
+      ],
+      "source_record_ids": [
+        "knowledge_d4fdb2ebeb"
+      ],
+      "links": [
+        "Planning and Quality / OpenAI Planning and QA",
+        "Automation and Integrations / Workflow and Connector Operations",
+        "Memory and Knowledge / Context Reuse and Knowledge Retention",
+        "Agent Communication and Coordination / Coordination Patterns and Consultation",
+        "Safety and Reliability / Guardrails and Approval Logic"
+      ],
+      "confidence": 0.72,
+      "created_ts": 1776471487.4000924,
+      "updated_ts": 1776471487.4000924
+    },
+    {
+      "item_id": "knowledge_item_fcb9d1836c",
+      "title": "V12 domain-structured knowledge ingest demo",
+      "summary": "Text discusses planning/QA guidance. Key points: When coordinating agents, keep roles explicit and avoid over-consultation; Use second opinions mainly for risky tasks; Claude is usually strongest for concrete engineering and refactor work",
+      "domain_id": "planning_and_quality",
+      "block_id": "openai_planning_and_qa",
+      "preferred_service": "openai",
+      "tags": [
+        "agents",
+        "anthropic",
+        "automation",
+        "claude",
+        "communication",
+        "context",
+        "coordination",
+        "gpt",
+        "memory",
+        "n8n",
+        "obsidian",
+        "openai",
+        "qa",
+        "reliability"
+      ],
+      "source_record_ids": [
+        "knowledge_d4fdb2ebeb"
+      ],
+      "links": [
+        "Programming and Codegen / Claude and Engineering",
+        "Automation and Integrations / Workflow and Connector Operations",
+        "Memory and Knowledge / Context Reuse and Knowledge Retention",
+        "Agent Communication and Coordination / Coordination Patterns and Consultation",
+        "Safety and Reliability / Guardrails and Approval Logic"
+      ],
+      "confidence": 0.72,
+      "created_ts": 1776471487.4041126,
+      "updated_ts": 1776471487.4041126
+    },
+    {
+      "item_id": "knowledge_item_4c567c55ed",
+      "title": "V12 domain-structured knowledge ingest demo",
+      "summary": "Text discusses workflows/integrations/connectors. Key points: When coordinating agents, keep roles explicit and avoid over-consultation; Use second opinions mainly for risky tasks; Claude is usually strongest for concrete engineering and refactor work",
+      "domain_id": "automation_and_integrations",
+      "block_id": "workflow_and_connector_operations",
+      "preferred_service": "n8n",
+      "tags": [
+        "agents",
+        "anthropic",
+        "automation",
+        "claude",
+        "communication",
+        "context",
+        "coordination",
+        "gpt",
+        "memory",
+        "n8n",
+        "obsidian",
+        "openai",
+        "qa",
+        "reliability"
+      ],
+      "source_record_ids": [
+        "knowledge_d4fdb2ebeb"
+      ],
+      "links": [
+        "Programming and Codegen / Claude and Engineering",
+        "Planning and Quality / OpenAI Planning and QA",
+        "Memory and Knowledge / Context Reuse and Knowledge Retention",
+        "Agent Communication and Coordination / Coordination Patterns and Consultation",
+        "Safety and Reliability / Guardrails and Approval Logic"
+      ],
+      "confidence": 0.72,
+      "created_ts": 1776471487.4067008,
+      "updated_ts": 1776471487.4067008
+    },
+    {
+      "item_id": "knowledge_item_8edabb0290",
+      "title": "V12 domain-structured knowledge ingest demo",
+      "summary": "Text discusses memory/context/knowledge reuse. Key points: When coordinating agents, keep roles explicit and avoid over-consultation; Use second opinions mainly for risky tasks; Claude is usually strongest for concrete engineering and refactor work",
+      "domain_id": "memory_and_knowledge",
+      "block_id": "context_reuse_and_knowledge_retention",
+      "preferred_service": "ollama",
+      "tags": [
+        "agents",
+        "anthropic",
+        "automation",
+        "claude",
+        "communication",
+        "context",
+        "coordination",
+        "gpt",
+        "memory",
+        "n8n",
+        "obsidian",
+        "openai",
+        "qa",
+        "reliability"
+      ],
+      "source_record_ids": [
+        "knowledge_d4fdb2ebeb"
+      ],
+      "links": [
+        "Programming and Codegen / Claude and Engineering",
+        "Planning and Quality / OpenAI Planning and QA",
+        "Automation and Integrations / Workflow and Connector Operations",
+        "Agent Communication and Coordination / Coordination Patterns and Consultation",
+        "Safety and Reliability / Guardrails and Approval Logic"
+      ],
+      "confidence": 0.72,
+      "created_ts": 1776471487.4067008,
+      "updated_ts": 1776471487.4067008
+    },
+    {
+      "item_id": "knowledge_item_4bd4444ad8",
+      "title": "V12 domain-structured knowledge ingest demo",
+      "summary": "Text discusses agent coordination/communication. Key points: When coordinating agents, keep roles explicit and avoid over-consultation; Use second opinions mainly for risky tasks; Claude is usually strongest for concrete engineering and refactor work",
+      "domain_id": "agent_communication_and_coordination",
+      "block_id": "coordination_patterns_and_consultation",
+      "preferred_service": "",
+      "tags": [
+        "agents",
+        "anthropic",
+        "automation",
+        "claude",
+        "communication",
+        "context",
+        "coordination",
+        "gpt",
+        "memory",
+        "n8n",
+        "obsidian",
+        "openai",
+        "qa",
+        "reliability"
+      ],
+      "source_record_ids": [
+        "knowledge_d4fdb2ebeb"
+      ],
+      "links": [
+        "Programming and Codegen / Claude and Engineering",
+        "Planning and Quality / OpenAI Planning and QA",
+        "Automation and Integrations / Workflow and Connector Operations",
+        "Memory and Knowledge / Context Reuse and Knowledge Retention",
+        "Safety and Reliability / Guardrails and Approval Logic"
+      ],
+      "confidence": 0.72,
+      "created_ts": 1776471487.4067008,
+      "updated_ts": 1776471487.4067008
+    },
+    {
+      "item_id": "knowledge_item_7cbebf442f",
+      "title": "V12 domain-structured knowledge ingest demo",
+      "summary": "Text discusses safety/reliability/approval logic. Key points: When coordinating agents, keep roles explicit and avoid over-consultation; Use second opinions mainly for risky tasks; Claude is usually strongest for concrete engineering and refactor work",
+      "domain_id": "safety_and_reliability",
+      "block_id": "guardrails_and_approval_logic",
+      "preferred_service": "",
+      "tags": [
+        "agents",
+        "anthropic",
+        "automation",
+        "claude",
+        "communication",
+        "context",
+        "coordination",
+        "gpt",
+        "memory",
+        "n8n",
+        "obsidian",
+        "openai",
+        "qa",
+        "reliability"
+      ],
+      "source_record_ids": [
+        "knowledge_d4fdb2ebeb"
+      ],
+      "links": [
+        "Programming and Codegen / Claude and Engineering",
+        "Planning and Quality / OpenAI Planning and QA",
+        "Automation and Integrations / Workflow and Connector Operations",
+        "Memory and Knowledge / Context Reuse and Knowledge Retention",
+        "Agent Communication and Coordination / Coordination Patterns and Consultation"
+      ],
+      "confidence": 0.72,
+      "created_ts": 1776471487.4161057,
+      "updated_ts": 1776471487.4161057
+    },
+    {
+      "item_id": "knowledge_item_66d3756916",
+      "title": "How to communicate with agents and use cloud tools",
+      "summary": "Text discusses Claude/codegen/programming guidance. Key points: When coordinating agents, keep roles explicit and avoid over-consultation; Use second opinions mainly for risky tasks; Claude is usually strongest for concrete engineering and refactor work",
+      "domain_id": "programming_and_codegen",
+      "block_id": "claude_and_engineering",
+      "preferred_service": "claude_bridge",
+      "tags": [
+        "agents",
+        "anthropic",
+        "automation",
+        "claude",
+        "communication",
+        "context",
+        "coordination",
+        "gpt",
+        "memory",
+        "n8n",
+        "obsidian",
+        "openai",
+        "qa",
+        "reliability"
+      ],
+      "source_record_ids": [
+        "knowledge_f32e85efeb"
+      ],
+      "links": [
+        "Planning and Quality / OpenAI Planning and QA",
+        "Automation and Integrations / Workflow and Connector Operations",
+        "Memory and Knowledge / Context Reuse and Knowledge Retention",
+        "Agent Communication and Coordination / Coordination Patterns and Consultation",
+        "Safety and Reliability / Guardrails and Approval Logic"
+      ],
+      "confidence": 0.72,
+      "created_ts": 1776471498.1231902,
+      "updated_ts": 1776471498.1231902
+    },
+    {
+      "item_id": "knowledge_item_a0a18f5847",
+      "title": "How to communicate with agents and use cloud tools",
+      "summary": "Text discusses planning/QA guidance. Key points: When coordinating agents, keep roles explicit and avoid over-consultation; Use second opinions mainly for risky tasks; Claude is usually strongest for concrete engineering and refactor work",
+      "domain_id": "planning_and_quality",
+      "block_id": "openai_planning_and_qa",
+      "preferred_service": "openai",
+      "tags": [
+        "agents",
+        "anthropic",
+        "automation",
+        "claude",
+        "communication",
+        "context",
+        "coordination",
+        "gpt",
+        "memory",
+        "n8n",
+        "obsidian",
+        "openai",
+        "qa",
+        "reliability"
+      ],
+      "source_record_ids": [
+        "knowledge_f32e85efeb"
+      ],
+      "links": [
+        "Programming and Codegen / Claude and Engineering",
+        "Automation and Integrations / Workflow and Connector Operations",
+        "Memory and Knowledge / Context Reuse and Knowledge Retention",
+        "Agent Communication and Coordination / Coordination Patterns and Consultation",
+        "Safety and Reliability / Guardrails and Approval Logic"
+      ],
+      "confidence": 0.72,
+      "created_ts": 1776471498.1251986,
+      "updated_ts": 1776471498.1251986
+    },
+    {
+      "item_id": "knowledge_item_4a3c38fa3c",
+      "title": "How to communicate with agents and use cloud tools",
+      "summary": "Text discusses workflows/integrations/connectors. Key points: When coordinating agents, keep roles explicit and avoid over-consultation; Use second opinions mainly for risky tasks; Claude is usually strongest for concrete engineering and refactor work",
+      "domain_id": "automation_and_integrations",
+      "block_id": "workflow_and_connector_operations",
+      "preferred_service": "n8n",
+      "tags": [
+        "agents",
+        "anthropic",
+        "automation",
+        "claude",
+        "communication",
+        "context",
+        "coordination",
+        "gpt",
+        "memory",
+        "n8n",
+        "obsidian",
+        "openai",
+        "qa",
+        "reliability"
+      ],
+      "source_record_ids": [
+        "knowledge_f32e85efeb"
+      ],
+      "links": [
+        "Programming and Codegen / Claude and Engineering",
+        "Planning and Quality / OpenAI Planning and QA",
+        "Memory and Knowledge / Context Reuse and Knowledge Retention",
+        "Agent Communication and Coordination / Coordination Patterns and Consultation",
+        "Safety and Reliability / Guardrails and Approval Logic"
+      ],
+      "confidence": 0.72,
+      "created_ts": 1776471498.1269748,
+      "updated_ts": 1776471498.1269748
+    },
+    {
+      "item_id": "knowledge_item_5780304dcf",
+      "title": "How to communicate with agents and use cloud tools",
+      "summary": "Text discusses memory/context/knowledge reuse. Key points: When coordinating agents, keep roles explicit and avoid over-consultation; Use second opinions mainly for risky tasks; Claude is usually strongest for concrete engineering and refactor work",
+      "domain_id": "memory_and_knowledge",
+      "block_id": "context_reuse_and_knowledge_retention",
+      "preferred_service": "ollama",
+      "tags": [
+        "agents",
+        "anthropic",
+        "automation",
+        "claude",
+        "communication",
+        "context",
+        "coordination",
+        "gpt",
+        "memory",
+        "n8n",
+        "obsidian",
+        "openai",
+        "qa",
+        "reliability"
+      ],
+      "source_record_ids": [
+        "knowledge_f32e85efeb"
+      ],
+      "links": [
+        "Programming and Codegen / Claude and Engineering",
+        "Planning and Quality / OpenAI Planning and QA",
+        "Automation and Integrations / Workflow and Connector Operations",
+        "Agent Communication and Coordination / Coordination Patterns and Consultation",
+        "Safety and Reliability / Guardrails and Approval Logic"
+      ],
+      "confidence": 0.72,
+      "created_ts": 1776471498.1269748,
+      "updated_ts": 1776471498.1269748
+    },
+    {
+      "item_id": "knowledge_item_c1e4512278",
+      "title": "How to communicate with agents and use cloud tools",
+      "summary": "Text discusses agent coordination/communication. Key points: When coordinating agents, keep roles explicit and avoid over-consultation; Use second opinions mainly for risky tasks; Claude is usually strongest for concrete engineering and refactor work",
+      "domain_id": "agent_communication_and_coordination",
+      "block_id": "coordination_patterns_and_consultation",
+      "preferred_service": "",
+      "tags": [
+        "agents",
+        "anthropic",
+        "automation",
+        "claude",
+        "communication",
+        "context",
+        "coordination",
+        "gpt",
+        "memory",
+        "n8n",
+        "obsidian",
+        "openai",
+        "qa",
+        "reliability"
+      ],
+      "source_record_ids": [
+        "knowledge_f32e85efeb"
+      ],
+      "links": [
+        "Programming and Codegen / Claude and Engineering",
+        "Planning and Quality / OpenAI Planning and QA",
+        "Automation and Integrations / Workflow and Connector Operations",
+        "Memory and Knowledge / Context Reuse and Knowledge Retention",
+        "Safety and Reliability / Guardrails and Approval Logic"
+      ],
+      "confidence": 0.72,
+      "created_ts": 1776471498.1305275,
+      "updated_ts": 1776471498.1305275
+    },
+    {
+      "item_id": "knowledge_item_4a7d31ef07",
+      "title": "How to communicate with agents and use cloud tools",
+      "summary": "Text discusses safety/reliability/approval logic. Key points: When coordinating agents, keep roles explicit and avoid over-consultation; Use second opinions mainly for risky tasks; Claude is usually strongest for concrete engineering and refactor work",
+      "domain_id": "safety_and_reliability",
+      "block_id": "guardrails_and_approval_logic",
+      "preferred_service": "",
+      "tags": [
+        "agents",
+        "anthropic",
+        "automation",
+        "claude",
+        "communication",
+        "context",
+        "coordination",
+        "gpt",
+        "memory",
+        "n8n",
+        "obsidian",
+        "openai",
+        "qa",
+        "reliability"
+      ],
+      "source_record_ids": [
+        "knowledge_f32e85efeb"
+      ],
+      "links": [
+        "Programming and Codegen / Claude and Engineering",
+        "Planning and Quality / OpenAI Planning and QA",
+        "Automation and Integrations / Workflow and Connector Operations",
+        "Memory and Knowledge / Context Reuse and Knowledge Retention",
+        "Agent Communication and Coordination / Coordination Patterns and Consultation"
+      ],
+      "confidence": 0.72,
+      "created_ts": 1776471498.132318,
+      "updated_ts": 1776471498.132318
+    },
+    {
+      "item_id": "knowledge_item_8fff5b08e0",
+      "title": "V13 memory mesh governance demo",
+      "summary": "Text discusses Claude/codegen/programming guidance. Key points: Claude is usually strongest for concrete engineering, refactor and implementation work when prompts are explicit; OpenAI can remain strong for planning, review and QA framing; Avoid promoting n8n to broad live execution until auth and webhook verification are complete",
+      "domain_id": "programming_and_codegen",
+      "block_id": "claude_and_engineering",
+      "preferred_service": "claude_bridge",
+      "tags": [
+        "agents",
+        "anthropic",
+        "automation",
+        "claude",
+        "communication",
+        "context",
+        "coordination",
+        "gpt",
+        "memory",
+        "n8n",
+        "obsidian",
+        "openai",
+        "qa",
+        "reliability"
+      ],
+      "source_record_ids": [
+        "knowledge_011cdc00a9",
+        "knowledge_db94818df2"
+      ],
+      "links": [
+        "Agent Communication and Coordination / Coordination Patterns and Consultation",
+        "Automation and Integrations / Workflow and Connector Operations",
+        "Memory and Knowledge / Context Reuse and Knowledge Retention",
+        "Planning and Quality / OpenAI Planning and QA",
+        "Safety and Reliability / Guardrails and Approval Logic"
+      ],
+      "confidence": 0.59,
+      "created_ts": 1776510997.661647,
+      "updated_ts": 1776511007.4424243
+    },
+    {
+      "item_id": "knowledge_item_9ce5b3540b",
+      "title": "V13 memory mesh governance demo",
+      "summary": "Text discusses planning/QA guidance. Key points: Claude is usually strongest for concrete engineering, refactor and implementation work when prompts are explicit; OpenAI can remain strong for planning, review and QA framing; Avoid promoting n8n to broad live execution until auth and webhook verification are complete",
+      "domain_id": "planning_and_quality",
+      "block_id": "openai_planning_and_qa",
+      "preferred_service": "openai",
+      "tags": [
+        "agents",
+        "anthropic",
+        "automation",
+        "claude",
+        "communication",
+        "context",
+        "coordination",
+        "gpt",
+        "memory",
+        "n8n",
+        "obsidian",
+        "openai",
+        "qa",
+        "reliability"
+      ],
+      "source_record_ids": [
+        "knowledge_011cdc00a9",
+        "knowledge_db94818df2"
+      ],
+      "links": [
+        "Agent Communication and Coordination / Coordination Patterns and Consultation",
+        "Automation and Integrations / Workflow and Connector Operations",
+        "Memory and Knowledge / Context Reuse and Knowledge Retention",
+        "Programming and Codegen / Claude and Engineering",
+        "Safety and Reliability / Guardrails and Approval Logic"
+      ],
+      "confidence": 0.59,
+      "created_ts": 1776510997.6685238,
+      "updated_ts": 1776511007.4505064
+    },
+    {
+      "item_id": "knowledge_item_1bafec2e12",
+      "title": "V13 memory mesh governance demo",
+      "summary": "Text discusses workflows/integrations/connectors. Key points: Claude is usually strongest for concrete engineering, refactor and implementation work when prompts are explicit; OpenAI can remain strong for planning, review and QA framing; Avoid promoting n8n to broad live execution until auth and webhook verification are complete",
+      "domain_id": "automation_and_integrations",
+      "block_id": "workflow_and_connector_operations",
+      "preferred_service": "n8n",
+      "tags": [
+        "agents",
+        "anthropic",
+        "automation",
+        "claude",
+        "communication",
+        "context",
+        "coordination",
+        "gpt",
+        "memory",
+        "n8n",
+        "obsidian",
+        "openai",
+        "qa",
+        "reliability"
+      ],
+      "source_record_ids": [
+        "knowledge_011cdc00a9",
+        "knowledge_db94818df2"
+      ],
+      "links": [
+        "Agent Communication and Coordination / Coordination Patterns and Consultation",
+        "Memory and Knowledge / Context Reuse and Knowledge Retention",
+        "Planning and Quality / OpenAI Planning and QA",
+        "Programming and Codegen / Claude and Engineering",
+        "Safety and Reliability / Guardrails and Approval Logic"
+      ],
+      "confidence": 0.59,
+      "created_ts": 1776510997.6778054,
+      "updated_ts": 1776511007.4585533
+    },
+    {
+      "item_id": "knowledge_item_9cc3f0f4d9",
+      "title": "V13 memory mesh governance demo",
+      "summary": "Text discusses memory/context/knowledge reuse. Key points: Claude is usually strongest for concrete engineering, refactor and implementation work when prompts are explicit; OpenAI can remain strong for planning, review and QA framing; Avoid promoting n8n to broad live execution until auth and webhook verification are complete",
+      "domain_id": "memory_and_knowledge",
+      "block_id": "context_reuse_and_knowledge_retention",
+      "preferred_service": "ollama",
+      "tags": [
+        "agents",
+        "anthropic",
+        "automation",
+        "claude",
+        "communication",
+        "context",
+        "coordination",
+        "gpt",
+        "memory",
+        "n8n",
+        "obsidian",
+        "openai",
+        "qa",
+        "reliability"
+      ],
+      "source_record_ids": [
+        "knowledge_011cdc00a9",
+        "knowledge_db94818df2"
+      ],
+      "links": [
+        "Agent Communication and Coordination / Coordination Patterns and Consultation",
+        "Automation and Integrations / Workflow and Connector Operations",
+        "Planning and Quality / OpenAI Planning and QA",
+        "Programming and Codegen / Claude and Engineering",
+        "Safety and Reliability / Guardrails and Approval Logic"
+      ],
+      "confidence": 0.59,
+      "created_ts": 1776510997.682642,
+      "updated_ts": 1776511007.4622931
+    },
+    {
+      "item_id": "knowledge_item_d9f72a7a7a",
+      "title": "V13 memory mesh governance demo",
+      "summary": "Text discusses agent coordination/communication. Key points: Claude is usually strongest for concrete engineering, refactor and implementation work when prompts are explicit; OpenAI can remain strong for planning, review and QA framing; Avoid promoting n8n to broad live execution until auth and webhook verification are complete",
+      "domain_id": "agent_communication_and_coordination",
+      "block_id": "coordination_patterns_and_consultation",
+      "preferred_service": "",
+      "tags": [
+        "agents",
+        "anthropic",
+        "automation",
+        "claude",
+        "communication",
+        "context",
+        "coordination",
+        "gpt",
+        "memory",
+        "n8n",
+        "obsidian",
+        "openai",
+        "qa",
+        "reliability"
+      ],
+      "source_record_ids": [
+        "knowledge_011cdc00a9",
+        "knowledge_db94818df2"
+      ],
+      "links": [
+        "Automation and Integrations / Workflow and Connector Operations",
+        "Memory and Knowledge / Context Reuse and Knowledge Retention",
+        "Planning and Quality / OpenAI Planning and QA",
+        "Programming and Codegen / Claude and Engineering",
+        "Safety and Reliability / Guardrails and Approval Logic"
+      ],
+      "confidence": 0.59,
+      "created_ts": 1776510997.6919575,
+      "updated_ts": 1776511007.4668677
+    },
+    {
+      "item_id": "knowledge_item_4e293ed856",
+      "title": "V13 memory mesh governance demo",
+      "summary": "Text discusses safety/reliability/approval logic. Key points: Claude is usually strongest for concrete engineering, refactor and implementation work when prompts are explicit; OpenAI can remain strong for planning, review and QA framing; Avoid promoting n8n to broad live execution until auth and webhook verification are complete",
+      "domain_id": "safety_and_reliability",
+      "block_id": "guardrails_and_approval_logic",
+      "preferred_service": "",
+      "tags": [
+        "agents",
+        "anthropic",
+        "automation",
+        "claude",
+        "communication",
+        "context",
+        "coordination",
+        "gpt",
+        "memory",
+        "n8n",
+        "obsidian",
+        "openai",
+        "qa",
+        "reliability"
+      ],
+      "source_record_ids": [
+        "knowledge_011cdc00a9",
+        "knowledge_db94818df2"
+      ],
+      "links": [
+        "Agent Communication and Coordination / Coordination Patterns and Consultation",
+        "Automation and Integrations / Workflow and Connector Operations",
+        "Memory and Knowledge / Context Reuse and Knowledge Retention",
+        "Planning and Quality / OpenAI Planning and QA",
+        "Programming and Codegen / Claude and Engineering"
+      ],
+      "confidence": 0.59,
+      "created_ts": 1776510997.6944745,
+      "updated_ts": 1776511007.4752045
+    }
+  ]
+}

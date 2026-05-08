@@ -1,0 +1,27 @@
+{
+  "name": "google_workspace",
+  "category": "workspace",
+  "enabled": true,
+  "mode": "safe_readiness_only",
+  "safe_actions": [
+    "health_check",
+    "credential_presence_check",
+    "scopes_check"
+  ],
+  "blocked_actions": [
+    "unsafe_bulk_write",
+    "unvalidated_calendar_mass_actions"
+  ],
+  "endpoints": [
+    "http://127.0.0.1:8015/api/spreadsheets/health",
+    "http://127.0.0.1:8015/health"
+  ],
+  "required_env_vars": [
+    "GOOGLE_SERVICE_ACCOUNT_JSON",
+    "GOOGLE_OAUTH_CLIENT_SECRET_JSON",
+    "GOOGLE_OAUTH_TOKEN_JSON"
+  ],
+  "notes": [
+    "Focus on auth/config readiness first, then narrow write scopes."
+  ]
+}

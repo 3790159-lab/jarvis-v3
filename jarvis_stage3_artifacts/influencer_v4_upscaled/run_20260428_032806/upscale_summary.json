@@ -1,0 +1,38 @@
+{
+  "ok": true,
+  "chosen_upscaler": "topaz",
+  "source_video_url": "https://influencer-studio.b-cdn.net/production/cmohophfk007i3argbjj1o8k7/3571ba92-5227-4b63-88d8-7631a276a339.mp4",
+  "source_json": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\influencer_v4_video_ab\\run_20260428_030906\\kling-3_cmohvc97z00vmmscp815v88wc.json",
+  "generation_id": "cmohw0ml800pxw53whd0lq6jv",
+  "upscaled_urls": [
+    "https://influencer-studio.b-cdn.net/production/cmohophfk007i3argbjj1o8k7/6e33f799-f841-4b89-83ac-0d8ba065e9a3.mp4",
+    "https://influencer-studio.b-cdn.net/production/cmohophfk007i3argbjj1o8k7/6e33f799-f841-4b89-83ac-0d8ba065e9a3.mp4"
+  ],
+  "local_files": [
+    "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\influencer_v4_upscaled\\run_20260428_032806\\upscaled_topaz_001_6e33f799-f841-4b89-83ac-0d8ba065e9a3.mp4",
+    "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\influencer_v4_upscaled\\run_20260428_032806\\upscaled_topaz_002_6e33f799-f841-4b89-83ac-0d8ba065e9a3.mp4"
+  ],
+  "drive_folder_url": "https://drive.google.com/drive/folders/1fVhvSYWepb0JXjbH6-XpvYI2xeYNOd--",
+  "uploaded": [
+    {
+      "id": "1riJ63Ez4LqvvA6be-7V8KpuR-y3I1Q_8",
+      "name": "upscale_created_topaz_cmohw0ml800pxw53whd0lq6jv.json",
+      "webViewLink": "https://drive.google.com/file/d/1riJ63Ez4LqvvA6be-7V8KpuR-y3I1Q_8/view?usp=drivesdk"
+    },
+    {
+      "id": "1O0x8kWNNiKAJ76oEU78mR2XAcBieqqsU",
+      "name": "upscale_final_topaz_cmohw0ml800pxw53whd0lq6jv.json",
+      "webViewLink": "https://drive.google.com/file/d/1O0x8kWNNiKAJ76oEU78mR2XAcBieqqsU/view?usp=drivesdk"
+    },
+    {
+      "id": "1kt91tpmEpLdujOYsJfwGp06pEkxLQdkV",
+      "name": "upscaled_topaz_001_6e33f799-f841-4b89-83ac-0d8ba065e9a3.mp4",
+      "webViewLink": "https://drive.google.com/file/d/1kt91tpmEpLdujOYsJfwGp06pEkxLQdkV/view?usp=drivesdk"
+    },
+    {
+      "id": "16n1ytxOhLkjX8TZ96YnbeH7TqQCDnZ8r",
+      "name": "upscaled_topaz_002_6e33f799-f841-4b89-83ac-0d8ba065e9a3.mp4",
+      "webViewLink": "https://drive.google.com/file/d/16n1ytxOhLkjX8TZ96YnbeH7TqQCDnZ8r/view?usp=drivesdk"
+    }
+  ]
+}

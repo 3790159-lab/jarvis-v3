@@ -1,0 +1,82 @@
+{
+  "services": {
+    "openai": {
+      "service": "openai",
+      "success_count": 96,
+      "failure_count": 5,
+      "live_success_count": 96,
+      "dry_success_count": 0,
+      "fallback_count": 1,
+      "latency_ms_avg": 1549.78,
+      "samples": 101,
+      "last_error": "",
+      "last_success_ts": 1776530329.5813723,
+      "last_failure_ts": 1776530327.8843095
+    },
+    "claude_bridge": {
+      "service": "claude_bridge",
+      "success_count": 104,
+      "failure_count": 8,
+      "live_success_count": 104,
+      "dry_success_count": 0,
+      "fallback_count": 0,
+      "latency_ms_avg": 5.33,
+      "samples": 112,
+      "last_error": "HTTP Error 400: Bad Request",
+      "last_success_ts": 1776530329.595894,
+      "last_failure_ts": 1776530327.900119
+    },
+    "ollama": {
+      "service": "ollama",
+      "success_count": 58,
+      "failure_count": 3,
+      "live_success_count": 58,
+      "dry_success_count": 0,
+      "fallback_count": 0,
+      "latency_ms_avg": 5058.77,
+      "samples": 61,
+      "last_error": "",
+      "last_success_ts": 1776530329.620207,
+      "last_failure_ts": 1776530327.930226
+    },
+    "n8n": {
+      "service": "n8n",
+      "success_count": 48,
+      "failure_count": 3,
+      "live_success_count": 24,
+      "dry_success_count": 24,
+      "fallback_count": 0,
+      "latency_ms_avg": 0.96,
+      "samples": 51,
+      "last_error": "",
+      "last_success_ts": 1776530329.6038074,
+      "last_failure_ts": 1776530327.9152977
+    },
+    "cloud": {
+      "service": "cloud",
+      "success_count": 80,
+      "failure_count": 0,
+      "live_success_count": 80,
+      "dry_success_count": 0,
+      "fallback_count": 0,
+      "latency_ms_avg": 0.8,
+      "samples": 80,
+      "last_error": "",
+      "last_success_ts": 1776513986.6800764,
+      "last_failure_ts": 0.0
+    },
+    "unknown": {
+      "service": "unknown",
+      "success_count": 0,
+      "failure_count": 3,
+      "live_success_count": 0,
+      "dry_success_count": 0,
+      "fallback_count": 0,
+      "latency_ms_avg": 0.0,
+      "samples": 3,
+      "last_error": "",
+      "last_success_ts": 0.0,
+      "last_failure_ts": 1776513984.9087565
+    }
+  }
+}

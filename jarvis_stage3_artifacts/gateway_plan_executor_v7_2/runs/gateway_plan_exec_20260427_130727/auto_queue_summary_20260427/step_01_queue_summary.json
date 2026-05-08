@@ -1,0 +1,32 @@
+{
+  "index": 1,
+  "tool": "queue_summary",
+  "args": {},
+  "ok": true,
+  "result": {
+    "ok": true,
+    "created_at": "2026-04-27T13:08:30",
+    "run_id": "tool_call_20260427_130830",
+    "tool": "queue_summary",
+    "registry": "v6_9",
+    "policy": {
+      "allowed": true,
+      "risk": "low",
+      "note": "Safe low-risk tool."
+    },
+    "args": {},
+    "result": {
+      "ok": true,
+      "total": 12,
+      "by_status": {
+        "pending": 8,
+        "running": 0,
+        "completed": 4,
+        "failed": 0,
+        "blocked": 0
+      }
+    },
+    "evidence_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\unified_tool_gateway_v7_0\\calls\\tool_call_20260427_130830"
+  },
+  "time": "2026-04-27T13:08:30"
+}

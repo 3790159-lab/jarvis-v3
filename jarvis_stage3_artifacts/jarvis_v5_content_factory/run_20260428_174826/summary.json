@@ -1,0 +1,47 @@
+{
+  "ok": true,
+  "pipeline": "jarvis_v5_super_hybrid",
+  "run_id": "20260428_174826",
+  "style_mode": "luxury_safe",
+  "prompt": "luxury lifestyle Instagram content",
+  "image_generation_id": "cmoiqr1wj01u3w53wp2wf7sfg",
+  "image_urls": [
+    "https://influencer-studio.b-cdn.net/production/cmohophfk007i3argbjj1o8k7/bcebd555-9669-43b1-b720-da5461aeeebd.png",
+    "https://influencer-studio.b-cdn.net/production/cmohophfk007i3argbjj1o8k7/41364645-1d6b-4245-a9bd-cb9a9ebed1d8.png",
+    "https://influencer-studio.b-cdn.net/production/cmohophfk007i3argbjj1o8k7/e0bc7b7c-be24-4ec6-9f67-007f89c356a9.png",
+    "https://influencer-studio.b-cdn.net/production/cmohophfk007i3argbjj1o8k7/69bd99a2-8935-4848-bb23-bdfcce1b6f01.png"
+  ],
+  "video_urls": [
+    "https://influencer-studio.b-cdn.net/production/cmohophfk007i3argbjj1o8k7/a8634a5b-eb9b-497c-ba25-60ebe3183026.mp4"
+  ],
+  "credits_before": 6363,
+  "drive_folder_url": "https://drive.google.com/drive/folders/1c8XPPtgAngFU6tzzSofXaTdPGUTTsyrB",
+  "uploaded": [
+    {
+      "id": "1n2bRKtBNmtRtOlWo16y82JzwgFZnhI_T",
+      "name": "photo_001.png",
+      "webViewLink": "https://drive.google.com/file/d/1n2bRKtBNmtRtOlWo16y82JzwgFZnhI_T/view?usp=drivesdk"
+    },
+    {
+      "id": "1vUXWdEjV9j6ucTSZmMuT1w7AdEGm6Thi",
+      "name": "photo_002.png",
+      "webViewLink": "https://drive.google.com/file/d/1vUXWdEjV9j6ucTSZmMuT1w7AdEGm6Thi/view?usp=drivesdk"
+    },
+    {
+      "id": "1Bk9CHwdeirtkmvjHAY40Fsn8KBQ0Qd99",
+      "name": "photo_003.png",
+      "webViewLink": "https://drive.google.com/file/d/1Bk9CHwdeirtkmvjHAY40Fsn8KBQ0Qd99/view?usp=drivesdk"
+    },
+    {
+      "id": "1fX0xAKBz6Gt7rCfMCbBrgSFWgowKrvnh",
+      "name": "photo_004.png",
+      "webViewLink": "https://drive.google.com/file/d/1fX0xAKBz6Gt7rCfMCbBrgSFWgowKrvnh/view?usp=drivesdk"
+    },
+    {
+      "id": "1j9VXDalpU_XAQwHs1m2T3bClaYu0XOfy",
+      "name": "video_001.mp4",
+      "webViewLink": "https://drive.google.com/file/d/1j9VXDalpU_XAQwHs1m2T3bClaYu0XOfy/view?usp=drivesdk"
+    }
+  ],
+  "local_run_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\jarvis_v5_content_factory\\run_20260428_174826"
+}

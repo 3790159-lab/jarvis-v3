@@ -1,0 +1,29 @@
+{
+  "mission_id": "mission_auto_1367eb2e",
+  "objective": "Create a file with test content",
+  "steps": [
+    {
+      "step_id": "auto_step",
+      "title": "Auto step",
+      "description": "create file automatically",
+      "task_type": "coding",
+      "preferred_provider": "ollama",
+      "status": "completed",
+      "response_text": "[ollama] Auto step: Implementation step completed. A safe fallback execution path was used for 'Create a file with test content'. Work item: create file automatically",
+      "error": null,
+      "metadata": {
+        "phase": "execute",
+        "requested_provider": "ollama",
+        "resolved_provider": "ollama",
+        "fallback_used": false,
+        "tool_result": null
+      }
+    }
+  ],
+  "status": "completed",
+  "active_step_id": null,
+  "error": null,
+  "created_at": 1776124041.8111389,
+  "updated_at": 1776124041.854538,
+  "last_heartbeat_at": 1776124041.854538
+}

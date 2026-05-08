@@ -1,0 +1,14 @@
+{
+  "blueprint_id": "research_planner_agent",
+  "display_name": "Research Planner Agent",
+  "risk": "additive_low",
+  "summary": "Managed planning module for research queues, evidence packs and task decomposition.",
+  "ports_offset": 3,
+  "default_files": [
+    "manifest.json",
+    "README.md",
+    "app.py",
+    "scripts/start_module.ps1",
+    "config/module.env.example"
+  ]
+}

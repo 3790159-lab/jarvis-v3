@@ -1,0 +1,32 @@
+{
+  "index": 2,
+  "tool": "git_status",
+  "args": {},
+  "ok": false,
+  "result": {
+    "ok": false,
+    "created_at": "2026-04-27T16:17:56",
+    "run_id": "tool_call_20260427_161756",
+    "tool": "git_status",
+    "registry": "v6_7",
+    "policy": {
+      "allowed": true,
+      "risk": "low",
+      "note": "Safe low-risk tool."
+    },
+    "args": {},
+    "result": {
+      "ok": false,
+      "returncode": 128,
+      "stdout": "",
+      "stderr": "fatal: not a git repository (or any of the parent directories): .git\n",
+      "cmd": [
+        "git",
+        "status",
+        "--short"
+      ]
+    },
+    "evidence_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\unified_tool_gateway_v7_0\\calls\\tool_call_20260427_161756"
+  },
+  "time": "2026-04-27T16:17:56"
+}

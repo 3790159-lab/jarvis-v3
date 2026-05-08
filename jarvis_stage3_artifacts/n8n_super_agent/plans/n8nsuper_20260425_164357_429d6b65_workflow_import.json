@@ -1,0 +1,48 @@
+{
+  "name": "Jarvis Super Agent - webhook_echo",
+  "nodes": [
+    {
+      "id": "5614735b-294b-4c38-b43a-4206e6f1f51e",
+      "name": "Jarvis Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "jarvis-super-webhook-echo-429d6b65",
+        "responseMode": "lastNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "78c0ae51-2919-4e0c-8fc4-2ac81ac6efd0",
+      "name": "Echo Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const now = new Date().toISOString();\nreturn [{ json: {\n  ok: true,\n  kind: 'webhook_echo',\n  receivedAt: now,\n  source: 'jarvis_super_agent',\n  payload: $json\n} }];"
+      }
+    }
+  ],
+  "connections": {
+    "Jarvis Webhook": {
+      "main": [
+        [
+          {
+            "node": "Echo Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {}
+}

@@ -1,0 +1,51 @@
+{
+    "schema":  "jarvis.operator_dashboard_real.v8_5_fix",
+    "created_at":  "2026-04-27T16:37:33",
+    "main_path":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\app\\main.py",
+    "router_path":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\app\\routers\\operator_dashboard.py",
+    "restarted":  true,
+    "passed":  8,
+    "total":  8,
+    "results":  [
+                    {
+                        "endpoint":  "/health",
+                        "ok":  true,
+                        "status":  "ok"
+                    },
+                    {
+                        "endpoint":  "/api/operator-dashboard/health",
+                        "ok":  true,
+                        "status":  "ok"
+                    },
+                    {
+                        "endpoint":  "/api/operator-dashboard/summary",
+                        "ok":  true,
+                        "status":  "ok"
+                    },
+                    {
+                        "endpoint":  "/api/operator-dashboard/queue",
+                        "ok":  true,
+                        "status":  "ok"
+                    },
+                    {
+                        "endpoint":  "/api/operator-dashboard/evidence",
+                        "ok":  true,
+                        "status":  "ok"
+                    },
+                    {
+                        "endpoint":  "/api/operator-dashboard/gateway",
+                        "ok":  true,
+                        "status":  "ok"
+                    },
+                    {
+                        "endpoint":  "/api/operator-dashboard/full-creator",
+                        "ok":  true,
+                        "status":  "ok"
+                    },
+                    {
+                        "endpoint":  "/api/operator-dashboard/self-healing",
+                        "ok":  true,
+                        "status":  "ok"
+                    }
+                ]
+}

@@ -1,0 +1,8 @@
+{
+    "mode":  "smart_local",
+    "source":  "local_fallback",
+    "reply":  "Message received: Macro goal: Strengthen Supervisor reliability and execution safety\n\nFocused task: Optimize retry logic and system resilience. Make real code-backed changes in .py or .ps1 files.\n\nBuild a compact package:\n1) choose 2-3 low-risk substeps;\n2) prefer real code changes in project files;\n3) avoid repeating state-only edits unless they unlock a code change;\n4) mention likely touched files.\n\nSupervisor fallback mode is active.",
+    "confidence":  "0.78",
+    "mission":  null,
+    "route":  "chat"
+}

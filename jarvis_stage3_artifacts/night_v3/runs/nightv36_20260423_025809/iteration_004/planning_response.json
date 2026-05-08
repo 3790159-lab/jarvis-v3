@@ -1,0 +1,8 @@
+{
+    "reply":  "Message received: Improve autonomy and decision making. Prefer real project changes.\n\nSupervisor fallback mode is active.",
+    "mode":  "smart_local",
+    "source":  "local_fallback",
+    "confidence":  0.78,
+    "route":  "chat",
+    "mission":  null
+}

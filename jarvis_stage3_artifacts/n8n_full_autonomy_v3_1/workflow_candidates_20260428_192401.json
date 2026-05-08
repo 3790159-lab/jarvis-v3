@@ -1,0 +1,471 @@
+[
+  {
+    "id": "sTk9NE4DZZnzXN3Z",
+    "name": "Jarvis V5 Super Hybrid Content Factory",
+    "active": true,
+    "updatedAt": "2026-04-28T12:36:59.246Z",
+    "score": 142
+  },
+  {
+    "id": "XJNAVjU9hn0Bc9EA",
+    "name": "Jarvis V5 Super Hybrid Factory FULL",
+    "active": false,
+    "updatedAt": "2026-04-28T15:49:06.542Z",
+    "score": 130
+  },
+  {
+    "id": "1KArvroUOvp6f1mI",
+    "name": "Jarvis Super Agent - multi_step_pipeline",
+    "active": true,
+    "updatedAt": "2026-04-24T23:38:18.470Z",
+    "score": 62
+  },
+  {
+    "id": "5UAEX1YaTwuRRTzY",
+    "name": "Jarvis Super Agent - telegram_operator_alert",
+    "active": true,
+    "updatedAt": "2026-04-24T16:50:44.408Z",
+    "score": 62
+  },
+  {
+    "id": "82UANnS21WNPEWFT",
+    "name": "Jarvis Super Agent - http_request_probe",
+    "active": true,
+    "updatedAt": "2026-04-24T22:54:12.983Z",
+    "score": 62
+  },
+  {
+    "id": "Avqt99pWiMe2a17t",
+    "name": "Jarvis Super Agent - http_request_probe",
+    "active": true,
+    "updatedAt": "2026-04-24T23:16:14.189Z",
+    "score": 62
+  },
+  {
+    "id": "BmOMOxajbW2xYaN0",
+    "name": "Jarvis Super Agent - dynamic_pipeline",
+    "active": true,
+    "updatedAt": "2026-04-25T00:17:48.237Z",
+    "score": 62
+  },
+  {
+    "id": "BmyX9EpydvJimfL4",
+    "name": "Jarvis Super Agent - night_report_logger",
+    "active": true,
+    "updatedAt": "2026-04-25T01:24:36.223Z",
+    "score": 62
+  },
+  {
+    "id": "CzGtXgdgH9Pv3qqW",
+    "name": "Jarvis Super Agent - dynamic_pipeline",
+    "active": true,
+    "updatedAt": "2026-04-25T00:54:25.978Z",
+    "score": 62
+  },
+  {
+    "id": "Dq66pjKaVZnxqxpp",
+    "name": "Jarvis Super Agent - http_request_probe",
+    "active": true,
+    "updatedAt": "2026-04-24T22:46:36.542Z",
+    "score": 62
+  },
+  {
+    "id": "E156sAwTGpferftI",
+    "name": "Jarvis Super Agent - multi_step_pipeline",
+    "active": true,
+    "updatedAt": "2026-04-24T23:38:35.647Z",
+    "score": 62
+  },
+  {
+    "id": "EqNunNsI6tNqri0x",
+    "name": "Jarvis Super Agent - http_request_probe",
+    "active": true,
+    "updatedAt": "2026-04-24T22:50:44.089Z",
+    "score": 62
+  },
+  {
+    "id": "FK0U0bnUihAn2xzR",
+    "name": "Jarvis Super Agent - dynamic_pipeline",
+    "active": true,
+    "updatedAt": "2026-04-25T01:30:42.971Z",
+    "score": 62
+  },
+  {
+    "id": "FpFguNRw3Ygvd2Xy",
+    "name": "Jarvis Super Agent - http_request_probe",
+    "active": true,
+    "updatedAt": "2026-04-24T22:51:07.219Z",
+    "score": 62
+  },
+  {
+    "id": "GYbCM5J8hexmzirL",
+    "name": "Jarvis Super Agent - dynamic_pipeline",
+    "active": true,
+    "updatedAt": "2026-04-25T00:19:30.839Z",
+    "score": 62
+  },
+  {
+    "id": "IeuQND6cnBdzNBVO",
+    "name": "Jarvis Super Agent - dynamic_pipeline",
+    "active": true,
+    "updatedAt": "2026-04-25T00:17:32.825Z",
+    "score": 62
+  },
+  {
+    "id": "JoJv4Or84ktsyEvV",
+    "name": "Jarvis Super Agent - http_request_probe",
+    "active": true,
+    "updatedAt": "2026-04-24T23:03:06.410Z",
+    "score": 62
+  },
+  {
+    "id": "MIUSwUN7uynpX8px",
+    "name": "Jarvis Super Agent - dynamic_pipeline",
+    "active": true,
+    "updatedAt": "2026-04-25T00:54:29.470Z",
+    "score": 62
+  },
+  {
+    "id": "NQSDplExh3cwif59",
+    "name": "Jarvis Super Agent - multi_step_pipeline",
+    "active": true,
+    "updatedAt": "2026-04-25T00:02:19.476Z",
+    "score": 62
+  },
+  {
+    "id": "OlymsPTAPmvKjJly",
+    "name": "Jarvis Super Agent - multi_step_pipeline",
+    "active": true,
+    "updatedAt": "2026-04-27T16:07:21.606Z",
+    "score": 62
+  },
+  {
+    "id": "OzxYJg97kkPDViEf",
+    "name": "Jarvis Super Agent - night_report_logger",
+    "active": true,
+    "updatedAt": "2026-04-25T01:36:47.393Z",
+    "score": 62
+  },
+  {
+    "id": "PZkG4Uje0dWyxwB1",
+    "name": "Jarvis Super Agent - night_report_logger",
+    "active": true,
+    "updatedAt": "2026-04-24T16:50:10.169Z",
+    "score": 62
+  },
+  {
+    "id": "Quwt5wZnYXjbI5Ws",
+    "name": "Jarvis Super Agent - dynamic_pipeline",
+    "active": true,
+    "updatedAt": "2026-04-25T00:19:27.265Z",
+    "score": 62
+  },
+  {
+    "id": "TVvt4j0ELxnk1yx2",
+    "name": "Jarvis Super Agent - http_request_probe",
+    "active": true,
+    "updatedAt": "2026-04-24T22:54:17.235Z",
+    "score": 62
+  },
+  {
+    "id": "WIquVsuzNdfh9DPA",
+    "name": "Jarvis Super Agent - multi_step_pipeline",
+    "active": true,
+    "updatedAt": "2026-04-24T23:38:33.429Z",
+    "score": 62
+  },
+  {
+    "id": "X1jrvm8bpbCW77nw",
+    "name": "Jarvis Super Agent - webhook_echo",
+    "active": true,
+    "updatedAt": "2026-04-25T16:43:57.326Z",
+    "score": 62
+  },
+  {
+    "id": "XHqOvFkz6mCA21BI",
+    "name": "Jarvis Super Agent - telegram_operator_alert",
+    "active": true,
+    "updatedAt": "2026-04-25T01:27:39.735Z",
+    "score": 62
+  },
+  {
+    "id": "XONPRitfcD9jU9Zi",
+    "name": "Jarvis Super Agent - dynamic_pipeline",
+    "active": true,
+    "updatedAt": "2026-04-25T00:19:10.113Z",
+    "score": 62
+  },
+  {
+    "id": "Xw1uafbJRR27yW5T",
+    "name": "Jarvis Super Agent - http_request_probe",
+    "active": true,
+    "updatedAt": "2026-04-24T22:46:05.350Z",
+    "score": 62
+  },
+  {
+    "id": "cUyJ2YRsoEKqQuvj",
+    "name": "Jarvis Super Agent - night_report_logger",
+    "active": true,
+    "updatedAt": "2026-04-25T01:18:44.955Z",
+    "score": 62
+  },
+  {
+    "id": "ccC1zMt0O34ROMn8",
+    "name": "Jarvis Super Agent - night_report_logger",
+    "active": true,
+    "updatedAt": "2026-04-24T16:50:41.292Z",
+    "score": 62
+  },
+  {
+    "id": "doxT45yzcmPDz1YP",
+    "name": "Jarvis Super Agent - webhook_echo",
+    "active": true,
+    "updatedAt": "2026-04-25T23:56:23.850Z",
+    "score": 62
+  },
+  {
+    "id": "e9jjILRnkZexcPdK",
+    "name": "Jarvis Super Agent - multi_step_pipeline",
+    "active": true,
+    "updatedAt": "2026-04-24T23:44:52.917Z",
+    "score": 62
+  },
+  {
+    "id": "kAg3pZUFv3zFDQi2",
+    "name": "Jarvis Super Agent - dynamic_pipeline",
+    "active": true,
+    "updatedAt": "2026-04-25T00:17:46.301Z",
+    "score": 62
+  },
+  {
+    "id": "kbJi96LP63ytIIjZ",
+    "name": "Jarvis Super Agent - dynamic_pipeline",
+    "active": true,
+    "updatedAt": "2026-04-25T00:54:02.415Z",
+    "score": 62
+  },
+  {
+    "id": "nU1LrL2KbOwd3G47",
+    "name": "Jarvis Super Agent - http_request_probe",
+    "active": true,
+    "updatedAt": "2026-04-24T22:46:39.036Z",
+    "score": 62
+  },
+  {
+    "id": "ofhz76X7mRjFmzq5",
+    "name": "Jarvis Super Agent - http_request_probe",
+    "active": true,
+    "updatedAt": "2026-04-24T22:53:45.050Z",
+    "score": 62
+  },
+  {
+    "id": "ojeLOsezzisQS9ws",
+    "name": "Jarvis Super Agent - dynamic_pipeline",
+    "active": true,
+    "updatedAt": "2026-04-25T01:09:37.966Z",
+    "score": 62
+  },
+  {
+    "id": "pL57XbBErjgrBLyB",
+    "name": "Jarvis Super Agent - http_request_probe",
+    "active": true,
+    "updatedAt": "2026-04-24T22:51:04.717Z",
+    "score": 62
+  },
+  {
+    "id": "uCQC3VCY2oIizgkd",
+    "name": "Jarvis Super Agent - multi_step_pipeline",
+    "active": true,
+    "updatedAt": "2026-04-27T16:05:03.206Z",
+    "score": 62
+  },
+  {
+    "id": "vcbDv7gtRADJQCV3",
+    "name": "Jarvis Super Agent - multi_step_pipeline",
+    "active": true,
+    "updatedAt": "2026-04-25T00:00:20.306Z",
+    "score": 62
+  },
+  {
+    "id": "4zZAsdpSKSY6okVV",
+    "name": "Jarvis Content Factory REAL v1.5.2",
+    "active": true,
+    "updatedAt": "2026-04-27T16:42:37.001Z",
+    "score": 52
+  },
+  {
+    "id": "BmSqd3fx39BngIgc",
+    "name": "Jarvis Content Factory ULTRA v2.0",
+    "active": true,
+    "updatedAt": "2026-04-27T16:55:21.274Z",
+    "score": 52
+  },
+  {
+    "id": "XN18kihzrGGxrUXm",
+    "name": "Jarvis Content Factory - Text Photo to 12 Assets",
+    "active": true,
+    "updatedAt": "2026-04-27T16:38:32.621Z",
+    "score": 52
+  },
+  {
+    "id": "EvpfbDEYKsKy9KaA",
+    "name": "jarvis-template-clone-B_drop_node_ids_keep_webhookId_keep_settings-20260421_183835-b8de4967",
+    "active": true,
+    "updatedAt": "2026-04-21T15:39:12.172Z",
+    "score": 32
+  },
+  {
+    "id": "GJBC26J7jec125tJ",
+    "name": "jarvis-template-clone-A_keep_ids_keep_webhookId_keep_settings-20260421_183835-b8de4967",
+    "active": true,
+    "updatedAt": "2026-04-21T15:38:48.701Z",
+    "score": 32
+  },
+  {
+    "id": "GTgZvXK61LgVspuQ",
+    "name": "Jarvis Night Report Webhook",
+    "active": true,
+    "updatedAt": "2026-04-24T15:54:40.670Z",
+    "score": 32
+  },
+  {
+    "id": "Hn2VuJTVasYQrj1z",
+    "name": "Jarvis Night Report Webhook",
+    "active": true,
+    "updatedAt": "2026-04-24T16:34:27.120Z",
+    "score": 32
+  },
+  {
+    "id": "LHEzyy8aMrzjH0Fh",
+    "name": "jarvis-diag-1776773288",
+    "active": true,
+    "updatedAt": "2026-04-21T12:08:09.583Z",
+    "score": 32
+  },
+  {
+    "id": "QJ4xhNDvtvM5o9Ek",
+    "name": "jarvis-direct-20260421_180654-184b0c8d",
+    "active": true,
+    "updatedAt": "2026-04-21T15:06:55.251Z",
+    "score": 32
+  },
+  {
+    "id": "W1rdyTiD5tK098Xg",
+    "name": "jarvis-template-clone-D_drop_node_ids_drop_webhookId_prune_settings-20260421_183835-b8de4967",
+    "active": true,
+    "updatedAt": "2026-04-21T15:39:58.934Z",
+    "score": 32
+  },
+  {
+    "id": "ZKDyPsCuJuHVHcAu",
+    "name": "jarvis-auto-improvements-to-sheet",
+    "active": true,
+    "updatedAt": "2026-04-19T15:47:25.757Z",
+    "score": 32
+  },
+  {
+    "id": "amu7qDmMGEQ7l8MI",
+    "name": "jarvis-template-clone-C_drop_node_ids_drop_webhookId_keep_settings-20260421_183835-b8de4967",
+    "active": true,
+    "updatedAt": "2026-04-21T15:39:35.467Z",
+    "score": 32
+  },
+  {
+    "id": "ar8duRDnlG0ABkzd",
+    "name": "Jarvis Night Report Webhook",
+    "active": true,
+    "updatedAt": "2026-04-24T16:31:35.047Z",
+    "score": 32
+  },
+  {
+    "id": "NIa9lmKVY8BOpfOa",
+    "name": "Jarvis Night Report Webhook",
+    "active": false,
+    "updatedAt": "2026-04-24T15:40:26.775Z",
+    "score": 30
+  },
+  {
+    "id": "vKNOooqm7iYzRiF7Ev6bB",
+    "name": "Jarvis template",
+    "active": false,
+    "updatedAt": "2026-03-01T21:55:16.131Z",
+    "score": 30
+  },
+  {
+    "id": "T5Vc4b0g250kO57S",
+    "name": "Automated Social Media Trend-Based Content Generation and Publishing",
+    "active": false,
+    "updatedAt": "2026-03-02T18:09:55.524Z",
+    "score": 10
+  },
+  {
+    "id": "mjjiONUux16H9Zr8pfKKs",
+    "name": "YouTube Content Creation and Publishing Automation",
+    "active": false,
+    "updatedAt": "2026-01-21T18:21:08.476Z",
+    "score": 10
+  },
+  {
+    "id": "A5A6R59swT8Z3tmr",
+    "name": "My workflow 2",
+    "active": false,
+    "updatedAt": "2026-03-02T16:58:29.498Z",
+    "score": 0
+  },
+  {
+    "id": "E2rbV7lb0KQigLjfK--nz",
+    "name": "WF-01 Scripts Generator",
+    "active": false,
+    "updatedAt": "2026-02-07T16:04:48.759Z",
+    "score": 0
+  },
+  {
+    "id": "J13bvYVNA4Z1Fhivzb2nn",
+    "name": "Email - PA",
+    "active": false,
+    "updatedAt": "2026-02-07T16:12:36.817Z",
+    "score": 0
+  },
+  {
+    "id": "WJlL0WZ9fFdNs32v",
+    "name": "2 Email to Long-Form Thread",
+    "active": false,
+    "updatedAt": "2026-03-02T16:19:22.630Z",
+    "score": 0
+  },
+  {
+    "id": "bEBWlHDNZ1oB30TYQZ5BW",
+    "name": "AI-Powered YouTube Video Creation and Publishing Assistant",
+    "active": false,
+    "updatedAt": "2026-01-22T14:15:07.569Z",
+    "score": 0
+  },
+  {
+    "id": "d53V2XiPVhr88DKLh7U9Q",
+    "name": "YA2",
+    "active": false,
+    "updatedAt": "2026-03-15T00:06:48.130Z",
+    "score": 0
+  },
+  {
+    "id": "gZ0IysTX2KWD82a6ZVmxx",
+    "name": "Automated Video Script Writing and Upload to Drive",
+    "active": false,
+    "updatedAt": "2026-02-04T23:11:31.052Z",
+    "score": 0
+  },
+  {
+    "id": "qo8fYaE6z8S1d3th",
+    "name": "My workflow 3",
+    "active": false,
+    "updatedAt": "2026-03-02T17:31:11.000Z",
+    "score": 0
+  },
+  {
+    "id": "rpuRthc8uIUAXzSw",
+    "name": "My workflow",
+    "active": false,
+    "updatedAt": "2026-03-02T16:46:04.800Z",
+    "score": 0
+  }
+]

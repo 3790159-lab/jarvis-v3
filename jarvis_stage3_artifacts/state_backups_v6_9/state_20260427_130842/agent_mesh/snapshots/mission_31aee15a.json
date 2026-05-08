@@ -1,0 +1,278 @@
+{
+  "mission_id": "mission_31aee15a",
+  "goal": "Execute native integration task: Native Claude integration check V11",
+  "status": "completed",
+  "tasks": [
+    {
+      "task": {
+        "task_id": "native_claude_check_api_v11",
+        "title": "Native Claude integration check V11",
+        "task_type": "integration",
+        "required_capability": "codegen",
+        "depends_on": [],
+        "priority": "high",
+        "risk_level": "normal",
+        "max_retries": 2,
+        "preferred_agent_id": null,
+        "consultation_allowed": false,
+        "max_consults": 2,
+        "locality_requirement": false,
+        "storage_affinity": false,
+        "approval_required": false,
+        "metadata": {
+          "preferred_service": "claude_bridge",
+          "connector_action": "config_check",
+          "dry_run": false,
+          "persist_output": true,
+          "connector_payload": {},
+          "learning_guidance": {
+            "suggested_service": "claude_bridge",
+            "needs_memory_support": false,
+            "recommended_actions": [
+              "Commit integration result",
+              "Persist integration outcome to mission memory",
+              "Run QA validation",
+              "Persist artifact reference",
+              "Claude is often strongest for code drafting, refactors and precise implementation work when prompts are explicit",
+              "OpenAI can remain strong for structured planning and QA framing",
+              "n8n should only be promoted to broader live execution after configuration and auth are fully verified",
+              "Memory/context support should stay enabled so the system can reuse prior lessons and patterns"
+            ],
+            "caution_notes": [
+              "Verify connector output and auth configuration before promoting to broader autonomy.",
+              "Return normalized_text and artifact refs in every critical task.",
+              "Keep outputs structured and verify before autonomous promotion."
+            ],
+            "lesson_ids": [
+              "lesson_0d61e0f0d4",
+              "lesson_2b4e5fb253",
+              "lesson_a770affa5e",
+              "lesson_be490ab09c"
+            ],
+            "lesson_summaries": [
+              "coding_agent_main executed integration task 'Run native Claude connector check' via claude_bridge",
+              "coding_agent_main completed task 'Generate demo control-plane artifact'",
+              "coding_agent_main executed integration task 'Native Claude integration check V10' via claude_bridge",
+              "Use Claude-oriented prompting for code generation and analysis when it is configured and beneficial."
+            ],
+            "confidence": 0.95
+          }
+        }
+      },
+      "status": "completed",
+      "assigned_agent_id": "coding_agent_main",
+      "provider": "cloud",
+      "attempts": 1,
+      "consult_depth": 0,
+      "result": {
+        "agent_id": "coding_agent_main",
+        "status": "ok",
+        "summary": "coding_agent_main executed integration task 'Native Claude integration check V11' via claude_bridge",
+        "normalized_text": "{\n  \"action\": \"config_check\",\n  \"dry_run\": false,\n  \"mode\": \"guarded_binding_check\"\n}",
+        "artifacts": [
+          {
+            "name": "native_claude_check_api_v11_integration.json",
+            "path": "state\\agent_mesh\\demo_artifacts\\native_claude_check_api_v11_integration.json",
+            "kind": "json",
+            "metadata": {}
+          }
+        ],
+        "next_actions": [
+          "Commit integration result",
+          "Persist integration outcome to mission memory"
+        ],
+        "consult_requests": [],
+        "support_needed": [],
+        "confidence": 0.82,
+        "metrics": {
+          "duration_ms": 2,
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "cost_estimate": 0.0
+        },
+        "error": null,
+        "response_schema_version": "1.0",
+        "proposed_schema_extensions": [],
+        "approved_schema_extensions": [],
+        "dynamic_fields": {},
+        "risk_notes": [],
+        "handoff_notes": [
+          "connector_id=claude_bridge_primary",
+          "service=claude_bridge",
+          "action=config_check",
+          "dry_run=False"
+        ],
+        "validation_hints": [
+          "Verify connector output and auth configuration before promoting to broader autonomy."
+        ]
+      },
+      "qa": {
+        "passed": true,
+        "scores": {
+          "correctness": 0.9,
+          "completeness": 1.0,
+          "stability": 0.9,
+          "recoverability": 0.8,
+          "usefulness": 0.72
+        },
+        "summary": "QA average=0.86 passed=True strictness=high mode=default",
+        "repair_hints": []
+      },
+      "recovery": null
+    }
+  ],
+  "artifacts": [
+    {
+      "name": "native_claude_check_api_v11_integration.json",
+      "path": "state\\agent_mesh\\demo_artifacts\\native_claude_check_api_v11_integration.json",
+      "kind": "json",
+      "metadata": {}
+    }
+  ],
+  "context_bundle": {
+    "mission_id": "mission_31aee15a",
+    "goal": "Execute native integration task: Native Claude integration check V11",
+    "status": "completed",
+    "recent_events": [
+      {
+        "event": "mission_created",
+        "goal": "Execute native integration task: Native Claude integration check V11"
+      },
+      {
+        "event": "learning_guidance_applied",
+        "task_id": "native_claude_check_api_v11",
+        "agent_id": "coding_agent_main",
+        "guidance": {
+          "suggested_service": "claude_bridge",
+          "needs_memory_support": false,
+          "recommended_actions": [
+            "Commit integration result",
+            "Persist integration outcome to mission memory",
+            "Run QA validation",
+            "Persist artifact reference",
+            "Claude is often strongest for code drafting, refactors and precise implementation work when prompts are explicit",
+            "OpenAI can remain strong for structured planning and QA framing",
+            "n8n should only be promoted to broader live execution after configuration and auth are fully verified",
+            "Memory/context support should stay enabled so the system can reuse prior lessons and patterns"
+          ],
+          "caution_notes": [
+            "Verify connector output and auth configuration before promoting to broader autonomy.",
+            "Return normalized_text and artifact refs in every critical task.",
+            "Keep outputs structured and verify before autonomous promotion."
+          ],
+          "lesson_ids": [
+            "lesson_0d61e0f0d4",
+            "lesson_2b4e5fb253",
+            "lesson_a770affa5e",
+            "lesson_be490ab09c"
+          ],
+          "lesson_summaries": [
+            "coding_agent_main executed integration task 'Run native Claude connector check' via claude_bridge",
+            "coding_agent_main completed task 'Generate demo control-plane artifact'",
+            "coding_agent_main executed integration task 'Native Claude integration check V10' via claude_bridge",
+            "Use Claude-oriented prompting for code generation and analysis when it is configured and beneficial."
+          ],
+          "confidence": 0.95
+        }
+      },
+      {
+        "event": "learning_recorded",
+        "task_id": "native_claude_check_api_v11",
+        "agent_id": "coding_agent_main",
+        "learning": {
+          "skill_info": {
+            "evidence_id": "evidence_af1c092ae8",
+            "profile_key": "coding_agent_main::codegen",
+            "avg_score": 0.891,
+            "total_runs": 4,
+            "success_runs": 4
+          },
+          "lesson_id": "lesson_fff2e55b25",
+          "service": "claude_bridge",
+          "passed": true,
+          "avg_score": 0.864
+        }
+      },
+      {
+        "event": "task_completed",
+        "task_id": "native_claude_check_api_v11",
+        "agent_id": "coding_agent_main",
+        "provider": "cloud",
+        "qa_summary": "QA average=0.86 passed=True strictness=high mode=default"
+      }
+    ],
+    "completed_tasks": [
+      "native_claude_check_api_v11"
+    ],
+    "failed_tasks": [],
+    "artifact_count": 1
+  },
+  "audit_log": [
+    {
+      "event": "mission_created",
+      "goal": "Execute native integration task: Native Claude integration check V11"
+    },
+    {
+      "event": "learning_guidance_applied",
+      "task_id": "native_claude_check_api_v11",
+      "agent_id": "coding_agent_main",
+      "guidance": {
+        "suggested_service": "claude_bridge",
+        "needs_memory_support": false,
+        "recommended_actions": [
+          "Commit integration result",
+          "Persist integration outcome to mission memory",
+          "Run QA validation",
+          "Persist artifact reference",
+          "Claude is often strongest for code drafting, refactors and precise implementation work when prompts are explicit",
+          "OpenAI can remain strong for structured planning and QA framing",
+          "n8n should only be promoted to broader live execution after configuration and auth are fully verified",
+          "Memory/context support should stay enabled so the system can reuse prior lessons and patterns"
+        ],
+        "caution_notes": [
+          "Verify connector output and auth configuration before promoting to broader autonomy.",
+          "Return normalized_text and artifact refs in every critical task.",
+          "Keep outputs structured and verify before autonomous promotion."
+        ],
+        "lesson_ids": [
+          "lesson_0d61e0f0d4",
+          "lesson_2b4e5fb253",
+          "lesson_a770affa5e",
+          "lesson_be490ab09c"
+        ],
+        "lesson_summaries": [
+          "coding_agent_main executed integration task 'Run native Claude connector check' via claude_bridge",
+          "coding_agent_main completed task 'Generate demo control-plane artifact'",
+          "coding_agent_main executed integration task 'Native Claude integration check V10' via claude_bridge",
+          "Use Claude-oriented prompting for code generation and analysis when it is configured and beneficial."
+        ],
+        "confidence": 0.95
+      }
+    },
+    {
+      "event": "learning_recorded",
+      "task_id": "native_claude_check_api_v11",
+      "agent_id": "coding_agent_main",
+      "learning": {
+        "skill_info": {
+          "evidence_id": "evidence_af1c092ae8",
+          "profile_key": "coding_agent_main::codegen",
+          "avg_score": 0.891,
+          "total_runs": 4,
+          "success_runs": 4
+        },
+        "lesson_id": "lesson_fff2e55b25",
+        "service": "claude_bridge",
+        "passed": true,
+        "avg_score": 0.864
+      }
+    },
+    {
+      "event": "task_completed",
+      "task_id": "native_claude_check_api_v11",
+      "agent_id": "coding_agent_main",
+      "provider": "cloud",
+      "qa_summary": "QA average=0.86 passed=True strictness=high mode=default"
+    }
+  ]
+}

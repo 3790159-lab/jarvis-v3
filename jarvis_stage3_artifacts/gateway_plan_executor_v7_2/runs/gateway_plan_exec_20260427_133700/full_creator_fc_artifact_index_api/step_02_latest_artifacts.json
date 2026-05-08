@@ -1,0 +1,62 @@
+{
+  "index": 2,
+  "tool": "latest_artifacts",
+  "args": {
+    "path": "jarvis_stage3_artifacts",
+    "limit": 30
+  },
+  "ok": true,
+  "result": {
+    "ok": true,
+    "created_at": "2026-04-27T13:37:23",
+    "run_id": "tool_call_20260427_133716",
+    "tool": "latest_artifacts",
+    "registry": "v6_9",
+    "policy": {
+      "allowed": true,
+      "risk": "low",
+      "note": "Safe low-risk tool."
+    },
+    "args": {
+      "path": "jarvis_stage3_artifacts",
+      "limit": 30
+    },
+    "result": {
+      "ok": true,
+      "files": [
+        "jarvis_stage3_artifacts\\unified_tool_gateway_v7_0\\tool_gateway_journal.jsonl",
+        "jarvis_stage3_artifacts\\unified_tool_gateway_v7_0\\latest_tool_call.json",
+        "jarvis_stage3_artifacts\\gateway_plan_executor_v7_2\\runs\\gateway_plan_exec_20260427_133700\\full_creator_fc_artifact_index_api\\step_01_md_report.json",
+        "jarvis_stage3_artifacts\\unified_tool_gateway_v7_0\\calls\\tool_call_20260427_133716\\result.json",
+        "jarvis_stage3_artifacts\\full_creator_v8_0\\products\\jarvis-operator-dashboard_20260427_133700\\full_creator_fc_artifact_index_api.md",
+        "jarvis_stage3_artifacts\\gateway_plan_executor_v7_2\\runs\\gateway_plan_exec_20260427_133700\\full_creator_fc_dash_html_v1\\gateway_plan_result.json",
+        "jarvis_stage3_artifacts\\gateway_plan_executor_v7_2\\runs\\gateway_plan_exec_20260427_133700\\full_creator_fc_dash_html_v1\\step_02_latest_artifacts.json",
+        "jarvis_stage3_artifacts\\unified_tool_gateway_v7_0\\calls\\tool_call_20260427_133708\\result.json",
+        "jarvis_stage3_artifacts\\gateway_plan_executor_v7_2\\runs\\gateway_plan_exec_20260427_133700\\full_creator_fc_dash_html_v1\\step_01_md_report.json",
+        "jarvis_stage3_artifacts\\full_creator_v8_0\\products\\jarvis-operator-dashboard_20260427_133700\\full_creator_fc_dash_html_v1.md",
+        "jarvis_stage3_artifacts\\gateway_plan_executor_v7_2\\runs\\gateway_plan_exec_20260427_133700\\full_creator_fc_dash_backend_api\\gateway_plan_result.json",
+        "jarvis_stage3_artifacts\\unified_tool_gateway_v7_0\\calls\\tool_call_20260427_133700\\result.json",
+        "jarvis_stage3_artifacts\\gateway_plan_executor_v7_2\\runs\\gateway_plan_exec_20260427_133700\\full_creator_fc_dash_backend_api\\step_02_latest_artifacts.json",
+        "jarvis_stage3_artifacts\\gateway_plan_executor_v7_2\\runs\\gateway_plan_exec_20260427_133700\\full_creator_fc_dash_backend_api\\step_01_md_report.json",
+        "jarvis_stage3_artifacts\\full_creator_v8_0\\products\\jarvis-operator-dashboard_20260427_133700\\full_creator_fc_dash_backend_api.md",
+        "jarvis_stage3_artifacts\\full_creator_v8_0\\latest_full_creator_manifest.md",
+        "jarvis_stage3_artifacts\\full_creator_v8_0\\latest_full_creator_manifest.json",
+        "jarvis_stage3_artifacts\\full_creator_v8_0\\products\\jarvis-operator-dashboard_20260427_133700\\demo_app.html",
+        "jarvis_stage3_artifacts\\full_creator_v8_0\\products\\jarvis-operator-dashboard_20260427_133700\\roadmap.md",
+        "jarvis_stage3_artifacts\\full_creator_v8_0\\products\\jarvis-operator-dashboard_20260427_133700\\launch_plan.md",
+        "jarvis_stage3_artifacts\\full_creator_v8_0\\products\\jarvis-operator-dashboard_20260427_133700\\improvement_backlog.json",
+        "jarvis_stage3_artifacts\\full_creator_v8_0\\products\\jarvis-operator-dashboard_20260427_133700\\idea.md",
+        "jarvis_stage3_artifacts\\full_creator_v8_0\\products\\jarvis-operator-dashboard_20260427_133700\\product_spec.json",
+        "jarvis_stage3_artifacts\\queue_guard_v7_7\\latest_queue_guard_report.md",
+        "jarvis_stage3_artifacts\\queue_guard_v7_7\\latest_queue_guard_report.json",
+        "jarvis_stage3_artifacts\\self_healing_v7_8\\latest.json",
+        "jarvis_stage3_artifacts\\backend_logs\\backend_out_20260426_050742.log",
+        "jarvis_stage3_artifacts\\queue_guard_v7_7\\backups\\action_queue_before_guard_20260427_133700.json",
+        "jarvis_stage3_artifacts\\gateway_plan_executor_v7_2\\latest_gateway_plan_executor_report.md",
+        "jarvis_stage3_artifacts\\gateway_plan_executor_v7_2\\latest_gateway_plan_executor_report.json"
+      ]
+    },
+    "evidence_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\unified_tool_gateway_v7_0\\calls\\tool_call_20260427_133716"
+  },
+  "time": "2026-04-27T13:37:23"
+}

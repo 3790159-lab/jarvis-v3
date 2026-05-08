@@ -1,0 +1,107 @@
+{
+  "ok": true,
+  "tool": "internet.research",
+  "provider": "perplexity",
+  "query": "some slow query",
+  "created_at": "2026-05-02T20:56:08.907089Z",
+  "answer": "**Jarvis V3 Supervisor онлайн. Статус: research mode активирован для анализа \"some slow query\".**\n\nМедленные SQL-запросы вызваны отсутствием индексов, неоптимальной структурой, большими данными, устаревшей статистикой, лимитами hardware или блокировками[1][2][5].\n\n### Диагностика (первые шаги)\n1. **Найди проблемный запрос**:\n   - **SQL Server**: Выполни DMV-запрос для топ медленных по elapsed_time (замени `<Your Query>` на фрагмент твоего SQL):\n     ```\n     SELECT t.text,\n     (qs.total_elapsed_time/1000) / qs.execution_count AS avg_elapsed_time,\n     (qs.total_worker_time/1000) / qs.execution_count AS avg_cpu_time,\n     qs.total_logical_reads / qs.execution_count AS avg_logical_reads\n     FROM sys.dm_exec_query_stats qs\n     CROSS APPLY sys.dm_exec_sql_text(sql_handle) t\n     WHERE t.text LIKE '<Your Query>%'\n     ORDER BY avg_elapsed_time DESC;\n     ```\n     [2]\n   - **MySQL**: Включи slow query log (`slow_query_log=1`, `long_query_time=2` сек), анализируй лог[3].\n   - **Общее**: Включи Execution Plan (в SSMS: Include Actual Execution Plan), проверь QueryTimeStats на ElapsedTime/CpuTime[2].\n\n2. **Проверь план выполнения**: Ищи Table Scan (без индекса), высокие logical reads, waits >20% от total time[2][6].\n\n### Оптимизация (применяй по приоритету)\n| Проблема | Действие | Инструмент |\n|----------|----------|------------|\n| Нет индексов | Создай по WHERE/JOIN (Missing Index DMVs в SQL Server)[2] | `sys.dm_db_missing_index_details` |\n| Устаревшая статистика | `UPDATE STATISTICS table_name`[2] | - |\n| Плохая структура | Убери лишние JOIN, фильтруй раньше, разбей на подзапросы[1][6] | EXPLAIN ANALYZE |\n| Большие данные | LIMIT/TOP, pagination, агрегация[1] | - |\n| Locks/concurrency | Короткие транзакции, NOLOCK если read-only[1] | - |\n| Hardware | GPU-accel (SQream) для big data[1] | - |\n\n**Mission-ready план для твоего случая**:\n- Шаг 1: Запусти DMV-скрипт выше, пришли топ-3 запроса с планом.\n- Шаг 2: Если MySQL/PostgreSQL — укажи DBMS, дам точный скрипт.\n- Доступно сейчас: research + code review. Для execution (n8n/agents) — control mode, дай DB credentials или query текст.\n\nЧто именно тормозит (DBMS, query текст, метрики)? Готов engineer-fix[2][3].",
+  "raw": {
+    "id": "e94f9240-760e-4c5d-897f-b81c786d2c7c",
+    "model": "sonar-pro",
+    "created": 1777755368,
+    "usage": {
+      "prompt_tokens": 373,
+      "completion_tokens": 684,
+      "total_tokens": 1057,
+      "search_context_size": "low",
+      "cost": {
+        "input_tokens_cost": 0.00112,
+        "output_tokens_cost": 0.01026,
+        "request_cost": 0.006,
+        "total_cost": 0.01738
+      }
+    },
+    "citations": [
+      "https://sqream.com/blog/slow-sql-queries/",
+      "https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/performance/troubleshoot-slow-running-queries",
+      "https://severalnines.com/blog/how-identify-mysql-performance-issues-slow-queries/",
+      "https://blog.sentry.io/find-slow-database-queries-with-query-insights/",
+      "https://www.docs.inductiveautomation.com/docs/8.1/platform/sql-in-ignition/basic-sql-troubleshooting/slow-queries",
+      "https://www.dolthub.com/blog/2023-03-23-debugging-perf/",
+      "https://www.youtube.com/watch?v=3ZMNNABfCSY"
+    ],
+    "search_results": [
+      {
+        "title": "Slow SQL Queries: How to Diagnose and Optimize Them - SQream",
+        "url": "https://sqream.com/blog/slow-sql-queries/",
+        "date": "2024-01-11",
+        "last_updated": "2026-05-02",
+        "snippet": "In this guide, we'll walk you through how to diagnose slow SQL queries and provide best practices for optimization.",
+        "source": "web"
+      },
+      {
+        "title": "Troubleshoot slow-running queries - SQL Server - Microsoft Learn",
+        "url": "https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/performance/troubleshoot-slow-running-queries",
+        "date": "2025-01-10",
+        "last_updated": "2026-04-26",
+        "snippet": "This article describes how to handle a performance issue that database applications may experience when using SQL Server: slow performance of a specific query ...",
+        "source": "web"
+      },
+      {
+        "title": "How to Identify MySQL Performance Issues with Slow Queries",
+        "url": "https://severalnines.com/blog/how-identify-mysql-performance-issues-slow-queries/",
+        "date": "2025-11-27",
+        "last_updated": "2026-05-01",
+        "snippet": "The most common and efficient way is to use the slow query logs. You need to determine first if your slow query logs are enabled.",
+        "source": "web"
+      },
+      {
+        "title": "Find slow database queries with Query Insights - Sentry Blog",
+        "url": "https://blog.sentry.io/find-slow-database-queries-with-query-insights/",
+        "date": "2023-09-28",
+        "last_updated": "2026-04-26",
+        "snippet": "To see if a database query is behind the performance issue, click on the Queries from the left navigation menu under Performance.",
+        "source": "web"
+      },
+      {
+        "title": "Slow Queries - Ignition User Manual - Inductive Automation",
+        "url": "https://www.docs.inductiveautomation.com/docs/8.1/platform/sql-in-ignition/basic-sql-troubleshooting/slow-queries",
+        "date": "2025-04-07",
+        "last_updated": "2026-03-30",
+        "snippet": "Slow running queries can be a big problem. Not only can data take a long time to display on the screen, but it can end up slowing down the whole client.",
+        "source": "web"
+      },
+      {
+        "title": "Debugging Slow SQL Queries | DoltHub Blog",
+        "url": "https://www.dolthub.com/blog/2023-03-23-debugging-perf/",
+        "date": "2023-03-23",
+        "last_updated": "2026-04-27",
+        "snippet": "This blog walks through how to debug slow queries. We start by decomposing a query into its constituent parts. Then we simplify the query to iterate more ...",
+        "source": "web"
+      },
+      {
+        "title": "Finding and Fixing Slow SQL Queries - YouTube",
+        "url": "https://www.youtube.com/watch?v=3ZMNNABfCSY",
+        "date": "2024-03-07",
+        "last_updated": "2025-08-12",
+        "snippet": "Learn how to identify and improve slow SQL queries in InterSystems® products. See how to use the SQL query plan to find query performance ...",
+        "source": "web"
+      }
+    ],
+    "object": "chat.completion",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "**Jarvis V3 Supervisor онлайн. Статус: research mode активирован для анализа \"some slow query\".**\n\nМедленные SQL-запросы вызваны отсутствием индексов, неоптимальной структурой, большими данными, устаревшей статистикой, лимитами hardware или блокировками[1][2][5].\n\n### Диагностика (первые шаги)\n1. **Найди проблемный запрос**:\n   - **SQL Server**: Выполни DMV-запрос для топ медленных по elapsed_time (замени `<Your Query>` на фрагмент твоего SQL):\n     ```\n     SELECT t.text,\n     (qs.total_elapsed_time/1000) / qs.execution_count AS avg_elapsed_time,\n     (qs.total_worker_time/1000) / qs.execution_count AS avg_cpu_time,\n     qs.total_logical_reads / qs.execution_count AS avg_logical_reads\n     FROM sys.dm_exec_query_stats qs\n     CROSS APPLY sys.dm_exec_sql_text(sql_handle) t\n     WHERE t.text LIKE '<Your Query>%'\n     ORDER BY avg_elapsed_time DESC;\n     ```\n     [2]\n   - **MySQL**: Включи slow query log (`slow_query_log=1`, `long_query_time=2` сек), анализируй лог[3].\n   - **Общее**: Включи Execution Plan (в SSMS: Include Actual Execution Plan), проверь QueryTimeStats на ElapsedTime/CpuTime[2].\n\n2. **Проверь план выполнения**: Ищи Table Scan (без индекса), высокие logical reads, waits >20% от total time[2][6].\n\n### Оптимизация (применяй по приоритету)\n| Проблема | Действие | Инструмент |\n|----------|----------|------------|\n| Нет индексов | Создай по WHERE/JOIN (Missing Index DMVs в SQL Server)[2] | `sys.dm_db_missing_index_details` |\n| Устаревшая статистика | `UPDATE STATISTICS table_name`[2] | - |\n| Плохая структура | Убери лишние JOIN, фильтруй раньше, разбей на подзапросы[1][6] | EXPLAIN ANALYZE |\n| Большие данные | LIMIT/TOP, pagination, агрегация[1] | - |\n| Locks/concurrency | Короткие транзакции, NOLOCK если read-only[1] | - |\n| Hardware | GPU-accel (SQream) для big data[1] | - |\n\n**Mission-ready план для твоего случая**:\n- Шаг 1: Запусти DMV-скрипт выше, пришли топ-3 запроса с планом.\n- Шаг 2: Если MySQL/PostgreSQL — укажи DBMS, дам точный скрипт.\n- Доступно сейчас: research + code review. Для execution (n8n/agents) — control mode, дай DB credentials или query текст.\n\nЧто именно тормозит (DBMS, query текст, метрики)? Готов engineer-fix[2][3]."
+        },
+        "delta": {
+          "role": "assistant",
+          "content": ""
+        },
+        "finish_reason": "stop"
+      }
+    ]
+  }
+}

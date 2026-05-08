@@ -1,0 +1,74 @@
+{
+  "name": "Jarvis Super Agent - http_request_probe",
+  "nodes": [
+    {
+      "id": "256c68a5-27b1-48e5-b4c8-adaae56977d8",
+      "name": "Jarvis Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "jarvis-super-http-request-probe-78c9e84a",
+        "responseMode": "lastNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "3a7c9c03-b506-45f2-af62-455588a6d4d5",
+      "name": "External HTTP Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [
+        520,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "https://jsonplaceholder.typicode.com/todos/1",
+        "options": {}
+      }
+    },
+    {
+      "id": "8394c329-b6e0-4be2-bb33-173fb561cbc8",
+      "name": "Build HTTP Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        820,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const now = new Date().toISOString();\nreturn [{ json: {\n  ok: true,\n  kind: 'http_request_probe',\n  receivedAt: now,\n  externalResponse: $json,\n  note: 'External HTTP Request node executed successfully'\n} }];"
+      }
+    }
+  ],
+  "connections": {
+    "Jarvis Webhook": {
+      "main": [
+        [
+          {
+            "node": "External HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "External HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Build HTTP Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {}
+}

@@ -1,0 +1,54 @@
+{
+  "decision_id": "advdec_20260423_222756_96742d78",
+  "patch_class": "logging_patch",
+  "risk_lane": "medium",
+  "recommended_action": "blocked",
+  "allowed": false,
+  "confidence": 65.0,
+  "budget": {
+    "risk_lane": "medium",
+    "max_files": 3,
+    "max_operations": 6,
+    "max_lines_changed": 220,
+    "requires_verify": true,
+    "requires_smoke": true,
+    "requires_health": true,
+    "rollback_required": true,
+    "allowed_action": "artifact_only"
+  },
+  "blast_radius": {
+    "target_files": [
+      "app/main.py",
+      ".env"
+    ],
+    "support_files": [],
+    "total_files": 2,
+    "critical_files": [
+      "app/main.py"
+    ],
+    "forbidden_files": [
+      ".env"
+    ],
+    "touched_directories": [
+      ".",
+      "app"
+    ],
+    "estimated_lines_changed": 300,
+    "blast_radius_score": 100.0,
+    "reasons": [
+      "critical_file_hint:app/main.py",
+      "forbidden_path:.env"
+    ]
+  },
+  "reasons": [
+    "forbidden_files_detected",
+    "line_budget_exceeded:300>220",
+    "blast_radius_too_high",
+    "medium_risk_requires_manual_or_next_stage_review",
+    "matched_keywords_for:logging_patch",
+    "critical_file_hint:app/main.py",
+    "forbidden_path:.env"
+  ],
+  "next_best_action": "Do not apply. Remove forbidden targets or reduce blast radius.",
+  "created_at": "2026-04-23T22:27:56+00:00"
+}

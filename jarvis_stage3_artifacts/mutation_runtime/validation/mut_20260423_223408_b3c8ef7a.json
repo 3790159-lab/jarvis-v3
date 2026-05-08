@@ -1,0 +1,103 @@
+{
+  "mutation_id": "mut_20260423_223408_b3c8ef7a",
+  "checks": [
+    {
+      "name": "file_exists",
+      "ok": true,
+      "details": {
+        "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_modules\\dependency_bundle_probe_depplan_20260423_223408_3bdd4117.py",
+        "exists": true
+      }
+    },
+    {
+      "name": "file_nonempty",
+      "ok": true,
+      "details": {
+        "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_modules\\dependency_bundle_probe_depplan_20260423_223408_3bdd4117.py",
+        "size": 859
+      }
+    },
+    {
+      "name": "python_compile",
+      "ok": true,
+      "details": {
+        "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_modules\\dependency_bundle_probe_depplan_20260423_223408_3bdd4117.py"
+      }
+    },
+    {
+      "name": "file_exists",
+      "ok": true,
+      "details": {
+        "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\temp\\dependency_bundle_probe_depplan_20260423_223408_3bdd4117_verify.py",
+        "exists": true
+      }
+    },
+    {
+      "name": "file_nonempty",
+      "ok": true,
+      "details": {
+        "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\temp\\dependency_bundle_probe_depplan_20260423_223408_3bdd4117_verify.py",
+        "size": 938
+      }
+    },
+    {
+      "name": "python_compile",
+      "ok": true,
+      "details": {
+        "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\temp\\dependency_bundle_probe_depplan_20260423_223408_3bdd4117_verify.py"
+      }
+    },
+    {
+      "name": "file_exists",
+      "ok": true,
+      "details": {
+        "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\scripts\\dependency_bundle_probe_depplan_20260423_223408_3bdd4117_smoke.ps1",
+        "exists": true
+      }
+    },
+    {
+      "name": "file_nonempty",
+      "ok": true,
+      "details": {
+        "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\scripts\\dependency_bundle_probe_depplan_20260423_223408_3bdd4117_smoke.ps1",
+        "size": 748
+      }
+    },
+    {
+      "name": "powershell_parse",
+      "ok": true,
+      "details": {
+        "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\scripts\\dependency_bundle_probe_depplan_20260423_223408_3bdd4117_smoke.ps1"
+      }
+    },
+    {
+      "name": "health:/health",
+      "ok": true,
+      "details": {
+        "url": "http://127.0.0.1:8015/health",
+        "status": 200,
+        "body_excerpt": "{\"status\":\"healthy\",\"service\":\"jarvis_v3_supervisor\",\"env\":\"dev\"}"
+      }
+    },
+    {
+      "name": "health:/api/ai/health",
+      "ok": true,
+      "details": {
+        "url": "http://127.0.0.1:8015/api/ai/health",
+        "status": 200,
+        "body_excerpt": "{\"status\":\"healthy\",\"providers\":[{\"provider\":\"openai\",\"enabled\":true,\"configured\":true,\"details\":{\"timeout_seconds\":600}},{\"provider\":\"anthropic\",\"enabled\":true,\"configured\":true,\"details\":{\"timeout_seconds\":600}},{\"provider\":\"ollama\",\"enabled\":true,\"configured\":true,\"details\":{\"timeout_seconds\":600}}],\"default_provider\":\"ollama\"}"
+      }
+    },
+    {
+      "name": "health:/api/autonomy/health",
+      "ok": true,
+      "details": {
+        "url": "http://127.0.0.1:8015/api/autonomy/health",
+        "status": 200,
+        "body_excerpt": "{\"status\":\"healthy\",\"service\":\"autonomy_runtime\",\"components\":[\"store\",\"event_bus\",\"executor\",\"evaluator\",\"replanner\",\"guard_manager\",\"memory_manager\",\"mode_manager\",\"recovery_policy_manager\",\"operator_escalation_manager\",\"tool_registry\",\"tool_executor\",\"maintenance_manager\",\"mission_registry\",\"chain_manager\",\"workflow_manager\",\"execution_graph_manager\",\"repair_loop_manager\",\"execution_engine\",\"mission_plan_store\",\"mission_template_manager\",\"mission_runner\",\"reconciliation_manager\",\"scheduler\"],"
+      }
+    }
+  ],
+  "validated_at": "2026-04-23T22:34:09+00:00",
+  "ok": true
+}

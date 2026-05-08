@@ -1,0 +1,163 @@
+{
+  "updatedAt": "2026-04-28T12:36:59.246Z",
+  "createdAt": "2026-04-28T12:36:59.246Z",
+  "id": "sTk9NE4DZZnzXN3Z",
+  "name": "Jarvis V5 Super Hybrid Content Factory",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "path": "jarvis-v5-super-hybrid-3bd5c754",
+        "httpMethod": "POST",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "Webhook",
+      "name": "V5 Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "5cab519d-65ae-45ff-aaed-465eb622ef1b"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8015/api/jarvis/v5/content-factory/run",
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ JSON.stringify($json.body || $json) }}",
+        "options": {
+          "timeout": 900000
+        }
+      },
+      "id": "CallJarvis",
+      "name": "Call Jarvis V5 Factory",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        320,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "V5 Webhook": {
+      "main": [
+        [
+          {
+            "node": "Call Jarvis V5 Factory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": null,
+  "versionId": "a0a37325-f096-45c1-9d17-1da97a47ba37",
+  "activeVersionId": "a0a37325-f096-45c1-9d17-1da97a47ba37",
+  "versionCounter": 3,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-04-28T12:36:59.247Z",
+      "createdAt": "2026-04-28T12:36:59.247Z",
+      "role": "workflow:owner",
+      "workflowId": "sTk9NE4DZZnzXN3Z",
+      "projectId": "8aPubdf7jkKE6V5g",
+      "project": {
+        "updatedAt": "2026-01-20T10:41:04.645Z",
+        "createdAt": "2026-01-20T10:40:58.637Z",
+        "id": "8aPubdf7jkKE6V5g",
+        "name": "Daniil Lapin <3790159@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "30e95836-767f-4606-9e2d-b7775186bd03"
+      }
+    }
+  ],
+  "tags": [],
+  "activeVersion": {
+    "updatedAt": "2026-04-28T12:36:59.248Z",
+    "createdAt": "2026-04-28T12:36:59.248Z",
+    "versionId": "a0a37325-f096-45c1-9d17-1da97a47ba37",
+    "workflowId": "sTk9NE4DZZnzXN3Z",
+    "nodes": [
+      {
+        "parameters": {
+          "path": "jarvis-v5-super-hybrid-3bd5c754",
+          "httpMethod": "POST",
+          "responseMode": "lastNode",
+          "options": {}
+        },
+        "id": "Webhook",
+        "name": "V5 Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          0,
+          0
+        ],
+        "webhookId": "5cab519d-65ae-45ff-aaed-465eb622ef1b"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "http://127.0.0.1:8015/api/jarvis/v5/content-factory/run",
+          "sendBody": true,
+          "contentType": "json",
+          "jsonBody": "={{ JSON.stringify($json.body || $json) }}",
+          "options": {
+            "timeout": 900000
+          }
+        },
+        "id": "CallJarvis",
+        "name": "Call Jarvis V5 Factory",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          320,
+          0
+        ]
+      }
+    ],
+    "connections": {
+      "V5 Webhook": {
+        "main": [
+          [
+            {
+              "node": "Call Jarvis V5 Factory",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "authors": "Daniil Lapin",
+    "name": null,
+    "description": null,
+    "autosaved": false,
+    "workflowPublishHistory": [
+      {
+        "createdAt": "2026-04-28T12:36:59.774Z",
+        "id": 59,
+        "workflowId": "sTk9NE4DZZnzXN3Z",
+        "versionId": "a0a37325-f096-45c1-9d17-1da97a47ba37",
+        "event": "activated",
+        "userId": "30e95836-767f-4606-9e2d-b7775186bd03"
+      }
+    ]
+  }
+}

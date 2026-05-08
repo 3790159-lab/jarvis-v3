@@ -1,0 +1,4 @@
+Claude is often strongest for code drafting, refactors and precise implementation work when prompts are explicit.
+OpenAI can remain strong for structured planning and QA framing.
+n8n should only be promoted to broader live execution after configuration and auth are fully verified.
+Memory/context support should stay enabled so the system can reuse prior lessons and patterns.

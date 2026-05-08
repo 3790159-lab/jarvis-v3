@@ -1,0 +1,99 @@
+{
+  "result": {
+    "mutation_id": "mut_20260424_163359_8cd4d889",
+    "status": "completed",
+    "apply_status": "applied",
+    "validation_status": "passed",
+    "rollback_status": "not_needed",
+    "touched_files": [
+      "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\temp\\agent_coordination_probe.py"
+    ],
+    "checks": [
+      {
+        "name": "file_exists",
+        "ok": true,
+        "details": {
+          "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\temp\\agent_coordination_probe.py",
+          "exists": true
+        }
+      },
+      {
+        "name": "file_nonempty",
+        "ok": true,
+        "details": {
+          "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\temp\\agent_coordination_probe.py",
+          "size": 68
+        }
+      },
+      {
+        "name": "python_compile",
+        "ok": true,
+        "details": {
+          "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\temp\\agent_coordination_probe.py"
+        }
+      },
+      {
+        "name": "health:/health",
+        "ok": true,
+        "details": {
+          "url": "http://127.0.0.1:8015/health",
+          "status": 200,
+          "body_excerpt": "{\"status\":\"healthy\",\"service\":\"jarvis_v3_supervisor\",\"env\":\"dev\"}"
+        }
+      },
+      {
+        "name": "health:/api/ai/health",
+        "ok": true,
+        "details": {
+          "url": "http://127.0.0.1:8015/api/ai/health",
+          "status": 200,
+          "body_excerpt": "{\"status\":\"healthy\",\"providers\":[{\"provider\":\"openai\",\"enabled\":true,\"configured\":true,\"details\":{\"timeout_seconds\":600}},{\"provider\":\"anthropic\",\"enabled\":true,\"configured\":true,\"details\":{\"timeout_seconds\":600}},{\"provider\":\"ollama\",\"enabled\":true,\"configured\":true,\"details\":{\"timeout_seconds\":600}}],\"default_provider\":\"ollama\"}"
+        }
+      },
+      {
+        "name": "health:/api/autonomy/health",
+        "ok": true,
+        "details": {
+          "url": "http://127.0.0.1:8015/api/autonomy/health",
+          "status": 200,
+          "body_excerpt": "{\"status\":\"healthy\",\"service\":\"autonomy_runtime\",\"components\":[\"store\",\"event_bus\",\"executor\",\"evaluator\",\"replanner\",\"guard_manager\",\"memory_manager\",\"mode_manager\",\"recovery_policy_manager\",\"operator_escalation_manager\",\"tool_registry\",\"tool_executor\",\"maintenance_manager\",\"mission_registry\",\"chain_manager\",\"workflow_manager\",\"execution_graph_manager\",\"repair_loop_manager\",\"execution_engine\",\"mission_plan_store\",\"mission_template_manager\",\"mission_runner\",\"reconciliation_manager\",\"scheduler\"],"
+        }
+      }
+    ],
+    "final_outcome": "accepted",
+    "reason": "validation_passed",
+    "started_at": "2026-04-24T16:33:59+00:00",
+    "finished_at": "2026-04-24T16:33:59+00:00",
+    "duration_seconds": 0.12
+  },
+  "snapshot": {
+    "snapshot_id": "snap_20260424_163359_12db675e",
+    "mutation_id": "mut_20260424_163359_8cd4d889",
+    "created_at": "2026-04-24T16:33:59+00:00",
+    "files": [
+      {
+        "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\temp\\agent_coordination_probe.py",
+        "existed_before": true,
+        "sha256_before": "ab5458b7b95b82556cd0928bf4db4cb7598d856ae423f68dcf8415bf9d6d73c1",
+        "backup_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\mutation_runtime\\snapshots\\snap_20260424_163359_12db675e\\backup\\jarvis_stage3_artifacts\\temp\\agent_coordination_probe.py",
+        "size_before": 68
+      }
+    ]
+  },
+  "apply": {
+    "mutation_id": "mut_20260424_163359_8cd4d889",
+    "applied_at": "2026-04-24T16:33:59+00:00",
+    "touched_files": [
+      "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\temp\\agent_coordination_probe.py"
+    ],
+    "operations": [
+      {
+        "op": "create_file",
+        "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\temp\\agent_coordination_probe.py",
+        "duration_seconds": 0.002
+      }
+    ]
+  },
+  "rollback": null,
+  "created_at": "2026-04-24T16:33:59+00:00"
+}

@@ -1,0 +1,8 @@
+{
+    "reply":  "Message received: Macro goal: Strengthen Director lifecycle and adjacent reliability\n\nCurrent focused task: Improve observability, logs, and health-check system. Prefer real project changes.\n\nBuild a compact multi-level package:\n1) identify the next 2-3 low-risk/additive substeps that move this macro goal forward;\n2) prefer changes that touch real project files, not only runtime state;\n3) avoid asking for approval unless absolutely necessary;\n4) if a risky change appears, convert it into a safe plan/package version.\n\nSupervisor fallback mode is active.",
+    "mode":  "smart_local",
+    "source":  "local_fallback",
+    "confidence":  0.78,
+    "route":  "chat",
+    "mission":  null
+}

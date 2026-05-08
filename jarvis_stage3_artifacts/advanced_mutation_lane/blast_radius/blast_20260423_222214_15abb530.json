@@ -1,0 +1,24 @@
+{
+  "target_files": [
+    "app/main.py",
+    ".env"
+  ],
+  "support_files": [],
+  "total_files": 2,
+  "critical_files": [
+    "app/main.py"
+  ],
+  "forbidden_files": [
+    ".env"
+  ],
+  "touched_directories": [
+    ".",
+    "app"
+  ],
+  "estimated_lines_changed": 300,
+  "blast_radius_score": 100.0,
+  "reasons": [
+    "critical_file_hint:app/main.py",
+    "forbidden_path:.env"
+  ]
+}

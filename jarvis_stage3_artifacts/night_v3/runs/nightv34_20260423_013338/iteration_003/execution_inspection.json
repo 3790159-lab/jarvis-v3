@@ -1,0 +1,15 @@
+{
+    "detected_service_mentions":  [
+                                      "supervisor"
+                                  ],
+    "looked_substantive":  true,
+    "planning_artifact_exists":  true,
+    "execution_response_length":  568,
+    "detected_file_mentions":  [
+
+                               ],
+    "task":  "Проведи аудит логов и исправь проблемы",
+    "planning_response_length":  252,
+    "checked_at":  "2026-04-23T01:35:28.3626061+03:00",
+    "execution_artifact_exists":  true
+}

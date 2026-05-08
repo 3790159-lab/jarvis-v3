@@ -1,0 +1,232 @@
+{
+  "name": "jarvis_editable_pipeline_demo",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "c110140c93284cb1",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        260,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "jarvis/generated_pipeline_demo",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "f9ff0381d6e041b6",
+      "name": "Jarvis Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        260,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "5ee705beb99f4fca",
+              "name": "pipeline_step_id",
+              "value": "step-1",
+              "type": "string"
+            },
+            {
+              "id": "2bba67a653044430",
+              "name": "pipeline_action",
+              "value": "echo.step1",
+              "type": "string"
+            },
+            {
+              "id": "b64fb2bea90c4149",
+              "name": "pipeline_intent",
+              "value": "editable_demo_step1",
+              "type": "string"
+            },
+            {
+              "id": "6f98336ec47a4ca5",
+              "name": "pipeline_order",
+              "value": 1,
+              "type": "number"
+            },
+            {
+              "id": "5f9c5febcdd448e7",
+              "name": "pipeline_payload_json",
+              "value": "{\"message\": \"editable step 1\", \"order\": 1}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "514e2cdfedfb4f68",
+      "name": "Step 1 - echo.step1",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        560,
+        410
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1a22c890e0e04ac3",
+              "name": "pipeline_step_id",
+              "value": "step-2",
+              "type": "string"
+            },
+            {
+              "id": "1524b5bffac645c8",
+              "name": "pipeline_action",
+              "value": "echo.step2",
+              "type": "string"
+            },
+            {
+              "id": "c8fb375228714210",
+              "name": "pipeline_intent",
+              "value": "editable_demo_step2",
+              "type": "string"
+            },
+            {
+              "id": "ad09434275ee45c0",
+              "name": "pipeline_order",
+              "value": 2,
+              "type": "number"
+            },
+            {
+              "id": "0c850507c248462c",
+              "name": "pipeline_payload_json",
+              "value": "{\"message\": \"editable step 2\", \"order\": 2}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "3c4c6c2de8a345dc",
+      "name": "Step 2 - echo.step2",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        880,
+        410
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "2a495127c1d0493a",
+              "name": "pipeline_step_id",
+              "value": "step-3",
+              "type": "string"
+            },
+            {
+              "id": "76b5740476c04b42",
+              "name": "pipeline_action",
+              "value": "echo.step3",
+              "type": "string"
+            },
+            {
+              "id": "3d75b552151943b3",
+              "name": "pipeline_intent",
+              "value": "editable_demo_step3",
+              "type": "string"
+            },
+            {
+              "id": "20c84bc1f16a4887",
+              "name": "pipeline_order",
+              "value": 3,
+              "type": "number"
+            },
+            {
+              "id": "d95c9c7740ab4dee",
+              "name": "pipeline_payload_json",
+              "value": "{\"message\": \"editable step 3\", \"order\": 3}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "9a77ea4268174d2f",
+      "name": "Step 3 - echo.step3",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1200,
+        410
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Step 1 - echo.step1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Jarvis Webhook": {
+      "main": [
+        [
+          {
+            "node": "Step 1 - echo.step1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Step 1 - echo.step1": {
+      "main": [
+        [
+          {
+            "node": "Step 2 - echo.step2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Step 2 - echo.step2": {
+      "main": [
+        [
+          {
+            "node": "Step 3 - echo.step3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "generatedBy": "jarvis_n8n_canvas_builder",
+    "buildId": "canvas-9705f7c9424d",
+    "description": "Editable scaffold generated by Jarvis for n8n canvas"
+  },
+  "versionId": "44647a71-b855-4346-8443-ab71ffa5eafc",
+  "active": false,
+  "tags": []
+}

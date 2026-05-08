@@ -1,0 +1,15 @@
+1. Review the auto-generated plan (strategy, rationale, task list) before it enters the queue â reject or re-scope via `/intake` if tasks touch production, credentials, or irreversible paths.
+
+2. For any `shell_local` task, read the exact `payload.command` and `working_directory` before the worker picks it up; shell commands run with your OS privileges and have no sandbox.
+
+3. Set `working_directory` explicitly on every task that writes files â never let it fall back to `os.getcwd()`, which varies by launch context.
+
+4. Keep `codex_cloud` tasks off sensitive repos or directories; they send code and context to an external API endpoint.
+
+5. After a task finishes, check `result.returncode`, `result.stderr`, and the `error` field in the task record before treating it as succeeded â exit code 0 is necessary but not sufficient.
+
+6. Query `GET /tasks?status=failed` after each mission run; failed tasks silently stay in the DB and will not be retried automatically.
+
+7. Never delete or overwrite the SQLite state file while the worker is running â use `GET /tasks` and `GET /missions` to audit state, not direct DB edits.
+
+8. Before marking a mission complete, verify the actual artifact (file written, command output, service response) exists and is correct â task `status: succeeded` only means the executor returned exit 0, not that the goal was achieved.

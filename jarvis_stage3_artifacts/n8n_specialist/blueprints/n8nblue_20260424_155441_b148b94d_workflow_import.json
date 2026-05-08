@@ -1,0 +1,48 @@
+{
+  "name": "Jarvis Night Report Webhook",
+  "nodes": [
+    {
+      "id": "f8b824e7-c187-424d-89ab-e09abc672d64",
+      "name": "Jarvis Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "jarvis-night-report-b148b94d",
+        "responseMode": "lastNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "0c3eec4b-744e-4dd0-9085-4e060d397a2c",
+      "name": "Normalize Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const now = new Date().toISOString();\nreturn [{ json: { ok: true, receivedAt: now, source: 'jarvis', payload: $json } }];"
+      }
+    }
+  ],
+  "connections": {
+    "Jarvis Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {}
+}

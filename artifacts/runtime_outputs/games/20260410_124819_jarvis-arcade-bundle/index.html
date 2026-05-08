@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Jarvis Arcade</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="wrap">
+    <h1>Jarvis Arcade</h1>
+    <p>Reach the target score before the timer ends.</p>
+    <div class="panel">
+      <button id="clickBtn">+1 Score</button>
+      <button id="resetBtn">Reset</button>
+    </div>
+    <div class="stats">
+      <div>Score: <span id="score">0</span></div>
+      <div>Time: <span id="time">20</span></div>
+      <div>Target: <span id="target">15</span></div>
+    </div>
+    <p id="message"></p>
+  </main>
+  <script src="game.js"></script>
+</body>
+</html>

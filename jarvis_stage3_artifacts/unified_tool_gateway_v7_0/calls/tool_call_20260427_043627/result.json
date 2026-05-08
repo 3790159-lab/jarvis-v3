@@ -1,0 +1,22 @@
+{
+  "ok": true,
+  "created_at": "2026-04-27T04:36:27",
+  "run_id": "tool_call_20260427_043627",
+  "tool": "echo",
+  "registry": "v6_9",
+  "policy": {
+    "allowed": true,
+    "risk": "low",
+    "note": "Safe low-risk tool."
+  },
+  "args": {
+    "message": "gateway-ok"
+  },
+  "result": {
+    "ok": true,
+    "echo": {
+      "message": "gateway-ok"
+    }
+  },
+  "evidence_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\unified_tool_gateway_v7_0\\calls\\tool_call_20260427_043627"
+}

@@ -1,0 +1,98 @@
+{
+  "ok": true,
+  "tool": "internet.research",
+  "provider": "perplexity",
+  "query": "some slow query",
+  "created_at": "2026-05-04T10:11:38.521307Z",
+  "answer": "**Jarvis V3 Supervisor здесь. Статус: онлайн, backend активен, инструменты research/control/engineer готовы. Query \"some slow query\" интерпретирую как запрос на диагностику и оптимизацию медленных SQL-запросов.**\n\n### Основные причины медленных SQL-запросов[1][2][4]\n- **Отсутствие индексов**: База сканирует всю таблицу вместо целевых строк[1][4].\n- **Плохая структура запроса**: Лишние JOIN, неверные фильтры, неоптимальные условия[1].\n- **I/O-бутылочное горлышко**: Полные сканирования таблиц, неоптимальная партиционировка/кластеринг (данные разбросаны по файлам, cold cache с S3)[2].\n- **Устаревшая статистика**: Оптимизатор выбирает неверный план выполнения[1][4].\n- **Ресурсы/конкуренция**: Медленный CPU/RAM/диск, локи, высокая нагрузка[1][2].\n- **Большие данные**: Обработка огромных датасетов без лимитов[1].\n\n### Диагностика: шаги для action\n1. **Включи slow query log** и анализируй метрики (query_time, rows_examined/rows_sent). Высокое rows_examined/rows_sent (>10x) — признак missing index или плохого плана[3].\n2. **EXPLAIN ANALYZE** или execution plan: ищи full table scans, shuffles, spills[2][3][5].\n3. **SQL Server query** для топ-медленных (avg_elapsed_time > threshold, напр. 300ms)[4]:\n   ```\n   SELECT t.text,\n   (qs.total_elapsed_time/1000) / qs.execution_count AS avg_elapsed_time,\n   qs.total_logical_reads / qs.execution_count AS avg_logical_reads\n   FROM sys.dm_exec_query_stats qs\n   CROSS APPLY sys.dm_exec_sql_text(sql_handle) t\n   ORDER BY avg_elapsed_time DESC;\n   ```\n4. **Проверь bottlenecks по модели I/O > Network > CPU**: Латентность чаще в I/O (партиции по дате, но фильтр по user_id)[2].\n\n| Метрика | Норма | Проблема | Действие[3][4] |\n|---------|--------|----------|---------------|\n| rows_examined/rows_sent | <5 | >10-40x | Index + rewrite |\n| avg_wait_time | <20% elapsed | >20% | Locks/IO |\n| avg_logical_reads | <1k/execution | >10k | Missing index |\n\n### Оптимизация: приоритетные фиксы\n- **Индексы**: Создай по фильтрам/JOIN (missing index suggestions в SQL Server)[4].\n- **Data layout**: Партиционируй/кластеризуй по частым фильтрам (user_id > date), файлы 128MB-1GB Parquet, сортировка[2].\n- **Rewrite**: Убери ненужные JOIN, лимитируй данные, обнови stats[1][4].\n- **Масштаб**: GPU (SQream) или engine как MotherDuck для lakehouse[1][2].\n\n**Operator-ready план**: \n1. Запусти diagnostic query выше на твоей БД.\n2. Поделись топ-3 slow query + EXPLAIN — engineer mode проанализирует/напишет фикс.\n3. Если n8n/backend: mission \"monitor slow queries\" с alert >1s.\n\nНужен конкретный query/лог или DB тип (PostgreSQL/SQL Server)? Укажи — запустим engineer/research.",
+  "raw": {
+    "id": "1d75138c-357a-43e7-9f52-c410ec0524ae",
+    "model": "sonar-pro",
+    "created": 1777889497,
+    "usage": {
+      "prompt_tokens": 373,
+      "completion_tokens": 851,
+      "total_tokens": 1224,
+      "search_context_size": "low",
+      "cost": {
+        "input_tokens_cost": 0.00112,
+        "output_tokens_cost": 0.01277,
+        "request_cost": 0.006,
+        "total_cost": 0.01988
+      }
+    },
+    "citations": [
+      "https://sqream.com/blog/slow-sql-queries/",
+      "https://motherduck.com/learn/diagnose-fix-slow-queries/",
+      "https://will-keleher.com/posts/augment-your-slow-query-logs/",
+      "https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/performance/troubleshoot-slow-running-queries",
+      "https://www.youtube.com/watch?v=3ZMNNABfCSY",
+      "https://erikdarling.com/two-ways-to-tune-a-slow-query-in-sql-server/"
+    ],
+    "search_results": [
+      {
+        "title": "Slow SQL Queries: How to Diagnose and Optimize Them - SQream",
+        "url": "https://sqream.com/blog/slow-sql-queries/",
+        "date": "2024-01-11",
+        "last_updated": "2026-05-02",
+        "snippet": "In this guide, we'll walk you through how to diagnose slow SQL queries and provide best practices for optimization.",
+        "source": "web"
+      },
+      {
+        "title": "Fix Slow Query: A Developer's Guide to Data Warehouse Performance",
+        "url": "https://motherduck.com/learn/diagnose-fix-slow-queries/",
+        "date": "2026-03-16",
+        "last_updated": "2026-04-30",
+        "snippet": "Diagnose and fix slow queries by targeting the true bottlenecks: I/O, Network, & CPU. This developer's guide helps you optimize data layout & joins for ...",
+        "source": "web"
+      },
+      {
+        "title": "An Elegy for my Beloved Slow Query Logs - will keleher",
+        "url": "https://will-keleher.com/posts/augment-your-slow-query-logs/",
+        "date": "2026-03-04",
+        "last_updated": "2026-04-04",
+        "snippet": "Speeding up the slowest queries might help if the database is relatively unoptimized and many queries lack appropriate indexes, but many of ...",
+        "source": "web"
+      },
+      {
+        "title": "Troubleshoot slow-running queries - SQL Server - Microsoft Learn",
+        "url": "https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/performance/troubleshoot-slow-running-queries",
+        "date": "2025-01-10",
+        "last_updated": "2026-04-26",
+        "snippet": "This article describes how to handle a performance issue that database applications may experience when using SQL Server: slow performance of a specific query ...",
+        "source": "web"
+      },
+      {
+        "title": "Finding and Fixing Slow SQL Queries - YouTube",
+        "url": "https://www.youtube.com/watch?v=3ZMNNABfCSY",
+        "date": "2024-03-07",
+        "last_updated": "2025-08-12",
+        "snippet": "Learn how to identify and improve slow SQL queries in InterSystems® products. See how to use the SQL query plan to find query performance ...",
+        "source": "web"
+      },
+      {
+        "title": "Two Ways To Tune A Slow Query In SQL Server | Darling Data",
+        "url": "https://erikdarling.com/two-ways-to-tune-a-slow-query-in-sql-server/",
+        "date": "2024-05-21",
+        "last_updated": "2026-05-01",
+        "snippet": "SQL Server insights from Erik Darling. Want to get better at performance tuning, indexing, or query tuning? Try one of my online SQL ...",
+        "source": "web"
+      }
+    ],
+    "object": "chat.completion",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "**Jarvis V3 Supervisor здесь. Статус: онлайн, backend активен, инструменты research/control/engineer готовы. Query \"some slow query\" интерпретирую как запрос на диагностику и оптимизацию медленных SQL-запросов.**\n\n### Основные причины медленных SQL-запросов[1][2][4]\n- **Отсутствие индексов**: База сканирует всю таблицу вместо целевых строк[1][4].\n- **Плохая структура запроса**: Лишние JOIN, неверные фильтры, неоптимальные условия[1].\n- **I/O-бутылочное горлышко**: Полные сканирования таблиц, неоптимальная партиционировка/кластеринг (данные разбросаны по файлам, cold cache с S3)[2].\n- **Устаревшая статистика**: Оптимизатор выбирает неверный план выполнения[1][4].\n- **Ресурсы/конкуренция**: Медленный CPU/RAM/диск, локи, высокая нагрузка[1][2].\n- **Большие данные**: Обработка огромных датасетов без лимитов[1].\n\n### Диагностика: шаги для action\n1. **Включи slow query log** и анализируй метрики (query_time, rows_examined/rows_sent). Высокое rows_examined/rows_sent (>10x) — признак missing index или плохого плана[3].\n2. **EXPLAIN ANALYZE** или execution plan: ищи full table scans, shuffles, spills[2][3][5].\n3. **SQL Server query** для топ-медленных (avg_elapsed_time > threshold, напр. 300ms)[4]:\n   ```\n   SELECT t.text,\n   (qs.total_elapsed_time/1000) / qs.execution_count AS avg_elapsed_time,\n   qs.total_logical_reads / qs.execution_count AS avg_logical_reads\n   FROM sys.dm_exec_query_stats qs\n   CROSS APPLY sys.dm_exec_sql_text(sql_handle) t\n   ORDER BY avg_elapsed_time DESC;\n   ```\n4. **Проверь bottlenecks по модели I/O > Network > CPU**: Латентность чаще в I/O (партиции по дате, но фильтр по user_id)[2].\n\n| Метрика | Норма | Проблема | Действие[3][4] |\n|---------|--------|----------|---------------|\n| rows_examined/rows_sent | <5 | >10-40x | Index + rewrite |\n| avg_wait_time | <20% elapsed | >20% | Locks/IO |\n| avg_logical_reads | <1k/execution | >10k | Missing index |\n\n### Оптимизация: приоритетные фиксы\n- **Индексы**: Создай по фильтрам/JOIN (missing index suggestions в SQL Server)[4].\n- **Data layout**: Партиционируй/кластеризуй по частым фильтрам (user_id > date), файлы 128MB-1GB Parquet, сортировка[2].\n- **Rewrite**: Убери ненужные JOIN, лимитируй данные, обнови stats[1][4].\n- **Масштаб**: GPU (SQream) или engine как MotherDuck для lakehouse[1][2].\n\n**Operator-ready план**: \n1. Запусти diagnostic query выше на твоей БД.\n2. Поделись топ-3 slow query + EXPLAIN — engineer mode проанализирует/напишет фикс.\n3. Если n8n/backend: mission \"monitor slow queries\" с alert >1s.\n\nНужен конкретный query/лог или DB тип (PostgreSQL/SQL Server)? Укажи — запустим engineer/research."
+        },
+        "delta": {
+          "role": "assistant",
+          "content": ""
+        },
+        "finish_reason": "stop"
+      }
+    ]
+  }
+}

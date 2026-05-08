@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "updated_at": "2026-04-05T22:46:01.125253+00:00",
+  "snapshot": {
+    "runs_total": 12,
+    "run_statuses": {
+      "quarantined": 4,
+      "running": 7,
+      "retrying": 1
+    },
+    "stages_total": 36,
+    "stages_completed": 4,
+    "retries_total": 4,
+    "quarantined_runs": 4,
+    "legacy_created_runs": 0,
+    "completion_ratio": 0.1111,
+    "memory_runs_count": 12,
+    "memory_missions_count": 6,
+    "memory_notes_count": 3,
+    "generated_at": "2026-04-05T22:46:01.110034+00:00"
+  }
+}

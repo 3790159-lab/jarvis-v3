@@ -1,0 +1,28 @@
+{
+  "text": "🤖 Jarvis Operator Report\n\nActive tasks: 2\nCompleted tasks: 0\nFailed tasks: 0\n\nLatest night session: completed\nApplies: 1\nSummary: Night bridge completed successfully with safe apply-capable iterations and operator-facing summaries.\n\nNext actions:\n• Parallel test task: Waiting for execution slot.\n• Parallel test task: Waiting for execution slot.\n• Proceed to richer orchestration cases.",
+  "result": {
+    "ok": true,
+    "response": {
+      "ok": true,
+      "result": {
+        "message_id": 520,
+        "from": {
+          "id": 7819877837,
+          "is_bot": true,
+          "first_name": "YA2",
+          "username": "YouAu_2_bot"
+        },
+        "chat": {
+          "id": 237616472,
+          "first_name": "Daniil",
+          "last_name": "Lapin",
+          "username": "DaniiLapin13",
+          "type": "private"
+        },
+        "date": 1777027740,
+        "text": "🤖 Jarvis Operator Report\n\nActive tasks: 2\nCompleted tasks: 0\nFailed tasks: 0\n\nLatest night session: completed\nApplies: 1\nSummary: Night bridge completed successfully with safe apply-capable iterations and operator-facing summaries.\n\nNext actions:\n• Parallel test task: Waiting for execution slot.\n• Parallel test task: Waiting for execution slot.\n• Proceed to richer orchestration cases."
+      }
+    }
+  },
+  "created_at": "2026-04-24T10:49:00+00:00"
+}

@@ -1,0 +1,19 @@
+﻿{
+    "schema_version":  1,
+    "execution_mode":  "safe",
+    "allow_shell_agent":  true,
+    "shell_guardrails":  {
+                             "deny_patterns":  [
+                                                   "Remove-Item\\s+-Recurse\\s+-Force\\s+C:\\\\",
+                                                   "format\\s+[a-zA-Z]:",
+                                                   "shutdown",
+                                                   "reg delete HKLM"
+                                               ],
+                             "max_output_chars":  20000,
+                             "timeout_seconds":  600
+                         },
+    "mission_policy":  {
+                           "require_structured_result":  true,
+                           "require_status_transition_validation":  true
+                       }
+}

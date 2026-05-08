@@ -1,0 +1,98 @@
+{
+  "ok": true,
+  "tool": "internet.research",
+  "provider": "perplexity",
+  "query": "some slow query",
+  "created_at": "2026-05-04T10:33:54.013134Z",
+  "answer": "# Diagnosing and Optimizing Slow SQL Queries\n\nSlow SQL queries typically stem from **I/O bottlenecks, missing indexes, or suboptimal query design**. Here's how to diagnose and fix them:\n\n## Root Causes\n\nThe most common reasons for slow queries are:[1]\n\n- **Lack of proper indexing** — The database must scan entire tables to find rows, dramatically increasing query times\n- **Suboptimal query structure** — Unnecessary JOINs, incorrect filtering, or poor logical design\n- **Data layout misalignment** — Physical data organization on disk doesn't match query access patterns (partition or clustering misses)\n- **Outdated statistics** — The query optimizer makes inefficient decisions without current statistics\n- **Hardware limitations** — Slow CPU, insufficient RAM, or low disk speed\n- **Locks and contention** — High concurrency or poor transaction management\n\n## Optimization Approach\n\n**Prioritize I/O first.** Most performance issues are I/O-bound, followed by network and CPU concerns.[2] Developers often jump to CPU-level optimizations (rewriting SQL or scaling compute), which is ineffective if the real bottleneck is reading data from disk.\n\n### Step-by-Step Diagnosis\n\n1. **Inspect the execution plan** — Use `EXPLAIN ANALYZE` or your database's equivalent to identify where time is spent (full table scans, large data shuffles, disk spills)[3]\n\n2. **Check the I/O-Network-CPU model** — Determine which layer is causing congestion[2]\n\n3. **Audit your data layout** — Verify that frequently queried tables are:\n   - Properly partitioned by columns used in filters\n   - Sorted by commonly filtered columns\n   - Stored in optimized file sizes (128MB–1GB for Parquet format)[2]\n\n4. **Examine query metrics** — Look at rows examined vs. rows sent; a high ratio indicates inefficient filtering or missing indexes[3]\n\n### Common Fixes\n\n- Add **missing indexes** on frequently filtered columns\n- **Update statistics** to improve optimizer decisions[4]\n- **Redesign queries** to reduce unnecessary JOINs and improve filtering logic\n- Fix **partition or clustering misses** to align data layout with query patterns[2]\n\nStart by analyzing your slowest queries' execution plans to identify whether the bottleneck is data access, query logic, or resource constraints.",
+  "raw": {
+    "id": "3b7bb240-da39-4d30-8e11-40922027f0da",
+    "model": "sonar-pro",
+    "created": 1777890832,
+    "usage": {
+      "prompt_tokens": 373,
+      "completion_tokens": 482,
+      "total_tokens": 855,
+      "search_context_size": "low",
+      "cost": {
+        "input_tokens_cost": 0.00112,
+        "output_tokens_cost": 0.00723,
+        "request_cost": 0.006,
+        "total_cost": 0.01435
+      }
+    },
+    "citations": [
+      "https://sqream.com/blog/slow-sql-queries/",
+      "https://motherduck.com/learn/diagnose-fix-slow-queries/",
+      "https://will-keleher.com/posts/augment-your-slow-query-logs/",
+      "https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/performance/troubleshoot-slow-running-queries",
+      "https://blog.sentry.io/find-slow-database-queries-with-query-insights/",
+      "https://www.youtube.com/watch?v=Ylh-KdYPPnE"
+    ],
+    "search_results": [
+      {
+        "title": "Slow SQL Queries: How to Diagnose and Optimize Them - SQream",
+        "url": "https://sqream.com/blog/slow-sql-queries/",
+        "date": "2024-01-11",
+        "last_updated": "2026-05-02",
+        "snippet": "In this guide, we'll walk you through how to diagnose slow SQL queries and provide best practices for optimization.",
+        "source": "web"
+      },
+      {
+        "title": "Fix Slow Query: A Developer's Guide to Data Warehouse Performance",
+        "url": "https://motherduck.com/learn/diagnose-fix-slow-queries/",
+        "date": "2026-03-16",
+        "last_updated": "2026-04-30",
+        "snippet": "Diagnose and fix slow queries by targeting the true bottlenecks: I/O, Network, & CPU. This developer's guide helps you optimize data layout & joins for ...",
+        "source": "web"
+      },
+      {
+        "title": "An Elegy for my Beloved Slow Query Logs - will keleher",
+        "url": "https://will-keleher.com/posts/augment-your-slow-query-logs/",
+        "date": "2026-03-04",
+        "last_updated": "2026-04-04",
+        "snippet": "Speeding up the slowest queries might help if the database is relatively unoptimized and many queries lack appropriate indexes, but many of ...",
+        "source": "web"
+      },
+      {
+        "title": "Troubleshoot slow-running queries - SQL Server - Microsoft Learn",
+        "url": "https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/performance/troubleshoot-slow-running-queries",
+        "date": "2025-01-10",
+        "last_updated": "2026-04-26",
+        "snippet": "This article describes how to handle a performance issue that database applications may experience when using SQL Server: slow performance of a specific query ...",
+        "source": "web"
+      },
+      {
+        "title": "Find slow database queries with Query Insights - Sentry Blog",
+        "url": "https://blog.sentry.io/find-slow-database-queries-with-query-insights/",
+        "date": "2023-09-28",
+        "last_updated": "2026-04-26",
+        "snippet": "To see if a database query is behind the performance issue, click on the Queries from the left navigation menu under Performance.",
+        "source": "web"
+      },
+      {
+        "title": "Slow SQL Server Query: AI vs Me - YouTube",
+        "url": "https://www.youtube.com/watch?v=Ylh-KdYPPnE",
+        "date": "2026-02-23",
+        "last_updated": "2026-05-04",
+        "snippet": "... slow SQL Server query to make it run faster, then put the query and execution plan into an AI tool to see what AI suggests, and what I miss ...",
+        "source": "web"
+      }
+    ],
+    "object": "chat.completion",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "# Diagnosing and Optimizing Slow SQL Queries\n\nSlow SQL queries typically stem from **I/O bottlenecks, missing indexes, or suboptimal query design**. Here's how to diagnose and fix them:\n\n## Root Causes\n\nThe most common reasons for slow queries are:[1]\n\n- **Lack of proper indexing** — The database must scan entire tables to find rows, dramatically increasing query times\n- **Suboptimal query structure** — Unnecessary JOINs, incorrect filtering, or poor logical design\n- **Data layout misalignment** — Physical data organization on disk doesn't match query access patterns (partition or clustering misses)\n- **Outdated statistics** — The query optimizer makes inefficient decisions without current statistics\n- **Hardware limitations** — Slow CPU, insufficient RAM, or low disk speed\n- **Locks and contention** — High concurrency or poor transaction management\n\n## Optimization Approach\n\n**Prioritize I/O first.** Most performance issues are I/O-bound, followed by network and CPU concerns.[2] Developers often jump to CPU-level optimizations (rewriting SQL or scaling compute), which is ineffective if the real bottleneck is reading data from disk.\n\n### Step-by-Step Diagnosis\n\n1. **Inspect the execution plan** — Use `EXPLAIN ANALYZE` or your database's equivalent to identify where time is spent (full table scans, large data shuffles, disk spills)[3]\n\n2. **Check the I/O-Network-CPU model** — Determine which layer is causing congestion[2]\n\n3. **Audit your data layout** — Verify that frequently queried tables are:\n   - Properly partitioned by columns used in filters\n   - Sorted by commonly filtered columns\n   - Stored in optimized file sizes (128MB–1GB for Parquet format)[2]\n\n4. **Examine query metrics** — Look at rows examined vs. rows sent; a high ratio indicates inefficient filtering or missing indexes[3]\n\n### Common Fixes\n\n- Add **missing indexes** on frequently filtered columns\n- **Update statistics** to improve optimizer decisions[4]\n- **Redesign queries** to reduce unnecessary JOINs and improve filtering logic\n- Fix **partition or clustering misses** to align data layout with query patterns[2]\n\nStart by analyzing your slowest queries' execution plans to identify whether the bottleneck is data access, query logic, or resource constraints."
+        },
+        "delta": {
+          "role": "assistant",
+          "content": ""
+        },
+        "finish_reason": "stop"
+      }
+    ]
+  }
+}

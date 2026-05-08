@@ -1,0 +1,229 @@
+﻿{
+    "run_id":  "nightv62_brain_safe_20260425_045628",
+    "started_at":  "2026-04-25T04:56:28.1992736+03:00",
+    "deadline":  "2026-04-25T10:56:28.1992736+03:00",
+    "status":  "completed",
+    "iterations":  [
+                       {
+                           "code_run_id":  "codefix_20260425_015628_4755b42a",
+                           "finished_at":  "2026-04-25T04:56:29.8536598+03:00",
+                           "workflow_id":  "none",
+                           "iteration":  1,
+                           "artifact":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\night_v6_2_brain_safe\\runs\\nightv62_brain_safe_20260425_045628\\iteration_001.json",
+                           "task":  "Night self-fix: improve UTF-8, fix errors, improve night loop safety and save lessons",
+                           "workflow_status":  "completed",
+                           "status":  "completed",
+                           "lane":  "code_improvement_lane"
+                       },
+                       {
+                           "code_run_id":  "codefix_20260425_015759_6befb6d3",
+                           "finished_at":  "2026-04-25T04:58:00.4475122+03:00",
+                           "workflow_id":  "none",
+                           "iteration":  2,
+                           "artifact":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\night_v6_2_brain_safe\\runs\\nightv62_brain_safe_20260425_045628\\iteration_002.json",
+                           "task":  "Night improvement: improve Brain Executor execution lanes beyond n8n",
+                           "workflow_status":  "completed",
+                           "status":  "completed",
+                           "lane":  "code_improvement_lane"
+                       },
+                       {
+                           "code_run_id":  "codefix_20260425_015930_411e2737",
+                           "finished_at":  "2026-04-25T04:59:31.0047495+03:00",
+                           "workflow_id":  "none",
+                           "iteration":  3,
+                           "artifact":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\night_v6_2_brain_safe\\runs\\nightv62_brain_safe_20260425_045628\\iteration_003.json",
+                           "task":  "Night improvement: add memory learning loop for successful and failed executions",
+                           "workflow_status":  "completed",
+                           "status":  "completed",
+                           "lane":  "code_improvement_lane"
+                       },
+                       {
+                           "code_run_id":  "codefix_20260425_020101_2276126f",
+                           "finished_at":  "2026-04-25T05:01:01.6099081+03:00",
+                           "workflow_id":  "none",
+                           "iteration":  4,
+                           "artifact":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\night_v6_2_brain_safe\\runs\\nightv62_brain_safe_20260425_045628\\iteration_004.json",
+                           "task":  "Night improvement: add service connector registry for Telegram Google Sheets Gmail Calendar n8n HTTP API",
+                           "workflow_status":  "completed",
+                           "status":  "completed",
+                           "lane":  "code_improvement_lane"
+                       },
+                       {
+                           "code_run_id":  "codefix_20260425_020231_0ce78c74",
+                           "finished_at":  "2026-04-25T05:02:32.4238435+03:00",
+                           "workflow_id":  "none",
+                           "iteration":  5,
+                           "artifact":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\night_v6_2_brain_safe\\runs\\nightv62_brain_safe_20260425_045628\\iteration_005.json",
+                           "task":  "Night improvement: improve Task Compiler complexity detection provider routing and agent role selection",
+                           "workflow_status":  "completed",
+                           "status":  "completed",
+                           "lane":  "code_improvement_lane"
+                       },
+                       {
+                           "code_run_id":  "codefix_20260425_020402_590279a0",
+                           "finished_at":  "2026-04-25T05:04:03.0030220+03:00",
+                           "workflow_id":  "none",
+                           "iteration":  6,
+                           "artifact":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\night_v6_2_brain_safe\\runs\\nightv62_brain_safe_20260425_045628\\iteration_006.json",
+                           "task":  "Night improvement: improve n8n dynamic pipeline builder and prevent fallback Echo workflow",
+                           "workflow_status":  "completed",
+                           "status":  "completed",
+                           "lane":  "code_improvement_lane"
+                       },
+                       {
+                           "code_run_id":  "codefix_20260425_020533_6ee3a742",
+                           "finished_at":  "2026-04-25T05:05:33.5805913+03:00",
+                           "workflow_id":  "none",
+                           "iteration":  7,
+                           "artifact":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\night_v6_2_brain_safe\\runs\\nightv62_brain_safe_20260425_045628\\iteration_007.json",
+                           "task":  "Night improvement: create validation reports and rollback artifacts",
+                           "workflow_status":  "completed",
+                           "status":  "completed",
+                           "lane":  "code_improvement_lane"
+                       },
+                       {
+                           "code_run_id":  "codefix_20260425_020703_7db23889",
+                           "finished_at":  "2026-04-25T05:07:04.1623111+03:00",
+                           "workflow_id":  "none",
+                           "iteration":  8,
+                           "artifact":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\night_v6_2_brain_safe\\runs\\nightv62_brain_safe_20260425_045628\\iteration_008.json",
+                           "task":  "Night improvement: improve Telegram operator UX summaries and next actions",
+                           "workflow_status":  "completed",
+                           "status":  "completed",
+                           "lane":  "code_improvement_lane"
+                       },
+                       {
+                           "code_run_id":  "codefix_20260425_020834_e4bde5f3",
+                           "finished_at":  "2026-04-25T05:08:34.7453556+03:00",
+                           "workflow_id":  "none",
+                           "iteration":  9,
+                           "artifact":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\night_v6_2_brain_safe\\runs\\nightv62_brain_safe_20260425_045628\\iteration_009.json",
+                           "task":  "Night self-fix: improve UTF-8, fix errors, improve night loop safety and save lessons",
+                           "workflow_status":  "completed",
+                           "status":  "completed",
+                           "lane":  "code_improvement_lane"
+                       },
+                       {
+                           "code_run_id":  "codefix_20260425_021004_299197d5",
+                           "finished_at":  "2026-04-25T05:10:05.3060771+03:00",
+                           "workflow_id":  "none",
+                           "iteration":  10,
+                           "artifact":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\night_v6_2_brain_safe\\runs\\nightv62_brain_safe_20260425_045628\\iteration_010.json",
+                           "task":  "Night improvement: improve Brain Executor execution lanes beyond n8n",
+                           "workflow_status":  "completed",
+                           "status":  "completed",
+                           "lane":  "code_improvement_lane"
+                       },
+                       {
+                           "code_run_id":  "codefix_20260425_021135_ab53b545",
+                           "finished_at":  "2026-04-25T05:11:35.8807006+03:00",
+                           "workflow_id":  "none",
+                           "iteration":  11,
+                           "artifact":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\night_v6_2_brain_safe\\runs\\nightv62_brain_safe_20260425_045628\\iteration_011.json",
+                           "task":  "Night improvement: add memory learning loop for successful and failed executions",
+                           "workflow_status":  "completed",
+                           "status":  "completed",
+                           "lane":  "code_improvement_lane"
+                       },
+                       {
+                           "code_run_id":  "codefix_20260425_021305_cb362f76",
+                           "finished_at":  "2026-04-25T05:13:06.4360967+03:00",
+                           "workflow_id":  "none",
+                           "iteration":  12,
+                           "artifact":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\night_v6_2_brain_safe\\runs\\nightv62_brain_safe_20260425_045628\\iteration_012.json",
+                           "task":  "Night improvement: add service connector registry for Telegram Google Sheets Gmail Calendar n8n HTTP API",
+                           "workflow_status":  "completed",
+                           "status":  "completed",
+                           "lane":  "code_improvement_lane"
+                       },
+                       {
+                           "code_run_id":  "codefix_20260425_021436_b84dede8",
+                           "finished_at":  "2026-04-25T05:14:36.9990389+03:00",
+                           "workflow_id":  "none",
+                           "iteration":  13,
+                           "artifact":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\night_v6_2_brain_safe\\runs\\nightv62_brain_safe_20260425_045628\\iteration_013.json",
+                           "task":  "Night improvement: improve Task Compiler complexity detection provider routing and agent role selection",
+                           "workflow_status":  "completed",
+                           "status":  "completed",
+                           "lane":  "code_improvement_lane"
+                       },
+                       {
+                           "code_run_id":  "codefix_20260425_021607_69cbf25b",
+                           "finished_at":  "2026-04-25T05:16:07.5338745+03:00",
+                           "workflow_id":  "none",
+                           "iteration":  14,
+                           "artifact":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\night_v6_2_brain_safe\\runs\\nightv62_brain_safe_20260425_045628\\iteration_014.json",
+                           "task":  "Night improvement: improve n8n dynamic pipeline builder and prevent fallback Echo workflow",
+                           "workflow_status":  "completed",
+                           "status":  "completed",
+                           "lane":  "code_improvement_lane"
+                       },
+                       {
+                           "code_run_id":  "codefix_20260425_021737_dda8ea2d",
+                           "finished_at":  "2026-04-25T05:17:38.0993225+03:00",
+                           "workflow_id":  "none",
+                           "iteration":  15,
+                           "artifact":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\night_v6_2_brain_safe\\runs\\nightv62_brain_safe_20260425_045628\\iteration_015.json",
+                           "task":  "Night improvement: create validation reports and rollback artifacts",
+                           "workflow_status":  "completed",
+                           "status":  "completed",
+                           "lane":  "code_improvement_lane"
+                       },
+                       {
+                           "code_run_id":  "codefix_20260425_021908_ba4aa5d6",
+                           "finished_at":  "2026-04-25T05:19:08.6496699+03:00",
+                           "workflow_id":  "none",
+                           "iteration":  16,
+                           "artifact":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\night_v6_2_brain_safe\\runs\\nightv62_brain_safe_20260425_045628\\iteration_016.json",
+                           "task":  "Night improvement: improve Telegram operator UX summaries and next actions",
+                           "workflow_status":  "completed",
+                           "status":  "completed",
+                           "lane":  "code_improvement_lane"
+                       },
+                       {
+                           "code_run_id":  "codefix_20260425_022038_da0e8587",
+                           "finished_at":  "2026-04-25T05:20:39.2041323+03:00",
+                           "workflow_id":  "none",
+                           "iteration":  17,
+                           "artifact":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\night_v6_2_brain_safe\\runs\\nightv62_brain_safe_20260425_045628\\iteration_017.json",
+                           "task":  "Night self-fix: improve UTF-8, fix errors, improve night loop safety and save lessons",
+                           "workflow_status":  "completed",
+                           "status":  "completed",
+                           "lane":  "code_improvement_lane"
+                       },
+                       {
+                           "code_run_id":  "codefix_20260425_022209_ccb8ff16",
+                           "finished_at":  "2026-04-25T05:22:09.7449835+03:00",
+                           "workflow_id":  "none",
+                           "iteration":  18,
+                           "artifact":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\night_v6_2_brain_safe\\runs\\nightv62_brain_safe_20260425_045628\\iteration_018.json",
+                           "task":  "Night improvement: improve Brain Executor execution lanes beyond n8n",
+                           "workflow_status":  "completed",
+                           "status":  "completed",
+                           "lane":  "code_improvement_lane"
+                       },
+                       {
+                           "code_run_id":  "codefix_20260425_022339_445c61b8",
+                           "finished_at":  "2026-04-25T05:23:40.3011155+03:00",
+                           "workflow_id":  "none",
+                           "iteration":  19,
+                           "artifact":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\night_v6_2_brain_safe\\runs\\nightv62_brain_safe_20260425_045628\\iteration_019.json",
+                           "task":  "Night improvement: add memory learning loop for successful and failed executions",
+                           "workflow_status":  "completed",
+                           "status":  "completed",
+                           "lane":  "code_improvement_lane"
+                       },
+                       {
+                           "code_run_id":  "codefix_20260425_022510_56c66efe",
+                           "finished_at":  "2026-04-25T05:25:10.8900874+03:00",
+                           "workflow_id":  "none",
+                           "iteration":  20,
+                           "artifact":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\night_v6_2_brain_safe\\runs\\nightv62_brain_safe_20260425_045628\\iteration_020.json",
+                           "task":  "Night improvement: add service connector registry for Telegram Google Sheets Gmail Calendar n8n HTTP API",
+                           "workflow_status":  "completed",
+                           "status":  "completed",
+                           "lane":  "code_improvement_lane"
+                       }
+                   ],
+    "finished_at":  "2026-04-25T05:25:10.8983046+03:00"
+}

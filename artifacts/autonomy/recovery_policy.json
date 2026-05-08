@@ -1,0 +1,10 @@
+{
+  "max_step_attempts_default": 2,
+  "max_step_repairs_default": 1,
+  "max_mission_repairs_total": 3,
+  "max_mission_failures_before_operator": 2,
+  "cooldown_seconds_after_repair": 0,
+  "escalate_on_blocked_by_mode": true,
+  "escalate_on_guard_block": true,
+  "updated_at": "2026-04-09T21:39:40.662274+00:00"
+}

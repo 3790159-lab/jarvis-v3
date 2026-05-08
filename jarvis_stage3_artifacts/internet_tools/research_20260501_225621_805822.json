@@ -1,0 +1,98 @@
+{
+  "ok": true,
+  "tool": "internet.research",
+  "provider": "perplexity",
+  "query": "some slow query",
+  "created_at": "2026-05-01T22:56:21.805822Z",
+  "answer": "**Jarvis V3 Supervisor reporting: Handling \"some slow query\" as a diagnostic request for slow SQL queries.**\n\n### **Immediate Action Plan (Engineer Mode)**\n1. **Identify the slow query** using database-specific tools:\n   - **SQL Server**: Run this DMV query to find top slow queries by avg elapsed time (threshold >300ms recommended)[3]:\n     ```\n     SELECT t.text,\n     (qs.total_elapsed_time/1000) / qs.execution_count AS avg_elapsed_time,\n     (qs.total_worker_time/1000) / qs.execution_count AS avg_cpu_time,\n     qs.total_logical_reads / qs.execution_count AS avg_logical_reads\n     FROM sys.dm_exec_query_stats qs\n     CROSS APPLY sys.dm_exec_sql_text(sql_handle) t\n     ORDER BY avg_elapsed_time DESC;\n     ```\n   - **PostgreSQL**: Check `pg_stat_statements` or `EXPLAIN ANALYZE` on suspect query[6].\n   - **General**: Test query in DB management tool (e.g., pgAdmin, SSMS) to isolate app vs DB issue[2].\n\n2. **Root causes** (prioritized by frequency):\n   - **No indexes**: Full table scans kill performance[1].\n   - **Bad query structure**: Excess JOINs, wrong filters, large datasets[1][2].\n   - **Outdated stats**: Optimizer picks wrong plan[1][3].\n   - **Hardware/locks**: CPU/RAM limits or contention[1].\n   - **Param sniffing**: Parameter-sensitive plans in SQL Server[3].\n\n### **Optimization Steps (Execute in Order)**\n| Step | Action | Tools/Commands |\n|------|--------|---------------|\n| 1. Analyze Plan | Run `EXPLAIN ANALYZE` (PG) or \"Include Actual Execution Plan\" (SSMS)[3][5] | Check elapsed vs CPU time, scan vs seek |\n| 2. Fix Indexes | Add missing indexes from plan suggestions[3] | `CREATE INDEX` on filter/JOIN columns |\n| 3. Update Stats | `UPDATE STATISTICS` or `ANALYZE` table[1][3] | Rebuild if >1wk old |\n| 4. Rewrite Query | Break large queries, LIMIT rows, abbreviate for testing[2][5] | Decompose JOINs, use CTEs |\n| 5. Monitor | Use Query Insights (Sentry) or Gateway logs[2][4] | Track regressions by endpoint |\n\n**Status Check**: All diagnostic tools **available now** via standard DB clients. For mission-scale (e.g., n8n monitoring pipeline), provide your DB type + query text for custom script. Query your specific slow query next?[1][3]",
+  "raw": {
+    "id": "ecab8eac-7819-42b3-b990-2a61272f0cd6",
+    "model": "sonar-pro",
+    "created": 1777676181,
+    "usage": {
+      "prompt_tokens": 373,
+      "completion_tokens": 570,
+      "total_tokens": 943,
+      "search_context_size": "low",
+      "cost": {
+        "input_tokens_cost": 0.00112,
+        "output_tokens_cost": 0.00855,
+        "request_cost": 0.006,
+        "total_cost": 0.01567
+      }
+    },
+    "citations": [
+      "https://sqream.com/blog/slow-sql-queries/",
+      "https://www.docs.inductiveautomation.com/docs/8.1/platform/sql-in-ignition/basic-sql-troubleshooting/slow-queries",
+      "https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/performance/troubleshoot-slow-running-queries",
+      "https://blog.sentry.io/find-slow-database-queries-with-query-insights/",
+      "https://www.dolthub.com/blog/2023-03-23-debugging-perf/",
+      "https://wiki.postgresql.org/wiki/Slow_Query_Questions"
+    ],
+    "search_results": [
+      {
+        "title": "Slow SQL Queries: How to Diagnose and Optimize Them",
+        "url": "https://sqream.com/blog/slow-sql-queries/",
+        "date": "2024-01-11",
+        "last_updated": "2026-05-01",
+        "snippet": "In this guide, we'll walk you through how to diagnose slow SQL queries and provide best practices for optimization.",
+        "source": "web"
+      },
+      {
+        "title": "Slow Queries - Ignition User Manual - Inductive Automation",
+        "url": "https://www.docs.inductiveautomation.com/docs/8.1/platform/sql-in-ignition/basic-sql-troubleshooting/slow-queries",
+        "date": "2025-04-07",
+        "last_updated": "2026-03-30",
+        "snippet": "Slow running queries can be a big problem. Not only can data take a long time to display on the screen, but it can end up slowing down the whole client.",
+        "source": "web"
+      },
+      {
+        "title": "Troubleshoot slow-running queries - SQL Server",
+        "url": "https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/performance/troubleshoot-slow-running-queries",
+        "date": "2025-01-10",
+        "last_updated": "2026-04-26",
+        "snippet": "This article describes how to handle a performance issue that database applications may experience when using SQL Server: slow performance of a specific query ...",
+        "source": "web"
+      },
+      {
+        "title": "Find slow database queries with Query Insights",
+        "url": "https://blog.sentry.io/find-slow-database-queries-with-query-insights/",
+        "date": "2023-09-28",
+        "last_updated": "2026-04-26",
+        "snippet": "To see if a database query is behind the performance issue, click on the Queries from the left navigation menu under Performance.",
+        "source": "web"
+      },
+      {
+        "title": "Debugging Slow SQL Queries",
+        "url": "https://www.dolthub.com/blog/2023-03-23-debugging-perf/",
+        "date": "2023-03-23",
+        "last_updated": "2026-04-27",
+        "snippet": "This blog walks through how to debug slow queries. We start by decomposing a query into its constituent parts. Then we simplify the query to iterate more ...",
+        "source": "web"
+      },
+      {
+        "title": "Slow Query Questions - PostgreSQL wiki",
+        "url": "https://wiki.postgresql.org/wiki/Slow_Query_Questions",
+        "date": "2023-04-07",
+        "last_updated": "2026-04-26",
+        "snippet": "In any given week, some 50% of the questions on #postgresql IRC and 75% on pgsql-performance are requests for help with a slow query.",
+        "source": "web"
+      }
+    ],
+    "object": "chat.completion",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "**Jarvis V3 Supervisor reporting: Handling \"some slow query\" as a diagnostic request for slow SQL queries.**\n\n### **Immediate Action Plan (Engineer Mode)**\n1. **Identify the slow query** using database-specific tools:\n   - **SQL Server**: Run this DMV query to find top slow queries by avg elapsed time (threshold >300ms recommended)[3]:\n     ```\n     SELECT t.text,\n     (qs.total_elapsed_time/1000) / qs.execution_count AS avg_elapsed_time,\n     (qs.total_worker_time/1000) / qs.execution_count AS avg_cpu_time,\n     qs.total_logical_reads / qs.execution_count AS avg_logical_reads\n     FROM sys.dm_exec_query_stats qs\n     CROSS APPLY sys.dm_exec_sql_text(sql_handle) t\n     ORDER BY avg_elapsed_time DESC;\n     ```\n   - **PostgreSQL**: Check `pg_stat_statements` or `EXPLAIN ANALYZE` on suspect query[6].\n   - **General**: Test query in DB management tool (e.g., pgAdmin, SSMS) to isolate app vs DB issue[2].\n\n2. **Root causes** (prioritized by frequency):\n   - **No indexes**: Full table scans kill performance[1].\n   - **Bad query structure**: Excess JOINs, wrong filters, large datasets[1][2].\n   - **Outdated stats**: Optimizer picks wrong plan[1][3].\n   - **Hardware/locks**: CPU/RAM limits or contention[1].\n   - **Param sniffing**: Parameter-sensitive plans in SQL Server[3].\n\n### **Optimization Steps (Execute in Order)**\n| Step | Action | Tools/Commands |\n|------|--------|---------------|\n| 1. Analyze Plan | Run `EXPLAIN ANALYZE` (PG) or \"Include Actual Execution Plan\" (SSMS)[3][5] | Check elapsed vs CPU time, scan vs seek |\n| 2. Fix Indexes | Add missing indexes from plan suggestions[3] | `CREATE INDEX` on filter/JOIN columns |\n| 3. Update Stats | `UPDATE STATISTICS` or `ANALYZE` table[1][3] | Rebuild if >1wk old |\n| 4. Rewrite Query | Break large queries, LIMIT rows, abbreviate for testing[2][5] | Decompose JOINs, use CTEs |\n| 5. Monitor | Use Query Insights (Sentry) or Gateway logs[2][4] | Track regressions by endpoint |\n\n**Status Check**: All diagnostic tools **available now** via standard DB clients. For mission-scale (e.g., n8n monitoring pipeline), provide your DB type + query text for custom script. Query your specific slow query next?[1][3]"
+        },
+        "delta": {
+          "role": "assistant",
+          "content": ""
+        },
+        "finish_reason": "stop"
+      }
+    ]
+  }
+}

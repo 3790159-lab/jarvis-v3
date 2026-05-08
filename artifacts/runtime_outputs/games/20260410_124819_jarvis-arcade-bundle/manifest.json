@@ -1,0 +1,48 @@
+{
+  "task_id": "artifact_38c93e6ecc21",
+  "task_type": "game",
+  "name": "Jarvis Arcade Bundle",
+  "slug": "jarvis-arcade-bundle",
+  "created_at": "2026-04-10T12:48:19.273991+00:00",
+  "output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\games\\20260410_124819_jarvis-arcade-bundle",
+  "files": [
+    {
+      "relative_path": "index.html",
+      "size_bytes": 762
+    },
+    {
+      "relative_path": "styles.css",
+      "size_bytes": 730
+    },
+    {
+      "relative_path": "game.js",
+      "size_bytes": 1595
+    },
+    {
+      "relative_path": "game_state.json",
+      "size_bytes": 180
+    },
+    {
+      "relative_path": "README.md",
+      "size_bytes": 76
+    }
+  ],
+  "summary": {
+    "artifact_kind": "game_bundle_v2",
+    "game_type": "clicker_target",
+    "launch_file": "index.html",
+    "deliverables": [
+      "styles.css",
+      "game.js",
+      "game_state.json",
+      "README.md"
+    ]
+  },
+  "validation": {
+    "output_dir_exists": true,
+    "created_files_count": 5,
+    "total_bytes": 3343,
+    "valid": true
+  },
+  "status": "created"
+}

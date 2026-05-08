@@ -1,0 +1,3 @@
+@echo off
+cd /d "C:\Users\Daniil Lapin\Downloads\supervisor_v1_5_smart_telegram (1)\supervisor_v1_5_smart_telegram"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\start_jarvis_operator_panel.ps1" -ProjectRoot "C:\Users\Daniil Lapin\Downloads\supervisor_v1_5_smart_telegram (1)\supervisor_v1_5_smart_telegram" -BackendBaseUrl "http://127.0.0.1:8015" -Host "127.0.0.1" -Port 8026 -OpenBrowser

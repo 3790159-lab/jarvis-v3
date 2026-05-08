@@ -1,0 +1,13 @@
+{
+  "active_variant_id": "memory_amplified",
+  "active_variant_name": "Memory Amplified",
+  "knobs": {
+    "consultation_bonus": 1,
+    "qa_strictness": "high",
+    "encourage_memory_support": true,
+    "prefer_claude_codegen": true,
+    "prefer_openai_planning": true,
+    "integration_mode": "guarded_native"
+  },
+  "updated_ts": 1777169276.5272381
+}

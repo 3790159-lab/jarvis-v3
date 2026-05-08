@@ -1,0 +1,8 @@
+{
+  "schema": "jarvis.full_creator.product.v8_8_1",
+  "created_at": "2026-04-27T17:58:39",
+  "name": "Jarvis Mini SaaS Builder",
+  "description": "A local product generator that creates idea, design brief, backend plan, n8n workflow plan, GitHub PR plan and improvement backlog.",
+  "target_user": "Founder, automation builder, AI operator",
+  "value": "Turns a product idea into a ready implementation package with safe execution gates."
+}

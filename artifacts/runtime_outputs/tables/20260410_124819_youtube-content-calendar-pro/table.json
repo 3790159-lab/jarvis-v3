@@ -1,0 +1,38 @@
+{
+  "name": "YouTube Content Calendar Pro",
+  "description": "Upgraded deliverable table",
+  "rows": [
+    {
+      "status": "planned",
+      "format": "short",
+      "owner": "Jarvis",
+      "platform": "youtube",
+      "title": "Channel intro",
+      "day": 1
+    },
+    {
+      "status": "planned",
+      "format": "short",
+      "owner": "Jarvis",
+      "platform": "youtube",
+      "title": "Pain point video",
+      "day": 2
+    },
+    {
+      "status": "planned",
+      "format": "short",
+      "owner": "Jarvis",
+      "platform": "youtube",
+      "title": "Tool review",
+      "day": 3
+    }
+  ],
+  "columns": [
+    "day",
+    "title",
+    "format",
+    "status",
+    "platform",
+    "owner"
+  ]
+}

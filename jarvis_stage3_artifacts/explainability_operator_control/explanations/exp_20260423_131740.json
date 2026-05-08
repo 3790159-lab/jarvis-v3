@@ -1,0 +1,71 @@
+{
+  "explanation_id": "exp_20260423_131740",
+  "system_state": "healthy_apply_lane",
+  "summary": "Jarvis is operating in a healthy low-risk apply lane with successful recent mutations.",
+  "what_changed": [
+    "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\temp\\agent_roles_coordination_probe.py"
+  ],
+  "why_not_applied": [
+    "Not all external systems are ready: telegram_bridge"
+  ],
+  "next_best_actions": [
+    "Proceed to richer orchestration cases.",
+    "Reuse this mutation style for similar low-risk changes.",
+    "Stabilize telegram_bridge by resolving failed checks: env:TELEGRAM_ALLOWED_CHAT_ID"
+  ],
+  "risk_summary": {
+    "latest_action": "apply",
+    "latest_reasons": [],
+    "apply_count": 4,
+    "artifact_only_count": 0,
+    "blocked_count": 2,
+    "latest_score": 86.9
+  },
+  "readiness_summary": {
+    "profiles_count": 5,
+    "ready_count": 4,
+    "not_ready_count": 1,
+    "not_ready_systems": [
+      "telegram_bridge"
+    ],
+    "next_actions": [
+      "Stabilize telegram_bridge by resolving failed checks: env:TELEGRAM_ALLOWED_CHAT_ID"
+    ]
+  },
+  "mutation_summary": {
+    "accepted_count": 4,
+    "rejected_count": 0,
+    "validation_records_count": 4,
+    "latest_outcome": "accepted",
+    "latest_reason": "validation_passed",
+    "what_changed": [
+      "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\temp\\agent_roles_coordination_probe.py"
+    ]
+  },
+  "coordination_summary": {
+    "latest_status": "completed",
+    "latest_recommended_action": "apply",
+    "latest_final_reason": "validation_passed",
+    "latest_next_best_action": "Proceed to richer orchestration cases.",
+    "runs_count": 2,
+    "latest_role_records_count": 6,
+    "latest_handoffs_count": 5
+  },
+  "memory_summary": {
+    "snapshots_count": 2,
+    "latest_recommendation": "Reuse this mutation style for similar low-risk changes.",
+    "accepted_mutations": 4,
+    "rejected_mutations": 0,
+    "completed_runs": 2,
+    "blocked_runs": 0,
+    "top_success_modules": [
+      "agent_roles_coordination_probe.py",
+      "safe_mutation_probe.py"
+    ],
+    "top_problem_modules": [
+      "safe_mutation_probe.py",
+      "agent_roles_coordination_probe.py"
+    ]
+  },
+  "created_at": "2026-04-23T13:17:40+00:00"
+}

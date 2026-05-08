@@ -1,0 +1,15 @@
+{
+  "task_id": "native_n8n_dryrun_api",
+  "service": "n8n",
+  "connector_id": "n8n_primary",
+  "action": "webhook_invoke",
+  "dry_run": true,
+  "output": {
+    "base_url": "http://127.0.0.1:5678",
+    "webhook_path": "demo-workflow",
+    "body_preview": {
+      "ping": true,
+      "source": "api_smoke_v8"
+    }
+  }
+}

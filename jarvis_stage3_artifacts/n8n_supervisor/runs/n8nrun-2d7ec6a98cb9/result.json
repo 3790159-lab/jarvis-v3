@@ -1,0 +1,92 @@
+{
+  "run_id": "n8nrun-2d7ec6a98cb9",
+  "route": "n8n",
+  "created_at": "2026-04-20T23:24:48.774861+00:00",
+  "artifact_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\n8n_supervisor\\runs\\n8nrun-2d7ec6a98cb9",
+  "journal_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\n8n_supervisor\\journal.jsonl",
+  "preview": {
+    "route": "n8n",
+    "action": "echo.step2",
+    "intent": "pipeline_run_step2",
+    "mission_id": "pipeline-1776727488587",
+    "task_id": "step-2",
+    "source": "jarvis",
+    "use_test_webhook": false,
+    "base_url": "http://127.0.0.1:5678",
+    "selected_path": "/webhook/jarvis/inbox_v2",
+    "selected_url": "http://127.0.0.1:5678/webhook/jarvis/inbox_v2",
+    "payload_preview": {
+      "message": "run step 2",
+      "order": 2
+    },
+    "retry_policy": {
+      "max_retries": 2,
+      "retry_delay_ms": 1200,
+      "require_n8n_health": true
+    }
+  },
+  "health": {
+    "enabled": true,
+    "base_url": "http://127.0.0.1:5678",
+    "health_url": "http://127.0.0.1:5678/healthz",
+    "trigger_path": "/webhook/jarvis/inbox_v2",
+    "test_trigger_path": "/webhook-test/jarvis/inbox_v2",
+    "timeout_seconds": 180,
+    "has_shared_key": true,
+    "reachable": true,
+    "status_code": 200,
+    "response": {
+      "status": "ok"
+    }
+  },
+  "attempt_count": 1,
+  "attempts": [
+    {
+      "ok": true,
+      "status_code": 200,
+      "headers": {
+        "Content-Security-Policy": "sandbox allow-downloads allow-forms allow-modals allow-orientation-lock allow-pointer-lock allow-popups allow-presentation allow-scripts allow-top-navigation-by-user-activation allow-top-navigation-to-custom-protocols",
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Length": "34",
+        "ETag": "W/\"22-6OS7cK0FzqnV2NeDHdOSGS1bVUs\"",
+        "Vary": "Accept-Encoding",
+        "Date": "Mon, 20 Apr 2026 23:24:48 GMT",
+        "Connection": "close"
+      },
+      "data": {
+        "message": "Workflow was started"
+      },
+      "text": "{\"message\":\"Workflow was started\"}",
+      "url": "http://127.0.0.1:5678/webhook/jarvis/inbox_v2",
+      "mission_id": "pipeline-1776727488587",
+      "task_id": "step-2",
+      "used_test_webhook": false,
+      "attempt": 1,
+      "elapsed_ms": 50
+    }
+  ],
+  "final_result": {
+    "ok": true,
+    "status_code": 200,
+    "headers": {
+      "Content-Security-Policy": "sandbox allow-downloads allow-forms allow-modals allow-orientation-lock allow-pointer-lock allow-popups allow-presentation allow-scripts allow-top-navigation-by-user-activation allow-top-navigation-to-custom-protocols",
+      "Content-Type": "application/json; charset=utf-8",
+      "Content-Length": "34",
+      "ETag": "W/\"22-6OS7cK0FzqnV2NeDHdOSGS1bVUs\"",
+      "Vary": "Accept-Encoding",
+      "Date": "Mon, 20 Apr 2026 23:24:48 GMT",
+      "Connection": "close"
+    },
+    "data": {
+      "message": "Workflow was started"
+    },
+    "text": "{\"message\":\"Workflow was started\"}",
+    "url": "http://127.0.0.1:5678/webhook/jarvis/inbox_v2",
+    "mission_id": "pipeline-1776727488587",
+    "task_id": "step-2",
+    "used_test_webhook": false,
+    "attempt": 1,
+    "elapsed_ms": 50
+  },
+  "success": true
+}

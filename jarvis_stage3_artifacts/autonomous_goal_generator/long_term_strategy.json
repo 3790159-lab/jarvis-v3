@@ -1,0 +1,63 @@
+{
+  "version": "1.0",
+  "created_at": "2026-04-26T23:59:12+00:00",
+  "mission": "Build Jarvis into a reliable autonomous AI operator that can understand goals, plan tasks, use tools, verify real outcomes, learn from results, and safely improve itself.",
+  "principles": [
+    "Truth over confidence: never claim external completion without real evidence.",
+    "Safety first: high-risk changes require approval or plan-only mode.",
+    "Small reversible improvements beat large fragile rewrites.",
+    "Every execution should produce artifacts, validation, and lessons.",
+    "Telegram UX should be clear, proactive, and non-spammy.",
+    "n8n workflows should become real multi-service automations, not echo demos.",
+    "Google/Gmail/Calendar integrations must prove real API result before claiming success."
+  ],
+  "strategic_areas": [
+    {
+      "name": "truth_and_verification",
+      "priority": 100,
+      "description": "Prevent hallucinated completion. Require evidence for Google Sheets, n8n, files, Gmail, Calendar."
+    },
+    {
+      "name": "autonomous_planning",
+      "priority": 95,
+      "description": "Generate, prioritize and execute follow-up goals without waiting for the operator."
+    },
+    {
+      "name": "execution_lanes",
+      "priority": 90,
+      "description": "Expand Brain Executor beyond n8n/code lane into Google Sheets, Gmail, Calendar, Telegram and HTTP."
+    },
+    {
+      "name": "memory_learning",
+      "priority": 85,
+      "description": "Store lessons and use them to avoid repeating mistakes."
+    },
+    {
+      "name": "telegram_operator_ux",
+      "priority": 80,
+      "description": "Answer clearly, notify completion, explain what was really done, and support natural task queries."
+    },
+    {
+      "name": "n8n_pipeline_intelligence",
+      "priority": 75,
+      "description": "Build dynamic multi-service workflows with validation, branching and test results."
+    },
+    {
+      "name": "observability_and_recovery",
+      "priority": 70,
+      "description": "Improve logs, state snapshots, rollback artifacts and safe recovery."
+    }
+  ],
+  "current_focus": [
+    "truth_and_verification",
+    "autonomous_planning",
+    "execution_lanes"
+  ],
+  "definition_of_done": [
+    "Task has a real result or an honest blocked reason.",
+    "Result is validated.",
+    "Artifact is saved.",
+    "Operator receives a concise completion message.",
+    "Lesson is stored if anything failed or was fixed."
+  ]
+}

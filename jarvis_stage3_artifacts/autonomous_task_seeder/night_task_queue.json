@@ -1,0 +1,7 @@
+[
+  "Autonomous follow-up: verify connector registry readiness and identify missing credentials without exposing secrets.",
+  "Autonomous follow-up: inspect latest n8n workflow artifacts and propose safer dynamic pipeline templates.",
+  "Autonomous follow-up: audit latest logs for recurring UTF-8/errors and generate safer report formatting.",
+  "Autonomous follow-up: investigate failed/degraded iteration and create rollback-safe fix plan.",
+  "Autonomous follow-up: improve Telegram UX for task status, completion notifications and truth-guarded answers."
+]

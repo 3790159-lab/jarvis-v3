@@ -1,0 +1,267 @@
+{
+  "schema": "jarvis.tool_registry.v6_8",
+  "created_at": "2026-04-27T03:42:21",
+  "tools_count": 25,
+  "tools": [
+    "copy_file",
+    "create_patch_plan",
+    "csv_read",
+    "csv_write",
+    "delete_file_safe",
+    "diff_files",
+    "disk_usage",
+    "endpoint_batch_probe",
+    "file_append",
+    "file_replace_text",
+    "health_diff",
+    "jsonl_append",
+    "jsonl_tail",
+    "make_dir",
+    "move_file",
+    "pip_freeze",
+    "pytest_run",
+    "python_import_check",
+    "queue_add_task",
+    "queue_update_task",
+    "requirements_check",
+    "system_info",
+    "unzip_safe",
+    "uvicorn_smoke",
+    "zip_dir"
+  ],
+  "passed": 15,
+  "total": 15,
+  "results": [
+    {
+      "tool": "system_info",
+      "args": {},
+      "ok": true,
+      "result": {
+        "ok": true,
+        "platform": "Windows-11-10.0.26200-SP0",
+        "python": "3.12.10",
+        "cwd": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram"
+      }
+    },
+    {
+      "tool": "disk_usage",
+      "args": {
+        "path": "."
+      },
+      "ok": true,
+      "result": {
+        "ok": true,
+        "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram",
+        "total_gb": 510.51,
+        "used_gb": 471.61,
+        "free_gb": 38.89
+      }
+    },
+    {
+      "tool": "make_dir",
+      "args": {
+        "path": "jarvis_stage3_artifacts/tool_registry_v6_8/smoke"
+      },
+      "ok": true,
+      "result": {
+        "ok": true,
+        "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\tool_registry_v6_8\\smoke"
+      }
+    },
+    {
+      "tool": "csv_write",
+      "args": {
+        "path": "jarvis_stage3_artifacts/tool_registry_v6_8/smoke/test.csv",
+        "rows": [
+          {
+            "a": "1",
+            "b": "2"
+          }
+        ]
+      },
+      "ok": true,
+      "result": {
+        "ok": true,
+        "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\tool_registry_v6_8\\smoke\\test.csv",
+        "rows": 1
+      }
+    },
+    {
+      "tool": "csv_read",
+      "args": {
+        "path": "jarvis_stage3_artifacts/tool_registry_v6_8/smoke/test.csv"
+      },
+      "ok": true,
+      "result": {
+        "ok": true,
+        "rows": [
+          {
+            "a": "1",
+            "b": "2"
+          }
+        ],
+        "count": 1
+      }
+    },
+    {
+      "tool": "jsonl_append",
+      "args": {
+        "path": "jarvis_stage3_artifacts/tool_registry_v6_8/smoke/test.jsonl",
+        "row": {
+          "event": "smoke",
+          "time": "2026-04-27T03:42:21"
+        }
+      },
+      "ok": true,
+      "result": {
+        "ok": true,
+        "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\tool_registry_v6_8\\smoke\\test.jsonl"
+      }
+    },
+    {
+      "tool": "jsonl_tail",
+      "args": {
+        "path": "jarvis_stage3_artifacts/tool_registry_v6_8/smoke/test.jsonl"
+      },
+      "ok": true,
+      "result": {
+        "ok": true,
+        "rows": [
+          {
+            "event": "smoke",
+            "time": "2026-04-27T03:42:21"
+          }
+        ]
+      }
+    },
+    {
+      "tool": "copy_file",
+      "args": {
+        "src": "jarvis_stage3_artifacts/tool_registry_v6_8/smoke/test.csv",
+        "dst": "jarvis_stage3_artifacts/tool_registry_v6_8/smoke/test_copy.csv"
+      },
+      "ok": true,
+      "result": {
+        "ok": true,
+        "src": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\tool_registry_v6_8\\smoke\\test.csv",
+        "dst": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\tool_registry_v6_8\\smoke\\test_copy.csv"
+      }
+    },
+    {
+      "tool": "diff_files",
+      "args": {
+        "a": "jarvis_stage3_artifacts/tool_registry_v6_8/smoke/test.csv",
+        "b": "jarvis_stage3_artifacts/tool_registry_v6_8/smoke/test_copy.csv"
+      },
+      "ok": true,
+      "result": {
+        "ok": true,
+        "diff_preview": "",
+        "lines": 0
+      }
+    },
+    {
+      "tool": "zip_dir",
+      "args": {
+        "src": "jarvis_stage3_artifacts/tool_registry_v6_8/smoke",
+        "dst": "jarvis_stage3_artifacts/tool_registry_v6_8/smoke.zip"
+      },
+      "ok": true,
+      "result": {
+        "ok": true,
+        "src": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\tool_registry_v6_8\\smoke",
+        "zip": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\tool_registry_v6_8\\smoke.zip"
+      }
+    },
+    {
+      "tool": "python_import_check",
+      "args": {
+        "modules": [
+          "json",
+          "sqlite3",
+          "pathlib"
+        ]
+      },
+      "ok": true,
+      "result": {
+        "ok": true,
+        "modules": {
+          "json": true,
+          "sqlite3": true,
+          "pathlib": true
+        }
+      }
+    },
+    {
+      "tool": "uvicorn_smoke",
+      "args": {
+        "base_url": "http://127.0.0.1:8015"
+      },
+      "ok": true,
+      "result": {
+        "ok": true,
+        "status": 200,
+        "body_preview": "{\"status\":\"healthy\",\"service\":\"jarvis_v3_supervisor\",\"env\":\"dev\"}"
+      }
+    },
+    {
+      "tool": "endpoint_batch_probe",
+      "args": {
+        "base_url": "http://127.0.0.1:8015",
+        "endpoints": [
+          "/health",
+          "/api/ai/health"
+        ]
+      },
+      "ok": true,
+      "result": {
+        "ok": true,
+        "results": [
+          {
+            "url": "http://127.0.0.1:8015/health",
+            "ok": true,
+            "status": 200
+          },
+          {
+            "url": "http://127.0.0.1:8015/api/ai/health",
+            "ok": true,
+            "status": 200
+          }
+        ]
+      }
+    },
+    {
+      "tool": "requirements_check",
+      "args": {
+        "path": "requirements.txt"
+      },
+      "ok": true,
+      "result": {
+        "ok": true,
+        "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\requirements.txt",
+        "count": 0,
+        "requirements": []
+      }
+    },
+    {
+      "tool": "queue_add_task",
+      "args": {
+        "task": {
+          "id": "v6_8_tool_registry_capability_smoke",
+          "title": "V6.8 tool registry capability smoke",
+          "priority": 30,
+          "risk": "low",
+          "lane": "tools",
+          "status": "pending",
+          "created_at": "2026-04-27T03:42:21"
+        }
+      },
+      "ok": true,
+      "result": {
+        "ok": true,
+        "id": "v6_8_tool_registry_capability_smoke",
+        "queue": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\state\\jarvis_brain\\action_queue_v6_4.json"
+      }
+    }
+  ]
+}

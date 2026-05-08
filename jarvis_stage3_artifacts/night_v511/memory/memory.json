@@ -1,0 +1,38 @@
+{
+    "touched_file_stats":  {
+
+                           },
+    "loop_stats":  {
+                       "state_only_streak":  0,
+                       "last_non_state_success_at":  null,
+                       "knowledge_graph_only_streak":  0
+                   },
+    "task_stats":  {
+
+                   },
+    "recent_packages":  {
+
+                        },
+    "version":  "5.1.1",
+    "error_stats":  {
+                        "execution_fail":  0,
+                        "weak_execution":  0,
+                        "backend_unavailable":  0,
+                        "approval_skip":  0,
+                        "planning_no_response":  0,
+                        "package_no_response":  0,
+                        "specialist_no_response":  0
+                    },
+    "recent_tasks":  {
+
+                     },
+    "total_code_backed_success":  0,
+    "goal_stats":  {
+
+                   },
+    "total_runs":  0,
+    "agent_stats":  {
+
+                    },
+    "total_state_only_quarantined":  0
+}

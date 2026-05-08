@@ -1,0 +1,158 @@
+{
+  "graph_mission_id": "graph_98a9e9710239",
+  "created_at": "2026-04-10T12:18:35.728724+00:00",
+  "updated_at": "2026-04-10T12:18:35.968983+00:00",
+  "objective": "Failure injection graph for retry validation",
+  "graph_kind": "content_bundle",
+  "auto_execute": false,
+  "status": "failed",
+  "execution_state": "final",
+  "can_execute": false,
+  "can_cancel": false,
+  "steps": [
+    {
+      "step_id": "step_youtube_pack",
+      "title": "Build YouTube Pack",
+      "objective": "Prepare a YouTube starter pack",
+      "task_type": "youtube_pack",
+      "depends_on": [],
+      "status": "completed",
+      "attempts": 1,
+      "constraints": {
+        "name": "Failure Test Pack",
+        "niche": "AI testing",
+        "audience": "builders",
+        "tone": "technical"
+      },
+      "payload": {},
+      "output": {
+        "run_id": "mission_artifact_545b1485b58a",
+        "run_record_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\mission_runs\\mission_artifact_545b1485b58a.json",
+        "artifact_task_id": "artifact_5e149df4a51b",
+        "artifact_manifest_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\youtube\\20260410_121835_failure-test-pack\\manifest.json",
+        "artifact_output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\youtube\\20260410_121835_failure-test-pack",
+        "artifact_name": "Failure Test Pack",
+        "selected_task_type": "youtube_pack"
+      }
+    },
+    {
+      "step_id": "step_content_table",
+      "title": "Build Content Table",
+      "objective": "Create a content calendar table",
+      "task_type": "table",
+      "depends_on": [
+        "step_youtube_pack"
+      ],
+      "status": "failed",
+      "attempts": 1,
+      "constraints": {
+        "name": "Failure Test Calendar",
+        "force_fail": true
+      },
+      "payload": {
+        "rows": [
+          {
+            "day": 1,
+            "title": "Channel intro",
+            "format": "short",
+            "status": "planned"
+          },
+          {
+            "day": 2,
+            "title": "Problem / solution",
+            "format": "short",
+            "status": "planned"
+          },
+          {
+            "day": 3,
+            "title": "Tool breakdown",
+            "format": "short",
+            "status": "planned"
+          }
+        ]
+      },
+      "output": {
+        "error": "Forced failure for testing",
+        "forced": true
+      }
+    }
+  ],
+  "summary": {
+    "steps_total": 2,
+    "steps_completed": 1,
+    "steps_failed": 1,
+    "steps_skipped": 0,
+    "steps_ready": 0,
+    "steps_pending": 0,
+    "steps_running": 0,
+    "steps_cancelled": 0
+  },
+  "links": {
+    "mission_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\mission_graph\\missions\\graph_98a9e9710239.json"
+  },
+  "events": [
+    {
+      "ts": "2026-04-10T12:18:35.728724+00:00",
+      "event": "graph_submitted",
+      "step_id": null,
+      "message": "Graph mission submitted.",
+      "data": {
+        "graph_kind": "content_bundle",
+        "auto_execute": false
+      }
+    },
+    {
+      "ts": "2026-04-10T12:18:35.782401+00:00",
+      "event": "failure_injection_prepared",
+      "step_id": "step_content_table",
+      "message": "Forced failure enabled for step_content_table.",
+      "data": {
+        "force_fail": true
+      }
+    },
+    {
+      "ts": "2026-04-10T12:18:35.842144+00:00",
+      "event": "graph_execute_started",
+      "step_id": null,
+      "message": "Graph execution started.",
+      "data": {}
+    },
+    {
+      "ts": "2026-04-10T12:18:35.861052+00:00",
+      "event": "step_started",
+      "step_id": "step_youtube_pack",
+      "message": "Step started: Build YouTube Pack",
+      "data": {
+        "attempt": 1,
+        "task_type": "youtube_pack"
+      }
+    },
+    {
+      "ts": "2026-04-10T12:18:35.929979+00:00",
+      "event": "step_completed",
+      "step_id": "step_youtube_pack",
+      "message": "Step completed: Build YouTube Pack",
+      "data": {
+        "run_id": "mission_artifact_545b1485b58a"
+      }
+    },
+    {
+      "ts": "2026-04-10T12:18:35.950510+00:00",
+      "event": "step_failed",
+      "step_id": "step_content_table",
+      "message": "Step force-failed for testing: Build Content Table",
+      "data": {
+        "forced": true
+      }
+    },
+    {
+      "ts": "2026-04-10T12:18:35.968983+00:00",
+      "event": "graph_execute_finished",
+      "step_id": null,
+      "message": "Graph execution finished.",
+      "data": {
+        "status": "failed"
+      }
+    }
+  ]
+}

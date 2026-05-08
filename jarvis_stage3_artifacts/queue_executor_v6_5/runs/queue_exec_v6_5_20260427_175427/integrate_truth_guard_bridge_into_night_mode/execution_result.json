@@ -1,0 +1,13 @@
+{
+  "task": "integrate_truth_guard_bridge_into_night_mode",
+  "created_at": "2026-04-27T17:54:27",
+  "bridge_exists": true,
+  "night_mode_candidates": [
+    "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\scripts\\jarvis_night_mode_v6_2_brain_loop_safe.ps1"
+  ],
+  "actions": [
+    "Created evidence-aware night runner: C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\scripts\\jarvis_run_night_mode_with_evidence_v6_5.ps1"
+  ],
+  "ok": true,
+  "helper_script": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\scripts\\jarvis_run_night_mode_with_evidence_v6_5.ps1"
+}

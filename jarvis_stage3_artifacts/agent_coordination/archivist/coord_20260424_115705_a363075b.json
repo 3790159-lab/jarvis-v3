@@ -1,0 +1,18 @@
+{
+  "run_id": "coord_20260424_115705_a363075b",
+  "status": "completed",
+  "recommended_action": "apply",
+  "accepted_mutation_id": "mut_20260424_115705_f09de4f0",
+  "final_reason": "validation_passed",
+  "next_best_action": "Proceed to richer orchestration cases.",
+  "role_records_count": 5,
+  "handoffs_count": 5,
+  "finished_at": "2026-04-24T11:57:05+00:00",
+  "extra": {
+    "mutation_id": "mut_20260424_115705_f09de4f0",
+    "mutation_final_outcome": "accepted",
+    "mutation_apply_status": "applied",
+    "mutation_validation_status": "passed"
+  },
+  "created_at": "2026-04-24T11:57:05+00:00"
+}

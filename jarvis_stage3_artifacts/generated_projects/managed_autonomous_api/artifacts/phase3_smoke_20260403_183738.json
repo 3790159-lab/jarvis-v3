@@ -1,0 +1,119 @@
+﻿{
+    "created_at":  "2026-04-03T18:38:59",
+    "project_root":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api",
+    "port":  8010,
+    "attempts":  12,
+    "delay_seconds":  5,
+    "success_count":  4,
+    "failure_count":  8,
+    "results":  [
+                    {
+                        "attempt":  1,
+                        "checked_at":  "2026-04-03T18:37:38",
+                        "ok":  false,
+                        "status":  null,
+                        "pid":  null,
+                        "uptime_seconds":  null,
+                        "error":  "Невозможно соединиться с удаленным сервером"
+                    },
+                    {
+                        "attempt":  2,
+                        "checked_at":  "2026-04-03T18:37:45",
+                        "ok":  true,
+                        "status":  "healthy",
+                        "pid":  42872,
+                        "uptime_seconds":  2.69,
+                        "error":  null
+                    },
+                    {
+                        "attempt":  3,
+                        "checked_at":  "2026-04-03T18:37:50",
+                        "ok":  false,
+                        "status":  null,
+                        "pid":  null,
+                        "uptime_seconds":  null,
+                        "error":  "Невозможно соединиться с удаленным сервером"
+                    },
+                    {
+                        "attempt":  4,
+                        "checked_at":  "2026-04-03T18:37:59",
+                        "ok":  false,
+                        "status":  null,
+                        "pid":  null,
+                        "uptime_seconds":  null,
+                        "error":  "Невозможно соединиться с удаленным сервером"
+                    },
+                    {
+                        "attempt":  5,
+                        "checked_at":  "2026-04-03T18:38:06",
+                        "ok":  false,
+                        "status":  null,
+                        "pid":  null,
+                        "uptime_seconds":  null,
+                        "error":  "Невозможно соединиться с удаленным сервером"
+                    },
+                    {
+                        "attempt":  6,
+                        "checked_at":  "2026-04-03T18:38:13",
+                        "ok":  false,
+                        "status":  null,
+                        "pid":  null,
+                        "uptime_seconds":  null,
+                        "error":  "Невозможно соединиться с удаленным сервером"
+                    },
+                    {
+                        "attempt":  7,
+                        "checked_at":  "2026-04-03T18:38:20",
+                        "ok":  true,
+                        "status":  "healthy",
+                        "pid":  2240,
+                        "uptime_seconds":  0.04,
+                        "error":  null
+                    },
+                    {
+                        "attempt":  8,
+                        "checked_at":  "2026-04-03T18:38:26",
+                        "ok":  false,
+                        "status":  null,
+                        "pid":  null,
+                        "uptime_seconds":  null,
+                        "error":  "Невозможно соединиться с удаленным сервером"
+                    },
+                    {
+                        "attempt":  9,
+                        "checked_at":  "2026-04-03T18:38:35",
+                        "ok":  true,
+                        "status":  "healthy",
+                        "pid":  23852,
+                        "uptime_seconds":  1.17,
+                        "error":  null
+                    },
+                    {
+                        "attempt":  10,
+                        "checked_at":  "2026-04-03T18:38:40",
+                        "ok":  false,
+                        "status":  null,
+                        "pid":  null,
+                        "uptime_seconds":  null,
+                        "error":  "Невозможно соединиться с удаленным сервером"
+                    },
+                    {
+                        "attempt":  11,
+                        "checked_at":  "2026-04-03T18:38:49",
+                        "ok":  true,
+                        "status":  "healthy",
+                        "pid":  2920,
+                        "uptime_seconds":  2.36,
+                        "error":  null
+                    },
+                    {
+                        "attempt":  12,
+                        "checked_at":  "2026-04-03T18:38:54",
+                        "ok":  false,
+                        "status":  null,
+                        "pid":  null,
+                        "uptime_seconds":  null,
+                        "error":  "Невозможно соединиться с удаленным сервером"
+                    }
+                ]
+}

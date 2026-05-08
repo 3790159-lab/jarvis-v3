@@ -1,0 +1,22 @@
+{
+    "run_id":  "nightv3_20260423_001832",
+    "started_at":  "2026-04-23T00:18:33.6964316+03:00",
+    "ended_at":  "2026-04-23T00:18:36.1877472+03:00",
+    "duration_hours":  6,
+    "step_delay_seconds":  20,
+    "backend_restore_attempts":  0,
+    "backend_restores_successful":  0,
+    "iterations_total":  1,
+    "iterations_successful":  0,
+    "iterations_failed":  0,
+    "iterations_skipped":  0,
+    "artifacts":  [
+
+                  ],
+    "iteration_history":  [
+
+                          ],
+    "task_counts":  {
+
+                    }
+}

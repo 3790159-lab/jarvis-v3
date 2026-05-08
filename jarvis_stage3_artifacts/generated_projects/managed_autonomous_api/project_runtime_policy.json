@@ -1,0 +1,10 @@
+﻿{
+    "generated_at":  "2026-04-01T02:52:15",
+    "default_host":  "127.0.0.1",
+    "default_port":  8011,
+    "test_command":  "python -m pytest tests -q --import-mode=importlib",
+    "health_url":  "http://127.0.0.1:8011/health",
+    "startup_command":  "python -m uvicorn app.main:app --host 127.0.0.1 --port 8011",
+    "recovery_enabled":  true,
+    "validation_required":  true
+}

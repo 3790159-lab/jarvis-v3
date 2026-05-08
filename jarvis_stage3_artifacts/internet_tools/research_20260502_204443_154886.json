@@ -1,0 +1,107 @@
+{
+  "ok": true,
+  "tool": "internet.research",
+  "provider": "perplexity",
+  "query": "some slow query",
+  "created_at": "2026-05-02T20:44:43.154886Z",
+  "answer": "# Jarvis V3 Supervisor — Research Mode: SQL Query Optimization\n\n**Status**: Ready. Analyzing search results on slow SQL query diagnostics and optimization.\n\n---\n\n## Key Findings\n\n### **Root Causes (Verified Across Sources)**\n\n1. **Missing/Suboptimal Indexing** ⚠️ CRITICAL\n   - Forces full table scans instead of targeted access\n   - Most frequently cited performance killer across all sources\n\n2. **Query Structure Issues**\n   - Unnecessary JOINs, poor filtering, inefficient predicates\n   - Parameter-sensitive plans that choose wrong execution paths\n\n3. **Outdated Database Statistics**\n   - Query optimizer makes poor decisions without fresh stats\n   - Fix: rebuild/update statistics before optimization attempts\n\n4. **Hardware Constraints**\n   - CPU, RAM, disk I/O bottlenecks throttle execution\n   - Check system resources *before* blaming query logic\n\n5. **Concurrency & Locks**\n   - High contention delays execution\n   - Improper transaction management compounds issues\n\n6. **Large Dataset Volume**\n   - Queries processing massive datasets need chunking/filtering\n\n---\n\n## Diagnostic Workflow (Actionable)\n\n| Step | Action | Tools |\n|------|--------|-------|\n| 1 | **Identify** the slow query | Query logs, execution time tracking (sys.dm_exec_query_stats for SQL Server) |\n| 2 | **Capture execution plan** | `INCLUDE ACTUAL EXECUTION PLAN` — look for table scans, high cardinality joins |\n| 3 | **Analyze metrics** | ElapsedTime, CpuTime, avg_wait_time, logical reads/writes |\n| 4 | **Find bottleneck** | Missing indexes, parameter sensitivity, lock contention |\n| 5 | **Test fix in isolation** | Simplify query, abbreviate to ~1sec runtime for rapid iteration |\n| 6 | **Verify improvement** | Re-run with plan comparison |\n\n---\n\n## Quick Wins (Priority Order)\n\n✅ **Update statistics** (immediate, low risk)  \n✅ **Add missing indexes** (high impact, testable)  \n✅ **Rewrite JOINs** (query simplification)  \n✅ **Implement parallelization** (if not already active)  \n✅ **Tune GUC settings** (PostgreSQL: shared_buffers 10-25% RAM, effective_cache_size 75% RAM)\n\n---\n\n## Next Steps\n\n**What do you need?**\n- Specific slow query to analyze?\n- Database engine type? (SQL Server, PostgreSQL, MySQL, etc.)\n- Execution plan/metrics available?\n- Access to query logs for profiling?\n\nI can build a **targeted optimization mission** once you provide query details.",
+  "raw": {
+    "id": "5cb33147-e4a9-48ab-8202-0bc6b9b8beb4",
+    "model": "sonar-pro",
+    "created": 1777754682,
+    "usage": {
+      "prompt_tokens": 373,
+      "completion_tokens": 548,
+      "total_tokens": 921,
+      "search_context_size": "low",
+      "cost": {
+        "input_tokens_cost": 0.00112,
+        "output_tokens_cost": 0.00822,
+        "request_cost": 0.006,
+        "total_cost": 0.01534
+      }
+    },
+    "citations": [
+      "https://sqream.com/blog/slow-sql-queries/",
+      "https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/performance/troubleshoot-slow-running-queries",
+      "https://blog.sentry.io/find-slow-database-queries-with-query-insights/",
+      "https://www.docs.inductiveautomation.com/docs/8.1/platform/sql-in-ignition/basic-sql-troubleshooting/slow-queries",
+      "https://www.dolthub.com/blog/2023-03-23-debugging-perf/",
+      "https://www.youtube.com/watch?v=3ZMNNABfCSY",
+      "https://wiki.postgresql.org/wiki/Slow_Query_Questions"
+    ],
+    "search_results": [
+      {
+        "title": "Slow SQL Queries: How to Diagnose and Optimize Them - SQream",
+        "url": "https://sqream.com/blog/slow-sql-queries/",
+        "date": "2024-01-11",
+        "last_updated": "2026-05-01",
+        "snippet": "In this guide, we'll walk you through how to diagnose slow SQL queries and provide best practices for optimization.",
+        "source": "web"
+      },
+      {
+        "title": "Troubleshoot slow-running queries - SQL Server - Microsoft Learn",
+        "url": "https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/performance/troubleshoot-slow-running-queries",
+        "date": "2025-01-10",
+        "last_updated": "2026-04-26",
+        "snippet": "This article describes how to handle a performance issue that database applications may experience when using SQL Server: slow performance of a specific query ...",
+        "source": "web"
+      },
+      {
+        "title": "Find slow database queries with Query Insights - Sentry Blog",
+        "url": "https://blog.sentry.io/find-slow-database-queries-with-query-insights/",
+        "date": "2023-09-28",
+        "last_updated": "2026-04-26",
+        "snippet": "To see if a database query is behind the performance issue, click on the Queries from the left navigation menu under Performance.",
+        "source": "web"
+      },
+      {
+        "title": "Slow Queries - Ignition User Manual - Inductive Automation",
+        "url": "https://www.docs.inductiveautomation.com/docs/8.1/platform/sql-in-ignition/basic-sql-troubleshooting/slow-queries",
+        "date": "2025-04-07",
+        "last_updated": "2026-03-30",
+        "snippet": "Slow running queries can be a big problem. Not only can data take a long time to display on the screen, but it can end up slowing down the whole client.",
+        "source": "web"
+      },
+      {
+        "title": "Debugging Slow SQL Queries | DoltHub Blog",
+        "url": "https://www.dolthub.com/blog/2023-03-23-debugging-perf/",
+        "date": "2023-03-23",
+        "last_updated": "2026-04-27",
+        "snippet": "This blog walks through how to debug slow queries. We start by decomposing a query into its constituent parts. Then we simplify the query to iterate more ...",
+        "source": "web"
+      },
+      {
+        "title": "Finding and Fixing Slow SQL Queries - YouTube",
+        "url": "https://www.youtube.com/watch?v=3ZMNNABfCSY",
+        "date": "2024-03-07",
+        "last_updated": "2025-08-12",
+        "snippet": "Learn how to identify and improve slow SQL queries in InterSystems® products. See how to use the SQL query plan to find query performance ...",
+        "source": "web"
+      },
+      {
+        "title": "Slow Query Questions - PostgreSQL wiki",
+        "url": "https://wiki.postgresql.org/wiki/Slow_Query_Questions",
+        "date": "2023-04-07",
+        "last_updated": "2026-04-26",
+        "snippet": "In any given week, some 50% of the questions on #postgresql IRC and 75% on pgsql-performance are requests for help with a slow query.",
+        "source": "web"
+      }
+    ],
+    "object": "chat.completion",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "# Jarvis V3 Supervisor — Research Mode: SQL Query Optimization\n\n**Status**: Ready. Analyzing search results on slow SQL query diagnostics and optimization.\n\n---\n\n## Key Findings\n\n### **Root Causes (Verified Across Sources)**\n\n1. **Missing/Suboptimal Indexing** ⚠️ CRITICAL\n   - Forces full table scans instead of targeted access\n   - Most frequently cited performance killer across all sources\n\n2. **Query Structure Issues**\n   - Unnecessary JOINs, poor filtering, inefficient predicates\n   - Parameter-sensitive plans that choose wrong execution paths\n\n3. **Outdated Database Statistics**\n   - Query optimizer makes poor decisions without fresh stats\n   - Fix: rebuild/update statistics before optimization attempts\n\n4. **Hardware Constraints**\n   - CPU, RAM, disk I/O bottlenecks throttle execution\n   - Check system resources *before* blaming query logic\n\n5. **Concurrency & Locks**\n   - High contention delays execution\n   - Improper transaction management compounds issues\n\n6. **Large Dataset Volume**\n   - Queries processing massive datasets need chunking/filtering\n\n---\n\n## Diagnostic Workflow (Actionable)\n\n| Step | Action | Tools |\n|------|--------|-------|\n| 1 | **Identify** the slow query | Query logs, execution time tracking (sys.dm_exec_query_stats for SQL Server) |\n| 2 | **Capture execution plan** | `INCLUDE ACTUAL EXECUTION PLAN` — look for table scans, high cardinality joins |\n| 3 | **Analyze metrics** | ElapsedTime, CpuTime, avg_wait_time, logical reads/writes |\n| 4 | **Find bottleneck** | Missing indexes, parameter sensitivity, lock contention |\n| 5 | **Test fix in isolation** | Simplify query, abbreviate to ~1sec runtime for rapid iteration |\n| 6 | **Verify improvement** | Re-run with plan comparison |\n\n---\n\n## Quick Wins (Priority Order)\n\n✅ **Update statistics** (immediate, low risk)  \n✅ **Add missing indexes** (high impact, testable)  \n✅ **Rewrite JOINs** (query simplification)  \n✅ **Implement parallelization** (if not already active)  \n✅ **Tune GUC settings** (PostgreSQL: shared_buffers 10-25% RAM, effective_cache_size 75% RAM)\n\n---\n\n## Next Steps\n\n**What do you need?**\n- Specific slow query to analyze?\n- Database engine type? (SQL Server, PostgreSQL, MySQL, etc.)\n- Execution plan/metrics available?\n- Access to query logs for profiling?\n\nI can build a **targeted optimization mission** once you provide query details."
+        },
+        "delta": {
+          "role": "assistant",
+          "content": ""
+        },
+        "finish_reason": "stop"
+      }
+    ]
+  }
+}

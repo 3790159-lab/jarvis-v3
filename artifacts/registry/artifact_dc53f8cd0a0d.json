@@ -1,0 +1,39 @@
+{
+  "task_id": "artifact_dc53f8cd0a0d",
+  "task_type": "table",
+  "name": "YouTube 30 Day Calendar",
+  "slug": "youtube-30-day-calendar",
+  "created_at": "2026-04-10T00:36:07.490382+00:00",
+  "output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\tables\\20260410_003607_youtube-30-day-calendar",
+  "files": [
+    {
+      "relative_path": "table.csv",
+      "size_bytes": 127
+    },
+    {
+      "relative_path": "table.json",
+      "size_bytes": 492
+    },
+    {
+      "relative_path": "README.md",
+      "size_bytes": 112
+    }
+  ],
+  "summary": {
+    "rows": 3,
+    "columns": [
+      "title",
+      "format",
+      "day",
+      "status"
+    ],
+    "artifact_kind": "table_bundle"
+  },
+  "validation": {
+    "output_dir_exists": true,
+    "created_files_count": 3,
+    "total_bytes": 731,
+    "valid": true
+  },
+  "status": "created"
+}

@@ -1,0 +1,115 @@
+{
+  "ok": true,
+  "tool": "internet.research",
+  "provider": "perplexity",
+  "query": "Act as an AI systems engineer. Research current tools and propose an implementation plan. Include architecture, APIs, failure modes, security concerns, testing, and rollout steps. Task: Compare current best AI image generation APIs and recommend what Jarvis should integrate next",
+  "created_at": "2026-04-28T22:05:44.754318Z",
+  "answer": "### Comparison of Top AI Image Generation APIs (2026)\n\nTop APIs are ranked by **Elo scores** (quality benchmark from LM Arena), model variety, pricing, and developer features. Leaders include **GPT Image 1.5** (OpenAI, #1 Elo 1284, best overall), **Gemini 3 Pro Image** (Google, #2 Elo 1268, multimodal), and **Flux 2 Pro** variants (Black Forest Labs, #3-7, high fidelity/pro). Aggregators like **ModelsLab** (10k+ models, $0.002/image) and **Maginary** (30+ models, ~$0.02/image) excel for multi-model access.[1][2][6]\n\n| API/Provider | Key Models | Pricing (per image) | Strengths | Weaknesses |\n|--------------|------------|---------------------|-----------|------------|\n| **OpenAI (GPT Image 1.5 / DALL-E 3)** | GPT Image 1.5, DALL-E 3 | ~$0.04 | Highest quality, content safety[1][2] | Higher cost, single-model focus[2][6] |\n| **Google (Gemini 3 Pro / Nano Banana)** | Gemini 3 Pro, Nano Banana 2 | Varies (~$0.005-0.04) | Multimodal, reliable infra, prompt adherence[1][3][5] | Less creative variety[3] |\n| **Black Forest Labs (Flux 2)** | Flux 2 Pro/Dev/Schnell | ~$0.01-0.05 (via partners like FAL/Replicate) | Fidelity, speed, customization (LoRAs)[1][4][6] | Partner-dependent access[1] |\n| **ModelsLab** | 10k+ (Flux, SD 3.5, fine-tunes) | $0.002 | Model variety, unified API (image/video/LLM), low latency[2] | Less emphasis on top proprietary models[2] |\n| **Maginary** | 30+ (Flux, Ideogram, Seedream, Recraft) | ~$0.02 | Editing pipeline, multi-language, SVG/video[6] | Credit-based (no min), slightly higher cost[6] |\n| **SiliconFlow** | Flux, SD variants | Token-based (~low) | 2.3x faster inference, serverless[4] | Open-source focus[4] |\n\n**Recommendation**: Integrate **ModelsLab** next for Jarvis. It offers unmatched **model variety** (10k+ including top Flux/SD), **lowest pricing** ($0.002/image), unified REST API for image/video/LLM, and zero cold starts—ideal for scaling Jarvis without vendor lock-in or infra management.[2] Fallback to OpenAI GPT Image 1.5 for premium quality needs.[1]\n\n### Proposed Architecture\n\n**Microservices-based** with API gateway for routing:\n\n```\n[Jarvis Frontend/App] --> [API Gateway (e.g., Kong/Envoy)] --> [Image Gen Service]\n                                                                 |\n                                                                 +--> ModelsLab (Primary)\n                                                                 +--> OpenAI (Fallback)\n                                                                 +--> Cache (Redis) + Queue (Kafka)\n```\n\n- **Core Components**:\n  | Component | Tech | Purpose |\n  |-----------|------|---------|\n  | **Router** | Custom Node.js/Go service | Route prompts by model (e.g., Flux for realism, Ideogram for text via ModelsLab)[1][2][6] |\n  | **Queue** | Kafka/RabbitMQ | Async jobs for high-volume gen (handle 1000s req/min) |\n  | **Cache** | Redis | Store recent images (TTL 24h) to cut costs 50-70% |\n  | **Monitoring** | Prometheus/Grafana | Track latency, error rates, costs |\n  | **Storage** | S3-compatible (MinIO) | Persist outputs with metadata (prompt, model, seed) |\n\n- **Data Flow**: User prompt → Validate/sanitize → Route to ModelsLab API → Poll for result (WebSocket/long-poll) → Post-process (resize/watermark) → Return URL.\n\n### APIs & Integration Steps\n\n**ModelsLab REST API** (single key, unified endpoint).[2]\n```bash\n# Example: Generate image (curl for POC)\ncurl -X POST https://api.modelslab.com/v1/images/generations \\\n  -H \"Authorization: Bearer $MODELSLAB_API_KEY\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n    \"model\": \"flux-2-pro\",  // Or \"gpt-image-1.5\" via proxy\n    \"prompt\": \"Futuristic cityscape, cyberpunk style\",\n    \"width\": 1024, \"height\": 1024, \"steps\": 30, \"seed\": 12345\n  }'\n\n# Response: { \"id\": \"...\", \"status\": \"processing\", \"image_url\": \"...\" }\n```\n\n**Next Actions** (2-week sprint):\n1. Sign up ModelsLab (free tier for testing), get API key.[2]\n2. Build POC wrapper (Node.js/Python SDK): Handle retries, model selection logic (e.g., Elo-based).[1]\n3. Integrate into Jarvis: Add `/generate-image` endpoint with params (prompt, model, style).\n4. Test 5-10 models via ModelsLab (Flux Pro, Seedream, Ideogram).[1][2]\n5. Deploy to staging (Docker/K8s).\n\n**Tradeoffs**: ModelsLab variety > OpenAI quality; use hybrid routing (e.g., 80% ModelsLab, 20% OpenAI).[1][2] Latency: 2-10s/image (faster with Flux Schnell).[1][4]\n\n### Failure Modes & Mitigations\n\n| Failure Mode | Impact | Mitigation |\n|--------------|--------|------------|\n| **API Downtime** (e.g., ModelsLab outage) | High (blocks gen) | Multi-provider fallback (OpenAI/SiliconFlow); circuit breaker (Hystrix).[2][4] |\n| **Rate Limits** (e.g., 100 req/min) | Medium | Exponential backoff, queuing; monitor via Prometheus.[2] |\n| **Rate Limits** (e.g., 100 req/min) | Medium | Exponential backoff, queuing; monitor via Prometheus.[2] |\n| **Poor Output** (bad prompt/model fit) | Low | Auto-retry with refined prompt (LLM-assisted); user feedback loop.[6] |\n| **High Costs** (volume spikes) | Medium | Budget caps per user; cheapest model routing (e.g., Flux Dev).[1][2] |\n| **Cold Starts** | Low | ModelsLab zero cold starts; warm pools if self-hosted Flux.[2][4] |\n\n### Security Concerns & Controls\n\n- **Prompt Injection**: Sanitize inputs (block jailbreaks, NSFW via OpenAI safety if needed); use ModelsLab content filters.[1]\n- **API Key Exposure**: Vault (HashiCorp) + least-priv env vars; rotate keys monthly.\n- **Data Privacy**: No user data sent to providers; anonymize prompts; GDPR-compliant (store opt-in only).\n- **DoS Abuse**: Rate limit (e.g., 10 req/min/user via Redis); CAPTCHA on high-volume.\n- **Output Risks**: Auto-scan images (CLIP for NSFW); watermark Jarvis branding.\n- **Risks**: Vendor data retention (review ToS); over-reliance on one provider.[2]\n\n### Testing Plan\n\n**Pyramid Approach**:\n- **Unit**: Mock API responses; test prompt parsing (Jest/Pytest).\n- **Integration**: Real API calls; 1000+ prompts across models (measure quality via CLIPScore/Elo proxy).[1]\n- **Load**: Artillery/k6: 500 concurrent req; target <5s p95 latency.\n- **E2E**: Jarvis UI flows; A/B test vs. current gen (if any).\n- **Quality**: Human eval (10% samples) + automated (FID score for realism).[1]\n- **Coverage**: 90%+; CI/CD via GitHub Actions.\n\n### Rollout Steps\n\n1. **Week 1**: POC + internal alpha (team testing).\n2. **Week 2**: Beta (10% users); monitor costs/latency.\n3. **Week 3**: Full rollout (feature flag via LaunchDarkly); 100% traffic.\n4. **Post-Launch**: Weekly reviews (uptime >99.5%, cost < $0.005/req); iterate (add video gen via ModelsLab).[2]\n5. **Scale**: Auto-scale K8s pods; budget alert at $1k/month.\n\nThis enables Jarvis image gen in <1 month at ~80% cost savings vs. single-provider setups.[2][6]",
+  "raw": {
+    "id": "94ea53a6-ba1a-45fa-a149-f7573755a54d",
+    "model": "sonar-pro",
+    "created": 1777413943,
+    "usage": {
+      "prompt_tokens": 84,
+      "completion_tokens": 1910,
+      "total_tokens": 1994,
+      "search_context_size": "low",
+      "cost": {
+        "input_tokens_cost": 0.00025,
+        "output_tokens_cost": 0.02865,
+        "request_cost": 0.006,
+        "total_cost": 0.0349
+      }
+    },
+    "citations": [
+      "https://wavespeed.ai/blog/posts/complete-guide-ai-image-apis-2026/",
+      "https://modelslab.com/best-ai-image-generation-api-2026",
+      "https://zapier.com/blog/best-ai-image-generator/",
+      "https://www.siliconflow.com/articles/en/the-best-api-providers-of-open-source-image-model",
+      "https://aimlapi.com/blog/the-best-ai-image-generators",
+      "https://maginary.ai/best-ai-image-generator-api",
+      "https://www.youtube.com/watch?v=hMeQl9JXFeU",
+      "https://www.pixazo.ai/blog/ai-image-generation-models-comparison"
+    ],
+    "search_results": [
+      {
+        "title": "Complete Guide to AI Image Generation APIs in 2026 - WaveSpeed AI",
+        "url": "https://wavespeed.ai/blog/posts/complete-guide-ai-image-apis-2026/",
+        "date": "2025-12-27",
+        "last_updated": "2026-04-24",
+        "snippet": "Complete guide to AI image generation APIs in 2026 with LM Arena rankings. Compare GPT Image, Gemini, Flux, Seedream, and more.",
+        "source": "web"
+      },
+      {
+        "title": "Best AI Image Generation API 2026 - Top Ranked - ModelsLab",
+        "url": "https://modelslab.com/best-ai-image-generation-api-2026",
+        "date": "2020-03-20",
+        "last_updated": "2026-04-27",
+        "snippet": "Compare the best AI image generation APIs in 2026. ModelsLab leads with 10000+ models, $0.002/image pricing, and enterprise-grade infrastructure.",
+        "source": "web"
+      },
+      {
+        "title": "The 8 best AI image generators in 2026 - Zapier",
+        "url": "https://zapier.com/blog/best-ai-image-generator/",
+        "last_updated": "2026-04-24",
+        "snippet": "ChatGPT for the best AI image generator overall. Nano Banana for Google users. Midjourney for artistic results. Reve for overall prompt adherence.",
+        "source": "web"
+      },
+      {
+        "title": "The Best API Providers of Open Source Image Model 2026",
+        "url": "https://www.siliconflow.com/articles/en/the-best-api-providers-of-open-source-image-model",
+        "date": "2024-11-01",
+        "last_updated": "2026-02-20",
+        "snippet": "Our top five picks for 2026 are SiliconFlow, Hugging Face, Firework AI, DeepSeek, and Black Forest Labs. Each of these was selected for offering robust API ...",
+        "source": "web"
+      },
+      {
+        "title": "The Best AI Image Generators in 2026: The ultimate expert guide",
+        "url": "https://aimlapi.com/blog/the-best-ai-image-generators",
+        "date": "2025-11-27",
+        "last_updated": "2026-04-25",
+        "snippet": "1. Overchat AI. Best for accessing all trending image-generation AI models in one platform. ; 2. Midjourney. Best for artistic expression and ...",
+        "source": "web"
+      },
+      {
+        "title": "Best AI Image Generation API (2026) — Developer Comparison",
+        "url": "https://maginary.ai/best-ai-image-generator-api",
+        "date": "2026-02-06",
+        "last_updated": "2026-04-17",
+        "snippet": "Compare the best AI image generation APIs for developers. OpenAI, Stability AI, Replicate, FAL, and Maginary — features, pricing, ...",
+        "source": "web"
+      },
+      {
+        "title": "Best AI Image Generators 2026 (Most Realistic) - YouTube",
+        "url": "https://www.youtube.com/watch?v=hMeQl9JXFeU",
+        "date": "2026-03-11",
+        "last_updated": "2026-04-28",
+        "snippet": "Access ALL Models Mentioned in OpenArt: https://youricreates.com/AI-images In this video, I break down four AI image generators that are ...",
+        "source": "web"
+      },
+      {
+        "title": "Best AI Image Generation Models in 2026: A Comparison Guide",
+        "url": "https://www.pixazo.ai/blog/ai-image-generation-models-comparison",
+        "date": "2026-04-14",
+        "last_updated": "2026-04-27",
+        "snippet": "Discover the best AI image generation models in 2026, a comparison guide to help creators and businesses choose the right tool.",
+        "source": "web"
+      }
+    ],
+    "object": "chat.completion",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "### Comparison of Top AI Image Generation APIs (2026)\n\nTop APIs are ranked by **Elo scores** (quality benchmark from LM Arena), model variety, pricing, and developer features. Leaders include **GPT Image 1.5** (OpenAI, #1 Elo 1284, best overall), **Gemini 3 Pro Image** (Google, #2 Elo 1268, multimodal), and **Flux 2 Pro** variants (Black Forest Labs, #3-7, high fidelity/pro). Aggregators like **ModelsLab** (10k+ models, $0.002/image) and **Maginary** (30+ models, ~$0.02/image) excel for multi-model access.[1][2][6]\n\n| API/Provider | Key Models | Pricing (per image) | Strengths | Weaknesses |\n|--------------|------------|---------------------|-----------|------------|\n| **OpenAI (GPT Image 1.5 / DALL-E 3)** | GPT Image 1.5, DALL-E 3 | ~$0.04 | Highest quality, content safety[1][2] | Higher cost, single-model focus[2][6] |\n| **Google (Gemini 3 Pro / Nano Banana)** | Gemini 3 Pro, Nano Banana 2 | Varies (~$0.005-0.04) | Multimodal, reliable infra, prompt adherence[1][3][5] | Less creative variety[3] |\n| **Black Forest Labs (Flux 2)** | Flux 2 Pro/Dev/Schnell | ~$0.01-0.05 (via partners like FAL/Replicate) | Fidelity, speed, customization (LoRAs)[1][4][6] | Partner-dependent access[1] |\n| **ModelsLab** | 10k+ (Flux, SD 3.5, fine-tunes) | $0.002 | Model variety, unified API (image/video/LLM), low latency[2] | Less emphasis on top proprietary models[2] |\n| **Maginary** | 30+ (Flux, Ideogram, Seedream, Recraft) | ~$0.02 | Editing pipeline, multi-language, SVG/video[6] | Credit-based (no min), slightly higher cost[6] |\n| **SiliconFlow** | Flux, SD variants | Token-based (~low) | 2.3x faster inference, serverless[4] | Open-source focus[4] |\n\n**Recommendation**: Integrate **ModelsLab** next for Jarvis. It offers unmatched **model variety** (10k+ including top Flux/SD), **lowest pricing** ($0.002/image), unified REST API for image/video/LLM, and zero cold starts—ideal for scaling Jarvis without vendor lock-in or infra management.[2] Fallback to OpenAI GPT Image 1.5 for premium quality needs.[1]\n\n### Proposed Architecture\n\n**Microservices-based** with API gateway for routing:\n\n```\n[Jarvis Frontend/App] --> [API Gateway (e.g., Kong/Envoy)] --> [Image Gen Service]\n                                                                 |\n                                                                 +--> ModelsLab (Primary)\n                                                                 +--> OpenAI (Fallback)\n                                                                 +--> Cache (Redis) + Queue (Kafka)\n```\n\n- **Core Components**:\n  | Component | Tech | Purpose |\n  |-----------|------|---------|\n  | **Router** | Custom Node.js/Go service | Route prompts by model (e.g., Flux for realism, Ideogram for text via ModelsLab)[1][2][6] |\n  | **Queue** | Kafka/RabbitMQ | Async jobs for high-volume gen (handle 1000s req/min) |\n  | **Cache** | Redis | Store recent images (TTL 24h) to cut costs 50-70% |\n  | **Monitoring** | Prometheus/Grafana | Track latency, error rates, costs |\n  | **Storage** | S3-compatible (MinIO) | Persist outputs with metadata (prompt, model, seed) |\n\n- **Data Flow**: User prompt → Validate/sanitize → Route to ModelsLab API → Poll for result (WebSocket/long-poll) → Post-process (resize/watermark) → Return URL.\n\n### APIs & Integration Steps\n\n**ModelsLab REST API** (single key, unified endpoint).[2]\n```bash\n# Example: Generate image (curl for POC)\ncurl -X POST https://api.modelslab.com/v1/images/generations \\\n  -H \"Authorization: Bearer $MODELSLAB_API_KEY\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n    \"model\": \"flux-2-pro\",  // Or \"gpt-image-1.5\" via proxy\n    \"prompt\": \"Futuristic cityscape, cyberpunk style\",\n    \"width\": 1024, \"height\": 1024, \"steps\": 30, \"seed\": 12345\n  }'\n\n# Response: { \"id\": \"...\", \"status\": \"processing\", \"image_url\": \"...\" }\n```\n\n**Next Actions** (2-week sprint):\n1. Sign up ModelsLab (free tier for testing), get API key.[2]\n2. Build POC wrapper (Node.js/Python SDK): Handle retries, model selection logic (e.g., Elo-based).[1]\n3. Integrate into Jarvis: Add `/generate-image` endpoint with params (prompt, model, style).\n4. Test 5-10 models via ModelsLab (Flux Pro, Seedream, Ideogram).[1][2]\n5. Deploy to staging (Docker/K8s).\n\n**Tradeoffs**: ModelsLab variety > OpenAI quality; use hybrid routing (e.g., 80% ModelsLab, 20% OpenAI).[1][2] Latency: 2-10s/image (faster with Flux Schnell).[1][4]\n\n### Failure Modes & Mitigations\n\n| Failure Mode | Impact | Mitigation |\n|--------------|--------|------------|\n| **API Downtime** (e.g., ModelsLab outage) | High (blocks gen) | Multi-provider fallback (OpenAI/SiliconFlow); circuit breaker (Hystrix).[2][4] |\n| **Rate Limits** (e.g., 100 req/min) | Medium | Exponential backoff, queuing; monitor via Prometheus.[2] |\n| **Rate Limits** (e.g., 100 req/min) | Medium | Exponential backoff, queuing; monitor via Prometheus.[2] |\n| **Poor Output** (bad prompt/model fit) | Low | Auto-retry with refined prompt (LLM-assisted); user feedback loop.[6] |\n| **High Costs** (volume spikes) | Medium | Budget caps per user; cheapest model routing (e.g., Flux Dev).[1][2] |\n| **Cold Starts** | Low | ModelsLab zero cold starts; warm pools if self-hosted Flux.[2][4] |\n\n### Security Concerns & Controls\n\n- **Prompt Injection**: Sanitize inputs (block jailbreaks, NSFW via OpenAI safety if needed); use ModelsLab content filters.[1]\n- **API Key Exposure**: Vault (HashiCorp) + least-priv env vars; rotate keys monthly.\n- **Data Privacy**: No user data sent to providers; anonymize prompts; GDPR-compliant (store opt-in only).\n- **DoS Abuse**: Rate limit (e.g., 10 req/min/user via Redis); CAPTCHA on high-volume.\n- **Output Risks**: Auto-scan images (CLIP for NSFW); watermark Jarvis branding.\n- **Risks**: Vendor data retention (review ToS); over-reliance on one provider.[2]\n\n### Testing Plan\n\n**Pyramid Approach**:\n- **Unit**: Mock API responses; test prompt parsing (Jest/Pytest).\n- **Integration**: Real API calls; 1000+ prompts across models (measure quality via CLIPScore/Elo proxy).[1]\n- **Load**: Artillery/k6: 500 concurrent req; target <5s p95 latency.\n- **E2E**: Jarvis UI flows; A/B test vs. current gen (if any).\n- **Quality**: Human eval (10% samples) + automated (FID score for realism).[1]\n- **Coverage**: 90%+; CI/CD via GitHub Actions.\n\n### Rollout Steps\n\n1. **Week 1**: POC + internal alpha (team testing).\n2. **Week 2**: Beta (10% users); monitor costs/latency.\n3. **Week 3**: Full rollout (feature flag via LaunchDarkly); 100% traffic.\n4. **Post-Launch**: Weekly reviews (uptime >99.5%, cost < $0.005/req); iterate (add video gen via ModelsLab).[2]\n5. **Scale**: Auto-scale K8s pods; budget alert at $1k/month.\n\nThis enables Jarvis image gen in <1 month at ~80% cost savings vs. single-provider setups.[2][6]"
+        },
+        "delta": {
+          "role": "assistant",
+          "content": ""
+        },
+        "finish_reason": "stop"
+      }
+    ]
+  }
+}

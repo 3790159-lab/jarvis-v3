@@ -1,0 +1,54 @@
+{
+  "low": {
+    "patch_class": "logging_patch",
+    "risk_lane": "low",
+    "recommended_action": "apply",
+    "allowed": true,
+    "confidence": 95.0,
+    "blast_radius": 22.0,
+    "reasons": [
+      "matched_keywords_for:logging_patch"
+    ]
+  },
+  "medium_low": {
+    "patch_class": "validation_patch",
+    "risk_lane": "medium_low",
+    "recommended_action": "artifact_only",
+    "allowed": false,
+    "confidence": 85.0,
+    "blast_radius": 56.0,
+    "reasons": [
+      "blast_radius_requires_artifact_review",
+      "matched_keywords_for:validation_patch"
+    ]
+  },
+  "risky": {
+    "patch_class": "logging_patch",
+    "risk_lane": "medium",
+    "recommended_action": "blocked",
+    "allowed": false,
+    "confidence": 65.0,
+    "blast_radius": 100.0,
+    "reasons": [
+      "forbidden_files_detected",
+      "line_budget_exceeded:300>220",
+      "blast_radius_too_high",
+      "medium_risk_requires_manual_or_next_stage_review",
+      "matched_keywords_for:logging_patch",
+      "critical_file_hint:app/main.py",
+      "forbidden_path:.env"
+    ]
+  },
+  "metrics": {
+    "decisions_count": 18,
+    "apply_count": 6,
+    "artifact_only_count": 4,
+    "blocked_count": 8,
+    "patch_class_counts": {
+      "logging_patch": 12,
+      "validation_patch": 6
+    },
+    "collected_at": "2026-04-23T22:27:57+00:00",
+    "artifacts_root": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\advanced_mutation_lane"
+  }
+}

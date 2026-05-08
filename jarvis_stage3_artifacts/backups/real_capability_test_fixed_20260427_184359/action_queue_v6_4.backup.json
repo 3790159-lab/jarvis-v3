@@ -1,0 +1,228 @@
+{
+  "schema": "jarvis.action_queue.v6_4",
+  "created_at": "2026-04-27T17:54:27",
+  "items": [
+    {
+      "id": "integrate_truth_guard_bridge_into_night_mode",
+      "title": "Integrate Truth Guard evidence bridge into night mode",
+      "details": "Night mode should call jarvis_truth_guard_evidence_bridge_v6_3.ps1 before marking tasks completed.",
+      "priority": 5,
+      "risk": "low",
+      "lane": "night_mode",
+      "depends_on": [],
+      "status": "completed",
+      "created_at": "2026-04-27T17:54:27",
+      "evidence_required": true,
+      "completion_gate": [
+        "evidence_report_exists",
+        "backend_health_checked",
+        "result_artifact_written"
+      ],
+      "updated_at": "2026-04-27T17:54:27",
+      "execution_history": [
+        {
+          "time": "2026-04-27T17:54:27",
+          "status": "running",
+          "evidence_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\queue_executor_v6_5\\runs\\queue_exec_v6_5_20260427_175427\\integrate_truth_guard_bridge_into_night_mode",
+          "note": "Execution started."
+        },
+        {
+          "time": "2026-04-27T17:54:27",
+          "status": "completed",
+          "evidence_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\queue_executor_v6_5\\runs\\queue_exec_v6_5_20260427_175427\\integrate_truth_guard_bridge_into_night_mode\\execution_result.json",
+          "note": "Execution completed with evidence."
+        }
+      ]
+    },
+    {
+      "id": "create_tool_chain_readiness_probe",
+      "title": "Create tool-chain readiness probe",
+      "details": "Inspect available tool-chain endpoints/scripts and produce a readiness report for real action execution.",
+      "priority": 12,
+      "risk": "low",
+      "lane": "tools",
+      "depends_on": [],
+      "status": "completed",
+      "created_at": "2026-04-27T17:54:27",
+      "evidence_required": true,
+      "completion_gate": [
+        "evidence_report_exists",
+        "backend_health_checked",
+        "result_artifact_written"
+      ],
+      "updated_at": "2026-04-27T17:54:27",
+      "execution_history": [
+        {
+          "time": "2026-04-27T17:54:27",
+          "status": "running",
+          "evidence_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\queue_executor_v6_5\\runs\\queue_exec_v6_5_20260427_175427\\create_tool_chain_readiness_probe",
+          "note": "Execution started."
+        },
+        {
+          "time": "2026-04-27T17:54:27",
+          "status": "completed",
+          "evidence_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\queue_executor_v6_5\\runs\\queue_exec_v6_5_20260427_175427\\create_tool_chain_readiness_probe\\execution_result.json",
+          "note": "Execution completed with evidence."
+        }
+      ]
+    },
+    {
+      "id": "create_strategy_memory_snapshot",
+      "title": "Create strategy memory snapshot",
+      "details": "Persist current strategy, active focus, queue state, and evidence verdict for future mission resume.",
+      "priority": 15,
+      "risk": "low",
+      "lane": "memory",
+      "depends_on": [],
+      "status": "completed",
+      "created_at": "2026-04-27T17:54:27",
+      "evidence_required": true,
+      "completion_gate": [
+        "evidence_report_exists",
+        "backend_health_checked",
+        "result_artifact_written"
+      ],
+      "updated_at": "2026-04-27T17:54:27",
+      "execution_history": [
+        {
+          "time": "2026-04-27T17:54:27",
+          "status": "running",
+          "evidence_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\queue_executor_v6_5\\runs\\queue_exec_v6_5_20260427_175427\\create_strategy_memory_snapshot",
+          "note": "Execution started."
+        },
+        {
+          "time": "2026-04-27T17:54:27",
+          "status": "completed",
+          "evidence_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\queue_executor_v6_5\\runs\\queue_exec_v6_5_20260427_175427\\create_strategy_memory_snapshot\\execution_result.json",
+          "note": "Execution completed with evidence."
+        }
+      ]
+    },
+    {
+      "id": "full_creator_v8_8_1_jarvis_mini_saas_builder_artifact_index",
+      "title": "FULL CREATOR: index generated product artifacts",
+      "lane": "full_creator",
+      "priority": 10,
+      "risk": "low",
+      "gateway_plan": [
+        {
+          "tool": "latest_artifacts",
+          "args": {
+            "path": "jarvis_stage3_artifacts/full_creator_v8_8_1/products/creator_20260427_175839_fe5f8a",
+            "limit": 50
+          }
+        },
+        {
+          "tool": "md_report",
+          "args": {
+            "path": "jarvis_stage3_artifacts/full_creator_v8_8_1/reports/product_artifact_index.md",
+            "title": "FULL CREATOR Product Artifact Index",
+            "body": "Generated product artifacts were indexed."
+          }
+        }
+      ],
+      "details": "Generated by FULL CREATOR V8.8.1.",
+      "status": "completed",
+      "created_at": "2026-04-27T17:58:39",
+      "executor": "gateway_plan_v7_2",
+      "evidence_required": true,
+      "updated_at": "2026-04-27T17:58:40",
+      "execution_history": [
+        {
+          "time": "2026-04-27T17:58:39",
+          "status": "running",
+          "note": "Gateway plan execution started.",
+          "evidence_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\gateway_plan_executor_v7_2\\runs\\gateway_plan_exec_20260427_175839\\full_creator_v8_8_1_jarvis_mini_saas_builder_artifact_index",
+          "executor": "gateway_plan_executor_v7_2"
+        },
+        {
+          "time": "2026-04-27T17:58:40",
+          "status": "completed",
+          "note": "Gateway plan completed with evidence.",
+          "evidence_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\gateway_plan_executor_v7_2\\runs\\gateway_plan_exec_20260427_175839\\full_creator_v8_8_1_jarvis_mini_saas_builder_artifact_index\\gateway_plan_result.json",
+          "executor": "gateway_plan_executor_v7_2"
+        }
+      ]
+    },
+    {
+      "id": "full_creator_v8_8_1_jarvis_mini_saas_builder_design_review",
+      "title": "FULL CREATOR: review design brief",
+      "lane": "claude_design",
+      "priority": 20,
+      "risk": "low",
+      "gateway_plan": [
+        {
+          "tool": "md_report",
+          "args": {
+            "path": "jarvis_stage3_artifacts/full_creator_v8_8_1/reports/design_review.md",
+            "title": "Design Review",
+            "body": "Review generated design brief and prepare UI implementation checklist."
+          }
+        }
+      ],
+      "details": "Generated by FULL CREATOR V8.8.1.",
+      "status": "completed",
+      "created_at": "2026-04-27T17:58:39",
+      "executor": "gateway_plan_v7_2",
+      "evidence_required": true,
+      "updated_at": "2026-04-27T17:58:40",
+      "execution_history": [
+        {
+          "time": "2026-04-27T17:58:40",
+          "status": "running",
+          "note": "Gateway plan execution started.",
+          "evidence_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\gateway_plan_executor_v7_2\\runs\\gateway_plan_exec_20260427_175839\\full_creator_v8_8_1_jarvis_mini_saas_builder_design_review",
+          "executor": "gateway_plan_executor_v7_2"
+        },
+        {
+          "time": "2026-04-27T17:58:40",
+          "status": "completed",
+          "note": "Gateway plan completed with evidence.",
+          "evidence_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\gateway_plan_executor_v7_2\\runs\\gateway_plan_exec_20260427_175839\\full_creator_v8_8_1_jarvis_mini_saas_builder_design_review\\gateway_plan_result.json",
+          "executor": "gateway_plan_executor_v7_2"
+        }
+      ]
+    },
+    {
+      "id": "full_creator_v8_8_1_jarvis_mini_saas_builder_github_pr_package",
+      "title": "FULL CREATOR: prepare GitHub PR package",
+      "lane": "github",
+      "priority": 30,
+      "risk": "low",
+      "gateway_plan": [
+        {
+          "tool": "md_report",
+          "args": {
+            "path": "jarvis_stage3_artifacts/full_creator_v8_8_1/reports/github_pr_package.md",
+            "title": "GitHub PR Package",
+            "body": "Prepare PR plan and operator-review-only git commands."
+          }
+        }
+      ],
+      "details": "Generated by FULL CREATOR V8.8.1.",
+      "status": "completed",
+      "created_at": "2026-04-27T17:58:39",
+      "executor": "gateway_plan_v7_2",
+      "evidence_required": true,
+      "updated_at": "2026-04-27T17:58:40",
+      "execution_history": [
+        {
+          "time": "2026-04-27T17:58:40",
+          "status": "running",
+          "note": "Gateway plan execution started.",
+          "evidence_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\gateway_plan_executor_v7_2\\runs\\gateway_plan_exec_20260427_175839\\full_creator_v8_8_1_jarvis_mini_saas_builder_github_pr_package",
+          "executor": "gateway_plan_executor_v7_2"
+        },
+        {
+          "time": "2026-04-27T17:58:40",
+          "status": "completed",
+          "note": "Gateway plan completed with evidence.",
+          "evidence_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\gateway_plan_executor_v7_2\\runs\\gateway_plan_exec_20260427_175839\\full_creator_v8_8_1_jarvis_mini_saas_builder_github_pr_package\\gateway_plan_result.json",
+          "executor": "gateway_plan_executor_v7_2"
+        }
+      ]
+    }
+  ],
+  "updated_at": "2026-04-27T18:35:54",
+  "guarded_by": "full_creator_v8_8_1"
+}

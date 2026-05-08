@@ -1,0 +1,99 @@
+{
+  "result": {
+    "mutation_id": "mut_20260423_133030_aad54da3",
+    "status": "completed",
+    "apply_status": "applied",
+    "validation_status": "passed",
+    "rollback_status": "not_needed",
+    "touched_files": [
+      "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\temp\\agent_coordination_probe.py"
+    ],
+    "checks": [
+      {
+        "name": "file_exists",
+        "ok": true,
+        "details": {
+          "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\temp\\agent_coordination_probe.py",
+          "exists": true
+        }
+      },
+      {
+        "name": "file_nonempty",
+        "ok": true,
+        "details": {
+          "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\temp\\agent_coordination_probe.py",
+          "size": 68
+        }
+      },
+      {
+        "name": "python_compile",
+        "ok": true,
+        "details": {
+          "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\temp\\agent_coordination_probe.py"
+        }
+      },
+      {
+        "name": "health:/health",
+        "ok": true,
+        "details": {
+          "url": "http://127.0.0.1:8015/health",
+          "status": 200,
+          "body_excerpt": "{\"status\":\"healthy\",\"service\":\"jarvis_v3_supervisor\",\"env\":\"dev\"}"
+        }
+      },
+      {
+        "name": "health:/api/ai/health",
+        "ok": true,
+        "details": {
+          "url": "http://127.0.0.1:8015/api/ai/health",
+          "status": 200,
+          "body_excerpt": "{\"status\":\"healthy\",\"providers\":[{\"provider\":\"openai\",\"enabled\":true,\"configured\":true,\"details\":{\"timeout_seconds\":600}},{\"provider\":\"anthropic\",\"enabled\":true,\"configured\":true,\"details\":{\"timeout_seconds\":600}},{\"provider\":\"ollama\",\"enabled\":true,\"configured\":true,\"details\":{\"timeout_seconds\":600}}],\"default_provider\":\"ollama\"}"
+        }
+      },
+      {
+        "name": "health:/api/autonomy/health",
+        "ok": true,
+        "details": {
+          "url": "http://127.0.0.1:8015/api/autonomy/health",
+          "status": 200,
+          "body_excerpt": "{\"status\":\"healthy\",\"service\":\"autonomy_runtime\",\"components\":[\"store\",\"event_bus\",\"executor\",\"evaluator\",\"replanner\",\"guard_manager\",\"memory_manager\",\"mode_manager\",\"recovery_policy_manager\",\"operator_escalation_manager\",\"tool_registry\",\"tool_executor\",\"maintenance_manager\",\"mission_registry\",\"chain_manager\",\"workflow_manager\",\"execution_graph_manager\",\"repair_loop_manager\",\"execution_engine\",\"mission_plan_store\",\"mission_template_manager\",\"mission_runner\",\"reconciliation_manager\",\"scheduler\"],"
+        }
+      }
+    ],
+    "final_outcome": "accepted",
+    "reason": "validation_passed",
+    "started_at": "2026-04-23T13:30:30+00:00",
+    "finished_at": "2026-04-23T13:30:31+00:00",
+    "duration_seconds": 0.152
+  },
+  "snapshot": {
+    "snapshot_id": "snap_20260423_133030_ea492ccb",
+    "mutation_id": "mut_20260423_133030_aad54da3",
+    "created_at": "2026-04-23T13:30:30+00:00",
+    "files": [
+      {
+        "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\temp\\agent_coordination_probe.py",
+        "existed_before": false,
+        "sha256_before": null,
+        "backup_path": null,
+        "size_before": null
+      }
+    ]
+  },
+  "apply": {
+    "mutation_id": "mut_20260423_133030_aad54da3",
+    "applied_at": "2026-04-23T13:30:30+00:00",
+    "touched_files": [
+      "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\temp\\agent_coordination_probe.py"
+    ],
+    "operations": [
+      {
+        "op": "create_file",
+        "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\temp\\agent_coordination_probe.py",
+        "duration_seconds": 0.003
+      }
+    ]
+  },
+  "rollback": null,
+  "created_at": "2026-04-23T13:30:31+00:00"
+}

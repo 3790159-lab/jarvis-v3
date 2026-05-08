@@ -1,0 +1,17 @@
+{
+    "ok":  true,
+    "version":  "v8.4_fixed",
+    "package_dir":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\github_claude_bridge_v8_4_fixed\\handoff_20260427_162631",
+    "github_connector_ready":  true,
+    "github_login":  "3790159-lab",
+    "repo_candidates":  [
+                            "3790159-lab/ai-supervisor-backend",
+                            "3790159-lab/WEB.INDUSTRIES"
+                        ],
+    "files":  [
+                  "operator_dashboard_api_patch_plan.md",
+                  "operator_dashboard_router_proposal.py",
+                  "github_pr_body.md",
+                  "claude_code_task.md"
+              ]
+}

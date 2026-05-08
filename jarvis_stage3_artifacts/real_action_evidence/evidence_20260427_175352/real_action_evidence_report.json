@@ -1,0 +1,835 @@
+{
+  "schema": "jarvis.real_action_evidence.v6_3",
+  "run_id": "evidence_20260427_175352",
+  "created_at": "2026-04-27T17:53:52",
+  "project_root": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram",
+  "base_url": "http://127.0.0.1:8015",
+  "backend": {
+    "summary": {
+      "total": 6,
+      "ok": 5,
+      "failed": 1,
+      "status": "partial"
+    },
+    "endpoints": [
+      {
+        "url": "http://127.0.0.1:8015/",
+        "ok": false,
+        "status_code": 404,
+        "elapsed_ms": 141,
+        "content_type": null,
+        "body_preview": "{\"detail\":\"Not Found\"}",
+        "json": null,
+        "error": "HTTPError: HTTP Error 404: Not Found"
+      },
+      {
+        "url": "http://127.0.0.1:8015/health",
+        "ok": true,
+        "status_code": 200,
+        "elapsed_ms": 6,
+        "content_type": "application/json",
+        "body_preview": "{\"status\":\"healthy\",\"service\":\"jarvis_v3_supervisor\",\"env\":\"dev\"}",
+        "json": {
+          "status": "healthy",
+          "service": "jarvis_v3_supervisor",
+          "env": "dev"
+        },
+        "error": null
+      },
+      {
+        "url": "http://127.0.0.1:8015/api/ai/health",
+        "ok": true,
+        "status_code": 200,
+        "elapsed_ms": 8,
+        "content_type": "application/json",
+        "body_preview": "{\"status\":\"healthy\",\"providers\":[{\"provider\":\"openai\",\"enabled\":true,\"configured\":true,\"details\":{\"timeout_seconds\":600}},{\"provider\":\"anthropic\",\"enabled\":true,\"configured\":true,\"details\":{\"timeout_seconds\":600}},{\"provider\":\"ollama\",\"enabled\":true,\"configured\":true,\"details\":{\"timeout_seconds\":600}}],\"default_provider\":\"ollama\"}",
+        "json": {
+          "status": "healthy",
+          "providers": [
+            {
+              "provider": "openai",
+              "enabled": true,
+              "configured": true,
+              "details": {
+                "timeout_seconds": 600
+              }
+            },
+            {
+              "provider": "anthropic",
+              "enabled": true,
+              "configured": true,
+              "details": {
+                "timeout_seconds": 600
+              }
+            },
+            {
+              "provider": "ollama",
+              "enabled": true,
+              "configured": true,
+              "details": {
+                "timeout_seconds": 600
+              }
+            }
+          ],
+          "default_provider": "ollama"
+        },
+        "error": null
+      },
+      {
+        "url": "http://127.0.0.1:8015/api/autonomy/health",
+        "ok": true,
+        "status_code": 200,
+        "elapsed_ms": 53,
+        "content_type": "application/json",
+        "body_preview": "{\"status\":\"healthy\",\"service\":\"autonomy_runtime\",\"components\":[\"store\",\"event_bus\",\"executor\",\"evaluator\",\"replanner\",\"guard_manager\",\"memory_manager\",\"mode_manager\",\"recovery_policy_manager\",\"operator_escalation_manager\",\"tool_registry\",\"tool_executor\",\"maintenance_manager\",\"mission_registry\",\"chain_manager\",\"workflow_manager\",\"execution_graph_manager\",\"repair_loop_manager\",\"execution_engine\",\"mission_plan_store\",\"mission_template_manager\",\"mission_runner\",\"reconciliation_manager\",\"scheduler\"],\"checked_at\":\"2026-04-27T14:53:52.337244+00:00\"}",
+        "json": {
+          "status": "healthy",
+          "service": "autonomy_runtime",
+          "components": [
+            "store",
+            "event_bus",
+            "executor",
+            "evaluator",
+            "replanner",
+            "guard_manager",
+            "memory_manager",
+            "mode_manager",
+            "recovery_policy_manager",
+            "operator_escalation_manager",
+            "tool_registry",
+            "tool_executor",
+            "maintenance_manager",
+            "mission_registry",
+            "chain_manager",
+            "workflow_manager",
+            "execution_graph_manager",
+            "repair_loop_manager",
+            "execution_engine",
+            "mission_plan_store",
+            "mission_template_manager",
+            "mission_runner",
+            "reconciliation_manager",
+            "scheduler"
+          ],
+          "checked_at": "2026-04-27T14:53:52.337244+00:00"
+        },
+        "error": null
+      },
+      {
+        "url": "http://127.0.0.1:8015/api/autonomy/mission-bridge/health",
+        "ok": true,
+        "status_code": 200,
+        "elapsed_ms": 21,
+        "content_type": "application/json",
+        "body_preview": "{\"status\":\"healthy\",\"service\":\"mission_bridge_inline\",\"cwd\":\"C:\\\\Users\\\\Daniil Lapin\\\\Downloads\\\\supervisor_v1_5_smart_telegram (1)\\\\supervisor_v1_5_smart_telegram\",\"checked_at\":\"2026-04-27T14:53:52.361307+00:00\"}",
+        "json": {
+          "status": "healthy",
+          "service": "mission_bridge_inline",
+          "cwd": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram",
+          "checked_at": "2026-04-27T14:53:52.361307+00:00"
+        },
+        "error": null
+      },
+      {
+        "url": "http://127.0.0.1:8015/api/provider-routing/health",
+        "ok": true,
+        "status_code": 200,
+        "elapsed_ms": 30,
+        "content_type": "application/json",
+        "body_preview": "{\"status\":\"healthy\",\"execution_mode\":\"hybrid\",\"routing_profile\":\"balanced\",\"available_providers\":[\"openai\",\"anthropic\",\"ollama\"],\"provider_status\":{\"openai\":{\"enabled\":true,\"configured\":true},\"anthropic\":{\"enabled\":true,\"configured\":true},\"ollama\":{\"enabled\":true,\"configured\":true}}}",
+        "json": {
+          "status": "healthy",
+          "execution_mode": "hybrid",
+          "routing_profile": "balanced",
+          "available_providers": [
+            "openai",
+            "anthropic",
+            "ollama"
+          ],
+          "provider_status": {
+            "openai": {
+              "enabled": true,
+              "configured": true
+            },
+            "anthropic": {
+              "enabled": true,
+              "configured": true
+            },
+            "ollama": {
+              "enabled": true,
+              "configured": true
+            }
+          }
+        },
+        "error": null
+      }
+    ]
+  },
+  "n8n": {
+    "port": {
+      "host": "127.0.0.1",
+      "port": 5678,
+      "open": true,
+      "error": null
+    },
+    "http_checks": [
+      {
+        "url": "http://127.0.0.1:5678/healthz",
+        "ok": true,
+        "status_code": 200,
+        "elapsed_ms": 26,
+        "content_type": "application/json; charset=utf-8",
+        "body_preview": "{\"status\":\"ok\"}",
+        "json": {
+          "status": "ok"
+        },
+        "error": null
+      },
+      {
+        "url": "http://127.0.0.1:5678/rest/settings",
+        "ok": true,
+        "status_code": 200,
+        "elapsed_ms": 64,
+        "content_type": "application/json; charset=utf-8",
+        "body_preview": "{\"data\":{\"settingsMode\":\"public\",\"defaultLocale\":\"en\",\"userManagement\":{\"authenticationMethod\":\"email\",\"showSetupOnFirstLoad\":false,\"smtpSetup\":false},\"sso\":{\"saml\":{\"loginEnabled\":false},\"ldap\":{\"loginEnabled\":false,\"loginLabel\":\"\"},\"oidc\":{\"loginEnabled\":false,\"loginUrl\":\"http://127.0.0.1:5678/rest/sso/oidc/login\"}},\"authCookie\":{\"secure\":true},\"previewMode\":false,\"enterprise\":{\"saml\":false,\"ldap\":false,\"oidc\":false},\"communityNodesEnabled\":true}}",
+        "json": {
+          "data": {
+            "settingsMode": "public",
+            "defaultLocale": "en",
+            "userManagement": {
+              "authenticationMethod": "email",
+              "showSetupOnFirstLoad": false,
+              "smtpSetup": false
+            },
+            "sso": {
+              "saml": {
+                "loginEnabled": false
+              },
+              "ldap": {
+                "loginEnabled": false,
+                "loginLabel": ""
+              },
+              "oidc": {
+                "loginEnabled": false,
+                "loginUrl": "http://127.0.0.1:5678/rest/sso/oidc/login"
+              }
+            },
+            "authCookie": {
+              "secure": true
+            },
+            "previewMode": false,
+            "enterprise": {
+              "saml": false,
+              "ldap": false,
+              "oidc": false
+            },
+            "communityNodesEnabled": true
+          }
+        },
+        "error": null
+      }
+    ]
+  },
+  "files": [
+    {
+      "relative_path": "app/main.py",
+      "exists": true,
+      "kind": "file",
+      "size_bytes": 11647,
+      "recent_files": []
+    },
+    {
+      "relative_path": "app/services",
+      "exists": true,
+      "kind": "directory",
+      "size_bytes": null,
+      "recent_files": [
+        {
+          "path": "app\\services\\__pycache__\\jarvis_agent_roles_coordination.cpython-312.pyc",
+          "size_bytes": 24355,
+          "mtime": "2026-04-27T16:37:27"
+        },
+        {
+          "path": "app\\services\\__pycache__\\jarvis_decision_risk_engine.cpython-312.pyc",
+          "size_bytes": 17631,
+          "mtime": "2026-04-27T16:37:27"
+        },
+        {
+          "path": "app\\services\\__pycache__\\jarvis_explainability_operator_control.cpython-312.pyc",
+          "size_bytes": 18851,
+          "mtime": "2026-04-27T16:37:27"
+        },
+        {
+          "path": "app\\services\\__pycache__\\jarvis_external_systems_readiness.cpython-312.pyc",
+          "size_bytes": 15691,
+          "mtime": "2026-04-27T16:37:27"
+        },
+        {
+          "path": "app\\services\\__pycache__\\jarvis_memory_learning_layer.cpython-312.pyc",
+          "size_bytes": 21004,
+          "mtime": "2026-04-27T16:37:27"
+        },
+        {
+          "path": "app\\services\\__pycache__\\jarvis_n8n_bridge_client.cpython-312.pyc",
+          "size_bytes": 6003,
+          "mtime": "2026-04-27T16:37:27"
+        },
+        {
+          "path": "app\\services\\__pycache__\\jarvis_n8n_specialist.cpython-312.pyc",
+          "size_bytes": 19006,
+          "mtime": "2026-04-27T16:37:27"
+        },
+        {
+          "path": "app\\services\\__pycache__\\jarvis_safe_mutation_foundation.cpython-312.pyc",
+          "size_bytes": 34550,
+          "mtime": "2026-04-27T16:37:27"
+        },
+        {
+          "path": "app\\services\\__pycache__\\jarvis_unified_autonomous_loop.cpython-312.pyc",
+          "size_bytes": 19838,
+          "mtime": "2026-04-27T16:37:27"
+        },
+        {
+          "path": "app\\services\\__pycache__\\jarvis_unified_night_bridge.cpython-312.pyc",
+          "size_bytes": 17531,
+          "mtime": "2026-04-27T16:37:27"
+        },
+        {
+          "path": "app\\services\\__pycache__\\n8n_action_router_materializer.cpython-312.pyc",
+          "size_bytes": 3669,
+          "mtime": "2026-04-27T16:37:27"
+        },
+        {
+          "path": "app\\services\\__pycache__\\n8n_action_router_materializer_v2.cpython-312.pyc",
+          "size_bytes": 3844,
+          "mtime": "2026-04-27T16:37:27"
+        },
+        {
+          "path": "app\\services\\__pycache__\\n8n_bridge.cpython-312.pyc",
+          "size_bytes": 10224,
+          "mtime": "2026-04-27T16:37:27"
+        },
+        {
+          "path": "app\\services\\__pycache__\\n8n_canvas_builder.cpython-312.pyc",
+          "size_bytes": 11722,
+          "mtime": "2026-04-27T16:37:27"
+        },
+        {
+          "path": "app\\services\\__pycache__\\n8n_workflow_materializer.cpython-312.pyc",
+          "size_bytes": 11120,
+          "mtime": "2026-04-27T16:37:27"
+        }
+      ]
+    },
+    {
+      "relative_path": "app/routers",
+      "exists": true,
+      "kind": "directory",
+      "size_bytes": null,
+      "recent_files": [
+        {
+          "path": "app\\routers\\__pycache__\\operator_dashboard.cpython-312.pyc",
+          "size_bytes": 5610,
+          "mtime": "2026-04-27T16:37:20"
+        },
+        {
+          "path": "app\\routers\\operator_dashboard.py",
+          "size_bytes": 3985,
+          "mtime": "2026-04-27T16:31:47"
+        },
+        {
+          "path": "app\\routers\\__pycache__\\n8n_action_router_materializer_router.cpython-312.pyc",
+          "size_bytes": 4097,
+          "mtime": "2026-04-27T16:08:58"
+        },
+        {
+          "path": "app\\routers\\__pycache__\\n8n_action_router_materializer_v2_router.cpython-312.pyc",
+          "size_bytes": 4613,
+          "mtime": "2026-04-27T16:08:58"
+        },
+        {
+          "path": "app\\routers\\__pycache__\\n8n_bridge_router.cpython-312.pyc",
+          "size_bytes": 2682,
+          "mtime": "2026-04-27T16:08:58"
+        },
+        {
+          "path": "app\\routers\\__pycache__\\n8n_canvas_builder_router.cpython-312.pyc",
+          "size_bytes": 2886,
+          "mtime": "2026-04-27T16:08:58"
+        },
+        {
+          "path": "app\\routers\\__pycache__\\n8n_workflow_materializer_router.cpython-312.pyc",
+          "size_bytes": 2874,
+          "mtime": "2026-04-27T16:08:58"
+        },
+        {
+          "path": "app\\routers\\__pycache__\\resume_recovery.cpython-312.pyc",
+          "size_bytes": 5657,
+          "mtime": "2026-04-27T16:08:58"
+        },
+        {
+          "path": "app\\routers\\__pycache__\\supervisor_automation_router.cpython-312.pyc",
+          "size_bytes": 4020,
+          "mtime": "2026-04-27T16:08:58"
+        },
+        {
+          "path": "app\\routers\\__pycache__\\supervisor_pipeline_router.cpython-312.pyc",
+          "size_bytes": 3885,
+          "mtime": "2026-04-27T16:08:58"
+        },
+        {
+          "path": "app\\routers\\__pycache__\\tools_runtime.cpython-312.pyc",
+          "size_bytes": 1904,
+          "mtime": "2026-04-27T16:08:58"
+        },
+        {
+          "path": "app\\routers\\__pycache__\\tool_chains.cpython-312.pyc",
+          "size_bytes": 1664,
+          "mtime": "2026-04-27T16:08:58"
+        },
+        {
+          "path": "app\\routers\\__pycache__\\tool_routing.cpython-312.pyc",
+          "size_bytes": 1675,
+          "mtime": "2026-04-27T16:08:58"
+        },
+        {
+          "path": "app\\routers\\__pycache__\\agent_control_plane.cpython-312.pyc",
+          "size_bytes": 13995,
+          "mtime": "2026-04-27T16:08:57"
+        },
+        {
+          "path": "app\\routers\\__pycache__\\artifacts_runtime.cpython-312.pyc",
+          "size_bytes": 2168,
+          "mtime": "2026-04-27T16:08:57"
+        }
+      ]
+    },
+    {
+      "relative_path": "scripts",
+      "exists": true,
+      "kind": "directory",
+      "size_bytes": null,
+      "recent_files": [
+        {
+          "path": "scripts\\jarvis_full_creator_v8_8.ps1",
+          "size_bytes": 210,
+          "mtime": "2026-04-27T17:52:59"
+        },
+        {
+          "path": "scripts\\jarvis_external_creator_integrations_smoke_v8_3.ps1",
+          "size_bytes": 575,
+          "mtime": "2026-04-27T16:17:49"
+        },
+        {
+          "path": "scripts\\jarvis_external_creator_integrations_v8_3.ps1",
+          "size_bytes": 750,
+          "mtime": "2026-04-27T16:17:49"
+        },
+        {
+          "path": "scripts\\jarvis_backend_self_healing_v8_2.ps1",
+          "size_bytes": 814,
+          "mtime": "2026-04-27T16:08:32"
+        },
+        {
+          "path": "scripts\\jarvis_night_self_healing_cycle_v8_2.ps1",
+          "size_bytes": 982,
+          "mtime": "2026-04-27T16:08:32"
+        },
+        {
+          "path": "scripts\\jarvis_ultra_upgrade_v8_1.ps1",
+          "size_bytes": 2719,
+          "mtime": "2026-04-27T16:04:02"
+        },
+        {
+          "path": "scripts\\jarvis_full_creator_smoke_v8_0.ps1",
+          "size_bytes": 648,
+          "mtime": "2026-04-27T13:36:59"
+        },
+        {
+          "path": "scripts\\jarvis_full_creator_v8_0.ps1",
+          "size_bytes": 751,
+          "mtime": "2026-04-27T13:36:59"
+        },
+        {
+          "path": "scripts\\jarvis_self_healing_v7_8.ps1",
+          "size_bytes": 210,
+          "mtime": "2026-04-27T13:31:06"
+        },
+        {
+          "path": "scripts\\jarvis_queue_guard_v7_7.ps1",
+          "size_bytes": 693,
+          "mtime": "2026-04-27T13:29:15"
+        },
+        {
+          "path": "scripts\\jarvis_queue_status_v7_7.ps1",
+          "size_bytes": 890,
+          "mtime": "2026-04-27T13:29:15"
+        },
+        {
+          "path": "scripts\\jarvis_tool_selection_smoke_v7_6.ps1",
+          "size_bytes": 587,
+          "mtime": "2026-04-27T13:25:15"
+        },
+        {
+          "path": "scripts\\jarvis_select_tools_v7_6.ps1",
+          "size_bytes": 792,
+          "mtime": "2026-04-27T13:25:14"
+        },
+        {
+          "path": "scripts\\jarvis_add_n8n_pipeline_task_v7_5.ps1",
+          "size_bytes": 1959,
+          "mtime": "2026-04-27T13:22:53"
+        },
+        {
+          "path": "scripts\\jarvis_n8n_pipeline_creator_v7_5.ps1",
+          "size_bytes": 633,
+          "mtime": "2026-04-27T13:22:53"
+        }
+      ]
+    },
+    {
+      "relative_path": "tools",
+      "exists": true,
+      "kind": "directory",
+      "size_bytes": null,
+      "recent_files": [
+        {
+          "path": "tools\\jarvis_full_creator_v8_8.py",
+          "size_bytes": 3633,
+          "mtime": "2026-04-27T17:52:59"
+        },
+        {
+          "path": "tools\\jarvis_external_creator_integrations_v8_3.py",
+          "size_bytes": 13687,
+          "mtime": "2026-04-27T16:17:49"
+        },
+        {
+          "path": "tools\\__pycache__\\jarvis_external_creator_integrations_v8_3.cpython-312.pyc",
+          "size_bytes": 15081,
+          "mtime": "2026-04-27T16:17:49"
+        },
+        {
+          "path": "tools\\__pycache__\\upgrade_smart_routing.cpython-312.pyc",
+          "size_bytes": 16259,
+          "mtime": "2026-04-27T16:08:38"
+        },
+        {
+          "path": "tools\\__pycache__\\jarvis_tool_registry_v6_9.cpython-312.pyc",
+          "size_bytes": 47677,
+          "mtime": "2026-04-27T16:08:37"
+        },
+        {
+          "path": "tools\\__pycache__\\jarvis_tool_selection_brain_v7_6.cpython-312.pyc",
+          "size_bytes": 10558,
+          "mtime": "2026-04-27T16:08:37"
+        },
+        {
+          "path": "tools\\__pycache__\\jarvis_unified_tool_gateway_v7_0.cpython-312.pyc",
+          "size_bytes": 10644,
+          "mtime": "2026-04-27T16:08:37"
+        },
+        {
+          "path": "tools\\__pycache__\\repair_all_runtime_issues.cpython-312.pyc",
+          "size_bytes": 9022,
+          "mtime": "2026-04-27T16:08:37"
+        },
+        {
+          "path": "tools\\__pycache__\\repair_headers_and_startup.cpython-312.pyc",
+          "size_bytes": 8387,
+          "mtime": "2026-04-27T16:08:37"
+        },
+        {
+          "path": "tools\\__pycache__\\repair_port_conflict_and_health.cpython-312.pyc",
+          "size_bytes": 5620,
+          "mtime": "2026-04-27T16:08:37"
+        },
+        {
+          "path": "tools\\__pycache__\\repair_runtime_stability.cpython-312.pyc",
+          "size_bytes": 9920,
+          "mtime": "2026-04-27T16:08:37"
+        },
+        {
+          "path": "tools\\__pycache__\\rewrite_telegram_bot_clean.cpython-312.pyc",
+          "size_bytes": 10038,
+          "mtime": "2026-04-27T16:08:37"
+        },
+        {
+          "path": "tools\\__pycache__\\stage2_smart_supervisor.cpython-312.pyc",
+          "size_bytes": 2858,
+          "mtime": "2026-04-27T16:08:37"
+        },
+        {
+          "path": "tools\\__pycache__\\test_utf8_flow.cpython-312.pyc",
+          "size_bytes": 1559,
+          "mtime": "2026-04-27T16:08:37"
+        },
+        {
+          "path": "tools\\__pycache__\\test_write.cpython-312.pyc",
+          "size_bytes": 265,
+          "mtime": "2026-04-27T16:08:37"
+        }
+      ]
+    },
+    {
+      "relative_path": "jarvis_stage3_artifacts",
+      "exists": true,
+      "kind": "directory",
+      "size_bytes": null,
+      "recent_files": [
+        {
+          "path": "jarvis_stage3_artifacts\\backend_logs\\backend_out_20260427_163720.log",
+          "size_bytes": 3901,
+          "mtime": "2026-04-27T17:53:52"
+        },
+        {
+          "path": "jarvis_stage3_artifacts\\external_auth_setup_v8_7\\latest_github_cli_auth_report.json",
+          "size_bytes": 514,
+          "mtime": "2026-04-27T17:45:40"
+        },
+        {
+          "path": "jarvis_stage3_artifacts\\external_auth_setup_v8_7\\latest_external_auth_setup_report.json",
+          "size_bytes": 350,
+          "mtime": "2026-04-27T17:32:38"
+        },
+        {
+          "path": "jarvis_stage3_artifacts\\external_auth_setup_v8_7\\latest_external_auth_setup_report.md",
+          "size_bytes": 263,
+          "mtime": "2026-04-27T17:32:38"
+        },
+        {
+          "path": "jarvis_stage3_artifacts\\claude_github_full_pipeline_v8_6_fixed\\git_commands_OPERATOR_REVIEW_ONLY.ps1",
+          "size_bytes": 472,
+          "mtime": "2026-04-27T16:59:57"
+        },
+        {
+          "path": "jarvis_stage3_artifacts\\claude_github_full_pipeline_v8_6_fixed\\latest_claude_github_full_pipeline_report.json",
+          "size_bytes": 1162,
+          "mtime": "2026-04-27T16:59:57"
+        },
+        {
+          "path": "jarvis_stage3_artifacts\\claude_github_full_pipeline_v8_6_fixed\\latest_claude_github_full_pipeline_report.md",
+          "size_bytes": 683,
+          "mtime": "2026-04-27T16:59:57"
+        },
+        {
+          "path": "jarvis_stage3_artifacts\\claude_github_full_pipeline_v8_6_fixed\\claude_code_package\\ci_check_plan.md",
+          "size_bytes": 194,
+          "mtime": "2026-04-27T16:59:57"
+        },
+        {
+          "path": "jarvis_stage3_artifacts\\claude_github_full_pipeline_v8_6_fixed\\claude_code_package\\claude_code_task.md",
+          "size_bytes": 671,
+          "mtime": "2026-04-27T16:59:57"
+        },
+        {
+          "path": "jarvis_stage3_artifacts\\claude_github_full_pipeline_v8_6_fixed\\claude_code_package\\github_pr_plan.md",
+          "size_bytes": 261,
+          "mtime": "2026-04-27T16:59:57"
+        },
+        {
+          "path": "jarvis_stage3_artifacts\\claude_github_full_pipeline_v8_6_fixed\\claude_code_package\\policy_gate.md",
+          "size_bytes": 273,
+          "mtime": "2026-04-27T16:59:57"
+        },
+        {
+          "path": "jarvis_stage3_artifacts\\claude_github_full_pipeline_v8_6_fixed\\claude_design_kit\\design_brief.md",
+          "size_bytes": 382,
+          "mtime": "2026-04-27T16:59:57"
+        },
+        {
+          "path": "jarvis_stage3_artifacts\\claude_github_full_pipeline_v8_6_fixed\\claude_design_kit\\ui_tokens.json",
+          "size_bytes": 189,
+          "mtime": "2026-04-27T16:59:57"
+        },
+        {
+          "path": "jarvis_stage3_artifacts\\claude_github_full_pipeline_v8_6_fixed\\claude_design_kit\\dashboard_prototype.html",
+          "size_bytes": 1188,
+          "mtime": "2026-04-27T16:56:06"
+        },
+        {
+          "path": "jarvis_stage3_artifacts\\operator_dashboard_real_v8_5_fix\\latest_operator_dashboard_fix_report.json",
+          "size_bytes": 2084,
+          "mtime": "2026-04-27T16:37:33"
+        }
+      ]
+    },
+    {
+      "relative_path": "artifacts/memory",
+      "exists": true,
+      "kind": "directory",
+      "size_bytes": null,
+      "recent_files": [
+        {
+          "path": "artifacts\\memory\\summaries\\full_creator_v8_0_20260427_160414.md",
+          "size_bytes": 411,
+          "mtime": "2026-04-27T16:04:14"
+        },
+        {
+          "path": "artifacts\\memory\\summaries\\full_creator_v8_0_20260427_133700.md",
+          "size_bytes": 402,
+          "mtime": "2026-04-27T13:37:00"
+        },
+        {
+          "path": "artifacts\\memory\\summaries\\summary_20260427_130830.md",
+          "size_bytes": 71,
+          "mtime": "2026-04-27T13:08:30"
+        },
+        {
+          "path": "artifacts\\memory\\summaries\\strategy_snapshot_20260427_033139.md",
+          "size_bytes": 278,
+          "mtime": "2026-04-27T03:31:39"
+        },
+        {
+          "path": "artifacts\\memory\\issues\\20260413_201110_known_issues_mission_multistep_71f941e5.md",
+          "size_bytes": 359,
+          "mtime": "2026-04-13T23:11:10"
+        },
+        {
+          "path": "artifacts\\memory\\lessons\\20260413_201110_lessons_learned_mission_multistep_71f941e5.md",
+          "size_bytes": 411,
+          "mtime": "2026-04-13T23:11:10"
+        },
+        {
+          "path": "artifacts\\memory\\missions\\20260413_201110_mission_record_mission_multistep_71f941e5.md",
+          "size_bytes": 831,
+          "mtime": "2026-04-13T23:11:10"
+        },
+        {
+          "path": "artifacts\\memory\\summaries\\20260413_201110_mission_summary_mission_multistep_71f941e5.md",
+          "size_bytes": 514,
+          "mtime": "2026-04-13T23:11:10"
+        },
+        {
+          "path": "artifacts\\memory\\issues\\20260413_130826_known_issues_mission_block52_demo.md",
+          "size_bytes": 323,
+          "mtime": "2026-04-13T16:08:26"
+        },
+        {
+          "path": "artifacts\\memory\\lessons\\20260413_130826_lessons_learned_mission_block52_demo.md",
+          "size_bytes": 559,
+          "mtime": "2026-04-13T16:08:26"
+        },
+        {
+          "path": "artifacts\\memory\\missions\\20260413_130826_mission_record_mission_block52_demo.md",
+          "size_bytes": 798,
+          "mtime": "2026-04-13T16:08:26"
+        },
+        {
+          "path": "artifacts\\memory\\summaries\\20260413_130826_mission_summary_mission_block52_demo.md",
+          "size_bytes": 403,
+          "mtime": "2026-04-13T16:08:26"
+        },
+        {
+          "path": "artifacts\\memory\\issues\\20260413_103212_known_issues_mission_block51_demo.md",
+          "size_bytes": 323,
+          "mtime": "2026-04-13T13:32:12"
+        },
+        {
+          "path": "artifacts\\memory\\lessons\\20260413_103212_lessons_learned_mission_block51_demo.md",
+          "size_bytes": 567,
+          "mtime": "2026-04-13T13:32:12"
+        },
+        {
+          "path": "artifacts\\memory\\missions\\20260413_103212_mission_record_mission_block51_demo.md",
+          "size_bytes": 822,
+          "mtime": "2026-04-13T13:32:12"
+        }
+      ]
+    },
+    {
+      "relative_path": "state",
+      "exists": true,
+      "kind": "directory",
+      "size_bytes": null,
+      "recent_files": [
+        {
+          "path": "state\\agent_mesh\\knowledge_graph.json",
+          "size_bytes": 28115,
+          "mtime": "2026-04-27T17:54:06"
+        },
+        {
+          "path": "state\\jarvis_brain\\action_queue_v6_4.json",
+          "size_bytes": 96561,
+          "mtime": "2026-04-27T16:59:57"
+        },
+        {
+          "path": "state\\agent_mesh\\adaptive_policy.json",
+          "size_bytes": 1968,
+          "mtime": "2026-04-27T16:37:27"
+        },
+        {
+          "path": "state\\agent_mesh\\connectors.json",
+          "size_bytes": 2827,
+          "mtime": "2026-04-27T16:37:27"
+        },
+        {
+          "path": "state\\agent_mesh\\experiment_registry.json",
+          "size_bytes": 136909,
+          "mtime": "2026-04-27T16:37:27"
+        },
+        {
+          "path": "state\\agent_mesh\\secrets_registry.json",
+          "size_bytes": 691,
+          "mtime": "2026-04-27T16:37:27"
+        },
+        {
+          "path": "state\\agent_mesh\\strategy_runtime.json",
+          "size_bytes": 352,
+          "mtime": "2026-04-27T16:37:27"
+        },
+        {
+          "path": "state\\agent_mesh\\worker_registry.json",
+          "size_bytes": 5167,
+          "mtime": "2026-04-27T16:37:27"
+        },
+        {
+          "path": "state\\jarvis_brain\\latest_brain_snapshot_v6_4.json",
+          "size_bytes": 46882,
+          "mtime": "2026-04-27T16:04:20"
+        },
+        {
+          "path": "state\\jarvis_brain\\long_term_strategy_v6_4.json",
+          "size_bytes": 1822,
+          "mtime": "2026-04-27T16:04:20"
+        },
+        {
+          "path": "state\\startup_logs\\n8n_header_fix_stdout_20260419_031007.log",
+          "size_bytes": 3050,
+          "mtime": "2026-04-19T13:09:29"
+        },
+        {
+          "path": "state\\agent_mesh\\local_secrets\\n8n_api_key.txt",
+          "size_bytes": 26,
+          "mtime": "2026-04-19T13:09:29"
+        },
+        {
+          "path": "state\\startup_logs\\n8n_header_fix_stderr_20260419_031007.log",
+          "size_bytes": 7695,
+          "mtime": "2026-04-19T12:07:32"
+        },
+        {
+          "path": "state\\agent_mesh\\n8n_live_state.json",
+          "size_bytes": 352,
+          "mtime": "2026-04-19T03:10:19"
+        },
+        {
+          "path": "state\\startup_logs\\v17_2_hotfix_stdout_20260419_015123.log",
+          "size_bytes": 2928,
+          "mtime": "2026-04-19T02:53:05"
+        }
+      ]
+    }
+  ],
+  "truth_guard": {
+    "verdict": "passed_with_evidence",
+    "passed": true,
+    "evidence": [
+      "backend_endpoints_responded",
+      "main_app_file_exists",
+      "artifact_root_exists",
+      "n8n_port_open"
+    ],
+    "gaps": [],
+    "strict_next_action": "continue_autonomous_low_risk_tasks"
+  }
+}

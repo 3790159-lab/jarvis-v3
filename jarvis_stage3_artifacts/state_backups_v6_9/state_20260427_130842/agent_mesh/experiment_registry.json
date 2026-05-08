@@ -1,0 +1,4993 @@
+{
+  "variants": [
+    {
+      "variant_id": "balanced_cloud_primary",
+      "name": "Balanced Cloud Primary",
+      "description": "Balanced default with cloud-first reasoning and guarded integrations.",
+      "status": "approved",
+      "knobs": {
+        "consultation_bonus": 0,
+        "qa_strictness": "medium",
+        "encourage_memory_support": true,
+        "prefer_claude_codegen": true,
+        "prefer_openai_planning": true,
+        "integration_mode": "guarded_native"
+      },
+      "created_ts": 1776465730.4909275,
+      "approved_ts": 1776465730.4909275,
+      "last_score": 9.3
+    },
+    {
+      "variant_id": "strict_reliability",
+      "name": "Strict Reliability",
+      "description": "More validation and tighter recovery bias.",
+      "status": "approved",
+      "knobs": {
+        "consultation_bonus": 1,
+        "qa_strictness": "high",
+        "encourage_memory_support": true,
+        "prefer_claude_codegen": true,
+        "prefer_openai_planning": true,
+        "integration_mode": "guarded_native"
+      },
+      "created_ts": 1776465730.4909275,
+      "approved_ts": 1776465730.4909275,
+      "last_score": 10.0
+    },
+    {
+      "variant_id": "fast_iteration",
+      "name": "Fast Iteration",
+      "description": "Lower friction for faster cycles while preserving cloud-first routing.",
+      "status": "approved",
+      "knobs": {
+        "consultation_bonus": 0,
+        "qa_strictness": "low",
+        "encourage_memory_support": false,
+        "prefer_claude_codegen": true,
+        "prefer_openai_planning": true,
+        "integration_mode": "guarded_native"
+      },
+      "created_ts": 1776465730.4909275,
+      "approved_ts": 1776465730.4909275,
+      "last_score": 8.5
+    },
+    {
+      "variant_id": "research_heavy",
+      "name": "Research Heavy",
+      "description": "Encourages extra support and analysis before generation.",
+      "status": "approved",
+      "knobs": {
+        "consultation_bonus": 1,
+        "qa_strictness": "medium",
+        "encourage_memory_support": true,
+        "prefer_claude_codegen": true,
+        "prefer_openai_planning": true,
+        "integration_mode": "guarded_native"
+      },
+      "created_ts": 1776465730.4909275,
+      "approved_ts": 1776465730.4909275,
+      "last_score": 9.7
+    },
+    {
+      "variant_id": "integration_expansion_guarded",
+      "name": "Integration Expansion Guarded",
+      "description": "More emphasis on native integration tasks with guarded execution.",
+      "status": "approved",
+      "knobs": {
+        "consultation_bonus": 0,
+        "qa_strictness": "medium",
+        "encourage_memory_support": true,
+        "prefer_claude_codegen": true,
+        "prefer_openai_planning": true,
+        "integration_mode": "guarded_native"
+      },
+      "created_ts": 1776465730.4909275,
+      "approved_ts": 1776465730.4909275,
+      "last_score": 9.3
+    },
+    {
+      "variant_id": "privacy_locality_focus",
+      "name": "Privacy Locality Focus",
+      "description": "Keeps locality-sensitive behavior stronger while preserving cloud for reasoning.",
+      "status": "approved",
+      "knobs": {
+        "consultation_bonus": 0,
+        "qa_strictness": "medium",
+        "encourage_memory_support": true,
+        "prefer_claude_codegen": false,
+        "prefer_openai_planning": true,
+        "integration_mode": "guarded_native"
+      },
+      "created_ts": 1776465730.4909275,
+      "approved_ts": 1776465730.4909275,
+      "last_score": 8.1
+    },
+    {
+      "variant_id": "planner_research_balance",
+      "name": "Planner Research Balance",
+      "description": "Slightly stronger planning-research coordination.",
+      "status": "approved",
+      "knobs": {
+        "consultation_bonus": 1,
+        "qa_strictness": "medium",
+        "encourage_memory_support": true,
+        "prefer_claude_codegen": false,
+        "prefer_openai_planning": true,
+        "integration_mode": "guarded_native"
+      },
+      "created_ts": 1776466467.3920138,
+      "approved_ts": 1776466467.3920138,
+      "last_score": 8.5
+    },
+    {
+      "variant_id": "memory_amplified",
+      "name": "Memory Amplified",
+      "description": "Uses memory support more aggressively for reusable knowledge.",
+      "status": "approved",
+      "knobs": {
+        "consultation_bonus": 1,
+        "qa_strictness": "high",
+        "encourage_memory_support": true,
+        "prefer_claude_codegen": true,
+        "prefer_openai_planning": true,
+        "integration_mode": "guarded_native"
+      },
+      "created_ts": 1776466467.3920138,
+      "approved_ts": 1776466467.3920138,
+      "last_score": 10.0
+    },
+    {
+      "variant_id": "connector_staging",
+      "name": "Connector Staging",
+      "description": "Prepared for broader live integrations when connectors become fully configured.",
+      "status": "approved",
+      "knobs": {
+        "consultation_bonus": 0,
+        "qa_strictness": "medium",
+        "encourage_memory_support": true,
+        "prefer_claude_codegen": true,
+        "prefer_openai_planning": true,
+        "integration_mode": "live_expansion"
+      },
+      "created_ts": 1776466467.3920138,
+      "approved_ts": 1776466467.3920138,
+      "last_score": 9.5
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "run_1b6a3d2398",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776776079.908576
+    },
+    {
+      "run_id": "run_d736ce9682",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776776079.926863
+    },
+    {
+      "run_id": "run_e003a3af19",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1776776079.934552
+    },
+    {
+      "run_id": "run_6441cfcfbc",
+      "scenario": "boot_eval",
+      "variant_id": "balanced_cloud_primary",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776776789.9967077
+    },
+    {
+      "run_id": "run_9f20507791",
+      "scenario": "boot_eval",
+      "variant_id": "strict_reliability",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776776790.0141401
+    },
+    {
+      "run_id": "run_399af41f64",
+      "scenario": "boot_eval",
+      "variant_id": "fast_iteration",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": -0.2,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776776790.0265405
+    },
+    {
+      "run_id": "run_0c4e3c36cc",
+      "scenario": "boot_eval",
+      "variant_id": "research_heavy",
+      "total_score": 9.7,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776776790.0392036
+    },
+    {
+      "run_id": "run_ec4f28ddd2",
+      "scenario": "boot_eval",
+      "variant_id": "integration_expansion_guarded",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776776790.0498734
+    },
+    {
+      "run_id": "run_5cc95cc619",
+      "scenario": "boot_eval",
+      "variant_id": "privacy_locality_focus",
+      "total_score": 8.1,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776776790.0650067
+    },
+    {
+      "run_id": "run_b30c067cd1",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776776790.073401
+    },
+    {
+      "run_id": "run_76669cd4dd",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776776790.0884492
+    },
+    {
+      "run_id": "run_6524f81988",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1776776790.1027389
+    },
+    {
+      "run_id": "run_21816983ee",
+      "scenario": "boot_eval",
+      "variant_id": "balanced_cloud_primary",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776776812.5808764
+    },
+    {
+      "run_id": "run_fe07a70b05",
+      "scenario": "boot_eval",
+      "variant_id": "strict_reliability",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776776812.5906403
+    },
+    {
+      "run_id": "run_b991ae1813",
+      "scenario": "boot_eval",
+      "variant_id": "fast_iteration",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": -0.2,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776776812.6146083
+    },
+    {
+      "run_id": "run_0457f3f3e9",
+      "scenario": "boot_eval",
+      "variant_id": "research_heavy",
+      "total_score": 9.7,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776776812.6244109
+    },
+    {
+      "run_id": "run_43d82484b5",
+      "scenario": "boot_eval",
+      "variant_id": "integration_expansion_guarded",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776776812.6401536
+    },
+    {
+      "run_id": "run_f92e004d9d",
+      "scenario": "boot_eval",
+      "variant_id": "privacy_locality_focus",
+      "total_score": 8.1,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776776812.6585789
+    },
+    {
+      "run_id": "run_1da50bbb50",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776776812.6736588
+    },
+    {
+      "run_id": "run_19e0453747",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776776812.6919377
+    },
+    {
+      "run_id": "run_dab1de764a",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1776776812.7015142
+    },
+    {
+      "run_id": "run_0bb73bff41",
+      "scenario": "boot_eval",
+      "variant_id": "balanced_cloud_primary",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776778060.0746636
+    },
+    {
+      "run_id": "run_07c062a6c3",
+      "scenario": "boot_eval",
+      "variant_id": "strict_reliability",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776778060.0902867
+    },
+    {
+      "run_id": "run_1d514896c2",
+      "scenario": "boot_eval",
+      "variant_id": "fast_iteration",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": -0.2,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776778060.1020038
+    },
+    {
+      "run_id": "run_cd11d9407b",
+      "scenario": "boot_eval",
+      "variant_id": "research_heavy",
+      "total_score": 9.7,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776778060.115995
+    },
+    {
+      "run_id": "run_44ce92c863",
+      "scenario": "boot_eval",
+      "variant_id": "integration_expansion_guarded",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776778060.128931
+    },
+    {
+      "run_id": "run_e69e5244c9",
+      "scenario": "boot_eval",
+      "variant_id": "privacy_locality_focus",
+      "total_score": 8.1,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776778060.1478882
+    },
+    {
+      "run_id": "run_6927aded54",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776778060.1585112
+    },
+    {
+      "run_id": "run_5f22bba61a",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776778060.1822908
+    },
+    {
+      "run_id": "run_e2b919d9be",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1776778060.193484
+    },
+    {
+      "run_id": "run_d844d02a54",
+      "scenario": "boot_eval",
+      "variant_id": "balanced_cloud_primary",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776778719.8799455
+    },
+    {
+      "run_id": "run_e07f7bc992",
+      "scenario": "boot_eval",
+      "variant_id": "strict_reliability",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776778719.898259
+    },
+    {
+      "run_id": "run_307c1d0f32",
+      "scenario": "boot_eval",
+      "variant_id": "fast_iteration",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": -0.2,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776778719.91422
+    },
+    {
+      "run_id": "run_93bfeb8fc8",
+      "scenario": "boot_eval",
+      "variant_id": "research_heavy",
+      "total_score": 9.7,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776778719.9278634
+    },
+    {
+      "run_id": "run_813fe4bf8c",
+      "scenario": "boot_eval",
+      "variant_id": "integration_expansion_guarded",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776778719.9478133
+    },
+    {
+      "run_id": "run_15824f0831",
+      "scenario": "boot_eval",
+      "variant_id": "privacy_locality_focus",
+      "total_score": 8.1,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776778719.9657838
+    },
+    {
+      "run_id": "run_4ed52b4c1b",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776778719.9843812
+    },
+    {
+      "run_id": "run_29565f2add",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776778719.9986427
+    },
+    {
+      "run_id": "run_2f95db0e74",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1776778720.015352
+    },
+    {
+      "run_id": "run_811118404d",
+      "scenario": "boot_eval",
+      "variant_id": "balanced_cloud_primary",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776806220.6059222
+    },
+    {
+      "run_id": "run_7ed732d7d1",
+      "scenario": "boot_eval",
+      "variant_id": "strict_reliability",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776806220.611924
+    },
+    {
+      "run_id": "run_a12fe955b6",
+      "scenario": "boot_eval",
+      "variant_id": "fast_iteration",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": -0.2,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776806220.6160333
+    },
+    {
+      "run_id": "run_cde2b810ef",
+      "scenario": "boot_eval",
+      "variant_id": "research_heavy",
+      "total_score": 9.7,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776806220.6211572
+    },
+    {
+      "run_id": "run_25a52c2768",
+      "scenario": "boot_eval",
+      "variant_id": "integration_expansion_guarded",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776806220.6264977
+    },
+    {
+      "run_id": "run_79487c7627",
+      "scenario": "boot_eval",
+      "variant_id": "privacy_locality_focus",
+      "total_score": 8.1,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776806220.6316674
+    },
+    {
+      "run_id": "run_9e0d8d5f74",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776806220.6369054
+    },
+    {
+      "run_id": "run_3e0ba4bacc",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776806220.6419053
+    },
+    {
+      "run_id": "run_a308210ffe",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1776806220.6469975
+    },
+    {
+      "run_id": "run_3dcf9157de",
+      "scenario": "boot_eval",
+      "variant_id": "balanced_cloud_primary",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776806557.391804
+    },
+    {
+      "run_id": "run_a94c404e34",
+      "scenario": "boot_eval",
+      "variant_id": "strict_reliability",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776806557.3996308
+    },
+    {
+      "run_id": "run_8f4c919501",
+      "scenario": "boot_eval",
+      "variant_id": "fast_iteration",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": -0.2,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776806557.4049103
+    },
+    {
+      "run_id": "run_7470fc496c",
+      "scenario": "boot_eval",
+      "variant_id": "research_heavy",
+      "total_score": 9.7,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776806557.411603
+    },
+    {
+      "run_id": "run_502c1bfac9",
+      "scenario": "boot_eval",
+      "variant_id": "integration_expansion_guarded",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776806557.419302
+    },
+    {
+      "run_id": "run_0ccde52600",
+      "scenario": "boot_eval",
+      "variant_id": "privacy_locality_focus",
+      "total_score": 8.1,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776806557.425622
+    },
+    {
+      "run_id": "run_c9b3c448f4",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776806557.4332652
+    },
+    {
+      "run_id": "run_fe69f7c3e9",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776806557.4385622
+    },
+    {
+      "run_id": "run_929e19aab8",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1776806557.4448483
+    },
+    {
+      "run_id": "run_22f2d8c9cd",
+      "scenario": "boot_eval",
+      "variant_id": "balanced_cloud_primary",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776806794.475149
+    },
+    {
+      "run_id": "run_de18ee8cde",
+      "scenario": "boot_eval",
+      "variant_id": "strict_reliability",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776806794.4829028
+    },
+    {
+      "run_id": "run_b43efdafff",
+      "scenario": "boot_eval",
+      "variant_id": "fast_iteration",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": -0.2,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776806794.4891343
+    },
+    {
+      "run_id": "run_6c90015cf5",
+      "scenario": "boot_eval",
+      "variant_id": "research_heavy",
+      "total_score": 9.7,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776806794.4967272
+    },
+    {
+      "run_id": "run_300429fcd2",
+      "scenario": "boot_eval",
+      "variant_id": "integration_expansion_guarded",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776806794.5029883
+    },
+    {
+      "run_id": "run_9d2658e350",
+      "scenario": "boot_eval",
+      "variant_id": "privacy_locality_focus",
+      "total_score": 8.1,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776806794.5095403
+    },
+    {
+      "run_id": "run_183f71b230",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776806794.518258
+    },
+    {
+      "run_id": "run_23a82604b5",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776806794.5238519
+    },
+    {
+      "run_id": "run_1c37bf5706",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1776806794.5324183
+    },
+    {
+      "run_id": "run_cc98172626",
+      "scenario": "boot_eval",
+      "variant_id": "balanced_cloud_primary",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776872540.7980702
+    },
+    {
+      "run_id": "run_eecbec4775",
+      "scenario": "boot_eval",
+      "variant_id": "strict_reliability",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776872540.8042133
+    },
+    {
+      "run_id": "run_9a92d87f85",
+      "scenario": "boot_eval",
+      "variant_id": "fast_iteration",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": -0.2,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776872540.812289
+    },
+    {
+      "run_id": "run_2971575251",
+      "scenario": "boot_eval",
+      "variant_id": "research_heavy",
+      "total_score": 9.7,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776872540.8204203
+    },
+    {
+      "run_id": "run_83da4b97b1",
+      "scenario": "boot_eval",
+      "variant_id": "integration_expansion_guarded",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776872540.8272393
+    },
+    {
+      "run_id": "run_82b7e3fb1a",
+      "scenario": "boot_eval",
+      "variant_id": "privacy_locality_focus",
+      "total_score": 8.1,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776872540.8336813
+    },
+    {
+      "run_id": "run_6194a194be",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776872540.838825
+    },
+    {
+      "run_id": "run_ce380ea0a8",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776872540.844589
+    },
+    {
+      "run_id": "run_34d997aa42",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1776872540.8505979
+    },
+    {
+      "run_id": "run_ee5cb23936",
+      "scenario": "boot_eval",
+      "variant_id": "balanced_cloud_primary",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776872775.6174023
+    },
+    {
+      "run_id": "run_b69c1f687a",
+      "scenario": "boot_eval",
+      "variant_id": "strict_reliability",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776872775.6236005
+    },
+    {
+      "run_id": "run_63b4edc4b4",
+      "scenario": "boot_eval",
+      "variant_id": "fast_iteration",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": -0.2,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776872775.6295478
+    },
+    {
+      "run_id": "run_7b925307b9",
+      "scenario": "boot_eval",
+      "variant_id": "research_heavy",
+      "total_score": 9.7,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776872775.637023
+    },
+    {
+      "run_id": "run_e935428793",
+      "scenario": "boot_eval",
+      "variant_id": "integration_expansion_guarded",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776872775.64378
+    },
+    {
+      "run_id": "run_a8c8a065ae",
+      "scenario": "boot_eval",
+      "variant_id": "privacy_locality_focus",
+      "total_score": 8.1,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776872775.6493547
+    },
+    {
+      "run_id": "run_38c04874a5",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776872775.6562705
+    },
+    {
+      "run_id": "run_e1c7107859",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776872775.6624718
+    },
+    {
+      "run_id": "run_2fa9be7b7b",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1776872775.6678894
+    },
+    {
+      "run_id": "run_7d160cd8eb",
+      "scenario": "boot_eval",
+      "variant_id": "balanced_cloud_primary",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776874522.9202325
+    },
+    {
+      "run_id": "run_80e62c0cc2",
+      "scenario": "boot_eval",
+      "variant_id": "strict_reliability",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776874522.9368124
+    },
+    {
+      "run_id": "run_0baff1c0b1",
+      "scenario": "boot_eval",
+      "variant_id": "fast_iteration",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": -0.2,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776874522.9510732
+    },
+    {
+      "run_id": "run_c352c0e1c0",
+      "scenario": "boot_eval",
+      "variant_id": "research_heavy",
+      "total_score": 9.7,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776874522.9607909
+    },
+    {
+      "run_id": "run_6c9014cf4e",
+      "scenario": "boot_eval",
+      "variant_id": "integration_expansion_guarded",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776874522.9747057
+    },
+    {
+      "run_id": "run_71112154d3",
+      "scenario": "boot_eval",
+      "variant_id": "privacy_locality_focus",
+      "total_score": 8.1,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776874522.9862523
+    },
+    {
+      "run_id": "run_29edb76c55",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776874522.9968095
+    },
+    {
+      "run_id": "run_d5565ba1f4",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776874523.0107417
+    },
+    {
+      "run_id": "run_b1df7d9154",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1776874523.0227454
+    },
+    {
+      "run_id": "run_13a170e80b",
+      "scenario": "boot_eval",
+      "variant_id": "balanced_cloud_primary",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776889895.5699844
+    },
+    {
+      "run_id": "run_e80287b8ed",
+      "scenario": "boot_eval",
+      "variant_id": "strict_reliability",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776889895.587975
+    },
+    {
+      "run_id": "run_723d27ede0",
+      "scenario": "boot_eval",
+      "variant_id": "fast_iteration",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": -0.2,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776889895.6044767
+    },
+    {
+      "run_id": "run_601ab36e77",
+      "scenario": "boot_eval",
+      "variant_id": "research_heavy",
+      "total_score": 9.7,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776889895.62029
+    },
+    {
+      "run_id": "run_6b9e4e9e85",
+      "scenario": "boot_eval",
+      "variant_id": "integration_expansion_guarded",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776889895.6381743
+    },
+    {
+      "run_id": "run_893a44e41c",
+      "scenario": "boot_eval",
+      "variant_id": "privacy_locality_focus",
+      "total_score": 8.1,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776889895.6549053
+    },
+    {
+      "run_id": "run_977b1dcf90",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776889895.6721609
+    },
+    {
+      "run_id": "run_3d24f42931",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1776889895.6888986
+    },
+    {
+      "run_id": "run_e9a6d87af8",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1776889895.7047744
+    },
+    {
+      "run_id": "run_d972f39e7c",
+      "scenario": "boot_eval",
+      "variant_id": "balanced_cloud_primary",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777025363.7052457
+    },
+    {
+      "run_id": "run_88e67ef4e4",
+      "scenario": "boot_eval",
+      "variant_id": "strict_reliability",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777025363.719821
+    },
+    {
+      "run_id": "run_0f5ecd405a",
+      "scenario": "boot_eval",
+      "variant_id": "fast_iteration",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": -0.2,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777025363.734693
+    },
+    {
+      "run_id": "run_ca0d49b665",
+      "scenario": "boot_eval",
+      "variant_id": "research_heavy",
+      "total_score": 9.7,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777025363.747034
+    },
+    {
+      "run_id": "run_87338f9efb",
+      "scenario": "boot_eval",
+      "variant_id": "integration_expansion_guarded",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777025363.760821
+    },
+    {
+      "run_id": "run_408b3b5032",
+      "scenario": "boot_eval",
+      "variant_id": "privacy_locality_focus",
+      "total_score": 8.1,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777025363.7709894
+    },
+    {
+      "run_id": "run_495cc75db5",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777025363.7863944
+    },
+    {
+      "run_id": "run_4114b2c23a",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777025363.8015969
+    },
+    {
+      "run_id": "run_fed3db21a3",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1777025363.8137076
+    },
+    {
+      "run_id": "run_514dcef14c",
+      "scenario": "boot_eval",
+      "variant_id": "balanced_cloud_primary",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777025553.739157
+    },
+    {
+      "run_id": "run_a033acb879",
+      "scenario": "boot_eval",
+      "variant_id": "strict_reliability",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777025553.7552896
+    },
+    {
+      "run_id": "run_eccb3d70b3",
+      "scenario": "boot_eval",
+      "variant_id": "fast_iteration",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": -0.2,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777025553.773757
+    },
+    {
+      "run_id": "run_21ddcc2f0e",
+      "scenario": "boot_eval",
+      "variant_id": "research_heavy",
+      "total_score": 9.7,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777025553.789252
+    },
+    {
+      "run_id": "run_2da81d7dfa",
+      "scenario": "boot_eval",
+      "variant_id": "integration_expansion_guarded",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777025553.7977078
+    },
+    {
+      "run_id": "run_17de712ca2",
+      "scenario": "boot_eval",
+      "variant_id": "privacy_locality_focus",
+      "total_score": 8.1,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777025553.8135653
+    },
+    {
+      "run_id": "run_36eff24c97",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777025553.8294055
+    },
+    {
+      "run_id": "run_2934bd0a68",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777025553.83772
+    },
+    {
+      "run_id": "run_b6cb376d23",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1777025553.858521
+    },
+    {
+      "run_id": "run_ae40fc623a",
+      "scenario": "boot_eval",
+      "variant_id": "balanced_cloud_primary",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777026534.0983684
+    },
+    {
+      "run_id": "run_43d3c543cb",
+      "scenario": "boot_eval",
+      "variant_id": "strict_reliability",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777026534.110057
+    },
+    {
+      "run_id": "run_5197b6af3d",
+      "scenario": "boot_eval",
+      "variant_id": "fast_iteration",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": -0.2,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777026534.1227858
+    },
+    {
+      "run_id": "run_256175d8fe",
+      "scenario": "boot_eval",
+      "variant_id": "research_heavy",
+      "total_score": 9.7,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777026534.1348538
+    },
+    {
+      "run_id": "run_5d360e5973",
+      "scenario": "boot_eval",
+      "variant_id": "integration_expansion_guarded",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777026534.143376
+    },
+    {
+      "run_id": "run_54f130bcf8",
+      "scenario": "boot_eval",
+      "variant_id": "privacy_locality_focus",
+      "total_score": 8.1,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777026534.1567595
+    },
+    {
+      "run_id": "run_39ec0fdb1b",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777026534.1705062
+    },
+    {
+      "run_id": "run_e82a988280",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777026534.1827369
+    },
+    {
+      "run_id": "run_b13a0edb1e",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1777026534.1945808
+    },
+    {
+      "run_id": "run_7142ec9802",
+      "scenario": "boot_eval",
+      "variant_id": "balanced_cloud_primary",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777027729.6522422
+    },
+    {
+      "run_id": "run_5f04b68c1c",
+      "scenario": "boot_eval",
+      "variant_id": "strict_reliability",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777027729.6671312
+    },
+    {
+      "run_id": "run_c197903946",
+      "scenario": "boot_eval",
+      "variant_id": "fast_iteration",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": -0.2,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777027729.6833763
+    },
+    {
+      "run_id": "run_7aee22441d",
+      "scenario": "boot_eval",
+      "variant_id": "research_heavy",
+      "total_score": 9.7,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777027729.6931224
+    },
+    {
+      "run_id": "run_64956938ee",
+      "scenario": "boot_eval",
+      "variant_id": "integration_expansion_guarded",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777027729.7066028
+    },
+    {
+      "run_id": "run_fa02292259",
+      "scenario": "boot_eval",
+      "variant_id": "privacy_locality_focus",
+      "total_score": 8.1,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777027729.718656
+    },
+    {
+      "run_id": "run_a20089ac87",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777027729.731266
+    },
+    {
+      "run_id": "run_cb905a8b7b",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777027729.7450151
+    },
+    {
+      "run_id": "run_55ea2bcfa9",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1777027729.748857
+    },
+    {
+      "run_id": "run_d7538c4234",
+      "scenario": "boot_eval",
+      "variant_id": "balanced_cloud_primary",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777030510.7818222
+    },
+    {
+      "run_id": "run_4284190026",
+      "scenario": "boot_eval",
+      "variant_id": "strict_reliability",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777030510.7931533
+    },
+    {
+      "run_id": "run_bdf9c55887",
+      "scenario": "boot_eval",
+      "variant_id": "fast_iteration",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": -0.2,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777030510.8041892
+    },
+    {
+      "run_id": "run_883b563f9f",
+      "scenario": "boot_eval",
+      "variant_id": "research_heavy",
+      "total_score": 9.7,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777030510.813807
+    },
+    {
+      "run_id": "run_bcf80e81ed",
+      "scenario": "boot_eval",
+      "variant_id": "integration_expansion_guarded",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777030510.825237
+    },
+    {
+      "run_id": "run_a1f8e53903",
+      "scenario": "boot_eval",
+      "variant_id": "privacy_locality_focus",
+      "total_score": 8.1,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777030510.8469744
+    },
+    {
+      "run_id": "run_1801be3d70",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777030510.8594782
+    },
+    {
+      "run_id": "run_3846b53935",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777030510.8724165
+    },
+    {
+      "run_id": "run_1a9dcb2373",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1777030510.8844275
+    },
+    {
+      "run_id": "run_aa6a3844ce",
+      "scenario": "boot_eval",
+      "variant_id": "balanced_cloud_primary",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777042103.1310654
+    },
+    {
+      "run_id": "run_b42efa0204",
+      "scenario": "boot_eval",
+      "variant_id": "strict_reliability",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777042103.1434517
+    },
+    {
+      "run_id": "run_4aba8bba15",
+      "scenario": "boot_eval",
+      "variant_id": "fast_iteration",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": -0.2,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777042103.1573174
+    },
+    {
+      "run_id": "run_8a16566e56",
+      "scenario": "boot_eval",
+      "variant_id": "research_heavy",
+      "total_score": 9.7,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777042103.1645198
+    },
+    {
+      "run_id": "run_ef3217bfb6",
+      "scenario": "boot_eval",
+      "variant_id": "integration_expansion_guarded",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777042103.1753824
+    },
+    {
+      "run_id": "run_eea9784e87",
+      "scenario": "boot_eval",
+      "variant_id": "privacy_locality_focus",
+      "total_score": 8.1,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777042103.187883
+    },
+    {
+      "run_id": "run_037fafbdd5",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777042103.2017648
+    },
+    {
+      "run_id": "run_3e6587563f",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777042103.2133927
+    },
+    {
+      "run_id": "run_1ab236a2f0",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1777042103.221916
+    },
+    {
+      "run_id": "run_20c926f6b6",
+      "scenario": "boot_eval",
+      "variant_id": "balanced_cloud_primary",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777043230.7780356
+    },
+    {
+      "run_id": "run_21f245d266",
+      "scenario": "boot_eval",
+      "variant_id": "strict_reliability",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777043230.7939832
+    },
+    {
+      "run_id": "run_91af4b2626",
+      "scenario": "boot_eval",
+      "variant_id": "fast_iteration",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": -0.2,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777043230.8081098
+    },
+    {
+      "run_id": "run_0fc151700b",
+      "scenario": "boot_eval",
+      "variant_id": "research_heavy",
+      "total_score": 9.7,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777043230.8208458
+    },
+    {
+      "run_id": "run_6d35030573",
+      "scenario": "boot_eval",
+      "variant_id": "integration_expansion_guarded",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777043230.8479872
+    },
+    {
+      "run_id": "run_707b8d1499",
+      "scenario": "boot_eval",
+      "variant_id": "privacy_locality_focus",
+      "total_score": 8.1,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777043230.8714314
+    },
+    {
+      "run_id": "run_9f0e1f97ca",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777043230.8902664
+    },
+    {
+      "run_id": "run_4399acafac",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777043230.9065955
+    },
+    {
+      "run_id": "run_6a582f1718",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1777043230.9147968
+    },
+    {
+      "run_id": "run_424ea02769",
+      "scenario": "boot_eval",
+      "variant_id": "balanced_cloud_primary",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777049422.1572955
+    },
+    {
+      "run_id": "run_4c45713953",
+      "scenario": "boot_eval",
+      "variant_id": "strict_reliability",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777049422.1702168
+    },
+    {
+      "run_id": "run_c27ea8e172",
+      "scenario": "boot_eval",
+      "variant_id": "fast_iteration",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": -0.2,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777049422.180797
+    },
+    {
+      "run_id": "run_bd9d2ac87e",
+      "scenario": "boot_eval",
+      "variant_id": "research_heavy",
+      "total_score": 9.7,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777049422.1924684
+    },
+    {
+      "run_id": "run_8b3c0fb77a",
+      "scenario": "boot_eval",
+      "variant_id": "integration_expansion_guarded",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777049422.20623
+    },
+    {
+      "run_id": "run_62da8472a1",
+      "scenario": "boot_eval",
+      "variant_id": "privacy_locality_focus",
+      "total_score": 8.1,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777049422.2228117
+    },
+    {
+      "run_id": "run_e957125008",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777049422.2377396
+    },
+    {
+      "run_id": "run_3cbec93d31",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777049422.2599125
+    },
+    {
+      "run_id": "run_452b281fe2",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1777049422.2785523
+    },
+    {
+      "run_id": "run_13b69c3eb7",
+      "scenario": "boot_eval",
+      "variant_id": "balanced_cloud_primary",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777070788.1337953
+    },
+    {
+      "run_id": "run_fb4a734830",
+      "scenario": "boot_eval",
+      "variant_id": "strict_reliability",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777070788.154363
+    },
+    {
+      "run_id": "run_f32c885ece",
+      "scenario": "boot_eval",
+      "variant_id": "fast_iteration",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": -0.2,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777070788.16545
+    },
+    {
+      "run_id": "run_e1ca67e32d",
+      "scenario": "boot_eval",
+      "variant_id": "research_heavy",
+      "total_score": 9.7,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777070788.1787457
+    },
+    {
+      "run_id": "run_cb62eefd45",
+      "scenario": "boot_eval",
+      "variant_id": "integration_expansion_guarded",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777070788.193258
+    },
+    {
+      "run_id": "run_a5e68218f1",
+      "scenario": "boot_eval",
+      "variant_id": "privacy_locality_focus",
+      "total_score": 8.1,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777070788.1999702
+    },
+    {
+      "run_id": "run_27d1659680",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777070788.211549
+    },
+    {
+      "run_id": "run_528b3704b1",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777070788.228412
+    },
+    {
+      "run_id": "run_610b1c145e",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1777070788.243316
+    },
+    {
+      "run_id": "run_e9a020ea0e",
+      "scenario": "boot_eval",
+      "variant_id": "balanced_cloud_primary",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777071059.234862
+    },
+    {
+      "run_id": "run_2f9e748c42",
+      "scenario": "boot_eval",
+      "variant_id": "strict_reliability",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777071059.2472856
+    },
+    {
+      "run_id": "run_70806250f5",
+      "scenario": "boot_eval",
+      "variant_id": "fast_iteration",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": -0.2,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777071059.2595725
+    },
+    {
+      "run_id": "run_ebdf299160",
+      "scenario": "boot_eval",
+      "variant_id": "research_heavy",
+      "total_score": 9.7,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777071059.2746444
+    },
+    {
+      "run_id": "run_2906587996",
+      "scenario": "boot_eval",
+      "variant_id": "integration_expansion_guarded",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777071059.2809427
+    },
+    {
+      "run_id": "run_365b03130a",
+      "scenario": "boot_eval",
+      "variant_id": "privacy_locality_focus",
+      "total_score": 8.1,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777071059.3004806
+    },
+    {
+      "run_id": "run_ba11b1346b",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777071059.3121738
+    },
+    {
+      "run_id": "run_50645e6fba",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777071059.3248186
+    },
+    {
+      "run_id": "run_ab03495e77",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1777071059.3386073
+    },
+    {
+      "run_id": "run_51cdba14eb",
+      "scenario": "boot_eval",
+      "variant_id": "balanced_cloud_primary",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777071241.7707028
+    },
+    {
+      "run_id": "run_22251135ae",
+      "scenario": "boot_eval",
+      "variant_id": "strict_reliability",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777071241.785672
+    },
+    {
+      "run_id": "run_0a977c9b7d",
+      "scenario": "boot_eval",
+      "variant_id": "fast_iteration",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": -0.2,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777071241.7929158
+    },
+    {
+      "run_id": "run_620f76cf81",
+      "scenario": "boot_eval",
+      "variant_id": "research_heavy",
+      "total_score": 9.7,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777071241.802134
+    },
+    {
+      "run_id": "run_e7f801c5f8",
+      "scenario": "boot_eval",
+      "variant_id": "integration_expansion_guarded",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777071241.8146853
+    },
+    {
+      "run_id": "run_f2d46311b7",
+      "scenario": "boot_eval",
+      "variant_id": "privacy_locality_focus",
+      "total_score": 8.1,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777071241.8323264
+    },
+    {
+      "run_id": "run_bd546c6250",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777071241.8409443
+    },
+    {
+      "run_id": "run_e2fffbc063",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777071241.8489394
+    },
+    {
+      "run_id": "run_f035695ae7",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1777071241.8621736
+    },
+    {
+      "run_id": "run_ed6885235d",
+      "scenario": "boot_eval",
+      "variant_id": "balanced_cloud_primary",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777073910.5811539
+    },
+    {
+      "run_id": "run_187449c439",
+      "scenario": "boot_eval",
+      "variant_id": "strict_reliability",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777073910.5980797
+    },
+    {
+      "run_id": "run_9a62a29db0",
+      "scenario": "boot_eval",
+      "variant_id": "fast_iteration",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": -0.2,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777073910.61055
+    },
+    {
+      "run_id": "run_c6601a8572",
+      "scenario": "boot_eval",
+      "variant_id": "research_heavy",
+      "total_score": 9.7,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777073910.6225812
+    },
+    {
+      "run_id": "run_74d62a93e9",
+      "scenario": "boot_eval",
+      "variant_id": "integration_expansion_guarded",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777073910.635362
+    },
+    {
+      "run_id": "run_6b7be51d63",
+      "scenario": "boot_eval",
+      "variant_id": "privacy_locality_focus",
+      "total_score": 8.1,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777073910.645679
+    },
+    {
+      "run_id": "run_e6fc003bed",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777073910.645679
+    },
+    {
+      "run_id": "run_77e74ccb10",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777073910.6695752
+    },
+    {
+      "run_id": "run_5c97169d4b",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1777073910.6766186
+    },
+    {
+      "run_id": "run_9cfcc5afd3",
+      "scenario": "boot_eval",
+      "variant_id": "balanced_cloud_primary",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777075177.8740766
+    },
+    {
+      "run_id": "run_c8a3da43f6",
+      "scenario": "boot_eval",
+      "variant_id": "strict_reliability",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777075177.8910487
+    },
+    {
+      "run_id": "run_abe6dd5789",
+      "scenario": "boot_eval",
+      "variant_id": "fast_iteration",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": -0.2,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777075177.903203
+    },
+    {
+      "run_id": "run_1a6b318ee2",
+      "scenario": "boot_eval",
+      "variant_id": "research_heavy",
+      "total_score": 9.7,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777075177.9148648
+    },
+    {
+      "run_id": "run_de536ba053",
+      "scenario": "boot_eval",
+      "variant_id": "integration_expansion_guarded",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777075177.9289477
+    },
+    {
+      "run_id": "run_2bbe45f457",
+      "scenario": "boot_eval",
+      "variant_id": "privacy_locality_focus",
+      "total_score": 8.1,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777075177.9414248
+    },
+    {
+      "run_id": "run_93d5c5d7da",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777075177.96175
+    },
+    {
+      "run_id": "run_4e1537ed98",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777075177.9744365
+    },
+    {
+      "run_id": "run_e978e073b3",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1777075177.988484
+    },
+    {
+      "run_id": "run_6be7530a6e",
+      "scenario": "boot_eval",
+      "variant_id": "balanced_cloud_primary",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777076263.6346624
+    },
+    {
+      "run_id": "run_3cd47f87cb",
+      "scenario": "boot_eval",
+      "variant_id": "strict_reliability",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777076263.6447117
+    },
+    {
+      "run_id": "run_143f443d0b",
+      "scenario": "boot_eval",
+      "variant_id": "fast_iteration",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": -0.2,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777076263.6616435
+    },
+    {
+      "run_id": "run_10c0641b4b",
+      "scenario": "boot_eval",
+      "variant_id": "research_heavy",
+      "total_score": 9.7,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777076263.6676621
+    },
+    {
+      "run_id": "run_c31b183e62",
+      "scenario": "boot_eval",
+      "variant_id": "integration_expansion_guarded",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777076263.6762106
+    },
+    {
+      "run_id": "run_9521877a3f",
+      "scenario": "boot_eval",
+      "variant_id": "privacy_locality_focus",
+      "total_score": 8.1,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777076263.7011
+    },
+    {
+      "run_id": "run_8134c82a14",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777076263.7114027
+    },
+    {
+      "run_id": "run_2a87e5325c",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777076263.7231874
+    },
+    {
+      "run_id": "run_a22d71e459",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1777076263.7369869
+    },
+    {
+      "run_id": "run_994383df28",
+      "scenario": "boot_eval",
+      "variant_id": "balanced_cloud_primary",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777076362.824594
+    },
+    {
+      "run_id": "run_6872a5eadc",
+      "scenario": "boot_eval",
+      "variant_id": "strict_reliability",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777076362.8377097
+    },
+    {
+      "run_id": "run_b2fff2bac4",
+      "scenario": "boot_eval",
+      "variant_id": "fast_iteration",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": -0.2,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777076362.8506558
+    },
+    {
+      "run_id": "run_f37568abec",
+      "scenario": "boot_eval",
+      "variant_id": "research_heavy",
+      "total_score": 9.7,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777076362.8576
+    },
+    {
+      "run_id": "run_fd9a027340",
+      "scenario": "boot_eval",
+      "variant_id": "integration_expansion_guarded",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777076362.8669553
+    },
+    {
+      "run_id": "run_5658783ea2",
+      "scenario": "boot_eval",
+      "variant_id": "privacy_locality_focus",
+      "total_score": 8.1,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777076362.8781502
+    },
+    {
+      "run_id": "run_b381a2a68d",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777076362.8892744
+    },
+    {
+      "run_id": "run_8733593bd0",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777076362.91046
+    },
+    {
+      "run_id": "run_b163aa09ee",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1777076362.922743
+    },
+    {
+      "run_id": "run_f940295d4e",
+      "scenario": "boot_eval",
+      "variant_id": "balanced_cloud_primary",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777077628.1536748
+    },
+    {
+      "run_id": "run_2ce305bf57",
+      "scenario": "boot_eval",
+      "variant_id": "strict_reliability",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777077628.1726038
+    },
+    {
+      "run_id": "run_bd9ec93912",
+      "scenario": "boot_eval",
+      "variant_id": "fast_iteration",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": -0.2,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777077628.184156
+    },
+    {
+      "run_id": "run_96f5c584d4",
+      "scenario": "boot_eval",
+      "variant_id": "research_heavy",
+      "total_score": 9.7,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777077628.2070904
+    },
+    {
+      "run_id": "run_49b96115d3",
+      "scenario": "boot_eval",
+      "variant_id": "integration_expansion_guarded",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777077628.222829
+    },
+    {
+      "run_id": "run_fec19e0f06",
+      "scenario": "boot_eval",
+      "variant_id": "privacy_locality_focus",
+      "total_score": 8.1,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777077628.2442677
+    },
+    {
+      "run_id": "run_63fed75bea",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777077628.263121
+    },
+    {
+      "run_id": "run_ee308c7c98",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777077628.2767742
+    },
+    {
+      "run_id": "run_553b5b4dca",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1777077628.288957
+    },
+    {
+      "run_id": "run_be8f8c2d36",
+      "scenario": "boot_eval",
+      "variant_id": "balanced_cloud_primary",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777078134.6930017
+    },
+    {
+      "run_id": "run_f70f0a1d14",
+      "scenario": "boot_eval",
+      "variant_id": "strict_reliability",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777078134.7150917
+    },
+    {
+      "run_id": "run_98879808c1",
+      "scenario": "boot_eval",
+      "variant_id": "fast_iteration",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": -0.2,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777078134.7263138
+    },
+    {
+      "run_id": "run_7fd18826c6",
+      "scenario": "boot_eval",
+      "variant_id": "research_heavy",
+      "total_score": 9.7,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777078134.7394514
+    },
+    {
+      "run_id": "run_75d76bf2ee",
+      "scenario": "boot_eval",
+      "variant_id": "integration_expansion_guarded",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777078134.7489645
+    },
+    {
+      "run_id": "run_5707330a56",
+      "scenario": "boot_eval",
+      "variant_id": "privacy_locality_focus",
+      "total_score": 8.1,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777078134.7614462
+    },
+    {
+      "run_id": "run_ea4e22c8be",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777078134.774219
+    },
+    {
+      "run_id": "run_ba48defd0e",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777078134.7907472
+    },
+    {
+      "run_id": "run_9c2f9fef8e",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1777078134.80457
+    },
+    {
+      "run_id": "run_573d9b0e5d",
+      "scenario": "boot_eval",
+      "variant_id": "balanced_cloud_primary",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777080808.8105705
+    },
+    {
+      "run_id": "run_20ce768a5d",
+      "scenario": "boot_eval",
+      "variant_id": "strict_reliability",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777080808.827155
+    },
+    {
+      "run_id": "run_d65a1c1b30",
+      "scenario": "boot_eval",
+      "variant_id": "fast_iteration",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": -0.2,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777080808.8405323
+    },
+    {
+      "run_id": "run_a7c594ed46",
+      "scenario": "boot_eval",
+      "variant_id": "research_heavy",
+      "total_score": 9.7,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777080808.8501747
+    },
+    {
+      "run_id": "run_16d49b599a",
+      "scenario": "boot_eval",
+      "variant_id": "integration_expansion_guarded",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777080808.8660777
+    },
+    {
+      "run_id": "run_d1f33414fe",
+      "scenario": "boot_eval",
+      "variant_id": "privacy_locality_focus",
+      "total_score": 8.1,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777080808.872635
+    },
+    {
+      "run_id": "run_1e6fda7b56",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777080808.8919702
+    },
+    {
+      "run_id": "run_6187efc489",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777080808.9043682
+    },
+    {
+      "run_id": "run_db97d5aeea",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1777080808.9158497
+    },
+    {
+      "run_id": "run_7ef9e47a10",
+      "scenario": "boot_eval",
+      "variant_id": "balanced_cloud_primary",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777081173.9439332
+    },
+    {
+      "run_id": "run_e9120f33b1",
+      "scenario": "boot_eval",
+      "variant_id": "strict_reliability",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777081173.9619708
+    },
+    {
+      "run_id": "run_5d61b4a74d",
+      "scenario": "boot_eval",
+      "variant_id": "fast_iteration",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": -0.2,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777081173.9729297
+    },
+    {
+      "run_id": "run_e0fadf19e9",
+      "scenario": "boot_eval",
+      "variant_id": "research_heavy",
+      "total_score": 9.7,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777081173.983201
+    },
+    {
+      "run_id": "run_fb284f7450",
+      "scenario": "boot_eval",
+      "variant_id": "integration_expansion_guarded",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777081173.993204
+    },
+    {
+      "run_id": "run_c1792f4e0a",
+      "scenario": "boot_eval",
+      "variant_id": "privacy_locality_focus",
+      "total_score": 8.1,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777081174.008461
+    },
+    {
+      "run_id": "run_12440f7945",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777081174.023874
+    },
+    {
+      "run_id": "run_74e179a538",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777081174.0383599
+    },
+    {
+      "run_id": "run_31e0f1cee3",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1777081174.0531058
+    },
+    {
+      "run_id": "run_6eb1b6fb0c",
+      "scenario": "boot_eval",
+      "variant_id": "balanced_cloud_primary",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777081347.758254
+    },
+    {
+      "run_id": "run_b16d96c556",
+      "scenario": "boot_eval",
+      "variant_id": "strict_reliability",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777081347.7743936
+    },
+    {
+      "run_id": "run_197c4f6cc1",
+      "scenario": "boot_eval",
+      "variant_id": "fast_iteration",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": -0.2,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777081347.7878218
+    },
+    {
+      "run_id": "run_c250647e2a",
+      "scenario": "boot_eval",
+      "variant_id": "research_heavy",
+      "total_score": 9.7,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777081347.7975452
+    },
+    {
+      "run_id": "run_37c0804609",
+      "scenario": "boot_eval",
+      "variant_id": "integration_expansion_guarded",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777081347.8109224
+    },
+    {
+      "run_id": "run_b31b2469f7",
+      "scenario": "boot_eval",
+      "variant_id": "privacy_locality_focus",
+      "total_score": 8.1,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777081347.8207963
+    },
+    {
+      "run_id": "run_141b4449c6",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777081347.8232892
+    },
+    {
+      "run_id": "run_b0f5b484c2",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777081347.8441818
+    },
+    {
+      "run_id": "run_63fd555700",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1777081347.8534784
+    },
+    {
+      "run_id": "run_3f0cd2c6b8",
+      "scenario": "boot_eval",
+      "variant_id": "balanced_cloud_primary",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777123751.6025202
+    },
+    {
+      "run_id": "run_01a10afe9f",
+      "scenario": "boot_eval",
+      "variant_id": "strict_reliability",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777123751.621546
+    },
+    {
+      "run_id": "run_ab4c3d04d2",
+      "scenario": "boot_eval",
+      "variant_id": "fast_iteration",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": -0.2,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777123751.6353579
+    },
+    {
+      "run_id": "run_7424499a46",
+      "scenario": "boot_eval",
+      "variant_id": "research_heavy",
+      "total_score": 9.7,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777123751.6452055
+    },
+    {
+      "run_id": "run_112fc24a29",
+      "scenario": "boot_eval",
+      "variant_id": "integration_expansion_guarded",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777123751.6562302
+    },
+    {
+      "run_id": "run_15a406faf5",
+      "scenario": "boot_eval",
+      "variant_id": "privacy_locality_focus",
+      "total_score": 8.1,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777123751.6686363
+    },
+    {
+      "run_id": "run_515831e946",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777123751.6783092
+    },
+    {
+      "run_id": "run_65596b18ce",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777123751.6915474
+    },
+    {
+      "run_id": "run_a43bbd5dde",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1777123751.7061164
+    },
+    {
+      "run_id": "run_4bb9ba4024",
+      "scenario": "boot_eval",
+      "variant_id": "balanced_cloud_primary",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777169276.3275392
+    },
+    {
+      "run_id": "run_d5f937f902",
+      "scenario": "boot_eval",
+      "variant_id": "strict_reliability",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777169276.3459253
+    },
+    {
+      "run_id": "run_ea99bed8b0",
+      "scenario": "boot_eval",
+      "variant_id": "fast_iteration",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": -0.2,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777169276.364656
+    },
+    {
+      "run_id": "run_f371e68a36",
+      "scenario": "boot_eval",
+      "variant_id": "research_heavy",
+      "total_score": 9.7,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777169276.3879223
+    },
+    {
+      "run_id": "run_17d292e502",
+      "scenario": "boot_eval",
+      "variant_id": "integration_expansion_guarded",
+      "total_score": 9.3,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777169276.407306
+    },
+    {
+      "run_id": "run_d713708aa7",
+      "scenario": "boot_eval",
+      "variant_id": "privacy_locality_focus",
+      "total_score": 8.1,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777169276.4287112
+    },
+    {
+      "run_id": "run_0d59f60682",
+      "scenario": "boot_eval",
+      "variant_id": "planner_research_balance",
+      "total_score": 8.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777169276.4524264
+    },
+    {
+      "run_id": "run_a3d0c8fb51",
+      "scenario": "boot_eval",
+      "variant_id": "memory_amplified",
+      "total_score": 10.0,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.6,
+        "consultation_bonus": 0.4,
+        "memory_support": 0.4,
+        "integration_mode": 0.6
+      },
+      "notes": [],
+      "created_ts": 1777169276.473983
+    },
+    {
+      "run_id": "run_39e711d545",
+      "scenario": "boot_eval",
+      "variant_id": "connector_staging",
+      "total_score": 9.5,
+      "score_breakdown": {
+        "cloud_health": 1.0,
+        "claude_codegen_fit": 1.2,
+        "openai_planning_fit": 0.9,
+        "qa_strictness": 0.2,
+        "memory_support": 0.4,
+        "integration_mode": 0.8
+      },
+      "notes": [],
+      "created_ts": 1777169276.4940288
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "ok": true,
+  "status": "done",
+  "finished_at": "2026-04-28T17:43:09.790487Z",
+  "payload": {
+    "prompt": "luxury hotel balcony, premium fashion editorial, realistic brunette influencer, golden hour, ocean view",
+    "style_mode": "luxury_safe",
+    "image_batch": 1,
+    "video_enabled": false,
+    "quality_target": "high",
+    "destination": "google_drive",
+    "run_meta": {
+      "source": "n8n_super_hybrid_full",
+      "received_at": "2026-04-28T17:41:48.932Z",
+      "requested_by": "operator",
+      "priority": "normal",
+      "async_job_id": "job_20260428_174150_335376",
+      "async_bridge": true
+    },
+    "policy": {
+      "decision": "allow",
+      "risk": "low",
+      "checked_at": "2026-04-28T17:41:48.941Z"
+    }
+  },
+  "result": {
+    "ok": true,
+    "pipeline": "jarvis_v5_super_hybrid",
+    "run_id": "20260428_204150",
+    "style_mode": "luxury_safe",
+    "prompt": "luxury hotel balcony, premium fashion editorial, realistic brunette influencer, golden hour, ocean view",
+    "image_generation_id": "cmoiwy0mp0091681mpskjjcnf",
+    "image_urls": [
+      "https://influencer-studio.b-cdn.net/production/cmohophfk007i3argbjj1o8k7/b80ca788-aab5-463a-93e6-495ea3f7b50b.png"
+    ],
+    "video_urls": [],
+    "credits_before": 5211,
+    "drive_folder_url": "https://drive.google.com/drive/folders/1-vkzhh2Q73J2OAdab_vggjS1j7iJ9qWI",
+    "uploaded": [
+      {
+        "id": "1xX6c0D6qVDMmIboaLfmSpJQ11779FKN0",
+        "name": "photo_001.png",
+        "webViewLink": "https://drive.google.com/file/d/1xX6c0D6qVDMmIboaLfmSpJQ11779FKN0/view?usp=drivesdk"
+      },
+      {
+        "id": "1Q1p7iqwdJRAUmVEU_GhVp5zKj2sVwQAH",
+        "name": "summary.json",
+        "webViewLink": "https://drive.google.com/file/d/1Q1p7iqwdJRAUmVEU_GhVp5zKj2sVwQAH/view?usp=drivesdk"
+      }
+    ],
+    "local_run_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\jarvis_v5_content_factory\\run_20260428_204150"
+  },
+  "job_id": "job_20260428_174150_335376",
+  "updated_at": "2026-04-28T17:43:09.790487Z"
+}

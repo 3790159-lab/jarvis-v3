@@ -1,0 +1,415 @@
+{
+    "updated_at":  null,
+    "version":  "3.4.1",
+    "total_failed_iterations":  0,
+    "recent_tasks":  [
+                         {
+                             "outcome":  "planning_success",
+                             "task":  "Prepare safe additive improvements for modules",
+                             "ts":  "2026-04-23T01:47:25.1238111+03:00"
+                         },
+                         {
+                             "outcome":  "execution_success",
+                             "task":  "Prepare safe additive improvements for modules",
+                             "ts":  "2026-04-23T01:47:42.5189838+03:00"
+                         },
+                         {
+                             "outcome":  "success",
+                             "task":  "Prepare safe additive improvements for modules",
+                             "ts":  "2026-04-23T01:47:42.5247018+03:00"
+                         },
+                         {
+                             "outcome":  "planning_success",
+                             "task":  "Improve observability, logs, and health-check system",
+                             "ts":  "2026-04-23T01:48:16.5115706+03:00"
+                         },
+                         {
+                             "outcome":  "execution_success",
+                             "task":  "Improve observability, logs, and health-check system",
+                             "ts":  "2026-04-23T01:48:25.6240712+03:00"
+                         },
+                         {
+                             "outcome":  "success",
+                             "task":  "Improve observability, logs, and health-check system",
+                             "ts":  "2026-04-23T01:48:25.6272510+03:00"
+                         },
+                         {
+                             "outcome":  "planning_success",
+                             "task":  "Optimize retry logic and system resilience",
+                             "ts":  "2026-04-23T01:48:58.8653331+03:00"
+                         },
+                         {
+                             "outcome":  "execution_success",
+                             "task":  "Optimize retry logic and system resilience",
+                             "ts":  "2026-04-23T01:49:07.9681900+03:00"
+                         },
+                         {
+                             "outcome":  "success",
+                             "task":  "Optimize retry logic and system resilience",
+                             "ts":  "2026-04-23T01:49:07.9681900+03:00"
+                         },
+                         {
+                             "outcome":  "planning_success",
+                             "task":  "Create a new useful agent and implement it safely",
+                             "ts":  "2026-04-23T01:49:40.2059290+03:00"
+                         },
+                         {
+                             "outcome":  "execution_success",
+                             "task":  "Create a new useful agent and implement it safely",
+                             "ts":  "2026-04-23T01:49:49.3050596+03:00"
+                         },
+                         {
+                             "outcome":  "success",
+                             "task":  "Create a new useful agent and implement it safely",
+                             "ts":  "2026-04-23T01:49:49.3050596+03:00"
+                         },
+                         {
+                             "outcome":  "planning_success",
+                             "task":  "Improve autonomy and decision making",
+                             "ts":  "2026-04-23T01:50:21.5940749+03:00"
+                         },
+                         {
+                             "outcome":  "execution_success",
+                             "task":  "Improve autonomy and decision making",
+                             "ts":  "2026-04-23T01:50:30.6961381+03:00"
+                         },
+                         {
+                             "outcome":  "success",
+                             "task":  "Improve autonomy and decision making",
+                             "ts":  "2026-04-23T01:50:30.6981490+03:00"
+                         },
+                         {
+                             "outcome":  "planning_success",
+                             "task":  "Audit logs and fix problems",
+                             "ts":  "2026-04-23T01:51:02.7676302+03:00"
+                         },
+                         {
+                             "outcome":  "execution_success",
+                             "task":  "Audit logs and fix problems",
+                             "ts":  "2026-04-23T01:51:20.4688447+03:00"
+                         },
+                         {
+                             "outcome":  "success",
+                             "task":  "Audit logs and fix problems",
+                             "ts":  "2026-04-23T01:51:20.4702485+03:00"
+                         },
+                         {
+                             "outcome":  "planning_success",
+                             "task":  "Find weak spots in the system and fix low-risk issues",
+                             "ts":  "2026-04-23T01:51:54.6286988+03:00"
+                         },
+                         {
+                             "outcome":  "execution_success",
+                             "task":  "Find weak spots in the system and fix low-risk issues",
+                             "ts":  "2026-04-23T01:52:03.7613133+03:00"
+                         },
+                         {
+                             "outcome":  "success",
+                             "task":  "Find weak spots in the system and fix low-risk issues",
+                             "ts":  "2026-04-23T01:52:03.7632489+03:00"
+                         },
+                         {
+                             "outcome":  "planning_success",
+                             "task":  "Expand low-risk operations with safe improvements",
+                             "ts":  "2026-04-23T01:52:37.6859871+03:00"
+                         },
+                         {
+                             "outcome":  "execution_success",
+                             "task":  "Expand low-risk operations with safe improvements",
+                             "ts":  "2026-04-23T01:52:55.2668468+03:00"
+                         },
+                         {
+                             "outcome":  "success",
+                             "task":  "Expand low-risk operations with safe improvements",
+                             "ts":  "2026-04-23T01:52:55.2688643+03:00"
+                         },
+                         {
+                             "outcome":  "planning_success",
+                             "task":  "Prepare safe additive improvements for modules",
+                             "ts":  "2026-04-23T01:53:30.2566562+03:00"
+                         },
+                         {
+                             "outcome":  "execution_success",
+                             "task":  "Prepare safe additive improvements for modules",
+                             "ts":  "2026-04-23T01:53:47.9850125+03:00"
+                         },
+                         {
+                             "outcome":  "success",
+                             "task":  "Prepare safe additive improvements for modules",
+                             "ts":  "2026-04-23T01:53:47.9870888+03:00"
+                         },
+                         {
+                             "outcome":  "planning_success",
+                             "task":  "Optimize retry logic and system resilience",
+                             "ts":  "2026-04-23T01:54:22.7283693+03:00"
+                         },
+                         {
+                             "outcome":  "execution_success",
+                             "task":  "Optimize retry logic and system resilience",
+                             "ts":  "2026-04-23T01:54:40.2577903+03:00"
+                         },
+                         {
+                             "outcome":  "success",
+                             "task":  "Optimize retry logic and system resilience",
+                             "ts":  "2026-04-23T01:54:40.2577903+03:00"
+                         },
+                         {
+                             "outcome":  "planning_success",
+                             "task":  "Improve autonomy and decision making",
+                             "ts":  "2026-04-23T01:55:00.4441776+03:00"
+                         },
+                         {
+                             "outcome":  "execution_success",
+                             "task":  "Improve autonomy and decision making",
+                             "ts":  "2026-04-23T01:55:00.5727926+03:00"
+                         },
+                         {
+                             "outcome":  "success",
+                             "task":  "Improve autonomy and decision making",
+                             "ts":  "2026-04-23T01:55:00.5733077+03:00"
+                         },
+                         {
+                             "outcome":  "planning_success",
+                             "task":  "Improve observability, logs, and health-check system",
+                             "ts":  "2026-04-23T01:55:34.6048038+03:00"
+                         },
+                         {
+                             "outcome":  "execution_success",
+                             "task":  "Improve observability, logs, and health-check system",
+                             "ts":  "2026-04-23T01:55:43.7766869+03:00"
+                         },
+                         {
+                             "outcome":  "success",
+                             "task":  "Improve observability, logs, and health-check system",
+                             "ts":  "2026-04-23T01:55:43.7809576+03:00"
+                         },
+                         {
+                             "outcome":  "planning_success",
+                             "task":  "Audit logs and fix problems",
+                             "ts":  "2026-04-23T01:56:15.9267880+03:00"
+                         },
+                         {
+                             "outcome":  "execution_success",
+                             "task":  "Audit logs and fix problems",
+                             "ts":  "2026-04-23T01:56:16.0351542+03:00"
+                         },
+                         {
+                             "outcome":  "success",
+                             "task":  "Audit logs and fix problems",
+                             "ts":  "2026-04-23T01:56:16.0351542+03:00"
+                         },
+                         {
+                             "outcome":  "planning_success",
+                             "task":  "Prepare safe additive improvements for modules",
+                             "ts":  "2026-04-23T01:56:36.1976252+03:00"
+                         },
+                         {
+                             "outcome":  "execution_success",
+                             "task":  "Prepare safe additive improvements for modules",
+                             "ts":  "2026-04-23T01:56:36.2991849+03:00"
+                         },
+                         {
+                             "outcome":  "success",
+                             "task":  "Prepare safe additive improvements for modules",
+                             "ts":  "2026-04-23T01:56:36.3019039+03:00"
+                         },
+                         {
+                             "outcome":  "planning_success",
+                             "task":  "Optimize retry logic and system resilience",
+                             "ts":  "2026-04-23T01:56:56.4689622+03:00"
+                         },
+                         {
+                             "outcome":  "execution_success",
+                             "task":  "Optimize retry logic and system resilience",
+                             "ts":  "2026-04-23T01:56:56.5783776+03:00"
+                         },
+                         {
+                             "outcome":  "success",
+                             "task":  "Optimize retry logic and system resilience",
+                             "ts":  "2026-04-23T01:56:56.5783776+03:00"
+                         },
+                         {
+                             "outcome":  "planning_success",
+                             "task":  "Find weak spots in the system and fix low-risk issues",
+                             "ts":  "2026-04-23T01:57:30.1729666+03:00"
+                         },
+                         {
+                             "outcome":  "execution_success",
+                             "task":  "Find weak spots in the system and fix low-risk issues",
+                             "ts":  "2026-04-23T01:57:39.3684230+03:00"
+                         },
+                         {
+                             "outcome":  "success",
+                             "task":  "Find weak spots in the system and fix low-risk issues",
+                             "ts":  "2026-04-23T01:57:39.3694682+03:00"
+                         },
+                         {
+                             "outcome":  "planning_success",
+                             "task":  "Create a new useful agent and implement it safely",
+                             "ts":  "2026-04-23T01:58:11.7966640+03:00"
+                         },
+                         {
+                             "outcome":  "execution_success",
+                             "task":  "Create a new useful agent and implement it safely",
+                             "ts":  "2026-04-23T01:58:29.9043748+03:00"
+                         },
+                         {
+                             "outcome":  "success",
+                             "task":  "Create a new useful agent and implement it safely",
+                             "ts":  "2026-04-23T01:58:29.9043748+03:00"
+                         },
+                         {
+                             "outcome":  "planning_success",
+                             "task":  "Expand low-risk operations with safe improvements",
+                             "ts":  "2026-04-23T01:59:03.4516938+03:00"
+                         },
+                         {
+                             "outcome":  "execution_success",
+                             "task":  "Expand low-risk operations with safe improvements",
+                             "ts":  "2026-04-23T01:59:21.1275649+03:00"
+                         },
+                         {
+                             "outcome":  "success",
+                             "task":  "Expand low-risk operations with safe improvements",
+                             "ts":  "2026-04-23T01:59:21.1295868+03:00"
+                         }
+                     ],
+    "task_stats":  {
+                       "3c1de9eaf0a2895450ab18b3b26697255d9de85c":  {
+                                                                        "task":  "Audit logs and fix problems",
+                                                                        "execution_fail_count":  0,
+                                                                        "planning_success_count":  2,
+                                                                        "execution_success_count":  2,
+                                                                        "fail_count":  0,
+                                                                        "last_run_at":  "2026-04-23T01:56:16.0351542+03:00",
+                                                                        "score":  2.3,
+                                                                        "success_count":  2,
+                                                                        "skip_count":  0
+                                                                    },
+                       "4ad0fabb2d602ab94f720f0f24efa25655177e03":  {
+                                                                        "task":  "Improve Supervisor stability and error handling",
+                                                                        "execution_fail_count":  0,
+                                                                        "planning_success_count":  0,
+                                                                        "execution_success_count":  0,
+                                                                        "fail_count":  0,
+                                                                        "last_run_at":  null,
+                                                                        "score":  1,
+                                                                        "success_count":  0,
+                                                                        "skip_count":  0
+                                                                    },
+                       "a93dc209ed0af354fc613f9ca30bebad1e71d45e":  {
+                                                                        "task":  "Prepare safe additive improvements for modules",
+                                                                        "execution_fail_count":  0,
+                                                                        "planning_success_count":  3,
+                                                                        "execution_success_count":  3,
+                                                                        "fail_count":  0,
+                                                                        "last_run_at":  "2026-04-23T01:56:36.3019039+03:00",
+                                                                        "score":  2.95,
+                                                                        "success_count":  3,
+                                                                        "skip_count":  0
+                                                                    },
+                       "c9bb54eb61e68e1f1e88ca94a9ca3a8fe5b0cb69":  {
+                                                                        "task":  "Improve Director lifecycle system",
+                                                                        "execution_fail_count":  0,
+                                                                        "planning_success_count":  0,
+                                                                        "execution_success_count":  0,
+                                                                        "fail_count":  0,
+                                                                        "last_run_at":  null,
+                                                                        "score":  1,
+                                                                        "success_count":  0,
+                                                                        "skip_count":  0
+                                                                    },
+                       "18edb139b12ff1984f1ff6aabdf0346fb227b167":  {
+                                                                        "task":  "Expand low-risk operations with safe improvements",
+                                                                        "execution_fail_count":  0,
+                                                                        "planning_success_count":  2,
+                                                                        "execution_success_count":  2,
+                                                                        "fail_count":  0,
+                                                                        "last_run_at":  "2026-04-23T01:59:21.1295868+03:00",
+                                                                        "score":  2.3,
+                                                                        "success_count":  2,
+                                                                        "skip_count":  0
+                                                                    },
+                       "df7f94e68c159de4a0a9e7612e5af62796e1e11a":  {
+                                                                        "task":  "Find weak spots in the system and fix low-risk issues",
+                                                                        "execution_fail_count":  0,
+                                                                        "planning_success_count":  2,
+                                                                        "execution_success_count":  2,
+                                                                        "fail_count":  0,
+                                                                        "last_run_at":  "2026-04-23T01:57:39.3694682+03:00",
+                                                                        "score":  2.3,
+                                                                        "success_count":  2,
+                                                                        "skip_count":  0
+                                                                    },
+                       "967327004b297acd690652b58632da5f0736f3ef":  {
+                                                                        "task":  "Improve autonomy and decision making",
+                                                                        "execution_fail_count":  0,
+                                                                        "planning_success_count":  2,
+                                                                        "execution_success_count":  2,
+                                                                        "fail_count":  0,
+                                                                        "last_run_at":  "2026-04-23T01:55:00.5733077+03:00",
+                                                                        "score":  2.3,
+                                                                        "success_count":  2,
+                                                                        "skip_count":  0
+                                                                    },
+                       "c7c6f521c6448013f5459f1b25572400d0021411":  {
+                                                                        "task":  "Improve Telegram agent reliability",
+                                                                        "execution_fail_count":  0,
+                                                                        "planning_success_count":  0,
+                                                                        "execution_success_count":  0,
+                                                                        "fail_count":  0,
+                                                                        "last_run_at":  null,
+                                                                        "score":  1,
+                                                                        "success_count":  0,
+                                                                        "skip_count":  0
+                                                                    },
+                       "60de79c59139327440103c7e4032e66341266c3b":  {
+                                                                        "task":  "Optimize interaction between modules",
+                                                                        "execution_fail_count":  0,
+                                                                        "planning_success_count":  0,
+                                                                        "execution_success_count":  0,
+                                                                        "fail_count":  0,
+                                                                        "last_run_at":  null,
+                                                                        "score":  1,
+                                                                        "success_count":  0,
+                                                                        "skip_count":  0
+                                                                    },
+                       "23f4a4bc75a5716f5a5a5babc782a4f8d7e32521":  {
+                                                                        "task":  "Optimize retry logic and system resilience",
+                                                                        "execution_fail_count":  0,
+                                                                        "planning_success_count":  3,
+                                                                        "execution_success_count":  3,
+                                                                        "fail_count":  0,
+                                                                        "last_run_at":  "2026-04-23T01:56:56.5783776+03:00",
+                                                                        "score":  2.95,
+                                                                        "success_count":  3,
+                                                                        "skip_count":  0
+                                                                    },
+                       "21d327708ce3ea80dc36e2310368493bf6d34701":  {
+                                                                        "task":  "Improve observability, logs, and health-check system",
+                                                                        "execution_fail_count":  0,
+                                                                        "planning_success_count":  2,
+                                                                        "execution_success_count":  2,
+                                                                        "fail_count":  0,
+                                                                        "last_run_at":  "2026-04-23T01:55:43.7809576+03:00",
+                                                                        "score":  2.3,
+                                                                        "success_count":  2,
+                                                                        "skip_count":  0
+                                                                    },
+                       "918fd44ca6a653b960ad45bbdae8c1b12999ed45":  {
+                                                                        "task":  "Create a new useful agent and implement it safely",
+                                                                        "execution_fail_count":  0,
+                                                                        "planning_success_count":  2,
+                                                                        "execution_success_count":  2,
+                                                                        "fail_count":  0,
+                                                                        "last_run_at":  "2026-04-23T01:58:29.9043748+03:00",
+                                                                        "score":  2.3,
+                                                                        "success_count":  2,
+                                                                        "skip_count":  0
+                                                                    }
+                   },
+    "total_backend_restores":  0,
+    "total_runs":  0,
+    "total_skipped_iterations":  0,
+    "total_successful_iterations":  0
+}

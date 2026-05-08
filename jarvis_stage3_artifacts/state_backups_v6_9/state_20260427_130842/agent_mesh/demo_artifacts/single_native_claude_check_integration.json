@@ -1,0 +1,12 @@
+{
+  "task_id": "single_native_claude_check",
+  "service": "claude_bridge",
+  "connector_id": "claude_bridge_primary",
+  "action": "config_check",
+  "dry_run": false,
+  "output": {
+    "action": "config_check",
+    "dry_run": false,
+    "mode": "guarded_binding_check"
+  }
+}

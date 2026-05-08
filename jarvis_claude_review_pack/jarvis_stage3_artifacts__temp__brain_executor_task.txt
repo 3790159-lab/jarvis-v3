@@ -1,0 +1,1 @@
+Create dynamic n8n pipeline: webhook, validate data, external API, logical decision and final report

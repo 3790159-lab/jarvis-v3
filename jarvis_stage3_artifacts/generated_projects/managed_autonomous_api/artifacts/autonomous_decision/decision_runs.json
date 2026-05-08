@@ -1,0 +1,476 @@
+{
+  "created_at": "2026-04-06T12:37:28.308409+00:00",
+  "updated_at": "2026-04-06T14:26:09.045107+00:00",
+  "runs": [
+    {
+      "decision_id": "decision_a91f0635a6",
+      "goal": "Create and run a mission that writes a controlled output file",
+      "mission_type": "artifact_generation",
+      "risk_level": "medium",
+      "has_memory": true,
+      "requires_tools": true,
+      "requires_approval": false,
+      "context": {
+        "target_path": "artifacts/output/demo.txt",
+        "user_intent": "generate artifact"
+      },
+      "decision": {
+        "action": "retrieve_memory_guidance",
+        "reason": "Mission type has reusable history and should consult memory first",
+        "target_layer": "mission_memory_v2",
+        "confidence": 0.87
+      },
+      "status": "ready",
+      "created_at": "2026-04-06T12:37:28.441491+00:00",
+      "updated_at": "2026-04-06T12:37:28.441518+00:00",
+      "events": [
+        {
+          "ts": "2026-04-06T12:37:28.441533+00:00",
+          "message": "Decision created",
+          "extra": {
+            "action": "retrieve_memory_guidance"
+          }
+        },
+        {
+          "ts": "2026-04-06T12:37:28.441548+00:00",
+          "message": "Target layer selected",
+          "extra": {
+            "target_layer": "mission_memory_v2"
+          }
+        }
+      ],
+      "execution_result": null,
+      "loop": {
+        "enabled": false,
+        "step_count": 0,
+        "max_steps": 5,
+        "history": [],
+        "final_outcome": null
+      }
+    },
+    {
+      "decision_id": "decision_a83322778e",
+      "goal": "Modify important runtime files",
+      "mission_type": "runtime_change",
+      "risk_level": "high",
+      "has_memory": true,
+      "requires_tools": true,
+      "requires_approval": true,
+      "context": {
+        "target": "core runtime"
+      },
+      "decision": {
+        "action": "request_approval",
+        "reason": "Goal is marked as high-risk or explicitly requires approval",
+        "target_layer": "hitl",
+        "confidence": 0.96
+      },
+      "status": "ready",
+      "created_at": "2026-04-06T12:37:28.483082+00:00",
+      "updated_at": "2026-04-06T12:37:28.483104+00:00",
+      "events": [
+        {
+          "ts": "2026-04-06T12:37:28.483114+00:00",
+          "message": "Decision created",
+          "extra": {
+            "action": "request_approval"
+          }
+        },
+        {
+          "ts": "2026-04-06T12:37:28.483122+00:00",
+          "message": "Target layer selected",
+          "extra": {
+            "target_layer": "hitl"
+          }
+        }
+      ],
+      "execution_result": null,
+      "loop": {
+        "enabled": false,
+        "step_count": 0,
+        "max_steps": 5,
+        "history": [],
+        "final_outcome": null
+      }
+    },
+    {
+      "decision_id": "decision_9322d72b9e",
+      "goal": "Write a controlled autonomous demo artifact",
+      "mission_type": "",
+      "risk_level": "medium",
+      "has_memory": false,
+      "requires_tools": true,
+      "requires_approval": false,
+      "context": {
+        "target_path": "artifacts/output/autonomous_phase16_1_demo.txt",
+        "content": "phase16_1 autonomous tool write"
+      },
+      "decision": {
+        "action": "plan_tool_execution",
+        "reason": "Goal requires controlled tool usage before mission execution",
+        "target_layer": "tools",
+        "confidence": 0.9
+      },
+      "status": "completed",
+      "created_at": "2026-04-06T13:00:30.966416+00:00",
+      "updated_at": "2026-04-06T13:00:31.234642+00:00",
+      "execution_result": {
+        "ok": true,
+        "tool_type": "filesystem",
+        "action": "write",
+        "status": "completed",
+        "message": "File written successfully",
+        "started_at": "2026-04-06T13:00:31.204233+00:00",
+        "finished_at": "2026-04-06T13:00:31.208342+00:00",
+        "duration_ms": 4,
+        "data": {
+          "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\artifacts\\output\\autonomous_phase16_1_demo.txt",
+          "size_bytes": 31
+        },
+        "error": null,
+        "policy_summary": {
+          "timeouts": {
+            "shell_seconds": 10,
+            "http_seconds": 8,
+            "filesystem_seconds": 5
+          },
+          "http_domains": [
+            "127.0.0.1",
+            "localhost"
+          ],
+          "allowed_shell_commands": [
+            "py",
+            "python"
+          ],
+          "filesystem_roots": [
+            "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\artifacts",
+            "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\state"
+          ]
+        }
+      },
+      "events": [
+        {
+          "ts": "2026-04-06T13:00:30.966458+00:00",
+          "message": "Decision created",
+          "extra": {
+            "action": "plan_tool_execution"
+          }
+        },
+        {
+          "ts": "2026-04-06T13:00:30.966468+00:00",
+          "message": "Target layer selected",
+          "extra": {
+            "target_layer": "tools"
+          }
+        },
+        {
+          "ts": "2026-04-06T13:00:31.023772+00:00",
+          "message": "Execution bridge started"
+        },
+        {
+          "ts": "2026-04-06T13:00:31.234687+00:00",
+          "message": "Execution bridge finished",
+          "extra": {
+            "final_status": "completed",
+            "result_keys": [
+              "action",
+              "data",
+              "duration_ms",
+              "error",
+              "finished_at",
+              "message",
+              "ok",
+              "policy_summary",
+              "started_at",
+              "status",
+              "tool_type"
+            ]
+          }
+        }
+      ],
+      "loop": {
+        "enabled": false,
+        "step_count": 0,
+        "max_steps": 5,
+        "history": [],
+        "final_outcome": null
+      }
+    },
+    {
+      "decision_id": "decision_9eeb01f79e",
+      "goal": "Modify important runtime files",
+      "mission_type": "runtime_change",
+      "risk_level": "high",
+      "has_memory": true,
+      "requires_tools": true,
+      "requires_approval": true,
+      "context": {
+        "action_type": "runtime_change",
+        "mission_id": "mission_phase16_1_approval",
+        "agent_score": 71.4,
+        "agent_id": "executor_agent_01"
+      },
+      "decision": {
+        "action": "request_approval",
+        "reason": "Goal is marked as high-risk or explicitly requires approval",
+        "target_layer": "hitl",
+        "confidence": 0.96
+      },
+      "status": "blocked",
+      "created_at": "2026-04-06T13:00:31.279090+00:00",
+      "updated_at": "2026-04-06T13:00:31.375000+00:00",
+      "execution_result": {
+        "approval_id": "approval_634ed149ec",
+        "mission_id": "mission_phase16_1_approval",
+        "action_type": "runtime_change",
+        "proposed_action": "Modify important runtime files",
+        "reason": "Goal is marked as high-risk or explicitly requires approval",
+        "risk_level": "high",
+        "agent_id": "executor_agent_01",
+        "agent_score": 71.4,
+        "payload": {
+          "action_type": "runtime_change",
+          "mission_id": "mission_phase16_1_approval",
+          "agent_score": 71.4,
+          "agent_id": "executor_agent_01"
+        },
+        "status": "pending",
+        "operator_note": "",
+        "created_at": "2026-04-06T13:00:31.343404+00:00",
+        "updated_at": "2026-04-06T13:00:31.343429+00:00",
+        "decision_at": null,
+        "audit_trail": [
+          {
+            "ts": "2026-04-06T13:00:31.343437+00:00",
+            "event": "created",
+            "message": "Approval request created"
+          }
+        ]
+      },
+      "events": [
+        {
+          "ts": "2026-04-06T13:00:31.279123+00:00",
+          "message": "Decision created",
+          "extra": {
+            "action": "request_approval"
+          }
+        },
+        {
+          "ts": "2026-04-06T13:00:31.279132+00:00",
+          "message": "Target layer selected",
+          "extra": {
+            "target_layer": "hitl"
+          }
+        },
+        {
+          "ts": "2026-04-06T13:00:31.324807+00:00",
+          "message": "Execution bridge started"
+        },
+        {
+          "ts": "2026-04-06T13:00:31.375047+00:00",
+          "message": "Execution bridge finished",
+          "extra": {
+            "final_status": "blocked",
+            "result_keys": [
+              "action_type",
+              "agent_id",
+              "agent_score",
+              "approval_id",
+              "audit_trail",
+              "created_at",
+              "decision_at",
+              "mission_id",
+              "operator_note",
+              "payload",
+              "proposed_action",
+              "reason",
+              "risk_level",
+              "status",
+              "updated_at"
+            ]
+          }
+        }
+      ],
+      "loop": {
+        "enabled": false,
+        "step_count": 0,
+        "max_steps": 5,
+        "history": [],
+        "final_outcome": null
+      }
+    },
+    {
+      "decision_id": "decision_f050c1c873",
+      "goal": "Создай файл artifacts/output/telegram_test.txt и запиши туда: Jarvis Telegram test successful.",
+      "mission_type": "telegram_user_task",
+      "risk_level": "medium",
+      "has_memory": true,
+      "requires_tools": true,
+      "requires_approval": false,
+      "context": {
+        "source": "telegram",
+        "telegram_chat_id": "237616472",
+        "user_text": "Создай файл artifacts/output/telegram_test.txt и запиши туда: Jarvis Telegram test successful.",
+        "target_path": "artifacts/output/telegram_task_output.txt",
+        "content": "Telegram task received: Создай файл artifacts/output/telegram_test.txt и запиши туда: Jarvis Telegram test successful."
+      },
+      "decision": {
+        "action": "plan_tool_execution",
+        "reason": "Memory guidance retrieved; next step is tool execution",
+        "target_layer": "tools",
+        "confidence": 0.91
+      },
+      "status": "completed",
+      "created_at": "2026-04-06T14:26:08.750674+00:00",
+      "updated_at": "2026-04-06T14:26:09.045061+00:00",
+      "execution_result": {
+        "ok": true,
+        "tool_type": "filesystem",
+        "action": "write",
+        "status": "completed",
+        "message": "File written successfully",
+        "started_at": "2026-04-06T14:26:08.995297+00:00",
+        "finished_at": "2026-04-06T14:26:08.997950+00:00",
+        "duration_ms": 2,
+        "data": {
+          "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\artifacts\\output\\telegram_task_output.txt",
+          "size_bytes": 139
+        },
+        "error": null,
+        "policy_summary": {
+          "timeouts": {
+            "shell_seconds": 10,
+            "http_seconds": 8,
+            "filesystem_seconds": 5
+          },
+          "http_domains": [
+            "127.0.0.1",
+            "localhost"
+          ],
+          "allowed_shell_commands": [
+            "py",
+            "python"
+          ],
+          "filesystem_roots": [
+            "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\artifacts",
+            "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\state"
+          ]
+        }
+      },
+      "events": [
+        {
+          "ts": "2026-04-06T14:26:08.750705+00:00",
+          "message": "Decision created",
+          "extra": {
+            "action": "retrieve_memory_guidance"
+          }
+        },
+        {
+          "ts": "2026-04-06T14:26:08.750714+00:00",
+          "message": "Target layer selected",
+          "extra": {
+            "target_layer": "mission_memory_v2"
+          }
+        },
+        {
+          "ts": "2026-04-06T14:26:08.813507+00:00",
+          "message": "Execution bridge started",
+          "extra": {
+            "loop_enabled": true
+          }
+        },
+        {
+          "ts": "2026-04-06T14:26:08.843830+00:00",
+          "message": "Loop step started",
+          "extra": {
+            "step": 1,
+            "action": "retrieve_memory_guidance"
+          }
+        },
+        {
+          "ts": "2026-04-06T14:26:08.956111+00:00",
+          "message": "Decision pivoted after memory retrieval",
+          "extra": {
+            "next_action": "plan_tool_execution"
+          }
+        },
+        {
+          "ts": "2026-04-06T14:26:08.984242+00:00",
+          "message": "Loop step started",
+          "extra": {
+            "step": 2,
+            "action": "plan_tool_execution"
+          }
+        },
+        {
+          "ts": "2026-04-06T14:26:09.018188+00:00",
+          "message": "Loop completed",
+          "extra": {
+            "step": 2
+          }
+        },
+        {
+          "ts": "2026-04-06T14:26:09.045099+00:00",
+          "message": "Execution bridge finished",
+          "extra": {
+            "final_status": "completed",
+            "loop_steps": 2,
+            "result_keys": [
+              "action",
+              "data",
+              "duration_ms",
+              "error",
+              "finished_at",
+              "message",
+              "ok",
+              "policy_summary",
+              "started_at",
+              "status",
+              "tool_type"
+            ]
+          }
+        }
+      ],
+      "loop": {
+        "enabled": true,
+        "step_count": 2,
+        "max_steps": 3,
+        "history": [
+          {
+            "step": 1,
+            "action": "retrieve_memory_guidance",
+            "target_layer": "mission_memory_v2",
+            "status": "completed",
+            "result_keys": [
+              "mission_type",
+              "stats",
+              "suggestion"
+            ],
+            "ts": "2026-04-06T14:26:08.938473+00:00"
+          },
+          {
+            "step": 2,
+            "action": "plan_tool_execution",
+            "target_layer": "tools",
+            "status": "completed",
+            "result_keys": [
+              "action",
+              "data",
+              "duration_ms",
+              "error",
+              "finished_at",
+              "message",
+              "ok",
+              "policy_summary",
+              "started_at",
+              "status",
+              "tool_type"
+            ],
+            "ts": "2026-04-06T14:26:09.002481+00:00"
+          }
+        ],
+        "final_outcome": "goal_progressed"
+      }
+    }
+  ]
+}

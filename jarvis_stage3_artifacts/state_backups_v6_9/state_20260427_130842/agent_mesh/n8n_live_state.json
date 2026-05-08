@@ -1,0 +1,8 @@
+{
+  "live_enabled": false,
+  "verified": false,
+  "last_verify_status": "<urlopen error [WinError 10061] Подключение не установлено, т.к. конечный компьютер отверг запрос на подключение>",
+  "last_verify_ts": 1776557419.1645381,
+  "last_webhook_status": "",
+  "last_webhook_ts": 0.0
+}

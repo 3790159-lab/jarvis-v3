@@ -1,0 +1,8 @@
+{
+    "schema":  "jarvis.github_cli_auth_finalize.v8_7",
+    "created_at":  "2026-04-27T17:45:40",
+    "gh_exists":  true,
+    "gh_auth_ok":  true,
+    "secrets_printed":  false,
+    "status_preview":  "github.com\r\n  тЬУ Logged in to github.com account 3790159-lab (keyring)\r\n  - Active account: true\r\n  - Git operations protocol: https\r\n  - Token: gho_************************************\r\n  - Token scopes: \u0027gist\u0027, \u0027read:org\u0027, \u0027repo\u0027, \u0027workflow\u0027\r\n"
+}

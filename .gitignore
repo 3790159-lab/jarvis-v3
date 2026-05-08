@@ -1,0 +1,27 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.pyo
+.env
+*.log
+node_modules/
+.DS_Store
+
+# RunPod secrets
+.env.runpod
+
+# Phase 2 additions
+state/
+logs/
+.env.backup_*
+.env.before_*
+*.before_*
+backup_*/
+backup_*.py
+backup_*.env
+.claude/
+creds/
+*_oauth_token*.json
+*.pid
+bot_heartbeat.txt

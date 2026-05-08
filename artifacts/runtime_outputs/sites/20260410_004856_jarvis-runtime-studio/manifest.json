@@ -1,0 +1,44 @@
+{
+  "task_id": "artifact_efb4109240b4",
+  "task_type": "site",
+  "name": "Jarvis Runtime Studio",
+  "slug": "jarvis-runtime-studio",
+  "created_at": "2026-04-10T00:48:56.528894+00:00",
+  "output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\sites\\20260410_004856_jarvis-runtime-studio",
+  "files": [
+    {
+      "relative_path": "index.html",
+      "size_bytes": 1059
+    },
+    {
+      "relative_path": "styles.css",
+      "size_bytes": 1031
+    },
+    {
+      "relative_path": "app.js",
+      "size_bytes": 135
+    },
+    {
+      "relative_path": "README.md",
+      "size_bytes": 80
+    }
+  ],
+  "summary": {
+    "artifact_kind": "site_bundle",
+    "title": "Jarvis Runtime Studio",
+    "hero": "Runtime-linked autonomous artifact execution",
+    "files_expected": [
+      "index.html",
+      "styles.css",
+      "app.js",
+      "README.md"
+    ]
+  },
+  "validation": {
+    "output_dir_exists": true,
+    "created_files_count": 4,
+    "total_bytes": 2305,
+    "valid": true
+  },
+  "status": "created"
+}

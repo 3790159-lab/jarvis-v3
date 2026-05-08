@@ -1,0 +1,48 @@
+{
+  "name": "Jarvis Super Agent - dynamic_pipeline",
+  "nodes": [
+    {
+      "id": "aae585be-7eee-449a-8475-95f7c976e06f",
+      "name": "Jarvis Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "jarvis-super-dynamic-pipeline-5f7e3423",
+        "responseMode": "lastNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "82a6f311-0d2c-4cd7-8e79-e29cf89a94bb",
+      "name": "Echo Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const now = new Date().toISOString();\nreturn [{ json: {\n  ok: true,\n  kind: 'webhook_echo',\n  receivedAt: now,\n  source: 'jarvis_super_agent',\n  payload: $json\n} }];"
+      }
+    }
+  ],
+  "connections": {
+    "Jarvis Webhook": {
+      "main": [
+        [
+          {
+            "node": "Echo Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {}
+}

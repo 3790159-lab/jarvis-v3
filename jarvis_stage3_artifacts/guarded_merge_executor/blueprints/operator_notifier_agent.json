@@ -1,0 +1,14 @@
+{
+  "blueprint_id": "operator_notifier_agent",
+  "display_name": "Operator Notifier Agent",
+  "risk": "additive_low",
+  "summary": "Managed notifier module for operator alerts, digests and escalation messages.",
+  "ports_offset": 1,
+  "default_files": [
+    "manifest.json",
+    "README.md",
+    "app.py",
+    "scripts/start_module.ps1",
+    "config/module.env.example"
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "health": {
+    "status_code": 404,
+    "ok": false,
+    "headers": {
+      "server": "uvicorn",
+      "content-type": "application/json"
+    },
+    "body": {
+      "detail": "Not Found"
+    }
+  },
+  "debug_state": {
+    "status_code": 404,
+    "ok": false,
+    "headers": {
+      "server": "uvicorn",
+      "content-type": "application/json"
+    },
+    "body": {
+      "detail": "Not Found"
+    }
+  },
+  "dry_run": {
+    "status_code": 404,
+    "ok": false,
+    "headers": {
+      "server": "uvicorn",
+      "content-type": "application/json"
+    },
+    "body": {
+      "detail": "Not Found"
+    }
+  },
+  "create_only": {
+    "status_code": 404,
+    "ok": false,
+    "headers": {
+      "server": "uvicorn",
+      "content-type": "application/json"
+    },
+    "body": {
+      "detail": "Not Found"
+    }
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "task_id": "artifact_1b17f3d42e09",
+  "task_type": "table",
+  "name": "YouTube Content Calendar",
+  "slug": "youtube-content-calendar",
+  "created_at": "2026-04-10T00:26:58.969154+00:00",
+  "output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\tables\\20260410_002658_youtube-content-calendar",
+  "files": [
+    {
+      "relative_path": "table.csv",
+      "size_bytes": 122
+    },
+    {
+      "relative_path": "table.json",
+      "size_bytes": 468
+    },
+    {
+      "relative_path": "README.md",
+      "size_bytes": 113
+    }
+  ],
+  "summary": {
+    "rows": 3,
+    "columns": [
+      "title",
+      "format",
+      "day",
+      "status"
+    ],
+    "artifact_kind": "table_bundle"
+  },
+  "validation": {
+    "output_dir_exists": true,
+    "created_files_count": 3,
+    "total_bytes": 703,
+    "valid": true
+  },
+  "status": "created"
+}

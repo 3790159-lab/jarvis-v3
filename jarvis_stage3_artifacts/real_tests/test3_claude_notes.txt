@@ -1,0 +1,6 @@
+1. Confirm all expected output artifacts are present and non-empty
+2. Review execution logs for errors, warnings, or unexpected exits
+3. Verify each step completed with the correct status (success/skipped/failed)
+4. Check that required approvals or sign-offs are recorded
+5. Validate output data against acceptance criteria or expected values
+6. Archive logs and artifacts to the designated storage location

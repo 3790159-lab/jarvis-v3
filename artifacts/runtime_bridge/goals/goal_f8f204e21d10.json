@@ -1,0 +1,19 @@
+{
+  "goal_id": "goal_f8f204e21d10",
+  "created_at": "2026-04-10T00:48:56.634608+00:00",
+  "objective": "Prepare a YouTube starter pack for an AI automation channel",
+  "constraints": {
+    "audience": "builders and beginners",
+    "niche": "AI automation",
+    "tone": "clear and practical",
+    "name": "AI Automation Runtime Pack"
+  },
+  "payload": {},
+  "preferred_task_type": null,
+  "auto_execute": false,
+  "latest_mission_id": "mission_836799ec902b",
+  "status": "planned",
+  "metadata": {
+    "source": "runtime_bridge"
+  }
+}

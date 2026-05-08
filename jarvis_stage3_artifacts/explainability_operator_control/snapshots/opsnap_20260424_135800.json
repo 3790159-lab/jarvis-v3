@@ -1,0 +1,10 @@
+{
+  "snapshot_id": "opsnap_20260424_135800",
+  "current_mode": "apply_ready",
+  "overall_health": "good",
+  "apply_lane_state": "open",
+  "blocked_reasons": [],
+  "recommended_focus": "Expand successful low-risk mutation templates and operator summaries.",
+  "operator_message": "System is healthy. Safe apply lane is open for controlled low-risk mutations.",
+  "created_at": "2026-04-24T13:58:00+00:00"
+}

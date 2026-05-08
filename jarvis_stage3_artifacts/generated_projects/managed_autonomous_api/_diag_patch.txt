@@ -1,0 +1,20 @@
+@app.get("/diagnostics")
+def diagnostics():
+    tasks = tasks_store.list_all(refresh=True)
+    missions = missions_store.list_all(refresh=True)
+    agents = load_agents()
+
+    return {
+        "status": "ok",
+        "runtime": get_runtime_meta(),
+        "system": system_info(),
+        "mission_count": len(missions),
+        "task_count": len(tasks),
+        "agent_count": len(agents),
+        "queued_tasks": len([t for t in tasks if t.status == "queued"]),
+        "running_tasks": len([t for t in tasks if t.status == "running"]),
+        "completed_tasks": len([t for t in tasks if t.status == "completed"]),
+        "failed_tasks": len([t for t in tasks if t.status == "failed"]),
+        "worker": get_worker_state(),
+        "tasks_preview": [t.__dict__ for t in tasks[:10]],
+    }

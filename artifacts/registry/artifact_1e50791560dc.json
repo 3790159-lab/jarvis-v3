@@ -1,0 +1,39 @@
+{
+  "task_id": "artifact_1e50791560dc",
+  "task_type": "table",
+  "name": "AI Launch Calendar",
+  "slug": "ai-launch-calendar",
+  "created_at": "2026-04-10T01:08:42.449031+00:00",
+  "output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\tables\\20260410_010842_ai-launch-calendar",
+  "files": [
+    {
+      "relative_path": "table.csv",
+      "size_bytes": 127
+    },
+    {
+      "relative_path": "table.json",
+      "size_bytes": 467
+    },
+    {
+      "relative_path": "README.md",
+      "size_bytes": 107
+    }
+  ],
+  "summary": {
+    "rows": 3,
+    "columns": [
+      "day",
+      "title",
+      "format",
+      "status"
+    ],
+    "artifact_kind": "table_bundle"
+  },
+  "validation": {
+    "output_dir_exists": true,
+    "created_files_count": 3,
+    "total_bytes": 701,
+    "valid": true
+  },
+  "status": "created"
+}

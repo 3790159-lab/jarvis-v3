@@ -1,0 +1,33 @@
+﻿{
+  "version": 1,
+  "templates": {
+    "research_agent": {
+      "role": "research",
+      "description": "Research and documentation support agent",
+      "model_profile": "reasoning_primary",
+      "policy_profile": "safe",
+      "allowed_tools": ["registry", "contracts", "filesystem_read"]
+    },
+    "memory_agent": {
+      "role": "memory",
+      "description": "Context and memory support agent",
+      "model_profile": "reasoning_primary",
+      "policy_profile": "safe",
+      "allowed_tools": ["registry", "filesystem_read"]
+    },
+    "policy_agent": {
+      "role": "policy",
+      "description": "Policy validation and safety review agent",
+      "model_profile": "reasoning_primary",
+      "policy_profile": "safe",
+      "allowed_tools": ["registry", "contracts"]
+    },
+    "bootstrap_agent": {
+      "role": "bootstrap",
+      "description": "Bootstrap and controlled agent creation assistant",
+      "model_profile": "reasoning_primary",
+      "policy_profile": "dev",
+      "allowed_tools": ["registry", "contracts"]
+    }
+  }
+}

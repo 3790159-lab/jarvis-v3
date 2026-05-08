@@ -1,0 +1,73 @@
+{
+  "run_id": "mission_artifact_4c61963f57d2",
+  "status": "completed",
+  "objective": "Build a simple browser clicker game called Jarvis Tap",
+  "selected_task_type": "game",
+  "artifact_name": "Jarvis Tap",
+  "created_at": "2026-04-10T00:36:07.523428+00:00",
+  "plan": {
+    "selected_task_type": "game",
+    "artifact_name": "Jarvis Tap",
+    "description": "Build a simple browser clicker game called Jarvis Tap",
+    "payload": {
+      "title": "Jarvis Tap"
+    },
+    "candidates": [
+      {
+        "task_type": "game",
+        "score": 22,
+        "reasons": [
+          "matched 'game' (+10)",
+          "matched 'clicker' (+12)"
+        ]
+      }
+    ],
+    "reasoning": [
+      "selected top candidate 'game' with score 22",
+      "matched 'game' (+10)",
+      "matched 'clicker' (+12)"
+    ]
+  },
+  "artifact_result": {
+    "ok": true,
+    "task_id": "artifact_6e67a2d009f9",
+    "task_type": "game",
+    "category": "games",
+    "name": "Jarvis Tap",
+    "slug": "jarvis-tap",
+    "output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\games\\20260410_003607_jarvis-tap",
+    "manifest_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\games\\20260410_003607_jarvis-tap\\manifest.json",
+    "files": [
+      {
+        "relative_path": "index.html",
+        "size_bytes": 1216
+      },
+      {
+        "relative_path": "README.md",
+        "size_bytes": 72
+      }
+    ],
+    "summary": {
+      "artifact_kind": "mini_game",
+      "game_type": "clicker",
+      "launch_file": "index.html"
+    },
+    "validation": {
+      "output_dir_exists": true,
+      "created_files_count": 2,
+      "total_bytes": 1288,
+      "valid": true
+    },
+    "status": "created"
+  },
+  "summary": {
+    "objective": "Build a simple browser clicker game called Jarvis Tap",
+    "selected_task_type": "game",
+    "artifact_name": "Jarvis Tap",
+    "artifact_status": "created",
+    "artifact_ok": true,
+    "output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\games\\20260410_003607_jarvis-tap",
+    "manifest_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\games\\20260410_003607_jarvis-tap\\manifest.json",
+    "files_count": 2
+  }
+}

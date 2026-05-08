@@ -1,0 +1,23 @@
+﻿{
+  "phase": 15,
+  "name": "Human-in-the-Loop Console / Approval Dashboard",
+  "goals": [
+    "Create approval workflow",
+    "Expose risk and action context",
+    "Support approve/reject with note",
+    "Persist audit trail"
+  ],
+  "components": [
+    "approval_endpoint",
+    "approval_queue",
+    "dashboard_view_model",
+    "audit_trail_writer",
+    "decision_note_handler"
+  ],
+  "acceptance_criteria": [
+    "Approval queue is queryable",
+    "Approve/reject is persisted",
+    "Audit trail is complete",
+    "Operator sees risk and proposed action"
+  ]
+}

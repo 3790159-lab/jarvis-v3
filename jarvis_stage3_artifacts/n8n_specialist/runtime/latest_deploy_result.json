@@ -1,0 +1,259 @@
+{
+  "workflow_id": "Hn2VuJTVasYQrj1z",
+  "result": {
+    "result_id": "n8nres_20260424_163427_25d5825e",
+    "task": "Deploy Jarvis Night Report Webhook workflow to n8n",
+    "status": "completed",
+    "readiness": {
+      "status": "ready_for_deploy",
+      "base_url": "https://daniliyc.app.n8n.cloud",
+      "api_key_present": true,
+      "tcp_5678_open": true,
+      "http_root_ok": true,
+      "public_api_ok": true,
+      "notes": [],
+      "next_best_action": "You can create workflows through the n8n public API."
+    },
+    "blueprint": {
+      "blueprint_id": "n8nblue_20260424_163427_2180a5c8",
+      "name": "Jarvis Night Report Webhook",
+      "workflow_type": "webhook_logger",
+      "webhook_path": "jarvis-night-report-2180a5c8",
+      "workflow_json": {
+        "name": "Jarvis Night Report Webhook",
+        "nodes": [
+          {
+            "id": "d3c97a95-ebb2-44cb-8d8b-b8ea30baf0cf",
+            "name": "Jarvis Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 2,
+            "position": [
+              240,
+              300
+            ],
+            "parameters": {
+              "httpMethod": "POST",
+              "path": "jarvis-night-report-2180a5c8",
+              "responseMode": "lastNode",
+              "options": {}
+            }
+          },
+          {
+            "id": "bf513751-f216-4f87-b994-592fd654958b",
+            "name": "Normalize Payload",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+              520,
+              300
+            ],
+            "parameters": {
+              "jsCode": "const now = new Date().toISOString();\nreturn [{ json: { ok: true, receivedAt: now, source: 'jarvis', payload: $json } }];"
+            }
+          }
+        ],
+        "connections": {
+          "Jarvis Webhook": {
+            "main": [
+              [
+                {
+                  "node": "Normalize Payload",
+                  "type": "main",
+                  "index": 0
+                }
+              ]
+            ]
+          }
+        },
+        "settings": {}
+      },
+      "production_webhook_url": "https://daniliyc.app.n8n.cloud/webhook/jarvis-night-report-2180a5c8",
+      "test_webhook_url": "https://daniliyc.app.n8n.cloud/webhook-test/jarvis-night-report-2180a5c8",
+      "created_at": "2026-04-24T16:34:27+00:00"
+    },
+    "deploy_result": {
+      "ok": true,
+      "status": 200,
+      "body": {
+        "updatedAt": "2026-04-24T16:34:27.120Z",
+        "createdAt": "2026-04-24T16:34:27.120Z",
+        "id": "Hn2VuJTVasYQrj1z",
+        "name": "Jarvis Night Report Webhook",
+        "description": null,
+        "active": false,
+        "isArchived": false,
+        "nodes": [
+          {
+            "id": "d3c97a95-ebb2-44cb-8d8b-b8ea30baf0cf",
+            "name": "Jarvis Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 2,
+            "position": [
+              240,
+              300
+            ],
+            "parameters": {
+              "httpMethod": "POST",
+              "path": "jarvis-night-report-2180a5c8",
+              "responseMode": "lastNode",
+              "options": {}
+            },
+            "webhookId": "b3a340a8-367c-4a5f-9c87-5879c9d1d57e"
+          },
+          {
+            "id": "bf513751-f216-4f87-b994-592fd654958b",
+            "name": "Normalize Payload",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+              520,
+              300
+            ],
+            "parameters": {
+              "jsCode": "const now = new Date().toISOString();\nreturn [{ json: { ok: true, receivedAt: now, source: 'jarvis', payload: $json } }];"
+            }
+          }
+        ],
+        "connections": {
+          "Jarvis Webhook": {
+            "main": [
+              [
+                {
+                  "node": "Normalize Payload",
+                  "type": "main",
+                  "index": 0
+                }
+              ]
+            ]
+          }
+        },
+        "settings": {},
+        "staticData": null,
+        "meta": null,
+        "pinData": null,
+        "versionId": "816ca98c-8e7b-48e6-b515-69f1f7990764",
+        "activeVersionId": null,
+        "versionCounter": 1,
+        "triggerCount": 0,
+        "shared": [
+          {
+            "updatedAt": "2026-04-24T16:34:27.122Z",
+            "createdAt": "2026-04-24T16:34:27.122Z",
+            "role": "workflow:owner",
+            "workflowId": "Hn2VuJTVasYQrj1z",
+            "projectId": "8aPubdf7jkKE6V5g",
+            "project": {
+              "updatedAt": "2026-01-20T10:41:04.645Z",
+              "createdAt": "2026-01-20T10:40:58.637Z",
+              "id": "8aPubdf7jkKE6V5g",
+              "name": "Daniil Lapin <3790159@gmail.com>",
+              "type": "personal",
+              "icon": null,
+              "description": null,
+              "creatorId": "30e95836-767f-4606-9e2d-b7775186bd03"
+            }
+          }
+        ],
+        "tags": [],
+        "parentFolder": null,
+        "activeVersion": null
+      },
+      "mode": "public_api_create_workflow"
+    },
+    "webhook_test": null,
+    "recommendations": [
+      "n8n API is ready. Next step: deploy blueprint and activate workflow.",
+      "You can import the exported *_workflow_import.json file into n8n manually."
+    ],
+    "created_at": "2026-04-24T16:34:27+00:00"
+  },
+  "deploy_result": {
+    "ok": true,
+    "status": 200,
+    "body": {
+      "updatedAt": "2026-04-24T16:34:27.120Z",
+      "createdAt": "2026-04-24T16:34:27.120Z",
+      "id": "Hn2VuJTVasYQrj1z",
+      "name": "Jarvis Night Report Webhook",
+      "description": null,
+      "active": false,
+      "isArchived": false,
+      "nodes": [
+        {
+          "id": "d3c97a95-ebb2-44cb-8d8b-b8ea30baf0cf",
+          "name": "Jarvis Webhook",
+          "type": "n8n-nodes-base.webhook",
+          "typeVersion": 2,
+          "position": [
+            240,
+            300
+          ],
+          "parameters": {
+            "httpMethod": "POST",
+            "path": "jarvis-night-report-2180a5c8",
+            "responseMode": "lastNode",
+            "options": {}
+          },
+          "webhookId": "b3a340a8-367c-4a5f-9c87-5879c9d1d57e"
+        },
+        {
+          "id": "bf513751-f216-4f87-b994-592fd654958b",
+          "name": "Normalize Payload",
+          "type": "n8n-nodes-base.code",
+          "typeVersion": 2,
+          "position": [
+            520,
+            300
+          ],
+          "parameters": {
+            "jsCode": "const now = new Date().toISOString();\nreturn [{ json: { ok: true, receivedAt: now, source: 'jarvis', payload: $json } }];"
+          }
+        }
+      ],
+      "connections": {
+        "Jarvis Webhook": {
+          "main": [
+            [
+              {
+                "node": "Normalize Payload",
+                "type": "main",
+                "index": 0
+              }
+            ]
+          ]
+        }
+      },
+      "settings": {},
+      "staticData": null,
+      "meta": null,
+      "pinData": null,
+      "versionId": "816ca98c-8e7b-48e6-b515-69f1f7990764",
+      "activeVersionId": null,
+      "versionCounter": 1,
+      "triggerCount": 0,
+      "shared": [
+        {
+          "updatedAt": "2026-04-24T16:34:27.122Z",
+          "createdAt": "2026-04-24T16:34:27.122Z",
+          "role": "workflow:owner",
+          "workflowId": "Hn2VuJTVasYQrj1z",
+          "projectId": "8aPubdf7jkKE6V5g",
+          "project": {
+            "updatedAt": "2026-01-20T10:41:04.645Z",
+            "createdAt": "2026-01-20T10:40:58.637Z",
+            "id": "8aPubdf7jkKE6V5g",
+            "name": "Daniil Lapin <3790159@gmail.com>",
+            "type": "personal",
+            "icon": null,
+            "description": null,
+            "creatorId": "30e95836-767f-4606-9e2d-b7775186bd03"
+          }
+        }
+      ],
+      "tags": [],
+      "parentFolder": null,
+      "activeVersion": null
+    },
+    "mode": "public_api_create_workflow"
+  }
+}

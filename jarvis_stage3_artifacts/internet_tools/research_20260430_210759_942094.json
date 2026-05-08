@@ -1,0 +1,120 @@
+{
+  "ok": true,
+  "tool": "internet.research",
+  "provider": "perplexity",
+  "query": "Пользователь спросил: find and table\n\nРезультаты агентов:\nАгент 1 (интернет-исследование):\nResearch result\n\nАгент 2 (таблицы Excel/CSV):\nTable created\n\nСделай единый связный ответ на русском языке. Сохрани ключевые факты и структуру. Максимум 500 слов.",
+  "created_at": "2026-04-30T21:07:59.942078Z",
+  "answer": "# Jarvis V3 Supervisor — Режим Research\n\n**Статус:** Обработка поискового запроса \"find and table\"\n\n---\n\n## Анализ результатов\n\nВаш запрос охватывает несколько категорий. Привожу синтез по основным направлениям:\n\n### 1. **Приложения для поиска ресторанов**\n\n**Findtable** — мобильное приложение для iOS и Android[1][2], которое позволяет:\n- Открывать рестораны по кухне, диетическим предпочтениям и услугам\n- Просматривать заведения на карте с реал-тайм навигацией\n- Получать доступ к меню, часам работы, рейтингам и фотографиям\n- Выбирать язык интерфейса (английский, арабский, французский)\n\nРазработчик: FIND TABLE GENERAL TRADING L.L.C (ОАЭ)[2]\n\n**OpenTable** — альтернатива большего масштаба[5]: сеть онлайн-бронирования с доступом к 60 000+ ресторанов по всему миру. Позволяет фильтровать по дате, времени, типу сидения, ценовому диапазону и диетическим ограничениям.\n\n### 2. **Сервисы управления столами**\n\n**FindMyTable**[6] — цифровое решение для ресторанов, заменяющее статичные доски рассадки. Гости сканируют QR-код, вводят имя и находят место за секунды.\n\n### 3. **Предметная область: посуда и столовые принадлежности**\n\n**Thyme & Table** (Walmart)[7][9] — коллекция товаров для стола и кухни: тарелки, столовое серебро, ножи, разделочные доски, посуду, кухонную технику, скатерти и напитки.\n\n**Draft + Table** (Арканзас)[4] — ресторан/место для проведения мероприятий с минимумом на напитки и еду.\n\n---\n\n## Рекомендация\n\nЕсли ваш запрос относится к:\n- **Поиску ресторанов** → используйте Findtable или OpenTable\n- **Цифровизации рассадки** → FindMyTable\n- **Покупке столовой посуды** → Thyme & Table на Walmart\n\n**Требуется уточнение?** Укажите конкретный контекст (поиск ресторана, управление бронированиями, закупки) для более точного ответа.",
+  "raw": {
+    "id": "b2f6f857-ead9-44b5-ae64-8dd1b122d3df",
+    "model": "sonar-pro",
+    "created": 1777583278,
+    "usage": {
+      "prompt_tokens": 450,
+      "completion_tokens": 594,
+      "total_tokens": 1044,
+      "search_context_size": "low",
+      "cost": {
+        "input_tokens_cost": 0.00135,
+        "output_tokens_cost": 0.00891,
+        "request_cost": 0.006,
+        "total_cost": 0.01626
+      }
+    },
+    "citations": [
+      "https://apps.apple.com/au/app/findtable/id6752249252",
+      "https://play.google.com/store/apps/details?id=com.findtables&hl=en_US",
+      "https://www.eonesolutions.com/Manuals/SmartList-Builder/SmartList%20Builder%20(18.8)/topic_finding_tables_by_field_name.php",
+      "https://www.draftandtable.com",
+      "https://www.opentable.com",
+      "https://www.findmytable.io",
+      "https://www.walmart.com/cp/thyme-table/2511619",
+      "https://www.findtable.com",
+      "https://shopthymeandtable.com"
+    ],
+    "search_results": [
+      {
+        "title": "Findtable - App Store - Apple",
+        "url": "https://apps.apple.com/au/app/findtable/id6752249252",
+        "date": "2025-12-18",
+        "last_updated": "2026-04-30",
+        "snippet": "Discover restaurants easily. Smarter, Simpler menu explorer! Browse by cuisine, dietary preferences, or restaurant features to match your taste.",
+        "source": "web"
+      },
+      {
+        "title": "Findtable - Apps on Google Play",
+        "url": "https://play.google.com/store/apps/details?id=com.findtables&hl=en_US",
+        "date": "2026-01-09",
+        "last_updated": "2026-04-30",
+        "snippet": "Filter your search by meal type (breakfast, lunch, dinner), service (dine-in, delivery, takeaway), features (Wi-Fi, parking, etc.), and more.",
+        "source": "web"
+      },
+      {
+        "title": "Table Finder > Finding Tables By Field Name - eOne Solutions",
+        "url": "https://www.eonesolutions.com/Manuals/SmartList-Builder/SmartList%20Builder%20(18.8)/topic_finding_tables_by_field_name.php",
+        "snippet": "1. Open the Table Finder. ; 2. Select Field Name as the Find Mode. ; 3. Select the Product that contains the table that you want to find. ; 4. Enter the Field Name ...",
+        "source": "web"
+      },
+      {
+        "title": "Draft + Table",
+        "url": "https://www.draftandtable.com",
+        "date": "2019-01-01",
+        "last_updated": "2025-09-27",
+        "snippet": "Draft + Table Argenta is the Premier Destination for Lunch, Dinner, Drinks, and the Best Weekend Brunch in Central Arkansas. Located directly across the ...",
+        "source": "web"
+      },
+      {
+        "title": "OpenTable: Restaurants and Restaurant Bookings",
+        "url": "https://www.opentable.com",
+        "date": "2000-02-01",
+        "last_updated": "2026-04-30",
+        "snippet": "Book online, read restaurant reviews from diners, and earn points towards free meals. OpenTable is a real-time online booking network for fine dining ...",
+        "source": "web"
+      },
+      {
+        "title": "FindMyTable",
+        "url": "https://www.findmytable.io",
+        "snippet": "We replace bulky, static boards with a sleek, digital experience. Your guests simply scan a custom QR code, type their name, and find their seat in seconds.",
+        "source": "web"
+      },
+      {
+        "title": "Thyme & Table - Walmart.com",
+        "url": "https://www.walmart.com/cp/thyme-table/2511619",
+        "date": "2025-08-05",
+        "last_updated": "2025-08-06",
+        "snippet": "From plates and silverware to knives and cutting boards, you can find everything you need to elevate your dining experience at everyday low prices at Walmart.",
+        "source": "web"
+      },
+      {
+        "title": "Find Table",
+        "url": "https://www.findtable.com",
+        "date": "2025-03-14",
+        "last_updated": "2025-10-05",
+        "snippet": "Find Table – Your guide to the best fine dining restaurants! View menus, learn about restaurant locations, and discover the finest dining experiences in one ...",
+        "source": "web"
+      },
+      {
+        "title": "Thyme&Table – Thyme&Table",
+        "url": "https://shopthymeandtable.com",
+        "last_updated": "2026-03-10",
+        "snippet": "Discover Our Collections · Kitchen Appliances · Dinnerware · Cookware · Bakeware · Serveware · Drinkware · Table Linens.",
+        "source": "web"
+      }
+    ],
+    "object": "chat.completion",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "# Jarvis V3 Supervisor — Режим Research\n\n**Статус:** Обработка поискового запроса \"find and table\"\n\n---\n\n## Анализ результатов\n\nВаш запрос охватывает несколько категорий. Привожу синтез по основным направлениям:\n\n### 1. **Приложения для поиска ресторанов**\n\n**Findtable** — мобильное приложение для iOS и Android[1][2], которое позволяет:\n- Открывать рестораны по кухне, диетическим предпочтениям и услугам\n- Просматривать заведения на карте с реал-тайм навигацией\n- Получать доступ к меню, часам работы, рейтингам и фотографиям\n- Выбирать язык интерфейса (английский, арабский, французский)\n\nРазработчик: FIND TABLE GENERAL TRADING L.L.C (ОАЭ)[2]\n\n**OpenTable** — альтернатива большего масштаба[5]: сеть онлайн-бронирования с доступом к 60 000+ ресторанов по всему миру. Позволяет фильтровать по дате, времени, типу сидения, ценовому диапазону и диетическим ограничениям.\n\n### 2. **Сервисы управления столами**\n\n**FindMyTable**[6] — цифровое решение для ресторанов, заменяющее статичные доски рассадки. Гости сканируют QR-код, вводят имя и находят место за секунды.\n\n### 3. **Предметная область: посуда и столовые принадлежности**\n\n**Thyme & Table** (Walmart)[7][9] — коллекция товаров для стола и кухни: тарелки, столовое серебро, ножи, разделочные доски, посуду, кухонную технику, скатерти и напитки.\n\n**Draft + Table** (Арканзас)[4] — ресторан/место для проведения мероприятий с минимумом на напитки и еду.\n\n---\n\n## Рекомендация\n\nЕсли ваш запрос относится к:\n- **Поиску ресторанов** → используйте Findtable или OpenTable\n- **Цифровизации рассадки** → FindMyTable\n- **Покупке столовой посуды** → Thyme & Table на Walmart\n\n**Требуется уточнение?** Укажите конкретный контекст (поиск ресторана, управление бронированиями, закупки) для более точного ответа."
+        },
+        "delta": {
+          "role": "assistant",
+          "content": ""
+        },
+        "finish_reason": "stop"
+      }
+    ]
+  }
+}

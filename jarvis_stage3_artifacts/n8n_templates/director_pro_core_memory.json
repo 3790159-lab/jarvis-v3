@@ -1,0 +1,150 @@
+{
+  "memory_id": "jarvis_n8n_director_pro_core_memory",
+  "version": 2,
+  "template_stats": {
+    "custom_hook_v2": {
+      "success_count": 12,
+      "failure_count": 0,
+      "register_count": 3,
+      "render_count": 3,
+      "create_count": 3,
+      "activate_count": 0,
+      "smoke_count": 3,
+      "last_success_ts": "2026-04-22T00:11:56Z",
+      "last_failure_ts": null,
+      "last_workflow_id": "pZ1S62wiV5WjgEKx",
+      "last_webhook_path": "custom-hook-v2-20260422-031151"
+    }
+  },
+  "recent_events": [
+    {
+      "ts": "2026-04-21T23:44:11Z",
+      "template_id": "custom_hook_v2",
+      "action": "register",
+      "ok": true,
+      "workflow_id": null,
+      "webhook_path": null,
+      "error": ""
+    },
+    {
+      "ts": "2026-04-21T23:44:11Z",
+      "template_id": "custom_hook_v2",
+      "action": "render",
+      "ok": true,
+      "workflow_id": null,
+      "webhook_path": "custom-hook-v2-20260422-024411",
+      "error": ""
+    },
+    {
+      "ts": "2026-04-21T23:44:11Z",
+      "template_id": "custom_hook_v2",
+      "action": "create",
+      "ok": true,
+      "workflow_id": "RnJF8ANf40gLnFuv",
+      "webhook_path": "custom-hook-v2-20260422-024411",
+      "error": ""
+    },
+    {
+      "ts": "2026-04-21T23:44:16Z",
+      "template_id": "custom_hook_v2",
+      "action": "smoke",
+      "ok": true,
+      "workflow_id": "RnJF8ANf40gLnFuv",
+      "webhook_path": "custom-hook-v2-20260422-024411",
+      "error": ""
+    },
+    {
+      "ts": "2026-04-22T00:09:27Z",
+      "template_id": "custom_hook_v2",
+      "action": "register",
+      "ok": true,
+      "workflow_id": null,
+      "webhook_path": null,
+      "error": ""
+    },
+    {
+      "ts": "2026-04-22T00:09:27Z",
+      "template_id": "custom_hook_v2",
+      "action": "render",
+      "ok": true,
+      "workflow_id": null,
+      "webhook_path": "custom-hook-v2-20260422-030927",
+      "error": ""
+    },
+    {
+      "ts": "2026-04-22T00:09:27Z",
+      "template_id": "custom_hook_v2",
+      "action": "create",
+      "ok": true,
+      "workflow_id": "JcGVgd2IqSrUqCFl",
+      "webhook_path": "custom-hook-v2-20260422-030927",
+      "error": ""
+    },
+    {
+      "ts": "2026-04-22T00:09:31Z",
+      "template_id": "custom_hook_v2",
+      "action": "smoke",
+      "ok": true,
+      "workflow_id": "JcGVgd2IqSrUqCFl",
+      "webhook_path": "custom-hook-v2-20260422-030927",
+      "error": ""
+    },
+    {
+      "ts": "2026-04-22T00:11:51Z",
+      "template_id": "custom_hook_v2",
+      "action": "register",
+      "ok": true,
+      "workflow_id": null,
+      "webhook_path": null,
+      "error": ""
+    },
+    {
+      "ts": "2026-04-22T00:11:51Z",
+      "template_id": "custom_hook_v2",
+      "action": "render",
+      "ok": true,
+      "workflow_id": null,
+      "webhook_path": "custom-hook-v2-20260422-031151",
+      "error": ""
+    },
+    {
+      "ts": "2026-04-22T00:11:51Z",
+      "template_id": "custom_hook_v2",
+      "action": "create",
+      "ok": true,
+      "workflow_id": "pZ1S62wiV5WjgEKx",
+      "webhook_path": "custom-hook-v2-20260422-031151",
+      "error": ""
+    },
+    {
+      "ts": "2026-04-22T00:11:56Z",
+      "template_id": "custom_hook_v2",
+      "action": "smoke",
+      "ok": true,
+      "workflow_id": "pZ1S62wiV5WjgEKx",
+      "webhook_path": "custom-hook-v2-20260422-031151",
+      "error": ""
+    }
+  ],
+  "workflow_inventory": {
+    "last_synced_ts": "2026-04-22T21:12:14Z",
+    "total": 9,
+    "active": 9,
+    "inactive": 0,
+    "managed": 3,
+    "unmanaged": 6,
+    "templates": {
+      "custom_hook_v2": {
+        "total": 3,
+        "active": 3,
+        "inactive": 0
+      }
+    }
+  },
+  "service_stats": {
+    "total_success": 0,
+    "total_failure": 0,
+    "last_success_ts": null,
+    "last_failure_ts": null
+  }
+}

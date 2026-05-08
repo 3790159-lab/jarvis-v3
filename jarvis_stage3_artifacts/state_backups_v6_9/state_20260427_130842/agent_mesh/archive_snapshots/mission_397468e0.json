@@ -1,0 +1,147 @@
+{
+  "mission_id": "mission_397468e0",
+  "goal": "Execute native integration task: Native Claude integration check",
+  "status": "completed",
+  "tasks": [
+    {
+      "task": {
+        "task_id": "native_claude_check_api",
+        "title": "Native Claude integration check",
+        "task_type": "integration",
+        "required_capability": "codegen",
+        "depends_on": [],
+        "priority": "high",
+        "risk_level": "normal",
+        "max_retries": 2,
+        "preferred_agent_id": null,
+        "consultation_allowed": false,
+        "max_consults": 2,
+        "locality_requirement": false,
+        "storage_affinity": false,
+        "approval_required": false,
+        "metadata": {
+          "preferred_service": "claude_bridge",
+          "connector_action": "config_check",
+          "dry_run": false,
+          "persist_output": true,
+          "connector_payload": {}
+        }
+      },
+      "status": "completed",
+      "assigned_agent_id": "coding_agent_main",
+      "provider": "cloud",
+      "attempts": 1,
+      "consult_depth": 0,
+      "result": {
+        "agent_id": "coding_agent_main",
+        "status": "ok",
+        "summary": "coding_agent_main executed integration task 'Native Claude integration check' via claude_bridge",
+        "normalized_text": "{\n  \"action\": \"config_check\",\n  \"dry_run\": false,\n  \"mode\": \"guarded_binding_check\"\n}",
+        "artifacts": [
+          {
+            "name": "native_claude_check_api_integration.json",
+            "path": "state\\agent_mesh\\demo_artifacts\\native_claude_check_api_integration.json",
+            "kind": "json",
+            "metadata": {
+              "artifact_id": "artifact_e63923f7b4",
+              "artifact_type": "json",
+              "filename": "native_claude_check_api_integration.json",
+              "extension": "json",
+              "producer_agent": "coding_agent_main",
+              "source_task_id": "native_claude_check_api",
+              "validation_state": "unknown"
+            }
+          }
+        ],
+        "next_actions": [
+          "Commit integration result",
+          "Persist integration outcome to mission memory"
+        ],
+        "consult_requests": [],
+        "support_needed": [],
+        "confidence": 0.82,
+        "metrics": {
+          "duration_ms": 2,
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "cost_estimate": 0.0
+        },
+        "error": null,
+        "response_schema_version": "1.0",
+        "proposed_schema_extensions": [],
+        "approved_schema_extensions": [],
+        "dynamic_fields": {
+          "normalized_v17_1": true
+        },
+        "risk_notes": [],
+        "handoff_notes": [
+          "connector_id=claude_bridge_primary",
+          "service=claude_bridge",
+          "action=config_check",
+          "dry_run=False"
+        ],
+        "validation_hints": [
+          "Verify connector output and auth configuration before promoting to broader autonomy."
+        ]
+      },
+      "qa": {
+        "passed": true,
+        "scores": {
+          "correctness": 0.9,
+          "completeness": 1.0,
+          "stability": 0.9,
+          "recoverability": 0.8,
+          "usefulness": 0.9
+        },
+        "summary": "QA average=0.90 passed=True",
+        "repair_hints": []
+      },
+      "recovery": null
+    }
+  ],
+  "artifacts": [
+    {
+      "name": "native_claude_check_api_integration.json",
+      "path": "state\\agent_mesh\\demo_artifacts\\native_claude_check_api_integration.json",
+      "kind": "json",
+      "metadata": {}
+    }
+  ],
+  "context_bundle": {
+    "mission_id": "mission_397468e0",
+    "goal": "Execute native integration task: Native Claude integration check",
+    "status": "completed",
+    "recent_events": [
+      {
+        "event": "mission_created",
+        "goal": "Execute native integration task: Native Claude integration check"
+      },
+      {
+        "event": "task_completed",
+        "task_id": "native_claude_check_api",
+        "agent_id": "coding_agent_main",
+        "provider": "cloud",
+        "qa_summary": "QA average=0.90 passed=True"
+      }
+    ],
+    "completed_tasks": [
+      "native_claude_check_api"
+    ],
+    "failed_tasks": [],
+    "artifact_count": 1
+  },
+  "audit_log": [
+    {
+      "event": "mission_created",
+      "goal": "Execute native integration task: Native Claude integration check"
+    },
+    {
+      "event": "task_completed",
+      "task_id": "native_claude_check_api",
+      "agent_id": "coding_agent_main",
+      "provider": "cloud",
+      "qa_summary": "QA average=0.90 passed=True"
+    }
+  ],
+  "_normalized_snapshot_v17_1": true
+}

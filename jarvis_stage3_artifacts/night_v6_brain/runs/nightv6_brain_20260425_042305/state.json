@@ -1,0 +1,173 @@
+﻿{
+    "run_id":  "nightv6_brain_20260425_042305",
+    "iterations":  [
+                       {
+                           "iteration":  1,
+                           "workflow_id":  "none",
+                           "artifact":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\night_v6_brain\\runs\\nightv6_brain_20260425_042305\\iteration_001.json",
+                           "workflow_status":  "none",
+                           "finished_at":  "2026-04-25T04:23:05.7118592+03:00",
+                           "status":  "compiled_only",
+                           "task":  "Night Mode V6 iteration: inspect Jarvis system and improve UTF-8 report stability. Keep changes safe, validated, reversible."
+                       },
+                       {
+                           "iteration":  2,
+                           "workflow_id":  "BmyX9EpydvJimfL4",
+                           "artifact":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\night_v6_brain\\runs\\nightv6_brain_20260425_042305\\iteration_002.json",
+                           "workflow_status":  "tested",
+                           "finished_at":  "2026-04-25T04:24:39.2986987+03:00",
+                           "status":  "completed",
+                           "task":  "Night Mode V6 iteration: improve Brain Executor execution lanes and make it capable of more task types beyond n8n. Keep low-risk."
+                       },
+                       {
+                           "iteration":  3,
+                           "workflow_id":  "none",
+                           "artifact":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\night_v6_brain\\runs\\nightv6_brain_20260425_042305\\iteration_003.json",
+                           "workflow_status":  "none",
+                           "finished_at":  "2026-04-25T04:26:09.3800833+03:00",
+                           "status":  "compiled_only",
+                           "task":  "Night Mode V6 iteration: improve memory learning loop. Save lessons from successes, failures, validation results and rollback decisions."
+                       },
+                       {
+                           "iteration":  4,
+                           "workflow_id":  "XHqOvFkz6mCA21BI",
+                           "artifact":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\night_v6_brain\\runs\\nightv6_brain_20260425_042305\\iteration_004.json",
+                           "workflow_status":  "tested",
+                           "finished_at":  "2026-04-25T04:27:42.4395307+03:00",
+                           "status":  "completed",
+                           "task":  "Night Mode V6 iteration: improve service connector registry for Telegram, Google Sheets, Gmail, Calendar, n8n and HTTP API. Do not expose secrets."
+                       },
+                       {
+                           "iteration":  5,
+                           "workflow_id":  "none",
+                           "artifact":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\night_v6_brain\\runs\\nightv6_brain_20260425_042305\\iteration_005.json",
+                           "workflow_status":  "none",
+                           "finished_at":  "2026-04-25T04:29:12.5002334+03:00",
+                           "status":  "compiled_only",
+                           "task":  "Night Mode V6 iteration: improve Task Compiler complexity detection, provider routing and agent role selection."
+                       },
+                       {
+                           "iteration":  6,
+                           "workflow_id":  "FK0U0bnUihAn2xzR",
+                           "artifact":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\night_v6_brain\\runs\\nightv6_brain_20260425_042305\\iteration_006.json",
+                           "workflow_status":  "tested",
+                           "finished_at":  "2026-04-25T04:30:45.6841241+03:00",
+                           "status":  "completed",
+                           "task":  "Night Mode V6 iteration: improve n8n dynamic pipeline builder so dynamic_pipeline always creates full chain, not fallback Echo workflow."
+                       },
+                       {
+                           "iteration":  7,
+                           "workflow_id":  "none",
+                           "artifact":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\night_v6_brain\\runs\\nightv6_brain_20260425_042305\\iteration_007.json",
+                           "workflow_status":  "none",
+                           "finished_at":  "2026-04-25T04:32:15.7668802+03:00",
+                           "status":  "compiled_only",
+                           "task":  "Night Mode V6 iteration: create validation report and rollback artifact for every automated improvement."
+                       },
+                       {
+                           "iteration":  8,
+                           "workflow_id":  "none",
+                           "artifact":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\night_v6_brain\\runs\\nightv6_brain_20260425_042305\\iteration_008.json",
+                           "workflow_status":  "none",
+                           "finished_at":  "2026-04-25T04:33:45.8589464+03:00",
+                           "status":  "compiled_only",
+                           "task":  "Night Mode V6 iteration: improve Telegram operator UX: clearer summaries, less duplicated text, better next actions."
+                       },
+                       {
+                           "iteration":  9,
+                           "workflow_id":  "none",
+                           "artifact":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\night_v6_brain\\runs\\nightv6_brain_20260425_042305\\iteration_009.json",
+                           "workflow_status":  "none",
+                           "finished_at":  "2026-04-25T04:35:15.9329170+03:00",
+                           "status":  "compiled_only",
+                           "task":  "Night Mode V6 iteration: inspect Jarvis system and improve UTF-8 report stability. Keep changes safe, validated, reversible."
+                       },
+                       {
+                           "iteration":  10,
+                           "workflow_id":  "OzxYJg97kkPDViEf",
+                           "artifact":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\night_v6_brain\\runs\\nightv6_brain_20260425_042305\\iteration_010.json",
+                           "workflow_status":  "tested",
+                           "finished_at":  "2026-04-25T04:36:50.1531948+03:00",
+                           "status":  "completed",
+                           "task":  "Night Mode V6 iteration: improve Brain Executor execution lanes and make it capable of more task types beyond n8n. Keep low-risk."
+                       },
+                       {
+                           "iteration":  11,
+                           "workflow_id":  "none",
+                           "artifact":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\night_v6_brain\\runs\\nightv6_brain_20260425_042305\\iteration_011.json",
+                           "workflow_status":  "none",
+                           "finished_at":  "2026-04-25T04:38:20.2217769+03:00",
+                           "status":  "compiled_only",
+                           "task":  "Night Mode V6 iteration: improve memory learning loop. Save lessons from successes, failures, validation results and rollback decisions."
+                       },
+                       {
+                           "iteration":  12,
+                           "status":  "failed",
+                           "error":  "Не удается найти свойство \"workflow_id\" для этого объекта. Убедитесь, что оно существует.",
+                           "task":  "Night Mode V6 iteration: improve service connector registry for Telegram, Google Sheets, Gmail, Calendar, n8n and HTTP API. Do not expose secrets.",
+                           "finished_at":  "2026-04-25T04:39:51.8817958+03:00"
+                       },
+                       {
+                           "iteration":  13,
+                           "status":  "failed",
+                           "error":  "Не удается найти свойство \"workflow_id\" для этого объекта. Убедитесь, что оно существует.",
+                           "task":  "Night Mode V6 iteration: improve Task Compiler complexity detection, provider routing and agent role selection.",
+                           "finished_at":  "2026-04-25T04:41:23.2848139+03:00"
+                       },
+                       {
+                           "iteration":  14,
+                           "status":  "failed",
+                           "error":  "Не удается найти свойство \"workflow_id\" для этого объекта. Убедитесь, что оно существует.",
+                           "task":  "Night Mode V6 iteration: improve n8n dynamic pipeline builder so dynamic_pipeline always creates full chain, not fallback Echo workflow.",
+                           "finished_at":  "2026-04-25T04:42:54.7800172+03:00"
+                       },
+                       {
+                           "iteration":  15,
+                           "status":  "failed",
+                           "error":  "Не удается найти свойство \"workflow_id\" для этого объекта. Убедитесь, что оно существует.",
+                           "task":  "Night Mode V6 iteration: create validation report and rollback artifact for every automated improvement.",
+                           "finished_at":  "2026-04-25T04:44:26.1782994+03:00"
+                       },
+                       {
+                           "iteration":  16,
+                           "status":  "failed",
+                           "error":  "Не удается найти свойство \"workflow_id\" для этого объекта. Убедитесь, что оно существует.",
+                           "task":  "Night Mode V6 iteration: improve Telegram operator UX: clearer summaries, less duplicated text, better next actions.",
+                           "finished_at":  "2026-04-25T04:45:57.5764229+03:00"
+                       },
+                       {
+                           "iteration":  17,
+                           "status":  "failed",
+                           "error":  "Не удается найти свойство \"workflow_id\" для этого объекта. Убедитесь, что оно существует.",
+                           "task":  "Night Mode V6 iteration: inspect Jarvis system and improve UTF-8 report stability. Keep changes safe, validated, reversible.",
+                           "finished_at":  "2026-04-25T04:47:29.1747776+03:00"
+                       },
+                       {
+                           "iteration":  18,
+                           "status":  "failed",
+                           "error":  "Не удается найти свойство \"workflow_id\" для этого объекта. Убедитесь, что оно существует.",
+                           "task":  "Night Mode V6 iteration: improve Brain Executor execution lanes and make it capable of more task types beyond n8n. Keep low-risk.",
+                           "finished_at":  "2026-04-25T04:49:00.6160820+03:00"
+                       },
+                       {
+                           "iteration":  19,
+                           "status":  "failed",
+                           "error":  "Не удается найти свойство \"workflow_id\" для этого объекта. Убедитесь, что оно существует.",
+                           "task":  "Night Mode V6 iteration: improve memory learning loop. Save lessons from successes, failures, validation results and rollback decisions.",
+                           "finished_at":  "2026-04-25T04:50:32.1404820+03:00"
+                       },
+                       {
+                           "iteration":  20,
+                           "status":  "failed",
+                           "error":  "Не удается найти свойство \"workflow_id\" для этого объекта. Убедитесь, что оно существует.",
+                           "task":  "Night Mode V6 iteration: improve service connector registry for Telegram, Google Sheets, Gmail, Calendar, n8n and HTTP API. Do not expose secrets.",
+                           "finished_at":  "2026-04-25T04:52:03.6420659+03:00"
+                       }
+                   ],
+    "started_at":  "2026-04-25T04:23:05.6072957+03:00",
+    "status":  "completed",
+    "mode":  "brain_autonomous_loop",
+    "finished_at":  "2026-04-25T04:52:03.6597782+03:00",
+    "base_url":  "http://127.0.0.1:8015",
+    "deadline":  "2026-04-25T10:23:05.6072957+03:00"
+}

@@ -1,0 +1,52 @@
+{
+  "ok": true,
+  "tool": "internet.search",
+  "provider": "tavily",
+  "query": "test integration",
+  "created_at": "2026-04-30T18:49:02.980336Z",
+  "data": {
+    "query": "test integration",
+    "follow_up_questions": null,
+    "answer": "Integration testing verifies how different software components work together. It's crucial for identifying issues in the interaction between modules. Automated integration testing enhances software reliability and efficiency.",
+    "images": [],
+    "results": [
+      {
+        "url": "https://martinfowler.com/bliki/IntegrationTest.html",
+        "title": "Integration Test",
+        "content": "# Integration Test. tests are necessarily broad in scope, while they can be more effectively done. As often with these things, it's best to start with a bit of history. I first learned about integration testing, it was in the 1980's and the. and behavior of the various modules in the system. It was not unusual for one programmer to be. responsible for a single module, but this would be big enough that it could. All this work was done in isolation, and when the. programmer believed it was finished they would hand it over to QA for. The first part of testing would be unit testing, which would test that. The point of integration testing, as the name suggests, is to test **whether. In the alternative, we test the integration of the. Providing the test double is a faithful double of catalog, we can. This may not be a big deal if they are separate modules of.",
+        "score": 0.9993013,
+        "raw_content": null
+      },
+      {
+        "url": "https://en.wikipedia.org/wiki/Integration_testing",
+        "title": "Integration testing - Wikipedia",
+        "content": "Integration testing is a form of software testing in which multiple software components, modules, or services are tested together to verify they work as",
+        "score": 0.9986646,
+        "raw_content": null
+      },
+      {
+        "url": "https://www.functionize.com/automated-testing/automated-integration-testing-guide",
+        "title": "Automated Integration Testing: Elevate Your Software Quality",
+        "content": "# Automated Integration Testing: Elevate Your Software Quality. Automated integration testing is crucial for ensuring application reliability and functionality. ## What is Automated Integration Testing? Automated integration testing is a critical component of software testing. Automated integration testing ensures that individual software components function perfectly in isolation. Automated integration testing significantly enhances software reliability. Automation integration testing is vital for software reliability. Here are six key types of automated integration testing that are essential for effective software development. This type of automation integration testing is used to identify major issues early in the software testing process. ## How to Automate Integration Testing. By automating these test cases, developers can receive immediate notifications if their code changes introduce integration issues. ### What is continuous integration test automation? Automated integration tests should be run frequently to ensure continuous software quality. Automated integration testing benefits businesses by improving software reliability, accelerating bug detection, saving time and resources, and enhancing regression testing.",
+        "score": 0.99804294,
+        "raw_content": null
+      },
+      {
+        "url": "https://www.opkey.com/blog/integration-testing-a-comprehensive-guide-with-best-practices",
+        "title": "Integration Testing: A Comprehensive guide with best practices",
+        "content": "Integration testing refers to the process in which the interface of different applications, modules or components of a software application are tested as a",
+        "score": 0.99750805,
+        "raw_content": null
+      },
+      {
+        "url": "https://circleci.com/blog/unit-testing-vs-integration-testing/",
+        "title": "Unit testing vs integration testing - CircleCI",
+        "content": "# Unit testing vs integration testing. Two teams work side by side, one on unit testing, one on integration testing. Ideally, your team will find the best place to use unit testing and integration testing in your pipelines. ## What is unit testing? Otherwise, you need to apply code changes to make these restricted helpers accessible for unit testing. Now that we have explored unit testing in detail, we can learn how integration testing differs. ## What is integration testing? Integration testing helps find issues that are not obvious by examining the implementation of an entire application or one specific unit, which helps discover defects in the interplay of several application parts. AI tools can now generate unit tests and integration tests from natural language descriptions or by analyzing existing code. ## Unit testing and integration testing in CI/CD. Unit testing and integration testing are both important parts of successful software development.",
+        "score": 0.99605453,
+        "raw_content": null
+      }
+    ],
+    "response_time": 0.0,
+    "request_id": "575ace69-3ac0-428b-a34b-a8c128e4eeac"
+  }
+}

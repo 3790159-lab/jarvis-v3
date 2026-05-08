@@ -1,0 +1,131 @@
+{
+  "ok": true,
+  "status": 200,
+  "body": {
+    "updatedAt": "2026-04-24T16:34:27.120Z",
+    "createdAt": "2026-04-24T16:34:27.120Z",
+    "id": "Hn2VuJTVasYQrj1z",
+    "name": "Jarvis Night Report Webhook",
+    "description": null,
+    "active": true,
+    "isArchived": false,
+    "nodes": [
+      {
+        "id": "d3c97a95-ebb2-44cb-8d8b-b8ea30baf0cf",
+        "name": "Jarvis Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          240,
+          300
+        ],
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "jarvis-night-report-2180a5c8",
+          "responseMode": "lastNode",
+          "options": {}
+        },
+        "webhookId": "b3a340a8-367c-4a5f-9c87-5879c9d1d57e"
+      },
+      {
+        "id": "bf513751-f216-4f87-b994-592fd654958b",
+        "name": "Normalize Payload",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          520,
+          300
+        ],
+        "parameters": {
+          "jsCode": "const now = new Date().toISOString();\nreturn [{ json: { ok: true, receivedAt: now, source: 'jarvis', payload: $json } }];"
+        }
+      }
+    ],
+    "connections": {
+      "Jarvis Webhook": {
+        "main": [
+          [
+            {
+              "node": "Normalize Payload",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {},
+    "staticData": null,
+    "meta": null,
+    "pinData": null,
+    "versionId": "816ca98c-8e7b-48e6-b515-69f1f7990764",
+    "activeVersionId": "816ca98c-8e7b-48e6-b515-69f1f7990764",
+    "versionCounter": 3,
+    "triggerCount": 1,
+    "activeVersion": {
+      "updatedAt": "2026-04-24T16:34:27.124Z",
+      "createdAt": "2026-04-24T16:34:27.124Z",
+      "versionId": "816ca98c-8e7b-48e6-b515-69f1f7990764",
+      "workflowId": "Hn2VuJTVasYQrj1z",
+      "nodes": [
+        {
+          "id": "d3c97a95-ebb2-44cb-8d8b-b8ea30baf0cf",
+          "name": "Jarvis Webhook",
+          "type": "n8n-nodes-base.webhook",
+          "typeVersion": 2,
+          "position": [
+            240,
+            300
+          ],
+          "parameters": {
+            "httpMethod": "POST",
+            "path": "jarvis-night-report-2180a5c8",
+            "responseMode": "lastNode",
+            "options": {}
+          },
+          "webhookId": "b3a340a8-367c-4a5f-9c87-5879c9d1d57e"
+        },
+        {
+          "id": "bf513751-f216-4f87-b994-592fd654958b",
+          "name": "Normalize Payload",
+          "type": "n8n-nodes-base.code",
+          "typeVersion": 2,
+          "position": [
+            520,
+            300
+          ],
+          "parameters": {
+            "jsCode": "const now = new Date().toISOString();\nreturn [{ json: { ok: true, receivedAt: now, source: 'jarvis', payload: $json } }];"
+          }
+        }
+      ],
+      "connections": {
+        "Jarvis Webhook": {
+          "main": [
+            [
+              {
+                "node": "Normalize Payload",
+                "type": "main",
+                "index": 0
+              }
+            ]
+          ]
+        }
+      },
+      "authors": "Daniil Lapin",
+      "name": null,
+      "description": null,
+      "autosaved": false,
+      "workflowPublishHistory": [
+        {
+          "createdAt": "2026-04-24T16:34:27.391Z",
+          "id": 10,
+          "workflowId": "Hn2VuJTVasYQrj1z",
+          "versionId": "816ca98c-8e7b-48e6-b515-69f1f7990764",
+          "event": "activated",
+          "userId": "30e95836-767f-4606-9e2d-b7775186bd03"
+        }
+      ]
+    }
+  }
+}

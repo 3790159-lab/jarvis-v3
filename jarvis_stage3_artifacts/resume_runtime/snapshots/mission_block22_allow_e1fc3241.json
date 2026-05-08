@@ -1,0 +1,43 @@
+{
+  "mission_id": "mission_block22_allow_e1fc3241",
+  "objective": "Test allowed_tools restriction",
+  "steps": [
+    {
+      "step_id": "blocked_write",
+      "title": "Blocked file write",
+      "description": "Should fail because file_write is not allowed",
+      "task_type": "coding",
+      "preferred_provider": "ollama",
+      "status": "failed",
+      "response_text": "[ollama] Blocked file write: Implementation step completed. A safe fallback execution path was used for 'Test allowed_tools restriction'. Work item: Should fail because file_write is not allowed",
+      "error": "Tool 'file_write' is not allowed for this step",
+      "metadata": {
+        "phase": "execute",
+        "tool_payload": {
+          "content": "should not be written",
+          "path": "jarvis_stage3_artifacts/tool_runtime/outputs/block22_forbidden.txt"
+        },
+        "tool": "file_write",
+        "allowed_tools": [
+          "file_read"
+        ],
+        "requested_provider": "ollama",
+        "resolved_provider": "ollama",
+        "fallback_used": false,
+        "tool_result": {
+          "ok": false,
+          "tool": "file_write",
+          "output": null,
+          "error": "Tool 'file_write' is not allowed for this step",
+          "attempt": 1
+        }
+      }
+    }
+  ],
+  "status": "partial_failure",
+  "active_step_id": null,
+  "error": "One or more execution steps failed",
+  "created_at": 1776123661.2235515,
+  "updated_at": 1776123661.265696,
+  "last_heartbeat_at": 1776123661.265696
+}

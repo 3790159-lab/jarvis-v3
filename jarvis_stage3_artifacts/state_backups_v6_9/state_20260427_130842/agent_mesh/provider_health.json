@@ -1,0 +1,37 @@
+{
+  "providers": [
+    {
+      "provider": "cloud",
+      "status": "healthy",
+      "success_count": 96,
+      "failure_count": 0,
+      "consecutive_failures": 0,
+      "last_error": "",
+      "last_success_ts": 1776511024.7399704,
+      "last_failure_ts": 0.0,
+      "latency_ms_avg": 3308.51
+    },
+    {
+      "provider": "openai_compatible",
+      "status": "healthy",
+      "success_count": 0,
+      "failure_count": 0,
+      "consecutive_failures": 0,
+      "last_error": "",
+      "last_success_ts": 0.0,
+      "last_failure_ts": 0.0,
+      "latency_ms_avg": 0.0
+    },
+    {
+      "provider": "ollama",
+      "status": "healthy",
+      "success_count": 17,
+      "failure_count": 0,
+      "consecutive_failures": 0,
+      "last_error": "",
+      "last_success_ts": 1776511069.9823115,
+      "last_failure_ts": 0.0,
+      "latency_ms_avg": 22506.04
+    }
+  ]
+}

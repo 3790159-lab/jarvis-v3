@@ -1,0 +1,285 @@
+{
+    "timestamp":  "20260422_000354",
+    "bridge_base":  "http://127.0.0.1:8030",
+    "bridge_health":  {
+                          "body":  {
+                                       "status":  "ok",
+                                       "service":  "jarvis_n8n_bridge",
+                                       "config_path":  "/bridge-data/bridge-config.json",
+                                       "n8n_base_url":  "http://n8n-main:5678",
+                                       "n8n_editor_base_url":  "http://127.0.0.1:5680",
+                                       "n8n_webhook_base_url":  "http://127.0.0.1:5680",
+                                       "has_api_key":  true,
+                                       "api_key_preview":  "eyJh*******************************************************************************************************************************************************************************************************************************************************************ZLpM",
+                                       "n8n_main_readiness":  {
+                                                                  "ok":  true,
+                                                                  "url":  "http://n8n-main:5678/healthz/readiness",
+                                                                  "status_code":  200
+                                                              }
+                                   },
+                          "ok":  true
+                      },
+    "bridge_config":  {
+                          "body":  {
+                                       "n8n_base_url":  "http://n8n-main:5678",
+                                       "n8n_editor_base_url":  "http://127.0.0.1:5680",
+                                       "n8n_webhook_base_url":  "http://127.0.0.1:5680",
+                                       "has_api_key":  true,
+                                       "api_key_preview":  "eyJh*******************************************************************************************************************************************************************************************************************************************************************ZLpM",
+                                       "config_path":  "/bridge-data/bridge-config.json"
+                                   },
+                          "ok":  true
+                      },
+    "create":  {
+                   "body":  {
+                                "created":  {
+                                                "url":  "http://n8n-main:5678/api/v1/workflows",
+                                                "status_code":  200,
+                                                "ok":  true,
+                                                "body":  {
+                                                             "name":  "jarvis-local-smoke-20260422_000354",
+                                                             "nodes":  [
+                                                                           {
+                                                                               "name":  "Jarvis Webhook",
+                                                                               "type":  "n8n-nodes-base.webhook",
+                                                                               "typeVersion":  1,
+                                                                               "position":  [
+                                                                                                600,
+                                                                                                300
+                                                                                            ],
+                                                                               "parameters":  {
+                                                                                                  "httpMethod":  "POST",
+                                                                                                  "path":  "jarvis-local-smoke-20260422_000354",
+                                                                                                  "options":  {
+
+                                                                                                              }
+                                                                                              },
+                                                                               "id":  "f9948a50-cc73-4712-8ae6-43132c04626d",
+                                                                               "webhookId":  "7286f9f2-152b-4d76-9765-640e6c74b2a0"
+                                                                           }
+                                                                       ],
+                                                             "connections":  {
+
+                                                                             },
+                                                             "settings":  {
+                                                                              "callerPolicy":  "workflowsFromSameOwner",
+                                                                              "availableInMCP":  false
+                                                                          },
+                                                             "active":  false,
+                                                             "versionId":  "5b3d661a-742b-4657-864c-5de74c98dc1f",
+                                                             "id":  "qvdafsUjmc3t1KWf",
+                                                             "description":  null,
+                                                             "staticData":  null,
+                                                             "meta":  null,
+                                                             "pinData":  null,
+                                                             "activeVersionId":  null,
+                                                             "updatedAt":  "2026-04-21T21:03:54.860Z",
+                                                             "createdAt":  "2026-04-21T21:03:54.860Z",
+                                                             "isArchived":  false,
+                                                             "versionCounter":  1,
+                                                             "triggerCount":  0
+                                                         }
+                                            },
+                                "workflow_id":  "qvdafsUjmc3t1KWf",
+                                "webhook_path":  "jarvis-local-smoke-20260422_000354"
+                            },
+                   "ok":  true
+               },
+    "activate":  {
+                     "body":  {
+                                  "url":  "http://n8n-main:5678/api/v1/workflows/qvdafsUjmc3t1KWf/activate",
+                                  "status_code":  200,
+                                  "ok":  true,
+                                  "body":  {
+                                               "updatedAt":  "2026-04-21T21:03:54.860Z",
+                                               "createdAt":  "2026-04-21T21:03:54.860Z",
+                                               "id":  "qvdafsUjmc3t1KWf",
+                                               "name":  "jarvis-local-smoke-20260422_000354",
+                                               "description":  null,
+                                               "active":  true,
+                                               "isArchived":  false,
+                                               "nodes":  [
+                                                             {
+                                                                 "name":  "Jarvis Webhook",
+                                                                 "type":  "n8n-nodes-base.webhook",
+                                                                 "typeVersion":  1,
+                                                                 "position":  [
+                                                                                  600,
+                                                                                  300
+                                                                              ],
+                                                                 "parameters":  {
+                                                                                    "httpMethod":  "POST",
+                                                                                    "path":  "jarvis-local-smoke-20260422_000354",
+                                                                                    "options":  {
+
+                                                                                                }
+                                                                                },
+                                                                 "id":  "f9948a50-cc73-4712-8ae6-43132c04626d",
+                                                                 "webhookId":  "7286f9f2-152b-4d76-9765-640e6c74b2a0"
+                                                             }
+                                                         ],
+                                               "connections":  {
+
+                                                               },
+                                               "settings":  {
+                                                                "callerPolicy":  "workflowsFromSameOwner",
+                                                                "availableInMCP":  false
+                                                            },
+                                               "staticData":  null,
+                                               "meta":  null,
+                                               "pinData":  null,
+                                               "versionId":  "5b3d661a-742b-4657-864c-5de74c98dc1f",
+                                               "activeVersionId":  "5b3d661a-742b-4657-864c-5de74c98dc1f",
+                                               "versionCounter":  3,
+                                               "triggerCount":  1,
+                                               "activeVersion":  {
+                                                                     "updatedAt":  "2026-04-21T21:03:54.880Z",
+                                                                     "createdAt":  "2026-04-21T21:03:54.880Z",
+                                                                     "versionId":  "5b3d661a-742b-4657-864c-5de74c98dc1f",
+                                                                     "workflowId":  "qvdafsUjmc3t1KWf",
+                                                                     "nodes":  [
+                                                                                   {
+                                                                                       "name":  "Jarvis Webhook",
+                                                                                       "type":  "n8n-nodes-base.webhook",
+                                                                                       "typeVersion":  1,
+                                                                                       "position":  [
+                                                                                                        600,
+                                                                                                        300
+                                                                                                    ],
+                                                                                       "parameters":  {
+                                                                                                          "httpMethod":  "POST",
+                                                                                                          "path":  "jarvis-local-smoke-20260422_000354",
+                                                                                                          "options":  {
+
+                                                                                                                      }
+                                                                                                      },
+                                                                                       "id":  "f9948a50-cc73-4712-8ae6-43132c04626d",
+                                                                                       "webhookId":  "7286f9f2-152b-4d76-9765-640e6c74b2a0"
+                                                                                   }
+                                                                               ],
+                                                                     "connections":  {
+
+                                                                                     },
+                                                                     "authors":  "Daniil Lapin",
+                                                                     "name":  null,
+                                                                     "description":  null,
+                                                                     "autosaved":  false,
+                                                                     "workflowPublishHistory":  [
+                                                                                                    {
+                                                                                                        "createdAt":  "2026-04-21T21:03:55.150Z",
+                                                                                                        "id":  1,
+                                                                                                        "workflowId":  "qvdafsUjmc3t1KWf",
+                                                                                                        "versionId":  "5b3d661a-742b-4657-864c-5de74c98dc1f",
+                                                                                                        "event":  "activated",
+                                                                                                        "userId":  "1300330d-0eb5-43c1-81cb-cdcc19f8b6c2"
+                                                                                                    }
+                                                                                                ]
+                                                                 }
+                                           }
+                              },
+                     "ok":  true
+                 },
+    "probe":  {
+                  "error":  "Удаленный сервер возвратил ошибку: (500) Внутренняя ошибка сервера.",
+                  "ok":  false
+              },
+    "list_after":  {
+                       "body":  {
+                                    "url":  "http://n8n-main:5678/api/v1/workflows?limit=20",
+                                    "status_code":  200,
+                                    "ok":  true,
+                                    "body":  {
+                                                 "data":  [
+                                                              {
+                                                                  "updatedAt":  "2026-04-21T21:03:54.860Z",
+                                                                  "createdAt":  "2026-04-21T21:03:54.860Z",
+                                                                  "id":  "qvdafsUjmc3t1KWf",
+                                                                  "name":  "jarvis-local-smoke-20260422_000354",
+                                                                  "active":  true,
+                                                                  "isArchived":  false,
+                                                                  "nodes":  [
+                                                                                {
+                                                                                    "name":  "Jarvis Webhook",
+                                                                                    "type":  "n8n-nodes-base.webhook",
+                                                                                    "typeVersion":  1,
+                                                                                    "position":  [
+                                                                                                     600,
+                                                                                                     300
+                                                                                                 ],
+                                                                                    "parameters":  {
+                                                                                                       "httpMethod":  "POST",
+                                                                                                       "path":  "jarvis-local-smoke-20260422_000354",
+                                                                                                       "options":  {
+
+                                                                                                                   }
+                                                                                                   },
+                                                                                    "id":  "f9948a50-cc73-4712-8ae6-43132c04626d",
+                                                                                    "webhookId":  "7286f9f2-152b-4d76-9765-640e6c74b2a0"
+                                                                                }
+                                                                            ],
+                                                                  "connections":  {
+
+                                                                                  },
+                                                                  "settings":  {
+                                                                                   "callerPolicy":  "workflowsFromSameOwner",
+                                                                                   "availableInMCP":  false
+                                                                               },
+                                                                  "staticData":  null,
+                                                                  "meta":  null,
+                                                                  "pinData":  null,
+                                                                  "versionId":  "5b3d661a-742b-4657-864c-5de74c98dc1f",
+                                                                  "activeVersionId":  "5b3d661a-742b-4657-864c-5de74c98dc1f",
+                                                                  "triggerCount":  1,
+                                                                  "shared":  [
+                                                                                 {
+                                                                                     "updatedAt":  "2026-04-21T21:03:54.860Z",
+                                                                                     "createdAt":  "2026-04-21T21:03:54.860Z",
+                                                                                     "role":  "workflow:owner",
+                                                                                     "workflowId":  "qvdafsUjmc3t1KWf",
+                                                                                     "projectId":  "aveo7yB5O9cKpeLV"
+                                                                                 }
+                                                                             ],
+                                                                  "activeVersion":  {
+                                                                                        "updatedAt":  "2026-04-21T21:03:54.880Z",
+                                                                                        "createdAt":  "2026-04-21T21:03:54.880Z",
+                                                                                        "versionId":  "5b3d661a-742b-4657-864c-5de74c98dc1f",
+                                                                                        "workflowId":  "qvdafsUjmc3t1KWf",
+                                                                                        "nodes":  [
+                                                                                                      {
+                                                                                                          "name":  "Jarvis Webhook",
+                                                                                                          "type":  "n8n-nodes-base.webhook",
+                                                                                                          "typeVersion":  1,
+                                                                                                          "position":  [
+                                                                                                                           600,
+                                                                                                                           300
+                                                                                                                       ],
+                                                                                                          "parameters":  {
+                                                                                                                             "httpMethod":  "POST",
+                                                                                                                             "path":  "jarvis-local-smoke-20260422_000354",
+                                                                                                                             "options":  {
+
+                                                                                                                                         }
+                                                                                                                         },
+                                                                                                          "id":  "f9948a50-cc73-4712-8ae6-43132c04626d",
+                                                                                                          "webhookId":  "7286f9f2-152b-4d76-9765-640e6c74b2a0"
+                                                                                                      }
+                                                                                                  ],
+                                                                                        "connections":  {
+
+                                                                                                        },
+                                                                                        "authors":  "Daniil Lapin",
+                                                                                        "name":  null,
+                                                                                        "description":  null,
+                                                                                        "autosaved":  false
+                                                                                    },
+                                                                  "tags":  [
+
+                                                                           ]
+                                                              }
+                                                          ],
+                                                 "nextCursor":  null
+                                             }
+                                },
+                       "ok":  true
+                   }
+}

@@ -1,0 +1,124 @@
+{
+  "ok": true,
+  "tool": "internet.research",
+  "provider": "perplexity",
+  "query": "Act as an AI systems engineer. Research current tools and propose an implementation plan. Include architecture, APIs, failure modes, security concerns, testing, and rollout steps. Task: test integration",
+  "created_at": "2026-04-30T18:49:02.525027Z",
+  "answer": "**Jarvis V3 Supervisor здесь. Режим: engineer + research. Задача: план тестирования интеграции с текущими инструментами. Доступно сейчас: синтез плана на основе поиска. Backend/tools для execution: частично (n8n/agents готовы, но тестовая интеграция требует запуска).**\n\n### Рекомендуемые инструменты для integration testing (2026)\nНа основе анализа топ-платформ, выбираем **BaseRock AI** как primary (AI-генерация тестов, CI/CD-интеграция, поддержка REST/Kafka/gRPC)[1]. Альтернативы: Mabl (agentic testing, IDE-интеграция)[5], Keysight Eggplant (UI+API в одном сценарии)[7], Rainforest QA (AI-assisted maintenance)[6]. Критерии: CI/CD-совместимость (GitHub Actions/Jenkins), scalability для microservices, auto-test generation.\n\n| Инструмент | Ключевые фичи | CI/CD Интеграция | Подходит для нас |\n|------------|---------------|------------------|------------------|\n| **BaseRock AI** | AI-генерация тестов по code changes, API validation, edge cases[1] | GitHub Actions, Jenkins, GitLab[1][2] | Primary: локальный backend + Telegram bridge |\n| **Mabl** | Natural language → tests, Jira/Slack integration[5] | Jenkins, GitHub, Azure DevOps[2][5] | Secondary: для mission/agents |\n| **Keysight Eggplant** | UI+API journeys, enterprise scale[7] | CI/CD triggers[7] | Для complex (n8n pipelines) |\n| **Rainforest QA** | Low-maintenance AI tests[6] | Полная DevOps[2] | Backup: если high maintenance |\n\n### Архитектура интеграции\n```\n[Telegram Bridge] ←→ [n8n Pipelines] ←→ [Execution Layer (Agents)] ←→ [Backend APIs]\n                                      ↓\n                           [BaseRock AI / Mabl] (test generation + execution)\n                                      ↓\n[Monitoring: Logs → Slack/Jira] + [DB: Test results traceability]\n```\n- **Компоненты**: n8n как orchestrator (webhooks от Telegram → API calls). Agents выполняют миссии. BaseRock генерирует тесты на code changes в repo.\n- **APIs**: REST/gRPC для bridge (POST /test-run). CI/CD hooks: GitHub webhook → n8n → tool API[1][2].\n- **Data flow**: User query → mission → agent execution → integration test → report back.\n\n### Failure Modes и Mitigation\n- **Race conditions/data mismatches**: Auto-detect + retry logic в BaseRock[1].\n- **CI/CD failures**: Fallback to manual n8n trigger; monitor queue size.\n- **Tool downtime**: Multi-tool (BaseRock primary, Mabl fallback); local mock tests.\n- **Scalability limits**: Rate limits на APIs — queue в n8n; test на 100+ concurrent missions.\n\n### Security Concerns\n- **API keys**: Vault storage (n8n secrets); rotate weekly.\n- **Input validation**: Sanitize Telegram inputs (no SQLi/XSS); use JWT для agents.\n- **Access**: RBAC — только operator (Daniil) full control; audit logs[1].\n- **Vulns**: Dependency scan pre-rollout (npm audit); avoid public repos.\n\n### Testing Plan (Self-Test Integration)\n1. **Unit**: Mock n8n nodes (local Node.js scripts).\n2. **Integration**: \n   - Setup: n8n workflow → BaseRock trial API (бесплатный tier? Проверить docs).\n   - Test case: \"Telegram /test → agent run → API call → validate response\".\n   - Run: `n8n execute workflow:integration-test`.\n3. **E2E**: GitHub PR → CI trigger → full report в Telegram.\n- **Coverage**: 80%+ (API endpoints, edge: offline bridge).\n\n### Rollout Steps (Operator-Ready)\n1. **Prep (1 час)**: `n8n import workflow-integration.json` (создам файл). Sign up BaseRock/Mabl API keys.\n2. **Local Test (30 мин)**: `npm run test:integration` — check logs.\n3. **Staging (2 часа)**: Deploy to test backend; simulate 10 missions.\n4. **Prod Rollout**: \n   - Blue-green: v1 → v2 with tests.\n   - Monitor: Prometheus + alerts в Telegram.\n5. **Post-Rollout**: Weekly regression via CI; feedback loop.\n\n**Команда для запуска**: \"Daniil, выполни: n8n start workflow 'test-integration' с BaseRock key. Status?\" Готов к execution — подтверди, и запустим pilot test.",
+  "raw": {
+    "id": "ef76384d-d70d-40f6-929f-b39e6e5f65a1",
+    "model": "sonar-pro",
+    "created": 1777574940,
+    "usage": {
+      "prompt_tokens": 407,
+      "completion_tokens": 1061,
+      "total_tokens": 1468,
+      "search_context_size": "low",
+      "cost": {
+        "input_tokens_cost": 0.00122,
+        "output_tokens_cost": 0.01592,
+        "request_cost": 0.006,
+        "total_cost": 0.02314
+      }
+    },
+    "citations": [
+      "https://www.baserock.ai/blog/best-integration-testing-tools-in-2025-baserock-ai",
+      "https://www.virtuosoqa.com/post/best-ai-testing-tools",
+      "https://testguild.com/7-innovative-ai-test-automation-tools-future-third-wave/",
+      "https://bug0.com/blog/ai-testing-tools",
+      "https://www.digitalocean.com/resources/articles/ai-testing-tools",
+      "https://www.rainforestqa.com/blog/ai-testing-tools",
+      "https://www.keysight.com/blogs/en/tech/software-testing/enterprise-testing-tools-ai",
+      "https://www.flowcase.com/blog/12-best-ai-tools-for-engineers",
+      "https://www.braintrust.dev/articles/best-ai-evaluation-tools-2026"
+    ],
+    "search_results": [
+      {
+        "title": "Best Integration Testing Tools in 2026: Top Platforms Compared",
+        "url": "https://www.baserock.ai/blog/best-integration-testing-tools-in-2025-baserock-ai",
+        "date": "2025-04-11",
+        "last_updated": "2026-03-30",
+        "snippet": "1. Test Automation · BaseRock AI intelligently generates and runs tests based on code changes. · Reduces manual effort and eliminates human error.",
+        "source": "web"
+      },
+      {
+        "title": "10 Best AI Testing Tools & Platforms in 2026 - Virtuoso QA",
+        "url": "https://www.virtuosoqa.com/post/best-ai-testing-tools",
+        "date": "2026-04-16",
+        "last_updated": "2026-04-22",
+        "snippet": "Compare Virtuoso QA, Mabl, Testim, and 8 more to find the one that actually reduces maintenance, scales with your team, and delivers results ...",
+        "source": "web"
+      },
+      {
+        "title": "12 BEST AI Test Automation Tools for 2026 The Third Wave",
+        "url": "https://testguild.com/7-innovative-ai-test-automation-tools-future-third-wave/",
+        "date": "2026-03-01",
+        "last_updated": "2026-04-29",
+        "snippet": "Tested 40+ AI test automation tools. Here are the 12 that actually work no hype. Real insights from 25+ years in test automation.",
+        "source": "web"
+      },
+      {
+        "title": "AI Testing Tools: What Works, What Doesn't, and What Comes Next",
+        "url": "https://bug0.com/blog/ai-testing-tools",
+        "date": "2026-04-04",
+        "last_updated": "2026-04-29",
+        "snippet": "Explore AI testing tools, core capabilities, limits, and why managed AI-native QA is the next step for reliable software testing.",
+        "source": "web"
+      },
+      {
+        "title": "13 AI Testing Tools to Streamline Your QA Process in 2026",
+        "url": "https://www.digitalocean.com/resources/articles/ai-testing-tools",
+        "date": "2026-03-06",
+        "last_updated": "2026-04-30",
+        "snippet": "Integration: Integration with GitHub, GitLab, and CI/CD pipelines matters because it lets you run tests automatically with every code change.",
+        "source": "web"
+      },
+      {
+        "title": "The top 9 AI testing tools (and what you should know) - Rainforest QA",
+        "url": "https://www.rainforestqa.com/blog/ai-testing-tools",
+        "date": "2025-05-29",
+        "last_updated": "2026-04-11",
+        "snippet": "The top 9 AI testing tools (and what you should know) · Rainforest QA · OpenText · Harness · Autify · TestRigor · Reflect.",
+        "source": "web"
+      },
+      {
+        "title": "Software Testing Tools: Top Picks and an AI Test Automation Guide",
+        "url": "https://www.keysight.com/blogs/en/tech/software-testing/enterprise-testing-tools-ai",
+        "date": "2026-03-02",
+        "last_updated": "2026-04-29",
+        "snippet": "Software testing tools for enterprise teams: compare unit, API, web, mobile, and end-to-end approaches, see where each fit, and learn how AI ...",
+        "source": "web"
+      },
+      {
+        "title": "12 Best AI Tools for Engineers in 2026 - Flowcase",
+        "url": "https://www.flowcase.com/blog/12-best-ai-tools-for-engineers",
+        "last_updated": "2026-04-16",
+        "snippet": "Top picks include GitHub Copilot and Cursor for coding, Neural Concept for design simulation, Ansys Discovery and SimScale for physics analysis, and Perplexity ...",
+        "source": "web"
+      },
+      {
+        "title": "5 best AI evaluation tools for AI systems in production (2026) - Articles",
+        "url": "https://www.braintrust.dev/articles/best-ai-evaluation-tools-2026",
+        "date": "2026-01-25",
+        "last_updated": "2026-04-30",
+        "snippet": "Compare the top AI evaluation tools for 2026. Learn how Braintrust, Arize, Maxim, Galileo, and Fiddler help teams test, monitor, ...",
+        "source": "web"
+      }
+    ],
+    "object": "chat.completion",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "**Jarvis V3 Supervisor здесь. Режим: engineer + research. Задача: план тестирования интеграции с текущими инструментами. Доступно сейчас: синтез плана на основе поиска. Backend/tools для execution: частично (n8n/agents готовы, но тестовая интеграция требует запуска).**\n\n### Рекомендуемые инструменты для integration testing (2026)\nНа основе анализа топ-платформ, выбираем **BaseRock AI** как primary (AI-генерация тестов, CI/CD-интеграция, поддержка REST/Kafka/gRPC)[1]. Альтернативы: Mabl (agentic testing, IDE-интеграция)[5], Keysight Eggplant (UI+API в одном сценарии)[7], Rainforest QA (AI-assisted maintenance)[6]. Критерии: CI/CD-совместимость (GitHub Actions/Jenkins), scalability для microservices, auto-test generation.\n\n| Инструмент | Ключевые фичи | CI/CD Интеграция | Подходит для нас |\n|------------|---------------|------------------|------------------|\n| **BaseRock AI** | AI-генерация тестов по code changes, API validation, edge cases[1] | GitHub Actions, Jenkins, GitLab[1][2] | Primary: локальный backend + Telegram bridge |\n| **Mabl** | Natural language → tests, Jira/Slack integration[5] | Jenkins, GitHub, Azure DevOps[2][5] | Secondary: для mission/agents |\n| **Keysight Eggplant** | UI+API journeys, enterprise scale[7] | CI/CD triggers[7] | Для complex (n8n pipelines) |\n| **Rainforest QA** | Low-maintenance AI tests[6] | Полная DevOps[2] | Backup: если high maintenance |\n\n### Архитектура интеграции\n```\n[Telegram Bridge] ←→ [n8n Pipelines] ←→ [Execution Layer (Agents)] ←→ [Backend APIs]\n                                      ↓\n                           [BaseRock AI / Mabl] (test generation + execution)\n                                      ↓\n[Monitoring: Logs → Slack/Jira] + [DB: Test results traceability]\n```\n- **Компоненты**: n8n как orchestrator (webhooks от Telegram → API calls). Agents выполняют миссии. BaseRock генерирует тесты на code changes в repo.\n- **APIs**: REST/gRPC для bridge (POST /test-run). CI/CD hooks: GitHub webhook → n8n → tool API[1][2].\n- **Data flow**: User query → mission → agent execution → integration test → report back.\n\n### Failure Modes и Mitigation\n- **Race conditions/data mismatches**: Auto-detect + retry logic в BaseRock[1].\n- **CI/CD failures**: Fallback to manual n8n trigger; monitor queue size.\n- **Tool downtime**: Multi-tool (BaseRock primary, Mabl fallback); local mock tests.\n- **Scalability limits**: Rate limits на APIs — queue в n8n; test на 100+ concurrent missions.\n\n### Security Concerns\n- **API keys**: Vault storage (n8n secrets); rotate weekly.\n- **Input validation**: Sanitize Telegram inputs (no SQLi/XSS); use JWT для agents.\n- **Access**: RBAC — только operator (Daniil) full control; audit logs[1].\n- **Vulns**: Dependency scan pre-rollout (npm audit); avoid public repos.\n\n### Testing Plan (Self-Test Integration)\n1. **Unit**: Mock n8n nodes (local Node.js scripts).\n2. **Integration**: \n   - Setup: n8n workflow → BaseRock trial API (бесплатный tier? Проверить docs).\n   - Test case: \"Telegram /test → agent run → API call → validate response\".\n   - Run: `n8n execute workflow:integration-test`.\n3. **E2E**: GitHub PR → CI trigger → full report в Telegram.\n- **Coverage**: 80%+ (API endpoints, edge: offline bridge).\n\n### Rollout Steps (Operator-Ready)\n1. **Prep (1 час)**: `n8n import workflow-integration.json` (создам файл). Sign up BaseRock/Mabl API keys.\n2. **Local Test (30 мин)**: `npm run test:integration` — check logs.\n3. **Staging (2 часа)**: Deploy to test backend; simulate 10 missions.\n4. **Prod Rollout**: \n   - Blue-green: v1 → v2 with tests.\n   - Monitor: Prometheus + alerts в Telegram.\n5. **Post-Rollout**: Weekly regression via CI; feedback loop.\n\n**Команда для запуска**: \"Daniil, выполни: n8n start workflow 'test-integration' с BaseRock key. Status?\" Готов к execution — подтверди, и запустим pilot test."
+        },
+        "delta": {
+          "role": "assistant",
+          "content": ""
+        },
+        "finish_reason": "stop"
+      }
+    ]
+  }
+}

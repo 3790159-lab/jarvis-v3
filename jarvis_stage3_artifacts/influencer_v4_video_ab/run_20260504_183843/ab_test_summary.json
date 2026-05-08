@@ -1,0 +1,94 @@
+{
+  "ok": true,
+  "run_id": "20260504_183843",
+  "best_image": "https://influencer-studio.b-cdn.net/production/cmohophfk007i3argbjj1o8k7/e7d76e85-85fd-4c1d-baee-3897c6217fb4.png",
+  "models": [
+    "veo-3.1",
+    "sora-2",
+    "kling-3"
+  ],
+  "results": [
+    {
+      "model": "veo-3.1",
+      "generation_id": "cmord6rvq00315x42llcp01k8",
+      "status": {
+        "generation_id": "cmord6rvq00315x42llcp01k8",
+        "status": "failed",
+        "result_urls": [],
+        "credits_used": 250,
+        "total_items": 1,
+        "completed_items": 0,
+        "failed_items": 1,
+        "items": [
+          {
+            "id": "cmord6rvq00325x422hyqdam6",
+            "type": "video",
+            "status": "FAILED",
+            "url": null,
+            "created_at": "2026-05-04T15:38:44.006Z",
+            "updated_at": "2026-05-04T15:41:04.459Z"
+          }
+        ]
+      },
+      "urls": [],
+      "json_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\influencer_v4_video_ab\\run_20260504_183843\\veo-3.1_cmord6rvq00315x42llcp01k8.json"
+    },
+    {
+      "model": "sora-2",
+      "generation_id": "cmord6tbn00ajmm3b53zvn1ja",
+      "status": {
+        "generation_id": "cmord6tbn00ajmm3b53zvn1ja",
+        "status": "failed",
+        "result_urls": [],
+        "credits_used": 375,
+        "total_items": 1,
+        "completed_items": 0,
+        "failed_items": 1,
+        "items": [
+          {
+            "id": "cmord6tbo00akmm3bmaz9iy61",
+            "type": "video",
+            "status": "FAILED",
+            "url": null,
+            "created_at": "2026-05-04T15:38:45.876Z",
+            "updated_at": "2026-05-04T15:38:47.632Z"
+          }
+        ]
+      },
+      "urls": [],
+      "json_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\influencer_v4_video_ab\\run_20260504_183843\\sora-2_cmord6tbn00ajmm3b53zvn1ja.json"
+    },
+    {
+      "model": "kling-3",
+      "generation_id": "cmord6ui700385x42pb3weui3",
+      "status": {
+        "generation_id": "cmord6ui700385x42pb3weui3",
+        "status": "completed",
+        "result_urls": [
+          "https://influencer-studio.b-cdn.net/production/cmohophfk007i3argbjj1o8k7/3e658fbd-5175-411f-b724-27dd60c90c4c.mp4"
+        ],
+        "credits_used": 300,
+        "total_items": 1,
+        "completed_items": 1,
+        "failed_items": 0,
+        "items": [
+          {
+            "id": "cmord6ui700395x42c44penlm",
+            "type": "video",
+            "status": "COMPLETED",
+            "url": "https://influencer-studio.b-cdn.net/production/cmohophfk007i3argbjj1o8k7/3e658fbd-5175-411f-b724-27dd60c90c4c.mp4",
+            "created_at": "2026-05-04T15:38:47.407Z",
+            "updated_at": "2026-05-04T15:40:22.550Z"
+          }
+        ]
+      },
+      "urls": [
+        "https://influencer-studio.b-cdn.net/production/cmohophfk007i3argbjj1o8k7/3e658fbd-5175-411f-b724-27dd60c90c4c.mp4"
+      ],
+      "json_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\influencer_v4_video_ab\\run_20260504_183843\\kling-3_cmord6ui700385x42pb3weui3.json"
+    }
+  ],
+  "local_videos": [
+    "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\influencer_v4_video_ab\\run_20260504_183843\\kling-3_1_3e658fbd-5175-411f-b724-27dd60c90c4c.mp4"
+  ]
+}

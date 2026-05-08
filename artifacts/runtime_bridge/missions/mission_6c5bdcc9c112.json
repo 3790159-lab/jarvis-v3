@@ -1,0 +1,151 @@
+{
+  "mission_id": "mission_6c5bdcc9c112",
+  "goal_id": "goal_83ef13d78b84",
+  "created_at": "2026-04-10T00:48:56.495397+00:00",
+  "updated_at": "2026-04-10T00:48:56.535535+00:00",
+  "status": "completed",
+  "objective": "Create a landing page for Jarvis Runtime Studio with a hero section and CTA",
+  "selected_task_type": "site",
+  "artifact_name": "Jarvis Runtime Studio",
+  "classification": {
+    "objective": "Create a landing page for Jarvis Runtime Studio with a hero section and CTA",
+    "selected_task_type": "site",
+    "artifact_name": "Jarvis Runtime Studio",
+    "description": "Create a landing page for Jarvis Runtime Studio with a hero section and CTA",
+    "payload": {
+      "title": "Jarvis Runtime Studio",
+      "hero": "Runtime-linked autonomous artifact execution",
+      "subtitle": "This mission was submitted through runtime bridge",
+      "cta": "Open Runtime"
+    },
+    "candidates": [
+      {
+        "task_type": "site",
+        "score": 25,
+        "reasons": [
+          "matched 'landing' (+9)",
+          "matched 'landing page' (+12)",
+          "matched 'page' (+4)"
+        ]
+      }
+    ],
+    "reasoning": [
+      "selected top candidate 'site' with score 25",
+      "matched 'landing' (+9)",
+      "matched 'landing page' (+12)",
+      "matched 'page' (+4)"
+    ]
+  },
+  "execution": {
+    "ok": true,
+    "run_id": "mission_artifact_ad9866647a2f",
+    "status": "completed",
+    "objective": "Create a landing page for Jarvis Runtime Studio with a hero section and CTA",
+    "selected_task_type": "site",
+    "artifact_name": "Jarvis Runtime Studio",
+    "plan": {
+      "selected_task_type": "site",
+      "artifact_name": "Jarvis Runtime Studio",
+      "description": "Create a landing page for Jarvis Runtime Studio with a hero section and CTA",
+      "payload": {
+        "title": "Jarvis Runtime Studio",
+        "hero": "Runtime-linked autonomous artifact execution",
+        "subtitle": "This mission was submitted through runtime bridge",
+        "cta": "Open Runtime"
+      },
+      "candidates": [
+        {
+          "task_type": "site",
+          "score": 25,
+          "reasons": [
+            "matched 'landing' (+9)",
+            "matched 'landing page' (+12)",
+            "matched 'page' (+4)"
+          ]
+        }
+      ],
+      "reasoning": [
+        "selected top candidate 'site' with score 25",
+        "matched 'landing' (+9)",
+        "matched 'landing page' (+12)",
+        "matched 'page' (+4)"
+      ]
+    },
+    "artifact_result": {
+      "ok": true,
+      "task_id": "artifact_efb4109240b4",
+      "task_type": "site",
+      "category": "sites",
+      "name": "Jarvis Runtime Studio",
+      "slug": "jarvis-runtime-studio",
+      "output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\sites\\20260410_004856_jarvis-runtime-studio",
+      "manifest_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\sites\\20260410_004856_jarvis-runtime-studio\\manifest.json",
+      "files": [
+        {
+          "relative_path": "index.html",
+          "size_bytes": 1059
+        },
+        {
+          "relative_path": "styles.css",
+          "size_bytes": 1031
+        },
+        {
+          "relative_path": "app.js",
+          "size_bytes": 135
+        },
+        {
+          "relative_path": "README.md",
+          "size_bytes": 80
+        }
+      ],
+      "summary": {
+        "artifact_kind": "site_bundle",
+        "title": "Jarvis Runtime Studio",
+        "hero": "Runtime-linked autonomous artifact execution",
+        "files_expected": [
+          "index.html",
+          "styles.css",
+          "app.js",
+          "README.md"
+        ]
+      },
+      "validation": {
+        "output_dir_exists": true,
+        "created_files_count": 4,
+        "total_bytes": 2305,
+        "valid": true
+      },
+      "status": "created"
+    },
+    "summary": {
+      "objective": "Create a landing page for Jarvis Runtime Studio with a hero section and CTA",
+      "selected_task_type": "site",
+      "artifact_name": "Jarvis Runtime Studio",
+      "artifact_status": "created",
+      "artifact_ok": true,
+      "output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\sites\\20260410_004856_jarvis-runtime-studio",
+      "manifest_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\sites\\20260410_004856_jarvis-runtime-studio\\manifest.json",
+      "files_count": 4
+    },
+    "run_record_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\mission_runs\\mission_artifact_ad9866647a2f.json"
+  },
+  "summary": {
+    "stage": "executed",
+    "message": "Mission executed through mission artifact service.",
+    "selected_task_type": "site",
+    "artifact_name": "Jarvis Runtime Studio",
+    "artifact_ok": true,
+    "run_id": "mission_artifact_ad9866647a2f",
+    "artifact_output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\sites\\20260410_004856_jarvis-runtime-studio",
+    "artifact_manifest_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\sites\\20260410_004856_jarvis-runtime-studio\\manifest.json"
+  },
+  "links": {
+    "goal_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_bridge\\goals\\goal_83ef13d78b84.json",
+    "mission_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_bridge\\missions\\mission_6c5bdcc9c112.json",
+    "mission_artifact_run_id": "mission_artifact_ad9866647a2f",
+    "mission_artifact_run_record_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\mission_runs\\mission_artifact_ad9866647a2f.json",
+    "artifact_task_id": "artifact_efb4109240b4",
+    "artifact_manifest_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\sites\\20260410_004856_jarvis-runtime-studio\\manifest.json",
+    "artifact_output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\sites\\20260410_004856_jarvis-runtime-studio"
+  }
+}

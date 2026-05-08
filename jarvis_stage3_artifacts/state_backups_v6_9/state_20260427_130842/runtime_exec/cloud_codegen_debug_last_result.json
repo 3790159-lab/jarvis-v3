@@ -1,0 +1,27 @@
+{
+  "ok": false,
+  "status": "approval_required",
+  "policy": {
+    "risk_level": "guarded",
+    "requires_approval": true,
+    "is_forbidden": false,
+    "reason": "Adapter 'openai_compatible_http' is external or less constrained and requires governance."
+  },
+  "approval": {
+    "approval_id": "approval_cff22b3abf7c",
+    "created_at": 1776442227.9199266,
+    "updated_at": 1776442227.9199266,
+    "status": "pending",
+    "mission_id": null,
+    "step_id": null,
+    "risk_level": "guarded",
+    "summary": "Adapter invoke requires approval: openai_compatible_http",
+    "operator_note": null,
+    "payload": {
+      "adapter_name": "openai_compatible_http",
+      "payload": {},
+      "requested_capabilities": [],
+      "requested_tools": []
+    }
+  }
+}

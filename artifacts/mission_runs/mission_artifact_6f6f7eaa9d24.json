@@ -1,0 +1,98 @@
+{
+  "run_id": "mission_artifact_6f6f7eaa9d24",
+  "status": "completed",
+  "objective": "Create a YouTube content calendar table for 30 days",
+  "selected_task_type": "table",
+  "artifact_name": "YouTube 30 Day Calendar",
+  "created_at": "2026-04-10T00:36:07.495231+00:00",
+  "plan": {
+    "selected_task_type": "table",
+    "artifact_name": "YouTube 30 Day Calendar",
+    "description": "Create a YouTube content calendar table for 30 days",
+    "payload": {
+      "rows": [
+        {
+          "title": "Channel intro",
+          "format": "short",
+          "day": 1,
+          "status": "planned"
+        },
+        {
+          "title": "Problem / solution",
+          "format": "short",
+          "day": 2,
+          "status": "planned"
+        },
+        {
+          "title": "Tool breakdown",
+          "format": "short",
+          "day": 3,
+          "status": "planned"
+        }
+      ]
+    },
+    "candidates": [
+      {
+        "task_type": "table",
+        "score": 1000,
+        "reasons": [
+          "preferred_task_type override"
+        ]
+      }
+    ],
+    "reasoning": [
+      "used preferred task type override"
+    ]
+  },
+  "artifact_result": {
+    "ok": true,
+    "task_id": "artifact_dc53f8cd0a0d",
+    "task_type": "table",
+    "category": "tables",
+    "name": "YouTube 30 Day Calendar",
+    "slug": "youtube-30-day-calendar",
+    "output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\tables\\20260410_003607_youtube-30-day-calendar",
+    "manifest_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\tables\\20260410_003607_youtube-30-day-calendar\\manifest.json",
+    "files": [
+      {
+        "relative_path": "table.csv",
+        "size_bytes": 127
+      },
+      {
+        "relative_path": "table.json",
+        "size_bytes": 492
+      },
+      {
+        "relative_path": "README.md",
+        "size_bytes": 112
+      }
+    ],
+    "summary": {
+      "rows": 3,
+      "columns": [
+        "title",
+        "format",
+        "day",
+        "status"
+      ],
+      "artifact_kind": "table_bundle"
+    },
+    "validation": {
+      "output_dir_exists": true,
+      "created_files_count": 3,
+      "total_bytes": 731,
+      "valid": true
+    },
+    "status": "created"
+  },
+  "summary": {
+    "objective": "Create a YouTube content calendar table for 30 days",
+    "selected_task_type": "table",
+    "artifact_name": "YouTube 30 Day Calendar",
+    "artifact_status": "created",
+    "artifact_ok": true,
+    "output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\tables\\20260410_003607_youtube-30-day-calendar",
+    "manifest_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\tables\\20260410_003607_youtube-30-day-calendar\\manifest.json",
+    "files_count": 3
+  }
+}

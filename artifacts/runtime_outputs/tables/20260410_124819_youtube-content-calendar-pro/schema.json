@@ -1,0 +1,13 @@
+{
+  "artifact_kind": "table_bundle_v2",
+  "columns": [
+    "day",
+    "title",
+    "format",
+    "status",
+    "platform",
+    "owner"
+  ],
+  "row_count": 3,
+  "recommended_primary_key": "day"
+}

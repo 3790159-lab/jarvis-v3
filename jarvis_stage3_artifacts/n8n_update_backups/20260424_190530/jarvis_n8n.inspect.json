@@ -1,0 +1,293 @@
+﻿[
+    {
+        "Id": "a559f3733e2035f7017bc464212e2a48525a23d12ccc6085579ef29737b5e9ad",
+        "Created": "2026-04-19T23:45:05.153784573Z",
+        "Path": "tini",
+        "Args": [
+            "--",
+            "/docker-entrypoint.sh"
+        ],
+        "State": {
+            "Status": "running",
+            "Running": true,
+            "Paused": false,
+            "Restarting": false,
+            "OOMKilled": false,
+            "Dead": false,
+            "Pid": 1136,
+            "ExitCode": 0,
+            "Error": "",
+            "StartedAt": "2026-04-21T00:11:06.916187535Z",
+            "FinishedAt": "2026-04-21T00:11:06.322459347Z"
+        },
+        "Image": "sha256:ad20607cdd24bac004ec44804b6b8ded9a2fbf92ed46c4496bf007762c883af2",
+        "ResolvConfPath": "/var/lib/docker/containers/a559f3733e2035f7017bc464212e2a48525a23d12ccc6085579ef29737b5e9ad/resolv.conf",
+        "HostnamePath": "/var/lib/docker/containers/a559f3733e2035f7017bc464212e2a48525a23d12ccc6085579ef29737b5e9ad/hostname",
+        "HostsPath": "/var/lib/docker/containers/a559f3733e2035f7017bc464212e2a48525a23d12ccc6085579ef29737b5e9ad/hosts",
+        "LogPath": "/var/lib/docker/containers/a559f3733e2035f7017bc464212e2a48525a23d12ccc6085579ef29737b5e9ad/a559f3733e2035f7017bc464212e2a48525a23d12ccc6085579ef29737b5e9ad-json.log",
+        "Name": "/jarvis_n8n",
+        "RestartCount": 0,
+        "Driver": "overlayfs",
+        "Platform": "linux",
+        "MountLabel": "",
+        "ProcessLabel": "",
+        "AppArmorProfile": "",
+        "ExecIDs": null,
+        "HostConfig": {
+            "Binds": [
+                "n8n_n8n_data:/home/node/.n8n:rw",
+                "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\infra\\docker\\n8n\\local-files:/files:rw"
+            ],
+            "ContainerIDFile": "",
+            "LogConfig": {
+                "Type": "json-file",
+                "Config": {}
+            },
+            "NetworkMode": "n8n_default",
+            "PortBindings": {
+                "5678/tcp": [
+                    {
+                        "HostIp": "",
+                        "HostPort": "5678"
+                    }
+                ]
+            },
+            "RestartPolicy": {
+                "Name": "unless-stopped",
+                "MaximumRetryCount": 0
+            },
+            "AutoRemove": false,
+            "VolumeDriver": "",
+            "VolumesFrom": null,
+            "ConsoleSize": [
+                0,
+                0
+            ],
+            "CapAdd": null,
+            "CapDrop": null,
+            "CgroupnsMode": "private",
+            "Dns": null,
+            "DnsOptions": null,
+            "DnsSearch": null,
+            "ExtraHosts": [],
+            "GroupAdd": null,
+            "IpcMode": "private",
+            "Cgroup": "",
+            "Links": null,
+            "OomScoreAdj": 0,
+            "PidMode": "",
+            "Privileged": false,
+            "PublishAllPorts": false,
+            "ReadonlyRootfs": false,
+            "SecurityOpt": null,
+            "UTSMode": "",
+            "UsernsMode": "",
+            "ShmSize": 67108864,
+            "Runtime": "runc",
+            "Isolation": "",
+            "CpuShares": 0,
+            "Memory": 0,
+            "NanoCpus": 0,
+            "CgroupParent": "",
+            "BlkioWeight": 0,
+            "BlkioWeightDevice": null,
+            "BlkioDeviceReadBps": null,
+            "BlkioDeviceWriteBps": null,
+            "BlkioDeviceReadIOps": null,
+            "BlkioDeviceWriteIOps": null,
+            "CpuPeriod": 0,
+            "CpuQuota": 0,
+            "CpuRealtimePeriod": 0,
+            "CpuRealtimeRuntime": 0,
+            "CpusetCpus": "",
+            "CpusetMems": "",
+            "Devices": null,
+            "DeviceCgroupRules": null,
+            "DeviceRequests": null,
+            "MemoryReservation": 0,
+            "MemorySwap": 0,
+            "MemorySwappiness": null,
+            "OomKillDisable": null,
+            "PidsLimit": null,
+            "Ulimits": null,
+            "CpuCount": 0,
+            "CpuPercent": 0,
+            "IOMaximumIOps": 0,
+            "IOMaximumBandwidth": 0,
+            "MaskedPaths": [
+                "/proc/acpi",
+                "/proc/asound",
+                "/proc/interrupts",
+                "/proc/kcore",
+                "/proc/keys",
+                "/proc/latency_stats",
+                "/proc/sched_debug",
+                "/proc/scsi",
+                "/proc/timer_list",
+                "/proc/timer_stats",
+                "/sys/devices/virtual/powercap",
+                "/sys/firmware"
+            ],
+            "ReadonlyPaths": [
+                "/proc/bus",
+                "/proc/fs",
+                "/proc/irq",
+                "/proc/sys",
+                "/proc/sysrq-trigger"
+            ]
+        },
+        "Storage": {
+            "RootFS": {
+                "Snapshot": {
+                    "Name": "overlayfs"
+                }
+            }
+        },
+        "Mounts": [
+            {
+                "Type": "volume",
+                "Name": "n8n_n8n_data",
+                "Source": "n8n_n8n_data",
+                "Destination": "/home/node/.n8n",
+                "Driver": "local",
+                "Mode": "rw",
+                "RW": true,
+                "Propagation": ""
+            },
+            {
+                "Type": "bind",
+                "Source": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\infra\\docker\\n8n\\local-files",
+                "Destination": "/files",
+                "Mode": "rw",
+                "RW": true,
+                "Propagation": "rprivate"
+            }
+        ],
+        "Config": {
+            "Hostname": "a559f3733e20",
+            "Domainname": "",
+            "User": "node",
+            "AttachStdin": false,
+            "AttachStdout": true,
+            "AttachStderr": true,
+            "ExposedPorts": {
+                "5678/tcp": {}
+            },
+            "Tty": false,
+            "OpenStdin": false,
+            "StdinOnce": false,
+            "Env": [
+                "N8N_PROTOCOL=http",
+                "N8N_EDITOR_BASE_URL=http://127.0.0.1:5678",
+                "WEBHOOK_URL=http://127.0.0.1:5678/",
+                "N8N_ENCRYPTION_KEY=ZleyEToqHkkXvnVzPhlDlJ0yCbT4T6A9B7LzEM6HUD4",
+                "N8N_RUNNERS_ENABLED=true",
+                "N8N_HOST=0.0.0.0",
+                "N8N_PORT=5678",
+                "TZ=Europe/Kyiv",
+                "N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=false",
+                "GENERIC_TIMEZONE=Europe/Kyiv",
+                "NODE_VERSION=24.14.1",
+                "NPM_CONFIG_UPDATE_NOTIFIER=false",
+                "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "NODE_PATH=/opt/nodejs/node-v24.14.1/lib/node_modules",
+                "NODE_ENV=production",
+                "N8N_RELEASE_TYPE=stable",
+                "SHELL=/bin/sh"
+            ],
+            "Cmd": null,
+            "Image": "docker.n8n.io/n8nio/n8n:latest",
+            "Volumes": null,
+            "WorkingDir": "/home/node",
+            "Entrypoint": [
+                "tini",
+                "--",
+                "/docker-entrypoint.sh"
+            ],
+            "Labels": {
+                "com.docker.compose.config-hash": "d4bc5ac1ba91afde1e59d98db8d7dc75fbef933df9002fe89f48fcc7a0174dec",
+                "com.docker.compose.container-number": "1",
+                "com.docker.compose.depends_on": "",
+                "com.docker.compose.image": "sha256:ad20607cdd24bac004ec44804b6b8ded9a2fbf92ed46c4496bf007762c883af2",
+                "com.docker.compose.oneoff": "False",
+                "com.docker.compose.project": "n8n",
+                "com.docker.compose.project.config_files": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\infra\\docker\\n8n\\compose.yaml",
+                "com.docker.compose.project.working_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\infra\\docker\\n8n",
+                "com.docker.compose.service": "n8n",
+                "com.docker.compose.version": "5.1.1",
+                "com.docker.dhi.chain-id": "sha256:b5a34a84c7e4bf5e5e3d292c081ca3675af412227b90613a3360a67b1f219c49",
+                "com.docker.dhi.compliance": "cis",
+                "com.docker.dhi.created": "2026-03-27T17:14:07Z",
+                "com.docker.dhi.date.end-of-life": "2028-04-30",
+                "com.docker.dhi.date.release": "2025-05-06",
+                "com.docker.dhi.definition": "image/node/alpine-3.22/24-dev",
+                "com.docker.dhi.distro": "alpine-3.22",
+                "com.docker.dhi.flavor": "",
+                "com.docker.dhi.name": "dhi/node",
+                "com.docker.dhi.package-manager": "apk",
+                "com.docker.dhi.shell": "busybox",
+                "com.docker.dhi.title": "Node.js 24.x (dev)",
+                "com.docker.dhi.url": "https://dhi.io/catalog/node",
+                "com.docker.dhi.variant": "dev",
+                "com.docker.dhi.version": "24.14.1-alpine3.22-dev",
+                "org.opencontainers.image.description": "Workflow Automation Tool",
+                "org.opencontainers.image.source": "https://github.com/n8n-io/n8n",
+                "org.opencontainers.image.title": "n8n",
+                "org.opencontainers.image.url": "https://n8n.io",
+                "org.opencontainers.image.version": "2.16.1"
+            },
+            "StopTimeout": 1
+        },
+        "NetworkSettings": {
+            "SandboxID": "d8b05fd8443c2b414970f950f6cc69b03e32a0772c971392044752a9194fb596",
+            "SandboxKey": "/var/run/docker/netns/d8b05fd8443c",
+            "Ports": {
+                "5678/tcp": [
+                    {
+                        "HostIp": "0.0.0.0",
+                        "HostPort": "5678"
+                    },
+                    {
+                        "HostIp": "::",
+                        "HostPort": "5678"
+                    }
+                ]
+            },
+            "Networks": {
+                "n8n_default": {
+                    "IPAMConfig": null,
+                    "Links": null,
+                    "Aliases": [
+                        "jarvis_n8n",
+                        "n8n"
+                    ],
+                    "DriverOpts": null,
+                    "GwPriority": 0,
+                    "NetworkID": "4e2cc09428e1861e19460fc7bc29aa64f99b3f407511be9293f6811e04b7c630",
+                    "EndpointID": "029d2d826c547263280de5ac61e2c1817ff69a9b71cc5a1d7d3f645bb553a24c",
+                    "Gateway": "172.18.0.1",
+                    "IPAddress": "172.18.0.2",
+                    "MacAddress": "52:a1:cb:a1:f3:7a",
+                    "IPPrefixLen": 16,
+                    "IPv6Gateway": "",
+                    "GlobalIPv6Address": "",
+                    "GlobalIPv6PrefixLen": 0,
+                    "DNSNames": [
+                        "jarvis_n8n",
+                        "n8n",
+                        "a559f3733e20"
+                    ]
+                }
+            }
+        },
+        "ImageManifestDescriptor": {
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "digest": "sha256:e714641da275775912aacbd03d1e1841007cef6b75462e7d3de8459e56897ae4",
+            "size": 2564,
+            "platform": {
+                "architecture": "amd64",
+                "os": "linux"
+            }
+        }
+    }
+]

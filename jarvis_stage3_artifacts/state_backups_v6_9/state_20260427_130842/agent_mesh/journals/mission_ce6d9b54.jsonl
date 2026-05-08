@@ -1,0 +1,1 @@
+{"event": "task_completed", "task_id": "native_n8n_dryrun_api", "agent_id": "n8n_agent_main", "provider": "cloud", "qa_summary": "QA average=0.90 passed=True", "ts": "2026-04-18 01:33:17"}

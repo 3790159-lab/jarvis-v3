@@ -1,0 +1,59 @@
+{
+  "health": {
+    "status_code": 200,
+    "ok": true,
+    "headers": {
+      "server": "uvicorn",
+      "content-type": "application/json"
+    },
+    "body": {
+      "status": "ok",
+      "service": "n8n_action_router_materializer",
+      "n8n": {
+        "service": "n8n_workflow_materializer",
+        "base_url": "https://daniliyc.app.n8n.cloud",
+        "webhook_base_url": "https://daniliyc.app.n8n.cloud",
+        "has_api_key": true,
+        "timeout_seconds": 45,
+        "api_status": "reachable"
+      },
+      "actions": [
+        "publish:workflow",
+        "publish_and_probe:workflow"
+      ]
+    }
+  },
+  "debug_state": {
+    "status_code": 404,
+    "ok": false,
+    "headers": {
+      "server": "uvicorn",
+      "content-type": "application/json"
+    },
+    "body": {
+      "detail": "Not Found"
+    }
+  },
+  "dry_run": {
+    "status_code": 404,
+    "ok": false,
+    "headers": {
+      "server": "uvicorn",
+      "content-type": "application/json"
+    },
+    "body": {
+      "detail": "Not Found"
+    }
+  },
+  "publish_and_probe": {
+    "status_code": 500,
+    "ok": false,
+    "headers": {
+      "server": "uvicorn",
+      "content-type": "application/json"
+    },
+    "body": {
+      "detail": "n8n API request failed: POST https://daniliyc.app.n8n.cloud/api/v1/workflows -> 400: {\"message\":\"request/body must NOT have additional properties\"}"
+    }
+  }
+}

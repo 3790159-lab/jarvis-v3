@@ -1,0 +1,119 @@
+﻿{
+    "created_at":  "2026-04-03T18:58:59",
+    "project_root":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api",
+    "port":  8010,
+    "attempts":  12,
+    "delay_seconds":  5,
+    "success_count":  12,
+    "failure_count":  0,
+    "results":  [
+                    {
+                        "attempt":  1,
+                        "checked_at":  "2026-04-03T18:57:22",
+                        "ok":  true,
+                        "status":  "healthy",
+                        "pid":  15320,
+                        "uptime_seconds":  0.83,
+                        "error":  null
+                    },
+                    {
+                        "attempt":  2,
+                        "checked_at":  "2026-04-03T18:57:27",
+                        "ok":  true,
+                        "status":  "healthy",
+                        "pid":  24992,
+                        "uptime_seconds":  0.24,
+                        "error":  null
+                    },
+                    {
+                        "attempt":  3,
+                        "checked_at":  "2026-04-03T18:57:35",
+                        "ok":  true,
+                        "status":  "healthy",
+                        "pid":  11508,
+                        "uptime_seconds":  0.03,
+                        "error":  null
+                    },
+                    {
+                        "attempt":  4,
+                        "checked_at":  "2026-04-03T18:57:43",
+                        "ok":  true,
+                        "status":  "healthy",
+                        "pid":  24644,
+                        "uptime_seconds":  0.18,
+                        "error":  null
+                    },
+                    {
+                        "attempt":  5,
+                        "checked_at":  "2026-04-03T18:57:53",
+                        "ok":  true,
+                        "status":  "healthy",
+                        "pid":  31036,
+                        "uptime_seconds":  0.46,
+                        "error":  null
+                    },
+                    {
+                        "attempt":  6,
+                        "checked_at":  "2026-04-03T18:58:02",
+                        "ok":  true,
+                        "status":  "healthy",
+                        "pid":  11060,
+                        "uptime_seconds":  0.13,
+                        "error":  null
+                    },
+                    {
+                        "attempt":  7,
+                        "checked_at":  "2026-04-03T18:58:10",
+                        "ok":  true,
+                        "status":  "healthy",
+                        "pid":  39084,
+                        "uptime_seconds":  0.34,
+                        "error":  null
+                    },
+                    {
+                        "attempt":  8,
+                        "checked_at":  "2026-04-03T18:58:19",
+                        "ok":  true,
+                        "status":  "healthy",
+                        "pid":  26652,
+                        "uptime_seconds":  0.5,
+                        "error":  null
+                    },
+                    {
+                        "attempt":  9,
+                        "checked_at":  "2026-04-03T18:58:28",
+                        "ok":  true,
+                        "status":  "healthy",
+                        "pid":  42152,
+                        "uptime_seconds":  0.11,
+                        "error":  null
+                    },
+                    {
+                        "attempt":  10,
+                        "checked_at":  "2026-04-03T18:58:37",
+                        "ok":  true,
+                        "status":  "healthy",
+                        "pid":  14104,
+                        "uptime_seconds":  0.32,
+                        "error":  null
+                    },
+                    {
+                        "attempt":  11,
+                        "checked_at":  "2026-04-03T18:58:46",
+                        "ok":  true,
+                        "status":  "healthy",
+                        "pid":  42708,
+                        "uptime_seconds":  0.04,
+                        "error":  null
+                    },
+                    {
+                        "attempt":  12,
+                        "checked_at":  "2026-04-03T18:58:55",
+                        "ok":  true,
+                        "status":  "healthy",
+                        "pid":  27036,
+                        "uptime_seconds":  0.26,
+                        "error":  null
+                    }
+                ]
+}

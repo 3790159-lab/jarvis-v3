@@ -1,0 +1,22 @@
+{
+  "task_id": "task_20260424_104858_536a35c6",
+  "title": "Parallel test task",
+  "objective": "Check that operator task center can track parallel tasks",
+  "status": "completed",
+  "priority": "normal",
+  "stage": "finished",
+  "progress": 100,
+  "plan": [
+    "Register task",
+    "Track status",
+    "Ask Jarvis next action"
+  ],
+  "notes": [
+    "Finished at 2026-04-24T11:15:39+00:00",
+    "Loop status: completed",
+    "Loop run id: uloop_20260424_111537_d1f21bc1"
+  ],
+  "next_action": "Proceed to richer orchestration cases.",
+  "created_at": "2026-04-24T10:48:58+00:00",
+  "updated_at": "2026-04-24T11:15:39+00:00"
+}

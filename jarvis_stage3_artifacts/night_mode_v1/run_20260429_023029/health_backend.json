@@ -1,0 +1,8 @@
+{
+  "ok": true,
+  "result": {
+    "status": "healthy",
+    "service": "jarvis_v3_supervisor",
+    "env": "dev"
+  }
+}

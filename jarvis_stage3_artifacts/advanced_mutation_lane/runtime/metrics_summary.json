@@ -1,0 +1,12 @@
+{
+  "decisions_count": 18,
+  "apply_count": 6,
+  "artifact_only_count": 4,
+  "blocked_count": 8,
+  "patch_class_counts": {
+    "logging_patch": 12,
+    "validation_patch": 6
+  },
+  "collected_at": "2026-04-23T22:27:57+00:00",
+  "artifacts_root": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\advanced_mutation_lane"
+}

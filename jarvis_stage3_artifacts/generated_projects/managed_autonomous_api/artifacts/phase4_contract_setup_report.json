@@ -1,0 +1,10 @@
+﻿{
+    "created_at":  "2026-04-03T19:12:54",
+    "project_root":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api",
+    "files":  {
+                  "mission_contract":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\contracts\\mission_contract.json",
+                  "task_contract":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\contracts\\task_contract.json",
+                  "status_rules":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api\\contracts\\status_transition_rules.json"
+              },
+    "status":  "ok"
+}

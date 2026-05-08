@@ -1,0 +1,11 @@
+{
+  "run_id": "coord_20260424_144724_fbdf4aa0",
+  "goal": "Execute operator task safely",
+  "task": "проведи тест агента по продажам и что он умеет",
+  "mode": "safe_mutation",
+  "priority": "normal",
+  "constraints": [],
+  "target_paths": [],
+  "metadata": {},
+  "created_at": "2026-04-24T14:47:24+00:00"
+}

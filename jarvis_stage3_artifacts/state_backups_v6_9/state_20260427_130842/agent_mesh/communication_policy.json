@@ -1,0 +1,42 @@
+{
+  "risk_budgets": {
+    "low": 0,
+    "normal": 1,
+    "high": 2,
+    "critical": 3
+  },
+  "task_overrides": {
+    "planning": 0,
+    "research": 1,
+    "validation": 1,
+    "codegen": 2,
+    "integration": 0,
+    "memory_write": 0,
+    "connector_execution": 0,
+    "service_probe": 0
+  },
+  "allowed_support": {
+    "plan": [
+      "analyze",
+      "context_bundle",
+      "validate"
+    ],
+    "analyze": [
+      "context_bundle",
+      "validate"
+    ],
+    "codegen": [
+      "analyze",
+      "context_bundle",
+      "validate"
+    ],
+    "validate": [
+      "context_bundle"
+    ],
+    "workflow_run": [
+      "validate"
+    ],
+    "memory_write": [],
+    "context_bundle": []
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "generation_id": "cmohvc97z00vmmscp815v88wc",
+  "status": "completed",
+  "result_urls": [
+    "https://influencer-studio.b-cdn.net/production/cmohophfk007i3argbjj1o8k7/3571ba92-5227-4b63-88d8-7631a276a339.mp4"
+  ],
+  "credits_used": 300,
+  "total_items": 1,
+  "completed_items": 1,
+  "failed_items": 0,
+  "items": [
+    {
+      "id": "cmohvc97z00vnmscp4dcwhn1e",
+      "type": "video",
+      "status": "COMPLETED",
+      "url": "https://influencer-studio.b-cdn.net/production/cmohophfk007i3argbjj1o8k7/3571ba92-5227-4b63-88d8-7631a276a339.mp4",
+      "created_at": "2026-04-28T00:09:11.087Z",
+      "updated_at": "2026-04-28T00:11:26.628Z"
+    }
+  ]
+}

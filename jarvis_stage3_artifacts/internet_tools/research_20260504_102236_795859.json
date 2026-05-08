@@ -1,0 +1,107 @@
+{
+  "ok": true,
+  "tool": "internet.research",
+  "provider": "perplexity",
+  "query": "some slow query",
+  "created_at": "2026-05-04T10:22:36.795859Z",
+  "answer": "I notice your query is quite brief. Let me provide guidance on **diagnosing and optimizing slow SQL queries** based on the search results:\n\n## Common Causes of Slow Queries\n\nThe primary factors behind sluggish SQL performance include:[1]\n\n- **Lack of proper indexing**: Databases must scan entire tables without indexes, dramatically increasing query times[1]\n- **Suboptimal query structure**: Unnecessary JOINs and incorrect filtering conditions lengthen processing[1]\n- **Large dataset processing**: Queries handling massive datasets need optimization to avoid processing excessive data at once[1]\n- **Outdated statistics**: Database optimizers make poor execution plan decisions with stale statistics[1]\n- **Hardware resource limits**: Slow CPU, insufficient RAM, or low disk speed throttle performance[1]\n- **Locks and contention**: High concurrency and improper transaction management cause delays[1]\n\n## Diagnostic Approach\n\n**Start by identifying which queries are slow** by examining execution time against your established performance baseline—typically measured in milliseconds based on your workload requirements[2]. Focus on elapsed time as the primary metric, then gather CPU time and logical reads to narrow investigation[2].\n\n**Collect execution plans** by running queries with \"Include Actual Execution Plan\" enabled, then check the QueryTimeStats properties for ElapsedTime and CpuTime[2].\n\n## Optimization Strategies\n\nCommon resolution methods include:[2]\n\n- Examining the query execution plan\n- Updating statistics\n- Identifying and applying missing indexes\n- Redesigning or rewriting queries\n- Resolving parameter-sensitive plans\n- Addressing SARG-ability issues\n\nFor detailed debugging, **decompose complex queries into constituent parts and simplify iteratively** to test changes faster[6].\n\nCould you provide more specifics about your query—such as database system (SQL Server, PostgreSQL, etc.), query structure, or performance metrics?",
+  "raw": {
+    "id": "2a91ca55-6f68-4a2c-b4d1-7721785e3a52",
+    "model": "sonar-pro",
+    "created": 1777890155,
+    "usage": {
+      "prompt_tokens": 373,
+      "completion_tokens": 373,
+      "total_tokens": 746,
+      "search_context_size": "low",
+      "cost": {
+        "input_tokens_cost": 0.00112,
+        "output_tokens_cost": 0.0056,
+        "request_cost": 0.006,
+        "total_cost": 0.01271
+      }
+    },
+    "citations": [
+      "https://sqream.com/blog/slow-sql-queries/",
+      "https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/performance/troubleshoot-slow-running-queries",
+      "https://www.youtube.com/watch?v=Ylh-KdYPPnE",
+      "https://blog.sentry.io/find-slow-database-queries-with-query-insights/",
+      "https://www.docs.inductiveautomation.com/docs/8.1/platform/sql-in-ignition/basic-sql-troubleshooting/slow-queries",
+      "https://www.dolthub.com/blog/2023-03-23-debugging-perf/",
+      "https://wiki.postgresql.org/wiki/Slow_Query_Questions"
+    ],
+    "search_results": [
+      {
+        "title": "Slow SQL Queries: How to Diagnose and Optimize Them - SQream",
+        "url": "https://sqream.com/blog/slow-sql-queries/",
+        "date": "2024-01-11",
+        "last_updated": "2026-05-02",
+        "snippet": "In this guide, we'll walk you through how to diagnose slow SQL queries and provide best practices for optimization.",
+        "source": "web"
+      },
+      {
+        "title": "Troubleshoot slow-running queries - SQL Server - Microsoft Learn",
+        "url": "https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/performance/troubleshoot-slow-running-queries",
+        "date": "2025-01-10",
+        "last_updated": "2026-04-26",
+        "snippet": "This article describes how to handle a performance issue that database applications may experience when using SQL Server: slow performance of a specific query ...",
+        "source": "web"
+      },
+      {
+        "title": "Slow SQL Server Query: AI vs Me - YouTube",
+        "url": "https://www.youtube.com/watch?v=Ylh-KdYPPnE",
+        "date": "2026-02-23",
+        "last_updated": "2026-05-04",
+        "snippet": "... slow SQL Server query to make it run faster, then put the query and execution plan into an AI tool to see what AI suggests, and what I miss ...",
+        "source": "web"
+      },
+      {
+        "title": "Find slow database queries with Query Insights - Sentry Blog",
+        "url": "https://blog.sentry.io/find-slow-database-queries-with-query-insights/",
+        "date": "2023-09-28",
+        "last_updated": "2026-04-26",
+        "snippet": "To see if a database query is behind the performance issue, click on the Queries from the left navigation menu under Performance.",
+        "source": "web"
+      },
+      {
+        "title": "Slow Queries - Ignition User Manual - Inductive Automation",
+        "url": "https://www.docs.inductiveautomation.com/docs/8.1/platform/sql-in-ignition/basic-sql-troubleshooting/slow-queries",
+        "date": "2025-04-07",
+        "last_updated": "2026-03-30",
+        "snippet": "Slow running queries can be a big problem. Not only can data take a long time to display on the screen, but it can end up slowing down the whole client.",
+        "source": "web"
+      },
+      {
+        "title": "Debugging Slow SQL Queries | DoltHub Blog",
+        "url": "https://www.dolthub.com/blog/2023-03-23-debugging-perf/",
+        "date": "2023-03-23",
+        "last_updated": "2026-04-27",
+        "snippet": "This blog walks through how to debug slow queries. We start by decomposing a query into its constituent parts. Then we simplify the query to iterate more ...",
+        "source": "web"
+      },
+      {
+        "title": "Slow Query Questions - PostgreSQL wiki",
+        "url": "https://wiki.postgresql.org/wiki/Slow_Query_Questions",
+        "date": "2023-04-07",
+        "last_updated": "2026-05-02",
+        "snippet": "In any given week, some 50% of the questions on #postgresql IRC and 75% on pgsql-performance are requests for help with a slow query.",
+        "source": "web"
+      }
+    ],
+    "object": "chat.completion",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "I notice your query is quite brief. Let me provide guidance on **diagnosing and optimizing slow SQL queries** based on the search results:\n\n## Common Causes of Slow Queries\n\nThe primary factors behind sluggish SQL performance include:[1]\n\n- **Lack of proper indexing**: Databases must scan entire tables without indexes, dramatically increasing query times[1]\n- **Suboptimal query structure**: Unnecessary JOINs and incorrect filtering conditions lengthen processing[1]\n- **Large dataset processing**: Queries handling massive datasets need optimization to avoid processing excessive data at once[1]\n- **Outdated statistics**: Database optimizers make poor execution plan decisions with stale statistics[1]\n- **Hardware resource limits**: Slow CPU, insufficient RAM, or low disk speed throttle performance[1]\n- **Locks and contention**: High concurrency and improper transaction management cause delays[1]\n\n## Diagnostic Approach\n\n**Start by identifying which queries are slow** by examining execution time against your established performance baseline—typically measured in milliseconds based on your workload requirements[2]. Focus on elapsed time as the primary metric, then gather CPU time and logical reads to narrow investigation[2].\n\n**Collect execution plans** by running queries with \"Include Actual Execution Plan\" enabled, then check the QueryTimeStats properties for ElapsedTime and CpuTime[2].\n\n## Optimization Strategies\n\nCommon resolution methods include:[2]\n\n- Examining the query execution plan\n- Updating statistics\n- Identifying and applying missing indexes\n- Redesigning or rewriting queries\n- Resolving parameter-sensitive plans\n- Addressing SARG-ability issues\n\nFor detailed debugging, **decompose complex queries into constituent parts and simplify iteratively** to test changes faster[6].\n\nCould you provide more specifics about your query—such as database system (SQL Server, PostgreSQL, etc.), query structure, or performance metrics?"
+        },
+        "delta": {
+          "role": "assistant",
+          "content": ""
+        },
+        "finish_reason": "stop"
+      }
+    ]
+  }
+}

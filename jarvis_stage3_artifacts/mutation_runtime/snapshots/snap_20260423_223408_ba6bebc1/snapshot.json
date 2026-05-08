@@ -1,0 +1,28 @@
+{
+  "snapshot_id": "snap_20260423_223408_ba6bebc1",
+  "mutation_id": "mut_20260423_223408_b3c8ef7a",
+  "created_at": "2026-04-23T22:34:08+00:00",
+  "files": [
+    {
+      "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_modules\\dependency_bundle_probe_depplan_20260423_223408_3bdd4117.py",
+      "existed_before": false,
+      "sha256_before": null,
+      "backup_path": null,
+      "size_before": null
+    },
+    {
+      "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\temp\\dependency_bundle_probe_depplan_20260423_223408_3bdd4117_verify.py",
+      "existed_before": false,
+      "sha256_before": null,
+      "backup_path": null,
+      "size_before": null
+    },
+    {
+      "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\scripts\\dependency_bundle_probe_depplan_20260423_223408_3bdd4117_smoke.ps1",
+      "existed_before": false,
+      "sha256_before": null,
+      "backup_path": null,
+      "size_before": null
+    }
+  ]
+}

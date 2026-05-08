@@ -1,0 +1,92 @@
+{
+  "run_id": "mission_artifact_446340b98fb9",
+  "status": "completed",
+  "objective": "Create a landing page for Jarvis Studio with a hero section and CTA",
+  "selected_task_type": "site",
+  "artifact_name": "Jarvis Studio",
+  "created_at": "2026-04-10T00:36:07.463197+00:00",
+  "plan": {
+    "selected_task_type": "site",
+    "artifact_name": "Jarvis Studio",
+    "description": "Create a landing page for Jarvis Studio with a hero section and CTA",
+    "payload": {
+      "title": "Jarvis Studio",
+      "hero": "Autonomous systems that create real outputs",
+      "subtitle": "Mission-integrated artifact generation flow",
+      "cta": "Launch Project"
+    },
+    "candidates": [
+      {
+        "task_type": "site",
+        "score": 25,
+        "reasons": [
+          "matched 'landing' (+9)",
+          "matched 'landing page' (+12)",
+          "matched 'page' (+4)"
+        ]
+      }
+    ],
+    "reasoning": [
+      "selected top candidate 'site' with score 25",
+      "matched 'landing' (+9)",
+      "matched 'landing page' (+12)",
+      "matched 'page' (+4)"
+    ]
+  },
+  "artifact_result": {
+    "ok": true,
+    "task_id": "artifact_e56205334bc7",
+    "task_type": "site",
+    "category": "sites",
+    "name": "Jarvis Studio",
+    "slug": "jarvis-studio",
+    "output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\sites\\20260410_003607_jarvis-studio",
+    "manifest_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\sites\\20260410_003607_jarvis-studio\\manifest.json",
+    "files": [
+      {
+        "relative_path": "index.html",
+        "size_bytes": 1046
+      },
+      {
+        "relative_path": "styles.css",
+        "size_bytes": 1031
+      },
+      {
+        "relative_path": "app.js",
+        "size_bytes": 135
+      },
+      {
+        "relative_path": "README.md",
+        "size_bytes": 72
+      }
+    ],
+    "summary": {
+      "artifact_kind": "site_bundle",
+      "title": "Jarvis Studio",
+      "hero": "Autonomous systems that create real outputs",
+      "files_expected": [
+        "index.html",
+        "styles.css",
+        "app.js",
+        "README.md"
+      ]
+    },
+    "validation": {
+      "output_dir_exists": true,
+      "created_files_count": 4,
+      "total_bytes": 2284,
+      "valid": true
+    },
+    "status": "created"
+  },
+  "summary": {
+    "objective": "Create a landing page for Jarvis Studio with a hero section and CTA",
+    "selected_task_type": "site",
+    "artifact_name": "Jarvis Studio",
+    "artifact_status": "created",
+    "artifact_ok": true,
+    "output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\sites\\20260410_003607_jarvis-studio",
+    "manifest_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\sites\\20260410_003607_jarvis-studio\\manifest.json",
+    "files_count": 4
+  }
+}

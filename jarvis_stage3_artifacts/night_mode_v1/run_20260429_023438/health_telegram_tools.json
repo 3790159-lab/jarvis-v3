@@ -1,0 +1,11 @@
+{
+  "ok": true,
+  "result": {
+    "ok": true,
+    "service": "jarvis_telegram_file_tools",
+    "tools": [
+      "telegram.internet_table",
+      "telegram.send_file"
+    ]
+  }
+}

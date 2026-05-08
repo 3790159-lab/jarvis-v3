@@ -1,0 +1,39 @@
+{
+  "task_id": "artifact_091b3fd04fac",
+  "task_type": "table",
+  "name": "Failure Test Calendar",
+  "slug": "failure-test-calendar",
+  "created_at": "2026-04-10T12:24:46.049510+00:00",
+  "output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\tables\\20260410_122446_failure-test-calendar",
+  "files": [
+    {
+      "relative_path": "table.csv",
+      "size_bytes": 127
+    },
+    {
+      "relative_path": "table.json",
+      "size_bytes": 470
+    },
+    {
+      "relative_path": "README.md",
+      "size_bytes": 110
+    }
+  ],
+  "summary": {
+    "rows": 3,
+    "columns": [
+      "day",
+      "title",
+      "format",
+      "status"
+    ],
+    "artifact_kind": "table_bundle"
+  },
+  "validation": {
+    "output_dir_exists": true,
+    "created_files_count": 3,
+    "total_bytes": 707,
+    "valid": true
+  },
+  "status": "created"
+}

@@ -1,0 +1,107 @@
+{
+  "ok": true,
+  "tool": "internet.research",
+  "provider": "perplexity",
+  "query": "some slow query",
+  "created_at": "2026-05-01T23:21:48.346099Z",
+  "answer": "I need to clarify what you're asking about, as \"some slow query\" is quite broad.\n\nAre you looking for:\n\n- **How to identify slow queries** in your database system?\n- **Common causes** of slow query performance?\n- **Methods to optimize** or fix slow queries?\n- **Tools or monitoring approaches** for detecting slow queries?\n\n**Common causes of slow queries include:**\n\n**Indexing and data structure issues:** Lack of proper indexing forces the database to scan entire tables[2]. Suboptimal query plans selected by the database engine also contribute to slower execution[1].\n\n**Data and statistics problems:** Outdated statistics prevent the optimizer from making efficient decisions[2]. Processing large datasets without optimization can cause unnecessary delays[3].\n\n**System-level factors:** Network latency delays query execution in distributed systems[1]. Hardware limitations (slow CPU, inadequate RAM, low disk speed) throttle performance[2]. Concurrency issues and database locks from simultaneous access slow down queries[2].\n\n**Query design:** Poorly written queries with unnecessary JOINs or incorrect filtering conditions increase processing times[2]. Lack of caching mechanisms forces repeated processing of the same queries[1].\n\n**Maintenance neglect:** Skipping regular tasks like updating statistics, defragmenting indexes, and clearing log files degrades performance[1].\n\nIf you have a specific slow query you need help with, share the query details, your database system (SQL Server, MySQL, PostgreSQL, etc.), and any error messages or performance metrics you've observed.",
+  "raw": {
+    "id": "9d2738fa-857a-4e0e-b5de-cc57e2fdc3e5",
+    "model": "sonar-pro",
+    "created": 1777677707,
+    "usage": {
+      "prompt_tokens": 373,
+      "completion_tokens": 303,
+      "total_tokens": 676,
+      "search_context_size": "low",
+      "cost": {
+        "input_tokens_cost": 0.00112,
+        "output_tokens_cost": 0.00455,
+        "request_cost": 0.006,
+        "total_cost": 0.01166
+      }
+    },
+    "citations": [
+      "https://redis.io/blog/how-slow-queries-hurt-your-business/",
+      "https://sqream.com/blog/slow-sql-queries/",
+      "https://www.docs.inductiveautomation.com/docs/8.1/platform/sql-in-ignition/basic-sql-troubleshooting/slow-queries",
+      "https://will-keleher.com/posts/augment-your-slow-query-logs/",
+      "https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/performance/troubleshoot-slow-running-queries",
+      "https://blog.sentry.io/find-slow-database-queries-with-query-insights/",
+      "https://erikdarling.com/two-ways-to-tune-a-slow-query-in-sql-server/"
+    ],
+    "search_results": [
+      {
+        "title": "How Slow Queries Hurt Your Business (and How to Fix ...",
+        "url": "https://redis.io/blog/how-slow-queries-hurt-your-business/",
+        "date": "2023-09-18",
+        "last_updated": "2026-05-01",
+        "snippet": "Slow queries aren't just technical obstacles. They represent potential fissures in customer loyalty and confidence.",
+        "source": "web"
+      },
+      {
+        "title": "Slow SQL Queries: How to Diagnose and Optimize Them",
+        "url": "https://sqream.com/blog/slow-sql-queries/",
+        "date": "2024-01-11",
+        "last_updated": "2026-05-01",
+        "snippet": "In this guide, we'll walk you through how to diagnose slow SQL queries and provide best practices for optimization.",
+        "source": "web"
+      },
+      {
+        "title": "Slow Queries - Ignition User Manual - Inductive Automation",
+        "url": "https://www.docs.inductiveautomation.com/docs/8.1/platform/sql-in-ignition/basic-sql-troubleshooting/slow-queries",
+        "date": "2025-04-07",
+        "last_updated": "2026-03-30",
+        "snippet": "Slow running queries can be a big problem. Not only can data take a long time to display on the screen, but it can end up slowing down the whole client.",
+        "source": "web"
+      },
+      {
+        "title": "An Elegy for my Beloved Slow Query Logs - will keleher",
+        "url": "https://will-keleher.com/posts/augment-your-slow-query-logs/",
+        "date": "2026-03-04",
+        "last_updated": "2026-04-04",
+        "snippet": "# An Elegy for my Beloved Slow Query Logs\n\nI have an unreasonable fondness for database slow query logs. Each new one can be a delightful little problem. With the exact slow query, you can immediately repro what went wrong with `EXPLAIN ANALYZE ${QUERY}`. With `Rows_examined` and `Rows_sent`, you ge...",
+        "source": "web"
+      },
+      {
+        "title": "Troubleshoot slow-running queries - SQL Server",
+        "url": "https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/performance/troubleshoot-slow-running-queries",
+        "date": "2025-01-10",
+        "last_updated": "2026-04-26",
+        "snippet": "This article describes how to handle a performance issue that database applications may experience when using SQL Server: slow performance of a specific query ...",
+        "source": "web"
+      },
+      {
+        "title": "Find slow database queries with Query Insights",
+        "url": "https://blog.sentry.io/find-slow-database-queries-with-query-insights/",
+        "date": "2023-09-28",
+        "last_updated": "2026-04-26",
+        "snippet": "To see if a database query is behind the performance issue, click on the Queries from the left navigation menu under Performance.",
+        "source": "web"
+      },
+      {
+        "title": "Two Ways To Tune A Slow Query In SQL Server",
+        "url": "https://erikdarling.com/two-ways-to-tune-a-slow-query-in-sql-server/",
+        "date": "2024-05-21",
+        "last_updated": "2026-04-30",
+        "snippet": "SQL Server insights from Erik Darling. Want to get better at performance tuning, indexing, or query tuning? Try one of my online SQL ...",
+        "source": "web"
+      }
+    ],
+    "object": "chat.completion",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "I need to clarify what you're asking about, as \"some slow query\" is quite broad.\n\nAre you looking for:\n\n- **How to identify slow queries** in your database system?\n- **Common causes** of slow query performance?\n- **Methods to optimize** or fix slow queries?\n- **Tools or monitoring approaches** for detecting slow queries?\n\n**Common causes of slow queries include:**\n\n**Indexing and data structure issues:** Lack of proper indexing forces the database to scan entire tables[2]. Suboptimal query plans selected by the database engine also contribute to slower execution[1].\n\n**Data and statistics problems:** Outdated statistics prevent the optimizer from making efficient decisions[2]. Processing large datasets without optimization can cause unnecessary delays[3].\n\n**System-level factors:** Network latency delays query execution in distributed systems[1]. Hardware limitations (slow CPU, inadequate RAM, low disk speed) throttle performance[2]. Concurrency issues and database locks from simultaneous access slow down queries[2].\n\n**Query design:** Poorly written queries with unnecessary JOINs or incorrect filtering conditions increase processing times[2]. Lack of caching mechanisms forces repeated processing of the same queries[1].\n\n**Maintenance neglect:** Skipping regular tasks like updating statistics, defragmenting indexes, and clearing log files degrades performance[1].\n\nIf you have a specific slow query you need help with, share the query details, your database system (SQL Server, MySQL, PostgreSQL, etc.), and any error messages or performance metrics you've observed."
+        },
+        "delta": {
+          "role": "assistant",
+          "content": ""
+        },
+        "finish_reason": "stop"
+      }
+    ]
+  }
+}

@@ -1,0 +1,31 @@
+﻿{
+    "run_id":  "nightv6_brain_20260425_044509",
+    "iterations":  [
+                       {
+                           "iteration":  1,
+                           "status":  "failed",
+                           "error":  "Не удается найти свойство \"workflow_id\" для этого объекта. Убедитесь, что оно существует.",
+                           "task":  "Night Mode V6 iteration: inspect Jarvis system and improve UTF-8 report stability. Keep changes safe, validated, reversible.",
+                           "finished_at":  "2026-04-25T04:45:11.1146141+03:00"
+                       },
+                       {
+                           "iteration":  2,
+                           "status":  "failed",
+                           "error":  "Не удается найти свойство \"workflow_id\" для этого объекта. Убедитесь, что оно существует.",
+                           "task":  "Night Mode V6 iteration: improve Brain Executor execution lanes and make it capable of more task types beyond n8n. Keep low-risk.",
+                           "finished_at":  "2026-04-25T04:46:42.4862909+03:00"
+                       },
+                       {
+                           "iteration":  3,
+                           "status":  "failed",
+                           "error":  "Не удается найти свойство \"workflow_id\" для этого объекта. Убедитесь, что оно существует.",
+                           "task":  "Night Mode V6 iteration: improve memory learning loop. Save lessons from successes, failures, validation results and rollback decisions.",
+                           "finished_at":  "2026-04-25T04:48:13.8647204+03:00"
+                       }
+                   ],
+    "started_at":  "2026-04-25T04:45:09.5990940+03:00",
+    "status":  "running",
+    "mode":  "brain_autonomous_loop",
+    "base_url":  "http://127.0.0.1:8015",
+    "deadline":  "2026-04-25T10:45:09.5990940+03:00"
+}

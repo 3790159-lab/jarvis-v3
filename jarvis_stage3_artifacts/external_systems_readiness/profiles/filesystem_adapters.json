@@ -1,0 +1,27 @@
+{
+  "system_name": "filesystem_adapters",
+  "category": "filesystem",
+  "mode": "allowlisted_fs",
+  "ready": true,
+  "checks": [
+    {
+      "name": "project_root_exists",
+      "ok": true,
+      "details": {
+        "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram"
+      }
+    }
+  ],
+  "safe_actions": [
+    "read_allowlisted_file",
+    "write_allowlisted_file",
+    "snapshot_file"
+  ],
+  "blocked_actions": [
+    "write_secret_files",
+    "write_system_dirs",
+    "delete_unbounded_trees"
+  ],
+  "next_best_action": "filesystem_adapters is ready for controlled safe actions.",
+  "assessed_at": "2026-04-25T19:54:36+00:00"
+}

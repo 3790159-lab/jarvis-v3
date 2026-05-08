@@ -1,0 +1,63 @@
+{
+  "plan_id": "n8nsuper_20260425_000020_d63aa9eb",
+  "user_task": "Какие пайплайн ты умеешь делать?",
+  "workflow_kind": "multi_step_pipeline",
+  "name": "Jarvis Super Agent - multi_step_pipeline",
+  "webhook_path": "jarvis-super-multi-step-pipeline-d63aa9eb",
+  "workflow_json": {
+    "name": "Jarvis Super Agent - multi_step_pipeline",
+    "nodes": [
+      {
+        "id": "a62007e5-3fb5-408f-89ed-6ddb975d31ab",
+        "name": "Jarvis Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          220,
+          300
+        ],
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "jarvis-super-multi-step-pipeline-d63aa9eb",
+          "responseMode": "lastNode",
+          "options": {}
+        }
+      },
+      {
+        "id": "e4e90a72-5310-4ee9-be9b-513e89705f53",
+        "name": "Echo Payload",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          520,
+          300
+        ],
+        "parameters": {
+          "jsCode": "const now = new Date().toISOString();\nreturn [{ json: {\n  ok: true,\n  kind: 'webhook_echo',\n  receivedAt: now,\n  source: 'jarvis_super_agent',\n  payload: $json\n} }];"
+        }
+      }
+    ],
+    "connections": {
+      "Jarvis Webhook": {
+        "main": [
+          [
+            {
+              "node": "Echo Payload",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {}
+  },
+  "reasoning": [
+    "Classified task as workflow_kind=multi_step_pipeline.",
+    "Using webhook trigger for safe external execution.",
+    "Using safe nodes with no hardcoded credentials."
+  ],
+  "production_webhook_url": "https://daniliyc.app.n8n.cloud/webhook/jarvis-super-multi-step-pipeline-d63aa9eb",
+  "test_webhook_url": "https://daniliyc.app.n8n.cloud/webhook-test/jarvis-super-multi-step-pipeline-d63aa9eb",
+  "created_at": "2026-04-25T00:00:20+00:00"
+}

@@ -1,0 +1,105 @@
+{
+  "ok": true,
+  "tool": "internet.research",
+  "provider": "perplexity",
+  "query": "2. Ответ и таблицу сделай на русском языке. Названия сервисов, компаний, моделей и продуктов оставляй в оригинале. Добавь источники/ссылки, если они доступны. Сделай результат полезным для принятия решения",
+  "created_at": "2026-05-06T15:08:11.828911Z",
+  "answer": "# Сравнение GPT-4 и Claude 3: что выбрать?\n\n**Jarvis V3 Supervisor. Режим: research.**  \nЯ синтезировал данные из предоставленных источников (март-апрель 2024, с упоминаниями более новых версий как Claude 3.5 Sonnet). Claude 3 (особенно Opus) часто превосходит GPT-4 в мультимодальности, контекстном окне и неанглийских языках, но GPT-4 лидирует в некоторых экзаменационных тестах и экосистеме. Выбор зависит от задач: для визуального анализа и длинных текстов — Claude 3; для скорости и интеграций — GPT-4 (или GPT-4o/Turbo).\n\n## Ключевые выводы для принятия решения\n- **Claude 3 Opus** — флагман: лучше в визуальном распознавании (PDF, изображения, даже низкого качества), контексте (200K токенов vs 128K у GPT-4 Turbo), логике, математике и неанглийских языках. Идеален для анализа документов, кода, длинных текстов.\n- **GPT-4** — универсал: преимущество в сложных экзаменах (GRE, CFR), зрелая экосистема, мультимодальность (текст+изображения+аудио/видео).\n- **Баланс**: Claude 3 Sonnet/Haiku — дешевле и быстрее для рутины. Новые версии (Claude 3.5 Sonnet) обгоняют GPT-4o в коде и \"человечности\".\n- **Рекомендация**: Тестируйте на ваших задачах. Для бизнеса — Claude 3 для аналитики/автоматизации; GPT-4 для креатива/интеграций.\n\n## Сравнительная таблица\n\n| Характеристика              | GPT-4 / GPT-4 Turbo / GPT-4o                  | Claude 3 (Haiku / Sonnet / Opus)                          | Победитель / Примечание |\n|-----------------------------|-----------------------------------------------|-----------------------------------------------------------|--------------------------|\n| **Контекстное окно**       | 128K токенов                                 | 200K токенов (экв. 500 страниц)                          | Claude 3 — лучше для длинных текстов/кода |\n| **Мультимодальность**      | Текст, изображения, аудио, видео             | Текст + сильное визуальное (PDF, графики, видео > GPT-4 Vision) | Claude 3 — выше точность на сложных изображениях |\n| **Бенчмарки (MMLU, GPQA, GSM8K)** | Высокие, лидер в GRE/CFR                     | Opus обгоняет GPT-4 в большинстве (экспертные знания, математика) | Claude 3 Opus |\n| **Неанглийские языки**     | Хорошо                                       | Сильнее (испанский, японский, французский)                | Claude 3 |\n| **Скорость / Цена**        | GPT-4o быстрее; зрелая экосистема            | Sonnet в 2x быстрее Claude 2; дешевле варианты (Haiku)    | Зависит от модели: Sonnet для скорости |\n| **Креатив / Код / Анализ** | Отлично для multitask, креатива              | Opus \"человеческий\" уровень; 3.5 Sonnet > GPT-4o в коде  | Claude 3 для сложного; GPT-4o для универсала |\n| **Доступность**            | Широкая база, API OpenAI                     | API Anthropic; версии по мощности                        | GPT-4 — проще интеграция |\n\n**Источники (доступны в результатах поиска):**  \n[1] LobeHub: [lobehub.com/ru/blog/claude-3-vs-gpt-4](https://lobehub.com/ru/blog/claude-3-vs-gpt-4)  \n[2] Pixelplus: [tools.pixelplus.ru/sravnenie-neyrosety/gpt-4-sravnenie-claude-3-opus](https://tools.pixelplus.ru/sravnenie-neyrosety/gpt-4-sravnenie-claude-3-opus)  \n[3] GPTunnel: [gptunnel.ru/ru/blog/gpt4o-vs-opus-3](https://www.gptunnel.ru/ru/blog/gpt4o-vs-opus-3)  \n[4] Computerra: [computerra.ru/298914](https://www.computerra.ru/298914/sravnenie-gpt-4-i-claude-3-chto-vybrat-dlya-raboty-s-tekstom-fajlami-i-kodom/)  \n[5] Habr Timeweb: [habr.com/ru/companies/timeweb/articles/805261](https://habr.com/ru/companies/timeweb/articles/805261/)  \n[6-7] Habr/MayAI: Упоминания новых версий (3.5 Sonnet, Opus 4.6 — возможно, будущие).\n\n**Дальше?** Укажите задачу (код, анализ изображений) для теста или плана миграции. Статус: research completed.",
+  "raw": {
+    "id": "6a35e71e-f3eb-40ce-bb9b-a3d01a18f14e",
+    "model": "sonar-pro",
+    "created": 1778080090,
+    "usage": {
+      "prompt_tokens": 433,
+      "completion_tokens": 1311,
+      "total_tokens": 1744,
+      "search_context_size": "low",
+      "cost": {
+        "input_tokens_cost": 0.0013,
+        "output_tokens_cost": 0.01967,
+        "request_cost": 0.006,
+        "total_cost": 0.02696
+      }
+    },
+    "citations": [
+      "https://lobehub.com/ru/blog/claude-3-vs-gpt-4",
+      "https://tools.pixelplus.ru/sravnenie-neyrosety/gpt-4-sravnenie-claude-3-opus/",
+      "https://www.gptunnel.ru/ru/blog/gpt4o-vs-opus-3",
+      "https://www.computerra.ru/298914/sravnenie-gpt-4-i-claude-3-chto-vybrat-dlya-raboty-s-tekstom-fajlami-i-kodom/",
+      "https://habr.com/ru/companies/timeweb/articles/805261/",
+      "https://habr.com/ru/articles/993676/",
+      "https://mayai.ru/sravnite-claude-3-5-sonnet-i-gpt-4o-uznajte-kakie-osobennosti-i-preimushhestva-predlagayut-eti-modeli-dlya-vashego-biznesa/"
+    ],
+    "search_results": [
+      {
+        "title": "Сравнение Claude 3 и GPT-4 - LobeHub",
+        "url": "https://lobehub.com/ru/blog/claude-3-vs-gpt-4",
+        "last_updated": "2026-03-28",
+        "snippet": "Claude 3 обладает более сильными мультимодальными возможностями, способен лучше понимать и обрабатывать изображения, видео, графики и другие ...",
+        "source": "web"
+      },
+      {
+        "title": "Сравнение GPT-4 и Claude 3 Opus - Пиксель Тулс",
+        "url": "https://tools.pixelplus.ru/sravnenie-neyrosety/gpt-4-sravnenie-claude-3-opus/",
+        "last_updated": "2026-04-14",
+        "snippet": "GPT-4 — это передовая модель с улучшенной способностью к генерации текстов и решению многозадачных проблем. Подходит для сложных аналитических задач, генерации ...",
+        "source": "web"
+      },
+      {
+        "title": "GPT-4о и Claude Opus 3 - GPTunneL",
+        "url": "https://www.gptunnel.ru/ru/blog/gpt4o-vs-opus-3",
+        "date": "2024-05-31",
+        "last_updated": "2026-03-11",
+        "snippet": "GPT-4o демонстрирует более высокую производительность по сравнению с Claude 3 Opus в большинстве стандартизированных тестов, особенно в области ...",
+        "source": "web"
+      },
+      {
+        "title": "Сравнение GPT-4 и Claude 3: что выбрать для работы с текстом ...",
+        "url": "https://www.computerra.ru/298914/sravnenie-gpt-4-i-claude-3-chto-vybrat-dlya-raboty-s-tekstom-fajlami-i-kodom/",
+        "date": "2024-06-24",
+        "last_updated": "2026-05-06",
+        "snippet": "Claude 3 Opus, самая «умная» модель от Anthropic, обгоняет аналоги, в том числе и GPT-4, по большинству основных бенчмарков: экспертным знаниям ...",
+        "source": "web"
+      },
+      {
+        "title": "GPT-4, Claude 3, Gemini Pro или опенсорс - Habr",
+        "url": "https://habr.com/ru/companies/timeweb/articles/805261/",
+        "date": "2024-06-03",
+        "last_updated": "2026-04-14",
+        "snippet": "Сейчас самый большой доступный контекст у серии Claude 3 — 200К токенов, при этом можно выбрать из нескольких моделей: Haiku позволит ...",
+        "source": "web"
+      },
+      {
+        "title": "Claude Opus 4.6 vs GPT-5.3 Codex: как выбрать модель под ваши ...",
+        "url": "https://habr.com/ru/articles/993676/",
+        "date": "2026-02-08",
+        "last_updated": "2026-05-04",
+        "snippet": "Одновременно с релизом Claude Opus 4.6 и GPT-5.3 Codex стало понятно, что определенно нет одной лучшей модели на все случаи жизни.",
+        "source": "web"
+      },
+      {
+        "title": "Сравнение Claude и ChatGPT: 30 моделей Cursor",
+        "url": "https://mayai.ru/sravnite-claude-3-5-sonnet-i-gpt-4o-uznajte-kakie-osobennosti-i-preimushhestva-predlagayut-eti-modeli-dlya-vashego-biznesa/",
+        "date": "2025-11-26",
+        "last_updated": "2026-05-06",
+        "snippet": "Например, claude сравнение с GPT особенно чувствуется на больших задачах: те же 200 000 токенов у Claude 3.5 Opus против 128 000 у GPT-4 Turbo.",
+        "source": "web"
+      }
+    ],
+    "object": "chat.completion",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "# Сравнение GPT-4 и Claude 3: что выбрать?\n\n**Jarvis V3 Supervisor. Режим: research.**  \nЯ синтезировал данные из предоставленных источников (март-апрель 2024, с упоминаниями более новых версий как Claude 3.5 Sonnet). Claude 3 (особенно Opus) часто превосходит GPT-4 в мультимодальности, контекстном окне и неанглийских языках, но GPT-4 лидирует в некоторых экзаменационных тестах и экосистеме. Выбор зависит от задач: для визуального анализа и длинных текстов — Claude 3; для скорости и интеграций — GPT-4 (или GPT-4o/Turbo).\n\n## Ключевые выводы для принятия решения\n- **Claude 3 Opus** — флагман: лучше в визуальном распознавании (PDF, изображения, даже низкого качества), контексте (200K токенов vs 128K у GPT-4 Turbo), логике, математике и неанглийских языках. Идеален для анализа документов, кода, длинных текстов.\n- **GPT-4** — универсал: преимущество в сложных экзаменах (GRE, CFR), зрелая экосистема, мультимодальность (текст+изображения+аудио/видео).\n- **Баланс**: Claude 3 Sonnet/Haiku — дешевле и быстрее для рутины. Новые версии (Claude 3.5 Sonnet) обгоняют GPT-4o в коде и \"человечности\".\n- **Рекомендация**: Тестируйте на ваших задачах. Для бизнеса — Claude 3 для аналитики/автоматизации; GPT-4 для креатива/интеграций.\n\n## Сравнительная таблица\n\n| Характеристика              | GPT-4 / GPT-4 Turbo / GPT-4o                  | Claude 3 (Haiku / Sonnet / Opus)                          | Победитель / Примечание |\n|-----------------------------|-----------------------------------------------|-----------------------------------------------------------|--------------------------|\n| **Контекстное окно**       | 128K токенов                                 | 200K токенов (экв. 500 страниц)                          | Claude 3 — лучше для длинных текстов/кода |\n| **Мультимодальность**      | Текст, изображения, аудио, видео             | Текст + сильное визуальное (PDF, графики, видео > GPT-4 Vision) | Claude 3 — выше точность на сложных изображениях |\n| **Бенчмарки (MMLU, GPQA, GSM8K)** | Высокие, лидер в GRE/CFR                     | Opus обгоняет GPT-4 в большинстве (экспертные знания, математика) | Claude 3 Opus |\n| **Неанглийские языки**     | Хорошо                                       | Сильнее (испанский, японский, французский)                | Claude 3 |\n| **Скорость / Цена**        | GPT-4o быстрее; зрелая экосистема            | Sonnet в 2x быстрее Claude 2; дешевле варианты (Haiku)    | Зависит от модели: Sonnet для скорости |\n| **Креатив / Код / Анализ** | Отлично для multitask, креатива              | Opus \"человеческий\" уровень; 3.5 Sonnet > GPT-4o в коде  | Claude 3 для сложного; GPT-4o для универсала |\n| **Доступность**            | Широкая база, API OpenAI                     | API Anthropic; версии по мощности                        | GPT-4 — проще интеграция |\n\n**Источники (доступны в результатах поиска):**  \n[1] LobeHub: [lobehub.com/ru/blog/claude-3-vs-gpt-4](https://lobehub.com/ru/blog/claude-3-vs-gpt-4)  \n[2] Pixelplus: [tools.pixelplus.ru/sravnenie-neyrosety/gpt-4-sravnenie-claude-3-opus](https://tools.pixelplus.ru/sravnenie-neyrosety/gpt-4-sravnenie-claude-3-opus)  \n[3] GPTunnel: [gptunnel.ru/ru/blog/gpt4o-vs-opus-3](https://www.gptunnel.ru/ru/blog/gpt4o-vs-opus-3)  \n[4] Computerra: [computerra.ru/298914](https://www.computerra.ru/298914/sravnenie-gpt-4-i-claude-3-chto-vybrat-dlya-raboty-s-tekstom-fajlami-i-kodom/)  \n[5] Habr Timeweb: [habr.com/ru/companies/timeweb/articles/805261](https://habr.com/ru/companies/timeweb/articles/805261/)  \n[6-7] Habr/MayAI: Упоминания новых версий (3.5 Sonnet, Opus 4.6 — возможно, будущие).\n\n**Дальше?** Укажите задачу (код, анализ изображений) для теста или плана миграции. Статус: research completed."
+        },
+        "delta": {
+          "role": "assistant",
+          "content": ""
+        },
+        "finish_reason": "stop"
+      }
+    ]
+  }
+}

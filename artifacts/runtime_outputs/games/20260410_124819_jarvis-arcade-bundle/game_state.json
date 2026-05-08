@@ -1,0 +1,10 @@
+{
+  "title": "Jarvis Arcade",
+  "mode": "clicker_target",
+  "initial_state": {
+    "score": 0,
+    "time": 20,
+    "target": 15
+  },
+  "bundle_version": "game_bundle_v2"
+}

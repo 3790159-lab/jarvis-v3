@@ -1,0 +1,8 @@
+{
+    "reply":  "Message received: Macro goal: Strengthen Supervisor reliability and execution safety\n\nFocused task: Improve Supervisor stability and error handling. Prefer real project changes.\n\nUse the previous package and execute a larger step forward:\n1) implement a compact bundle of 2-3 related low-risk/additive changes when possible;\n2) prefer real project changes over response-only analysis;\n3) if only state/runtime changes are possible, keep them useful and minimal;\n4) list what was actually done: files, modules, services, restarts, checks;\n5) end with a short action-summary.\n\nSupervisor fallback mode is active.",
+    "mode":  "smart_local",
+    "source":  "local_fallback",
+    "confidence":  0.78,
+    "route":  "chat",
+    "mission":  null
+}

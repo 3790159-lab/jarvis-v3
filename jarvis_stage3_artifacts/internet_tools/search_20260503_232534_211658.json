@@ -1,0 +1,87 @@
+{
+  "ok": true,
+  "tool": "internet.search",
+  "provider": "tavily",
+  "query": "Отлично, сделай мне ексель таблицу топ 10 самых больших яхт на планете. Ответ и таблицу сделай на русском языке. Названия сервисов, компаний, моделей и продуктов оставляй в оригинале. Добавь источники/ссылки, если они доступны. Сделай результат полезным для принятия решения",
+  "created_at": "2026-05-03T23:25:34.211658Z",
+  "data": {
+    "query": "Отлично, сделай мне ексель таблицу топ 10 самых больших яхт на планете. Ответ и таблицу сделай на русском языке. Названия сервисов, компаний, моделей и продуктов оставляй в оригинале. Добавь источники/ссылки, если они доступны. Сделай результат полезным для принятия решения",
+    "follow_up_questions": null,
+    "answer": "Топ 10 самых больших яхт: 1. Golden Horizon – 162м, 2. Sailing Yacht A – 142.8м, 3. Koru – 127м. Остальные меньше по размеру.",
+    "images": [],
+    "results": [
+      {
+        "url": "https://www.youtube.com/watch?v=V4uQIT89XQA",
+        "title": "TOP 10 MOST EXPENSIVE Yachts in the World 2026 - YouTube",
+        "content": "... yacht impresses you the most? Let us know in the comments! TIMELAPSE ... TOP 10 MOST EXPENSIVE Yachts in the World 2026. 21K views · 1",
+        "score": 0.9999553,
+        "raw_content": null
+      },
+      {
+        "url": "https://www.yachtworld.com/research/worlds-largest-yachts/",
+        "title": "Largest Yachts In The World 2026",
+        "content": "1. Golden Horizon – 531 feet (162m) · 2. Sailing Yacht A - 469 feet (142.8m) · 3. Koru (Formerly Y721) – 417 feet (127m) · 4. Sea Cloud – 357 feet",
+        "score": 0.9999118,
+        "raw_content": null
+      },
+      {
+        "url": "https://www.luxhabitat.ae/the-journal/top-10-most-expensive-yachts-in-the-world/",
+        "title": "Top 10 most expensive yachts in the world in 2026 | Luxhabitat",
+        "content": "Here is a list of the world's top 10 most expensive yachts of 2026. Find out the price of the most luxurious and expensive yachts ever sold.",
+        "score": 0.9999001,
+        "raw_content": null
+      },
+      {
+        "url": "https://www.superyachtfan.com/ru/lists/biggest-super-yachts/",
+        "title": "Крупнейшие в мире яхты 2026 года - SuperYachtFan",
+        "content": "The яхта Дилбарв настоящее время считается самой большой частной яхтой в мире. С длиной 157 метров (512 футов)) мегаяхта имеет номер #4 в «списке по длине». Но",
+        "score": 0.999795,
+        "raw_content": null
+      },
+      {
+        "url": "https://www.superyachts.com/news/story/the-10-largest-yachts-to-spot-at-pbibs-2026-17997/",
+        "title": "The 10 Largest Yachts to Spot at PBIBS 2026 | Superyachts.com",
+        "content": "1. ROCINANTE, 78.4m · 2. BOARDWALK V, 76.5m · 3. KENSHO, 75m · 4. CASINO ROYALE, 74m · 5. CASINO ROYALE, 72m · 6. AMOR À VIDA, 67.6m · 7. ALCHEMIST,",
+        "score": 0.9996288,
+        "raw_content": null
+      },
+      {
+        "url": "https://www.youtube.com/watch?v=voUdRD3eBXo",
+        "title": "Top 10 Longest and largest Yacht every built - YouTube",
+        "content": "Number 1 and 2 are under construction, don't exist yet and are no private yachts, 2 is an expedition ship, 1 is a cruise ship.",
+        "score": 0.99899954,
+        "raw_content": null
+      },
+      {
+        "url": "https://www.charterworld.com/index.html?sub=yacht-results&listings=1&year=2026",
+        "title": "See The Full List Of Superyachts Launched In 2026 | CharterWorld",
+        "content": "All Luxury Yachts Launched In 2026 ; ARWEN. Dorries · Master Suite ; VENTO. Turquoise Yachts · Exterior Dining ; ANGELIQUE · Turquoise · Interior Relaxation Area With",
+        "score": 0.9987453,
+        "raw_content": null
+      },
+      {
+        "url": "https://premiumyachts.ru/top-samyix-bolshix-motornyix-yaxt/",
+        "title": "Топ самых больших моторных яхт - Premium Yachts",
+        "content": "Первое место нашего рейтинга по праву занимает шедевр прославленной немецкой верфи Lürssen Yachts. Яхта Azzam длиной 179,7 (примерно 2 футбольных поля) и",
+        "score": 0.9984633,
+        "raw_content": null
+      },
+      {
+        "url": "https://luxurymarine.ru/samaya-bolshaya-yahta-v-mire-i-top-10-morskih-gigantov",
+        "title": "Самая большая яхта в мире и топ-10 морских гигантов",
+        "content": "Самая большая яхта в мире и топ-10 морских гигантов · 2. Azzam: нынешний титан морей · 3. Fulk Al Salamah: королевская роскошь · 4. Eclipse: яхта-легенда Романа",
+        "score": 0.9979652,
+        "raw_content": null
+      },
+      {
+        "url": "https://robb.report/motors/38745-25-samyh-bolshih-yaht-mira/",
+        "title": "Как выглядят 25 самых больших яхт мира - Robb Report",
+        "content": "Как выглядят 25 самых больших яхт мира · 25. Koru (127 м), Oceanco · 24. Al Mirqab (133 м), Kusch Yachts · 23. Serene (134 м), Fincantieri · 22.",
+        "score": 0.9941347,
+        "raw_content": null
+      }
+    ],
+    "response_time": 2.79,
+    "request_id": "0b194fa0-9c8d-4bc8-83ca-22ba5946b324"
+  }
+}

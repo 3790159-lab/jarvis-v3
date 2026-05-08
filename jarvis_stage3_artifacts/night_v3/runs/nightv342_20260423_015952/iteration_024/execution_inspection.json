@@ -1,0 +1,19 @@
+{
+    "detected_service_mentions":  [
+                                      "supervisor",
+                                      "module"
+                                  ],
+    "files_detected_count":  0,
+    "looked_substantive":  true,
+    "services_detected_count":  2,
+    "planning_artifact_exists":  true,
+    "execution_response_length":  552,
+    "detected_file_mentions":  [
+
+                               ],
+    "task":  "Find weak spots in the system and fix low-risk issues",
+    "planning_response_length":  267,
+    "checked_at":  "2026-04-23T02:13:57.1928847+03:00",
+    "action_summary_present":  true,
+    "execution_artifact_exists":  true
+}

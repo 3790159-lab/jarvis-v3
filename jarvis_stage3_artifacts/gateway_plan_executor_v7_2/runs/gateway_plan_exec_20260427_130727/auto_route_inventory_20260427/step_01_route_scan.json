@@ -1,0 +1,2220 @@
+{
+  "index": 1,
+  "tool": "route_scan",
+  "args": {
+    "path": "app"
+  },
+  "ok": true,
+  "result": {
+    "ok": true,
+    "created_at": "2026-04-27T13:07:28",
+    "run_id": "tool_call_20260427_130728",
+    "tool": "route_scan",
+    "registry": "v6_9",
+    "policy": {
+      "allowed": true,
+      "risk": "low",
+      "note": "Safe low-risk tool."
+    },
+    "args": {
+      "path": "app"
+    },
+    "result": {
+      "ok": true,
+      "routes": [
+        {
+          "file": "app\\jarvis_director_lifecycle_tuneup.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/lifecycle/policy"
+        },
+        {
+          "file": "app\\jarvis_director_lifecycle_tuneup.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/lifecycle/managed-summary"
+        },
+        {
+          "file": "app\\jarvis_director_lifecycle_tuneup.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/lifecycle/audit-snapshot"
+        },
+        {
+          "file": "app\\jarvis_guarded_merge_executor.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\jarvis_guarded_merge_executor.py",
+          "method": "get",
+          "path": "/__whoami"
+        },
+        {
+          "file": "app\\jarvis_guarded_merge_executor.py",
+          "method": "post",
+          "path": "/api/module/handle"
+        },
+        {
+          "file": "app\\jarvis_guarded_merge_executor.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\jarvis_guarded_merge_executor.py",
+          "method": "get",
+          "path": "/__whoami"
+        },
+        {
+          "file": "app\\jarvis_guarded_merge_executor.py",
+          "method": "get",
+          "path": "/api/guarded-merge/config"
+        },
+        {
+          "file": "app\\jarvis_guarded_merge_executor.py",
+          "method": "post",
+          "path": "/api/guarded-merge/config/update"
+        },
+        {
+          "file": "app\\jarvis_guarded_merge_executor.py",
+          "method": "get",
+          "path": "/api/guarded-merge/status"
+        },
+        {
+          "file": "app\\jarvis_guarded_merge_executor.py",
+          "method": "get",
+          "path": "/api/guarded-merge/discover-approved"
+        },
+        {
+          "file": "app\\jarvis_guarded_merge_executor.py",
+          "method": "post",
+          "path": "/api/guarded-merge/package-approved"
+        },
+        {
+          "file": "app\\jarvis_guarded_merge_executor.py",
+          "method": "post",
+          "path": "/api/guarded-merge/package-all-approved"
+        },
+        {
+          "file": "app\\jarvis_guarded_merge_executor.py",
+          "method": "post",
+          "path": "/api/guarded-merge/blueprints/register-defaults"
+        },
+        {
+          "file": "app\\jarvis_guarded_merge_executor.py",
+          "method": "get",
+          "path": "/api/guarded-merge/blueprints"
+        },
+        {
+          "file": "app\\jarvis_guarded_merge_executor.py",
+          "method": "post",
+          "path": "/api/guarded-merge/modules/scaffold"
+        },
+        {
+          "file": "app\\jarvis_guarded_merge_executor.py",
+          "method": "get",
+          "path": "/api/guarded-merge/modules"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_pro_core.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_pro_core.py",
+          "method": "get",
+          "path": "/__whoami"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_pro_core.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/version"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_pro_core.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/abilities"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_pro_core.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/health"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_pro_core.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/config"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_pro_core.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/public-api-check"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_pro_core.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/workflows"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_pro_core.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/workflows/summary"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_pro_core.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/workflows/inventory"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_pro_core.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/workflows/find"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_pro_core.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/status/all"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_pro_core.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/templates"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_pro_core.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/template-recommendations"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_pro_core.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/planner/recommend"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_pro_core.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/memory"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_pro_core.py",
+          "method": "post",
+          "path": "/api/jarvis/n8n/templates/register"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_pro_core.py",
+          "method": "post",
+          "path": "/api/jarvis/n8n/templates/render"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_pro_core.py",
+          "method": "post",
+          "path": "/api/jarvis/n8n/templates/create"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_pro_core.py",
+          "method": "post",
+          "path": "/api/jarvis/n8n/templates/create-and-activate"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_pro_core.py",
+          "method": "post",
+          "path": "/api/jarvis/n8n/templates/smoke"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_pro_core.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/templates/{template_id}"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_pro_core.py",
+          "method": "post",
+          "path": "/api/jarvis/n8n/planner/create-from-goal"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_pro_core.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/lifecycle/cleanup-report"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_pro_core.py",
+          "method": "post",
+          "path": "/api/jarvis/n8n/lifecycle/cleanup/apply"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_pro_core.py",
+          "method": "post",
+          "path": "/api/jarvis/n8n/probe/{webhook_path}"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_safe_v1.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_safe_v1.py",
+          "method": "get",
+          "path": "/__whoami"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_safe_v1.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/version"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_safe_v1.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/health"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_safe_v1.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/config"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_safe_v1.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/public-api-check"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_safe_v1.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/workflows"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_safe_v1.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/workflows/summary"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_safe_v1.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/status/all"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_safe_v1.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/templates"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_safe_v1.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/templates/{template_id}"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_safe_v1.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/memory"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_safe_v1.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/templates/recommend"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_safe_v1.py",
+          "method": "post",
+          "path": "/api/jarvis/n8n/templates/register"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_safe_v1.py",
+          "method": "post",
+          "path": "/api/jarvis/n8n/templates/create"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_safe_v1.py",
+          "method": "post",
+          "path": "/api/jarvis/n8n/templates/create-and-activate"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_director_safe_v1.py",
+          "method": "post",
+          "path": "/api/jarvis/n8n/templates/smoke"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/ping"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/_routes"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/health"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/config"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/public-api-check"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/workflows"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/workflows/summary"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/status/all"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway.py",
+          "method": "post",
+          "path": "/api/jarvis/n8n/workflows/create-webhook"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway.py",
+          "method": "post",
+          "path": "/api/jarvis/n8n/workflows/activate/{workflow_id}"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway.py",
+          "method": "post",
+          "path": "/api/jarvis/n8n/probe/{webhook_path}"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway.py",
+          "method": "post",
+          "path": "/api/jarvis/n8n/smoke/local-webhook"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway_hardened_v2.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway_hardened_v2.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/version"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway_hardened_v2.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/ping"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway_hardened_v2.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/_routes"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway_hardened_v2.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/health"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway_hardened_v2.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/config"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway_hardened_v2.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/public-api-check"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway_hardened_v2.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/workflows"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway_hardened_v2.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/workflows/summary"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway_hardened_v2.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/status/all"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway_hardened_v2.py",
+          "method": "post",
+          "path": "/api/jarvis/n8n/workflows/create-webhook"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway_hardened_v2.py",
+          "method": "post",
+          "path": "/api/jarvis/n8n/workflows/activate/{workflow_id}"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway_hardened_v2.py",
+          "method": "post",
+          "path": "/api/jarvis/n8n/probe/{webhook_path}"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway_hardened_v2.py",
+          "method": "post",
+          "path": "/api/jarvis/n8n/smoke/local-webhook"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway_identity_v3.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway_identity_v3.py",
+          "method": "get",
+          "path": "/__whoami"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway_identity_v3.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/version"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway_identity_v3.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/ping"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway_identity_v3.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/_routes"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway_identity_v3.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/health"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway_identity_v3.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/config"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway_identity_v3.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/public-api-check"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway_identity_v3.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/workflows"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway_identity_v3.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/workflows/summary"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway_identity_v3.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/status/all"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway_identity_v3.py",
+          "method": "post",
+          "path": "/api/jarvis/n8n/workflows/create-webhook"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway_identity_v3.py",
+          "method": "post",
+          "path": "/api/jarvis/n8n/workflows/activate/{workflow_id}"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway_identity_v3.py",
+          "method": "post",
+          "path": "/api/jarvis/n8n/probe/{webhook_path}"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_gateway_identity_v3.py",
+          "method": "post",
+          "path": "/api/jarvis/n8n/smoke/local-webhook"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_template_pack_v4.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_template_pack_v4.py",
+          "method": "get",
+          "path": "/__whoami"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_template_pack_v4.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/version"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_template_pack_v4.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/ping"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_template_pack_v4.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/_routes"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_template_pack_v4.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/templates"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_template_pack_v4.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/templates/{template_id}"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_template_pack_v4.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/health"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_template_pack_v4.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/config"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_template_pack_v4.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/public-api-check"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_template_pack_v4.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/workflows"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_template_pack_v4.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/workflows/summary"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_template_pack_v4.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/status/all"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_template_pack_v4.py",
+          "method": "post",
+          "path": "/api/jarvis/n8n/workflows/create-webhook"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_template_pack_v4.py",
+          "method": "post",
+          "path": "/api/jarvis/n8n/workflows/activate/{workflow_id}"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_template_pack_v4.py",
+          "method": "post",
+          "path": "/api/jarvis/n8n/probe/{webhook_path}"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_template_pack_v4.py",
+          "method": "post",
+          "path": "/api/jarvis/n8n/templates/create"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_template_pack_v4.py",
+          "method": "post",
+          "path": "/api/jarvis/n8n/templates/create-and-activate"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_template_pack_v4.py",
+          "method": "post",
+          "path": "/api/jarvis/n8n/templates/smoke"
+        },
+        {
+          "file": "app\\jarvis_local_n8n_template_pack_v4.py",
+          "method": "post",
+          "path": "/api/jarvis/n8n/smoke/local-webhook"
+        },
+        {
+          "file": "app\\jarvis_self_evolution_guarded.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\jarvis_self_evolution_guarded.py",
+          "method": "get",
+          "path": "/__whoami"
+        },
+        {
+          "file": "app\\jarvis_self_evolution_guarded.py",
+          "method": "get",
+          "path": "/api/self-evolution/config"
+        },
+        {
+          "file": "app\\jarvis_self_evolution_guarded.py",
+          "method": "post",
+          "path": "/api/self-evolution/config/update"
+        },
+        {
+          "file": "app\\jarvis_self_evolution_guarded.py",
+          "method": "get",
+          "path": "/api/self-evolution/status"
+        },
+        {
+          "file": "app\\jarvis_self_evolution_guarded.py",
+          "method": "post",
+          "path": "/api/self-evolution/run/once"
+        },
+        {
+          "file": "app\\jarvis_self_evolution_guarded.py",
+          "method": "post",
+          "path": "/api/self-evolution/runner/start"
+        },
+        {
+          "file": "app\\jarvis_self_evolution_guarded.py",
+          "method": "post",
+          "path": "/api/self-evolution/runner/stop"
+        },
+        {
+          "file": "app\\jarvis_self_evolution_guarded.py",
+          "method": "get",
+          "path": "/api/self-evolution/proposals"
+        },
+        {
+          "file": "app\\jarvis_self_evolution_guarded.py",
+          "method": "post",
+          "path": "/api/self-evolution/proposals/{proposal_id}/approve"
+        },
+        {
+          "file": "app\\jarvis_self_evolution_guarded.py",
+          "method": "post",
+          "path": "/api/self-evolution/proposals/{proposal_id}/reject"
+        },
+        {
+          "file": "app\\jarvis_self_evolution_guarded.py",
+          "method": "get",
+          "path": "/api/self-evolution/reports/latest"
+        },
+        {
+          "file": "app\\jarvis_supervisor_router_hardening.py",
+          "method": "get",
+          "path": "/healthz"
+        },
+        {
+          "file": "app\\jarvis_supervisor_router_hardening.py",
+          "method": "get",
+          "path": "/_jarvis/router/status"
+        },
+        {
+          "file": "app\\main.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\main.py",
+          "method": "get",
+          "path": "/api/ai/health"
+        },
+        {
+          "file": "app\\main_local_n8n_bridge_v2.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/ping"
+        },
+        {
+          "file": "app\\main_local_n8n_bridge_v2.py",
+          "method": "get",
+          "path": "/api/jarvis/n8n/_routes"
+        },
+        {
+          "file": "app\\n8n_stage_b_sidecar.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\n8n_stage_b_sidecar.py",
+          "method": "get",
+          "path": "/config"
+        },
+        {
+          "file": "app\\n8n_stage_b_sidecar.py",
+          "method": "get",
+          "path": "/debug-state"
+        },
+        {
+          "file": "app\\n8n_stage_b_sidecar.py",
+          "method": "post",
+          "path": "/dry-run-payload"
+        },
+        {
+          "file": "app\\n8n_stage_b_sidecar.py",
+          "method": "post",
+          "path": "/create-only"
+        },
+        {
+          "file": "app\\n8n_stage_b_sidecar.py",
+          "method": "get",
+          "path": "/routes"
+        },
+        {
+          "file": "app\\n8n_stage_b_sidecar_final.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\n8n_stage_b_sidecar_final.py",
+          "method": "get",
+          "path": "/config"
+        },
+        {
+          "file": "app\\n8n_stage_b_sidecar_final.py",
+          "method": "post",
+          "path": "/create-only"
+        },
+        {
+          "file": "app\\api\\agent_mesh_improvement_router.py",
+          "method": "get",
+          "path": "/improvement/health"
+        },
+        {
+          "file": "app\\api\\agent_mesh_improvement_router.py",
+          "method": "get",
+          "path": "/improvement/proposals"
+        },
+        {
+          "file": "app\\api\\agent_mesh_improvement_router.py",
+          "method": "post",
+          "path": "/improvement/tick"
+        },
+        {
+          "file": "app\\api\\agent_mesh_improvement_router.py",
+          "method": "get",
+          "path": "/improvement/registry"
+        },
+        {
+          "file": "app\\api\\agent_mesh_improvement_router.py",
+          "method": "post",
+          "path": "/improvement/continuous/start"
+        },
+        {
+          "file": "app\\api\\agent_mesh_improvement_router.py",
+          "method": "post",
+          "path": "/improvement/continuous/stop"
+        },
+        {
+          "file": "app\\api\\agent_mesh_improvement_router.py",
+          "method": "get",
+          "path": "/improvement/continuous/status"
+        },
+        {
+          "file": "app\\api\\agent_mesh_improvement_router.py",
+          "method": "get",
+          "path": "/improvement/journal"
+        },
+        {
+          "file": "app\\api\\agent_mesh_improvement_router.py",
+          "method": "get",
+          "path": "/claude-probe/health"
+        },
+        {
+          "file": "app\\api\\agent_mesh_plus_router.py",
+          "method": "get",
+          "path": "/lifecycle/health"
+        },
+        {
+          "file": "app\\api\\agent_mesh_plus_router.py",
+          "method": "post",
+          "path": "/lifecycle/cleanup"
+        },
+        {
+          "file": "app\\api\\agent_mesh_plus_router.py",
+          "method": "post",
+          "path": "/knowledge/ingest"
+        },
+        {
+          "file": "app\\api\\agent_mesh_plus_router.py",
+          "method": "get",
+          "path": "/knowledge/library"
+        },
+        {
+          "file": "app\\api\\agent_mesh_plus_router.py",
+          "method": "get",
+          "path": "/knowledge/domains"
+        },
+        {
+          "file": "app\\api\\agent_mesh_plus_router.py",
+          "method": "get",
+          "path": "/knowledge/review-queue"
+        },
+        {
+          "file": "app\\api\\agent_mesh_plus_router.py",
+          "method": "post",
+          "path": "/knowledge/review/approve/{review_id}"
+        },
+        {
+          "file": "app\\api\\agent_mesh_plus_router.py",
+          "method": "post",
+          "path": "/knowledge/review/reject/{review_id}"
+        },
+        {
+          "file": "app\\api\\agent_mesh_plus_router.py",
+          "method": "get",
+          "path": "/knowledge/negative-rules"
+        },
+        {
+          "file": "app\\api\\agent_mesh_plus_router.py",
+          "method": "get",
+          "path": "/service-traces"
+        },
+        {
+          "file": "app\\api\\agent_mesh_plus_router.py",
+          "method": "get",
+          "path": "/service-telemetry"
+        },
+        {
+          "file": "app\\api\\agent_mesh_plus_router.py",
+          "method": "get",
+          "path": "/communication-policy"
+        },
+        {
+          "file": "app\\api\\agent_mesh_plus_router.py",
+          "method": "get",
+          "path": "/autonomy/health"
+        },
+        {
+          "file": "app\\api\\agent_mesh_plus_router.py",
+          "method": "post",
+          "path": "/autonomy/tick"
+        },
+        {
+          "file": "app\\api\\agent_mesh_plus_router.py",
+          "method": "get",
+          "path": "/autonomy/history"
+        },
+        {
+          "file": "app\\api\\agent_mesh_real_exec_router.py",
+          "method": "get",
+          "path": "/n8n/health"
+        },
+        {
+          "file": "app\\api\\agent_mesh_real_exec_router.py",
+          "method": "post",
+          "path": "/n8n/verify"
+        },
+        {
+          "file": "app\\api\\agent_mesh_real_exec_router.py",
+          "method": "post",
+          "path": "/n8n/test-webhook"
+        },
+        {
+          "file": "app\\api\\agent_mesh_real_exec_router.py",
+          "method": "post",
+          "path": "/n8n/promote-live"
+        },
+        {
+          "file": "app\\api\\agent_mesh_real_exec_router.py",
+          "method": "post",
+          "path": "/traces/rebuild"
+        },
+        {
+          "file": "app\\api\\agent_mesh_real_exec_router.py",
+          "method": "post",
+          "path": "/autonomy/enable"
+        },
+        {
+          "file": "app\\api\\agent_mesh_real_exec_router.py",
+          "method": "post",
+          "path": "/autonomy/disable"
+        },
+        {
+          "file": "app\\api\\agent_mesh_real_exec_router.py",
+          "method": "get",
+          "path": "/real-exec/health"
+        },
+        {
+          "file": "app\\api\\agent_mesh_router.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\api\\agent_mesh_router.py",
+          "method": "get",
+          "path": "/learning/health"
+        },
+        {
+          "file": "app\\api\\agent_mesh_router.py",
+          "method": "post",
+          "path": "/learning/rebuild"
+        },
+        {
+          "file": "app\\api\\agent_mesh_router.py",
+          "method": "get",
+          "path": "/adaptive-policy"
+        },
+        {
+          "file": "app\\api\\agent_mesh_router.py",
+          "method": "get",
+          "path": "/strategy/active"
+        },
+        {
+          "file": "app\\api\\agent_mesh_router.py",
+          "method": "get",
+          "path": "/learning/variants"
+        },
+        {
+          "file": "app\\api\\agent_mesh_router.py",
+          "method": "post",
+          "path": "/learning/variants/propose"
+        },
+        {
+          "file": "app\\api\\agent_mesh_router.py",
+          "method": "post",
+          "path": "/learning/variants/approve/{variant_id}"
+        },
+        {
+          "file": "app\\api\\agent_mesh_router.py",
+          "method": "get",
+          "path": "/learning/experiments/runs"
+        },
+        {
+          "file": "app\\api\\agent_mesh_router.py",
+          "method": "post",
+          "path": "/learning/experiments/run"
+        },
+        {
+          "file": "app\\api\\agent_mesh_router.py",
+          "method": "get",
+          "path": "/learning/recommendation"
+        },
+        {
+          "file": "app\\api\\agent_mesh_router.py",
+          "method": "post",
+          "path": "/learning/variants/apply/{variant_id}"
+        },
+        {
+          "file": "app\\api\\agent_mesh_router.py",
+          "method": "get",
+          "path": "/learning/skills"
+        },
+        {
+          "file": "app\\api\\agent_mesh_router.py",
+          "method": "get",
+          "path": "/learning/lessons"
+        },
+        {
+          "file": "app\\api\\agent_mesh_router.py",
+          "method": "post",
+          "path": "/learning/guidance/preview"
+        },
+        {
+          "file": "app\\api\\agent_mesh_router.py",
+          "method": "get",
+          "path": "/connector-policy/{agent_id}/{capability}"
+        },
+        {
+          "file": "app\\api\\agent_mesh_router.py",
+          "method": "post",
+          "path": "/runtime/connectors/execute"
+        },
+        {
+          "file": "app\\api\\agent_mesh_router.py",
+          "method": "post",
+          "path": "/runtime/integration-task/execute"
+        },
+        {
+          "file": "app\\api\\agent_mesh_router.py",
+          "method": "get",
+          "path": "/connectors/log"
+        },
+        {
+          "file": "app\\api\\agent_mesh_router.py",
+          "method": "get",
+          "path": "/auth/health"
+        },
+        {
+          "file": "app\\api\\agent_mesh_router.py",
+          "method": "post",
+          "path": "/demo-run-v10"
+        },
+        {
+          "file": "app\\api\\agent_mesh_router.py",
+          "method": "get",
+          "path": "/missions/{mission_id}"
+        },
+        {
+          "file": "app\\api\\agent_mesh_stability_router.py",
+          "method": "get",
+          "path": "/service-guard/health"
+        },
+        {
+          "file": "app\\api\\agent_mesh_stability_router.py",
+          "method": "get",
+          "path": "/self-healing/health"
+        },
+        {
+          "file": "app\\api\\agent_mesh_stability_router.py",
+          "method": "post",
+          "path": "/self-healing/tick"
+        },
+        {
+          "file": "app\\api\\agent_mesh_stability_router.py",
+          "method": "get",
+          "path": "/service-resolution/example"
+        },
+        {
+          "file": "app\\api\\ai_router.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\api\\ai_router.py",
+          "method": "post",
+          "path": "/dispatch"
+        },
+        {
+          "file": "app\\api\\artifacts.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\api\\artifacts.py",
+          "method": "post",
+          "path": "/build"
+        },
+        {
+          "file": "app\\api\\cloud_control.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\api\\cloud_control.py",
+          "method": "get",
+          "path": "/capabilities"
+        },
+        {
+          "file": "app\\api\\cloud_control.py",
+          "method": "get",
+          "path": "/tools"
+        },
+        {
+          "file": "app\\api\\cloud_control.py",
+          "method": "get",
+          "path": "/agents"
+        },
+        {
+          "file": "app\\api\\cloud_control.py",
+          "method": "post",
+          "path": "/execute"
+        },
+        {
+          "file": "app\\api\\cloud_control.py",
+          "method": "post",
+          "path": "/raw-invoke"
+        },
+        {
+          "file": "app\\api\\cloud_control.py",
+          "method": "get",
+          "path": "/audit/recent"
+        },
+        {
+          "file": "app\\api\\cloud_control.py",
+          "method": "get",
+          "path": "/operator-mode"
+        },
+        {
+          "file": "app\\api\\cloud_control.py",
+          "method": "post",
+          "path": "/plan-and-execute"
+        },
+        {
+          "file": "app\\api\\compat_legacy.py",
+          "method": "get",
+          "path": "/api/agents"
+        },
+        {
+          "file": "app\\api\\compat_legacy.py",
+          "method": "post",
+          "path": "/api/respond"
+        },
+        {
+          "file": "app\\api\\compat_legacy.py",
+          "method": "get",
+          "path": "/api/goals"
+        },
+        {
+          "file": "app\\api\\compat_legacy.py",
+          "method": "post",
+          "path": "/api/goals"
+        },
+        {
+          "file": "app\\api\\dashboard.py",
+          "method": "get",
+          "path": "/dashboard/data"
+        },
+        {
+          "file": "app\\api\\dashboard.py",
+          "method": "get",
+          "path": "/dashboard/missions/{mission_id}"
+        },
+        {
+          "file": "app\\api\\dashboard.py",
+          "method": "get",
+          "path": "/dashboard"
+        },
+        {
+          "file": "app\\api\\execution_planner.py",
+          "method": "post",
+          "path": "/plan"
+        },
+        {
+          "file": "app\\api\\external_executor.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\api\\external_executor.py",
+          "method": "post",
+          "path": "/execute"
+        },
+        {
+          "file": "app\\api\\goals_router.py",
+          "method": "post",
+          "path": "/goals"
+        },
+        {
+          "file": "app\\api\\goals_router.py",
+          "method": "get",
+          "path": "/missions"
+        },
+        {
+          "file": "app\\api\\goals_router.py",
+          "method": "get",
+          "path": "/missions/{mission_id}"
+        },
+        {
+          "file": "app\\api\\goals_router.py",
+          "method": "post",
+          "path": "/missions/{mission_id}/run"
+        },
+        {
+          "file": "app\\api\\goals_router.py",
+          "method": "get",
+          "path": "/missions/{mission_id}/logs"
+        },
+        {
+          "file": "app\\api\\google_tools.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\api\\google_tools.py",
+          "method": "post",
+          "path": "/execute"
+        },
+        {
+          "file": "app\\api\\memory.py",
+          "method": "get",
+          "path": "/memory/stats"
+        },
+        {
+          "file": "app\\api\\memory.py",
+          "method": "get",
+          "path": "/memory/{mission_id}"
+        },
+        {
+          "file": "app\\api\\memory.py",
+          "method": "get",
+          "path": "/memory/{mission_id}/context"
+        },
+        {
+          "file": "app\\api\\memory.py",
+          "method": "post",
+          "path": "/memory/{mission_id}/compress"
+        },
+        {
+          "file": "app\\api\\memory_layer.py",
+          "method": "post",
+          "path": "/write"
+        },
+        {
+          "file": "app\\api\\memory_layer.py",
+          "method": "post",
+          "path": "/mission-summary"
+        },
+        {
+          "file": "app\\api\\memory_layer.py",
+          "method": "get",
+          "path": "/list/{category}"
+        },
+        {
+          "file": "app\\api\\missions.py",
+          "method": "get",
+          "path": "/missions"
+        },
+        {
+          "file": "app\\api\\missions.py",
+          "method": "get",
+          "path": "/missions/{mission_id}"
+        },
+        {
+          "file": "app\\api\\missions.py",
+          "method": "get",
+          "path": "/missions/{mission_id}/memory"
+        },
+        {
+          "file": "app\\api\\missions.py",
+          "method": "get",
+          "path": "/missions/{mission_id}/queue"
+        },
+        {
+          "file": "app\\api\\missions.py",
+          "method": "post",
+          "path": "/missions/{mission_id}/retry"
+        },
+        {
+          "file": "app\\api\\missions.py",
+          "method": "post",
+          "path": "/missions/{mission_id}/cancel"
+        },
+        {
+          "file": "app\\api\\mission_ai_bridge.py",
+          "method": "post",
+          "path": "/classify-task"
+        },
+        {
+          "file": "app\\api\\mission_ai_bridge.py",
+          "method": "post",
+          "path": "/execute"
+        },
+        {
+          "file": "app\\api\\mission_artifacts.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\api\\mission_artifacts.py",
+          "method": "post",
+          "path": "/classify"
+        },
+        {
+          "file": "app\\api\\mission_artifacts.py",
+          "method": "post",
+          "path": "/execute"
+        },
+        {
+          "file": "app\\api\\mission_graph.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\api\\mission_graph.py",
+          "method": "post",
+          "path": "/submit"
+        },
+        {
+          "file": "app\\api\\mission_graph.py",
+          "method": "post",
+          "path": "/test/failure-graph"
+        },
+        {
+          "file": "app\\api\\mission_graph.py",
+          "method": "post",
+          "path": "/missions/{graph_mission_id}/execute"
+        },
+        {
+          "file": "app\\api\\mission_graph.py",
+          "method": "post",
+          "path": "/missions/{graph_mission_id}/rerun"
+        },
+        {
+          "file": "app\\api\\mission_graph.py",
+          "method": "post",
+          "path": "/missions/{graph_mission_id}/cancel"
+        },
+        {
+          "file": "app\\api\\mission_graph.py",
+          "method": "post",
+          "path": "/missions/{graph_mission_id}/package"
+        },
+        {
+          "file": "app\\api\\mission_graph.py",
+          "method": "post",
+          "path": "/missions/{graph_mission_id}/steps/{step_id}/retry"
+        },
+        {
+          "file": "app\\api\\mission_graph.py",
+          "method": "get",
+          "path": "/missions/{graph_mission_id}"
+        },
+        {
+          "file": "app\\api\\mission_graph.py",
+          "method": "get",
+          "path": "/runs"
+        },
+        {
+          "file": "app\\api\\mission_memory_bridge.py",
+          "method": "post",
+          "path": "/run"
+        },
+        {
+          "file": "app\\api\\mission_run_memory.py",
+          "method": "post",
+          "path": "/write"
+        },
+        {
+          "file": "app\\api\\multi_step_execution.py",
+          "method": "post",
+          "path": "/execute"
+        },
+        {
+          "file": "app\\api\\obsidian_bridge.py",
+          "method": "post",
+          "path": "/export-note"
+        },
+        {
+          "file": "app\\api\\obsidian_bridge.py",
+          "method": "post",
+          "path": "/auto-mission-memory"
+        },
+        {
+          "file": "app\\api\\policy.py",
+          "method": "get",
+          "path": "/policy"
+        },
+        {
+          "file": "app\\api\\provider_routing_policy.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\api\\provider_routing_policy.py",
+          "method": "post",
+          "path": "/decide"
+        },
+        {
+          "file": "app\\api\\responses.py",
+          "method": "post",
+          "path": "/respond"
+        },
+        {
+          "file": "app\\api\\responses.py",
+          "method": "post",
+          "path": "/routes/debug"
+        },
+        {
+          "file": "app\\api\\routes.py",
+          "method": "get",
+          "path": "/"
+        },
+        {
+          "file": "app\\api\\routes.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\api\\routes.py",
+          "method": "post",
+          "path": "/api/goals"
+        },
+        {
+          "file": "app\\api\\routes.py",
+          "method": "get",
+          "path": "/api/missions"
+        },
+        {
+          "file": "app\\api\\routes.py",
+          "method": "get",
+          "path": "/api/missions/{mission_id}"
+        },
+        {
+          "file": "app\\api\\routes.py",
+          "method": "post",
+          "path": "/api/missions/{mission_id}/run"
+        },
+        {
+          "file": "app\\api\\routes.py",
+          "method": "get",
+          "path": "/api/missions/{mission_id}/logs"
+        },
+        {
+          "file": "app\\api\\runtime_bridge.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\api\\runtime_bridge.py",
+          "method": "post",
+          "path": "/submit"
+        },
+        {
+          "file": "app\\api\\runtime_bridge.py",
+          "method": "post",
+          "path": "/missions/{mission_id}/execute"
+        },
+        {
+          "file": "app\\api\\runtime_bridge.py",
+          "method": "post",
+          "path": "/missions/{mission_id}/cancel"
+        },
+        {
+          "file": "app\\api\\runtime_bridge.py",
+          "method": "get",
+          "path": "/goals/{goal_id}"
+        },
+        {
+          "file": "app\\api\\runtime_bridge.py",
+          "method": "get",
+          "path": "/missions/{mission_id}"
+        },
+        {
+          "file": "app\\api\\runtime_bridge.py",
+          "method": "get",
+          "path": "/runs"
+        },
+        {
+          "file": "app\\api\\specialized_agents.py",
+          "method": "post",
+          "path": "/execute"
+        },
+        {
+          "file": "app\\api\\specialized_agents.py",
+          "method": "post",
+          "path": "/coding"
+        },
+        {
+          "file": "app\\api\\specialized_agents.py",
+          "method": "post",
+          "path": "/research"
+        },
+        {
+          "file": "app\\api\\specialized_agents.py",
+          "method": "post",
+          "path": "/reasoning"
+        },
+        {
+          "file": "app\\api\\spreadsheets.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\api\\spreadsheets.py",
+          "method": "post",
+          "path": "/execute"
+        },
+        {
+          "file": "app\\api\\worker.py",
+          "method": "get",
+          "path": "/worker/status"
+        },
+        {
+          "file": "app\\api\\worker.py",
+          "method": "post",
+          "path": "/worker/run-once"
+        },
+        {
+          "file": "app\\api\\worker.py",
+          "method": "post",
+          "path": "/worker/recover-stale"
+        },
+        {
+          "file": "app\\api\\worker.py",
+          "method": "post",
+          "path": "/worker/resume-missions"
+        },
+        {
+          "file": "app\\autonomy\\mission_bridge.py",
+          "method": "get",
+          "path": "/mission-bridge/health"
+        },
+        {
+          "file": "app\\autonomy\\mission_bridge.py",
+          "method": "get",
+          "path": "/mission-bridge/check/{mission_id}"
+        },
+        {
+          "file": "app\\autonomy\\mission_bridge.py",
+          "method": "post",
+          "path": "/mission-bridge/run/{mission_id}"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "post",
+          "path": "/reconcile/runtime"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "post",
+          "path": "/archive/jobs"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "post",
+          "path": "/archive/missions"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "get",
+          "path": "/recovery-policy"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "post",
+          "path": "/recovery-policy"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "get",
+          "path": "/operator-escalations"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "get",
+          "path": "/mission-registry"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "get",
+          "path": "/mission-templates"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "post",
+          "path": "/missions"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "get",
+          "path": "/missions"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "get",
+          "path": "/missions/{mission_id}"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "post",
+          "path": "/missions/{mission_id}/run"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "get",
+          "path": "/missions/{mission_id}/history"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "get",
+          "path": "/tools"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "post",
+          "path": "/tools/execute"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "post",
+          "path": "/tools/execute-plan"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "get",
+          "path": "/tools/executions"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "get",
+          "path": "/chains"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "post",
+          "path": "/chains/execute"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "get",
+          "path": "/workflows"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "post",
+          "path": "/workflows/execute"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "get",
+          "path": "/workflows/executions"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "get",
+          "path": "/graphs"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "post",
+          "path": "/graphs/execute"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "get",
+          "path": "/graphs/executions"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "get",
+          "path": "/repairs"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "post",
+          "path": "/repairs/execute"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "get",
+          "path": "/repairs/executions"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "post",
+          "path": "/execute-step"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "get",
+          "path": "/engine/executions"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "post",
+          "path": "/memory/snapshot/{mission_id}"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "get",
+          "path": "/dashboard"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "get",
+          "path": "/mission-bridge/health"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "get",
+          "path": "/mission-bridge/check/{mission_id}"
+        },
+        {
+          "file": "app\\autonomy\\router.py",
+          "method": "post",
+          "path": "/mission-bridge/run/{mission_id}"
+        },
+        {
+          "file": "app\\routers\\agent_control_plane.py",
+          "method": "get",
+          "path": "/api/control/health"
+        },
+        {
+          "file": "app\\routers\\agent_control_plane.py",
+          "method": "get",
+          "path": "/api/agents/adapters"
+        },
+        {
+          "file": "app\\routers\\agent_control_plane.py",
+          "method": "post",
+          "path": "/api/agents/register"
+        },
+        {
+          "file": "app\\routers\\agent_control_plane.py",
+          "method": "get",
+          "path": "/api/agents/registry"
+        },
+        {
+          "file": "app\\routers\\agent_control_plane.py",
+          "method": "post",
+          "path": "/api/agents/tasks"
+        },
+        {
+          "file": "app\\routers\\agent_control_plane.py",
+          "method": "get",
+          "path": "/api/agents/tasks"
+        },
+        {
+          "file": "app\\routers\\agent_control_plane.py",
+          "method": "post",
+          "path": "/api/agents/tasks/lease"
+        },
+        {
+          "file": "app\\routers\\agent_control_plane.py",
+          "method": "post",
+          "path": "/api/agents/tasks/{task_id}/complete"
+        },
+        {
+          "file": "app\\routers\\agent_control_plane.py",
+          "method": "post",
+          "path": "/api/agents/tasks/{task_id}/fail"
+        },
+        {
+          "file": "app\\routers\\agent_control_plane.py",
+          "method": "post",
+          "path": "/api/agents/invoke"
+        },
+        {
+          "file": "app\\routers\\agent_control_plane.py",
+          "method": "get",
+          "path": "/api/approvals"
+        },
+        {
+          "file": "app\\routers\\agent_control_plane.py",
+          "method": "post",
+          "path": "/api/approvals/request"
+        },
+        {
+          "file": "app\\routers\\agent_control_plane.py",
+          "method": "post",
+          "path": "/api/approvals/{approval_id}/approve"
+        },
+        {
+          "file": "app\\routers\\agent_control_plane.py",
+          "method": "post",
+          "path": "/api/approvals/{approval_id}/reject"
+        },
+        {
+          "file": "app\\routers\\agent_control_plane.py",
+          "method": "post",
+          "path": "/api/memory/remember"
+        },
+        {
+          "file": "app\\routers\\agent_control_plane.py",
+          "method": "get",
+          "path": "/api/memory/search"
+        },
+        {
+          "file": "app\\routers\\agent_control_plane.py",
+          "method": "get",
+          "path": "/api/memory/recent"
+        },
+        {
+          "file": "app\\routers\\agent_control_plane.py",
+          "method": "post",
+          "path": "/api/memory/ingest-mission/{mission_id}"
+        },
+        {
+          "file": "app\\routers\\artifacts_runtime.py",
+          "method": "get",
+          "path": "/api/artifacts/health"
+        },
+        {
+          "file": "app\\routers\\artifacts_runtime.py",
+          "method": "get",
+          "path": "/api/artifacts/missions"
+        },
+        {
+          "file": "app\\routers\\artifacts_runtime.py",
+          "method": "get",
+          "path": "/api/artifacts/missions/{mission_id}/manifest"
+        },
+        {
+          "file": "app\\routers\\artifacts_runtime.py",
+          "method": "get",
+          "path": "/api/artifacts/missions/{mission_id}/result"
+        },
+        {
+          "file": "app\\routers\\jarvis_brain_executor_router.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\routers\\jarvis_brain_executor_router.py",
+          "method": "post",
+          "path": "/run"
+        },
+        {
+          "file": "app\\routers\\jarvis_brain_executor_router.py",
+          "method": "get",
+          "path": "/latest"
+        },
+        {
+          "file": "app\\routers\\jarvis_brain_router.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\routers\\jarvis_brain_router.py",
+          "method": "post",
+          "path": "/compile"
+        },
+        {
+          "file": "app\\routers\\jarvis_brain_router.py",
+          "method": "get",
+          "path": "/latest"
+        },
+        {
+          "file": "app\\routers\\jarvis_n8n_bridge_router.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\routers\\jarvis_n8n_bridge_router.py",
+          "method": "get",
+          "path": "/config"
+        },
+        {
+          "file": "app\\routers\\jarvis_n8n_bridge_router.py",
+          "method": "get",
+          "path": "/public-api-check"
+        },
+        {
+          "file": "app\\routers\\jarvis_n8n_bridge_router.py",
+          "method": "get",
+          "path": "/workflows"
+        },
+        {
+          "file": "app\\routers\\jarvis_n8n_bridge_router.py",
+          "method": "post",
+          "path": "/workflows/create-webhook"
+        },
+        {
+          "file": "app\\routers\\jarvis_n8n_bridge_router.py",
+          "method": "post",
+          "path": "/workflows/activate/{workflow_id}"
+        },
+        {
+          "file": "app\\routers\\jarvis_n8n_bridge_router.py",
+          "method": "post",
+          "path": "/probe/{webhook_path}"
+        },
+        {
+          "file": "app\\routers\\jarvis_n8n_bridge_router.py",
+          "method": "post",
+          "path": "/smoke/local-webhook"
+        },
+        {
+          "file": "app\\routers\\jarvis_n8n_specialist_router.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\routers\\jarvis_n8n_specialist_router.py",
+          "method": "post",
+          "path": "/run"
+        },
+        {
+          "file": "app\\routers\\jarvis_n8n_specialist_router.py",
+          "method": "get",
+          "path": "/latest"
+        },
+        {
+          "file": "app\\routers\\jarvis_n8n_super_agent_router.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\routers\\jarvis_n8n_super_agent_router.py",
+          "method": "post",
+          "path": "/run"
+        },
+        {
+          "file": "app\\routers\\jarvis_n8n_super_agent_router.py",
+          "method": "get",
+          "path": "/latest"
+        },
+        {
+          "file": "app\\routers\\jarvis_operator_task_router.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\routers\\jarvis_operator_task_router.py",
+          "method": "post",
+          "path": "/tasks"
+        },
+        {
+          "file": "app\\routers\\jarvis_operator_task_router.py",
+          "method": "get",
+          "path": "/tasks"
+        },
+        {
+          "file": "app\\routers\\jarvis_operator_task_router.py",
+          "method": "get",
+          "path": "/tasks/{task_id}"
+        },
+        {
+          "file": "app\\routers\\jarvis_operator_task_router.py",
+          "method": "patch",
+          "path": "/tasks/{task_id}"
+        },
+        {
+          "file": "app\\routers\\jarvis_operator_task_router.py",
+          "method": "get",
+          "path": "/status"
+        },
+        {
+          "file": "app\\routers\\jarvis_operator_task_router.py",
+          "method": "get",
+          "path": "/next"
+        },
+        {
+          "file": "app\\routers\\jarvis_operator_task_router.py",
+          "method": "post",
+          "path": "/telegram/report"
+        },
+        {
+          "file": "app\\routers\\jarvis_unified_night_router.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\routers\\jarvis_unified_night_router.py",
+          "method": "get",
+          "path": "/metrics"
+        },
+        {
+          "file": "app\\routers\\jarvis_unified_night_router.py",
+          "method": "post",
+          "path": "/run"
+        },
+        {
+          "file": "app\\routers\\jarvis_unified_night_router.py",
+          "method": "get",
+          "path": "/latest"
+        },
+        {
+          "file": "app\\routers\\multistep.py",
+          "method": "post",
+          "path": "/api/missions/multistep/execute"
+        },
+        {
+          "file": "app\\routers\\multistep.py",
+          "method": "post",
+          "path": "/api/missions/multi-step/execute"
+        },
+        {
+          "file": "app\\routers\\multistep.py",
+          "method": "post",
+          "path": "/api/autonomy/missions/multistep/execute"
+        },
+        {
+          "file": "app\\routers\\multistep.py",
+          "method": "post",
+          "path": "/api/autonomy/multi-step/execute"
+        },
+        {
+          "file": "app\\routers\\n8n_action_router_materializer_router.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\routers\\n8n_action_router_materializer_router.py",
+          "method": "get",
+          "path": "/debug-state"
+        },
+        {
+          "file": "app\\routers\\n8n_action_router_materializer_router.py",
+          "method": "post",
+          "path": "/dry-run-payload"
+        },
+        {
+          "file": "app\\routers\\n8n_action_router_materializer_router.py",
+          "method": "post",
+          "path": "/execute"
+        },
+        {
+          "file": "app\\routers\\n8n_action_router_materializer_router.py",
+          "method": "post",
+          "path": "/publish-workflow"
+        },
+        {
+          "file": "app\\routers\\n8n_action_router_materializer_router.py",
+          "method": "post",
+          "path": "/publish-and-probe"
+        },
+        {
+          "file": "app\\routers\\n8n_action_router_materializer_v2_router.py",
+          "method": "get",
+          "path": "/health"
+        },
+        {
+          "file": "app\\routers\\n8n_action_router_materializer_v2_router.py",
+          "method": "get",
+          "path": "/debug-state"
+        },
+        {
+          "file": "app\\routers\\n8n_action_router_materializer_v2_router.py",
+          "method": "post",
+          "path": "/dry-run-payload"
+        },
+        {
+          "file": "app\\routers\\n8n_action_router_materializer_v2_router.py",
+          "method": "post",
+          "path": "/create-only"
+        },
+        {
+          "file": "app\\routers\\n8n_action_router_materializer_v2_router.py",
+          "method": "post",
+          "path": "/publish-workflow"
+        },
+        {
+          "file": "app\\routers\\n8n_action_router_materializer_v2_router.py",
+          "method": "post",
+          "path": "/publish-and-probe"
+        },
+        {
+          "file": "app\\routers\\n8n_action_router_materializer_v2_router.py",
+          "method": "post",
+          "path": "/execute"
+        },
+        {
+          "file": "app\\routers\\n8n_bridge_router.py",
+          "method": "get",
+          "path": "/api/n8n/health"
+        },
+        {
+          "file": "app\\routers\\n8n_bridge_router.py",
+          "method": "post",
+          "path": "/api/n8n/dispatch"
+        },
+        {
+          "file": "app\\routers\\n8n_canvas_builder_router.py",
+          "method": "get",
+          "path": "/api/supervisor/canvas/health"
+        },
+        {
+          "file": "app\\routers\\n8n_canvas_builder_router.py",
+          "method": "post",
+          "path": "/api/supervisor/canvas/build"
+        },
+        {
+          "file": "app\\routers\\n8n_workflow_materializer_router.py",
+          "method": "get",
+          "path": "/api/supervisor/materializer/health"
+        },
+        {
+          "file": "app\\routers\\n8n_workflow_materializer_router.py",
+          "method": "post",
+          "path": "/api/supervisor/materializer/run"
+        },
+        {
+          "file": "app\\routers\\resume_recovery.py",
+          "method": "get",
+          "path": "/api/autonomy/resume/health"
+        },
+        {
+          "file": "app\\routers\\resume_recovery.py",
+          "method": "get",
+          "path": "/api/autonomy/resume/snapshots"
+        },
+        {
+          "file": "app\\routers\\resume_recovery.py",
+          "method": "get",
+          "path": "/api/autonomy/resume/stale"
+        },
+        {
+          "file": "app\\routers\\resume_recovery.py",
+          "method": "post",
+          "path": "/api/autonomy/resume/stale/mark"
+        },
+        {
+          "file": "app\\routers\\resume_recovery.py",
+          "method": "post",
+          "path": "/api/autonomy/missions/snapshot"
+        },
+        {
+          "file": "app\\routers\\resume_recovery.py",
+          "method": "post",
+          "path": "/api/autonomy/missions/{mission_id}/resume"
+        },
+        {
+          "file": "app\\routers\\resume_recovery.py",
+          "method": "post",
+          "path": "/api/autonomy/missions/{mission_id}/recover"
+        },
+        {
+          "file": "app\\routers\\supervisor_automation_router.py",
+          "method": "get",
+          "path": "/api/supervisor/automation/health"
+        },
+        {
+          "file": "app\\routers\\supervisor_automation_router.py",
+          "method": "post",
+          "path": "/api/supervisor/automation/preview"
+        },
+        {
+          "file": "app\\routers\\supervisor_automation_router.py",
+          "method": "post",
+          "path": "/api/supervisor/automation/run"
+        },
+        {
+          "file": "app\\routers\\supervisor_pipeline_router.py",
+          "method": "get",
+          "path": "/api/supervisor/pipeline/health"
+        },
+        {
+          "file": "app\\routers\\supervisor_pipeline_router.py",
+          "method": "post",
+          "path": "/api/supervisor/pipeline/preview"
+        },
+        {
+          "file": "app\\routers\\supervisor_pipeline_router.py",
+          "method": "post",
+          "path": "/api/supervisor/pipeline/run"
+        },
+        {
+          "file": "app\\routers\\tools_runtime.py",
+          "method": "get",
+          "path": "/api/tools/health"
+        },
+        {
+          "file": "app\\routers\\tools_runtime.py",
+          "method": "get",
+          "path": "/api/tools/registry"
+        },
+        {
+          "file": "app\\routers\\tools_runtime.py",
+          "method": "post",
+          "path": "/api/tools/execute"
+        },
+        {
+          "file": "app\\routers\\tool_chains.py",
+          "method": "get",
+          "path": "/api/tools/chains/health"
+        },
+        {
+          "file": "app\\routers\\tool_chains.py",
+          "method": "post",
+          "path": "/api/tools/chains/plan"
+        },
+        {
+          "file": "app\\routers\\tool_routing.py",
+          "method": "get",
+          "path": "/api/tools/router/health"
+        },
+        {
+          "file": "app\\routers\\tool_routing.py",
+          "method": "post",
+          "path": "/api/tools/router/plan"
+        },
+        {
+          "file": "app\\api\\endpoints\\missions.py",
+          "method": "post",
+          "path": "/{mission_id}/run"
+        },
+        {
+          "file": "app\\api\\routes\\missions.py",
+          "method": "post",
+          "path": "/{mission_id}/run"
+        }
+      ]
+    },
+    "evidence_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\unified_tool_gateway_v7_0\\calls\\tool_call_20260427_130728"
+  },
+  "time": "2026-04-27T13:07:28"
+}

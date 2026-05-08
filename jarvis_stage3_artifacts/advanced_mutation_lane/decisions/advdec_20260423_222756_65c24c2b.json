@@ -1,0 +1,39 @@
+{
+  "decision_id": "advdec_20260423_222756_65c24c2b",
+  "patch_class": "logging_patch",
+  "risk_lane": "low",
+  "recommended_action": "apply",
+  "allowed": true,
+  "confidence": 95.0,
+  "budget": {
+    "risk_lane": "low",
+    "max_files": 1,
+    "max_operations": 2,
+    "max_lines_changed": 70,
+    "requires_verify": true,
+    "requires_smoke": false,
+    "requires_health": true,
+    "rollback_required": true,
+    "allowed_action": "apply"
+  },
+  "blast_radius": {
+    "target_files": [
+      "app/services/jarvis_memory_learning_layer.py"
+    ],
+    "support_files": [],
+    "total_files": 1,
+    "critical_files": [],
+    "forbidden_files": [],
+    "touched_directories": [
+      "app/services"
+    ],
+    "estimated_lines_changed": 45,
+    "blast_radius_score": 22.0,
+    "reasons": []
+  },
+  "reasons": [
+    "matched_keywords_for:logging_patch"
+  ],
+  "next_best_action": "Generate dependency-aware patch plan and route through safe mutation foundation.",
+  "created_at": "2026-04-23T22:27:56+00:00"
+}

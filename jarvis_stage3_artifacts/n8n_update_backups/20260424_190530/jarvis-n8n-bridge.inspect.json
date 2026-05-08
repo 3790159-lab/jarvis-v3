@@ -1,0 +1,263 @@
+﻿[
+    {
+        "Id": "882f446f024fc9d0f66e1dc77612e96499475c984e03d6a30a15362d28a891d0",
+        "Created": "2026-04-21T21:11:21.045702644Z",
+        "Path": "uvicorn",
+        "Args": [
+            "jarvis_n8n_bridge:app",
+            "--host",
+            "0.0.0.0",
+            "--port",
+            "8030"
+        ],
+        "State": {
+            "Status": "running",
+            "Running": true,
+            "Paused": false,
+            "Restarting": false,
+            "OOMKilled": false,
+            "Dead": false,
+            "Pid": 5832,
+            "ExitCode": 0,
+            "Error": "",
+            "StartedAt": "2026-04-21T21:11:22.00466789Z",
+            "FinishedAt": "0001-01-01T00:00:00Z"
+        },
+        "Image": "sha256:aabd165393649081ae20d73e72671ce800617cab2a014235adcbe7e65f6ecd2b",
+        "ResolvConfPath": "/var/lib/docker/containers/882f446f024fc9d0f66e1dc77612e96499475c984e03d6a30a15362d28a891d0/resolv.conf",
+        "HostnamePath": "/var/lib/docker/containers/882f446f024fc9d0f66e1dc77612e96499475c984e03d6a30a15362d28a891d0/hostname",
+        "HostsPath": "/var/lib/docker/containers/882f446f024fc9d0f66e1dc77612e96499475c984e03d6a30a15362d28a891d0/hosts",
+        "LogPath": "/var/lib/docker/containers/882f446f024fc9d0f66e1dc77612e96499475c984e03d6a30a15362d28a891d0/882f446f024fc9d0f66e1dc77612e96499475c984e03d6a30a15362d28a891d0-json.log",
+        "Name": "/jarvis-n8n-bridge",
+        "RestartCount": 0,
+        "Driver": "overlayfs",
+        "Platform": "linux",
+        "MountLabel": "",
+        "ProcessLabel": "",
+        "AppArmorProfile": "",
+        "ExecIDs": null,
+        "HostConfig": {
+            "Binds": [
+                "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\n8n_docker_strong\\bridge-data:/bridge-data:rw"
+            ],
+            "ContainerIDFile": "",
+            "LogConfig": {
+                "Type": "json-file",
+                "Config": {}
+            },
+            "NetworkMode": "jarvis_n8n_strong_default",
+            "PortBindings": {
+                "8030/tcp": [
+                    {
+                        "HostIp": "",
+                        "HostPort": "8030"
+                    }
+                ]
+            },
+            "RestartPolicy": {
+                "Name": "unless-stopped",
+                "MaximumRetryCount": 0
+            },
+            "AutoRemove": false,
+            "VolumeDriver": "",
+            "VolumesFrom": null,
+            "ConsoleSize": [
+                0,
+                0
+            ],
+            "CapAdd": null,
+            "CapDrop": null,
+            "CgroupnsMode": "private",
+            "Dns": null,
+            "DnsOptions": null,
+            "DnsSearch": null,
+            "ExtraHosts": [],
+            "GroupAdd": null,
+            "IpcMode": "private",
+            "Cgroup": "",
+            "Links": null,
+            "OomScoreAdj": 0,
+            "PidMode": "",
+            "Privileged": false,
+            "PublishAllPorts": false,
+            "ReadonlyRootfs": false,
+            "SecurityOpt": null,
+            "UTSMode": "",
+            "UsernsMode": "",
+            "ShmSize": 67108864,
+            "Runtime": "runc",
+            "Isolation": "",
+            "CpuShares": 0,
+            "Memory": 0,
+            "NanoCpus": 0,
+            "CgroupParent": "",
+            "BlkioWeight": 0,
+            "BlkioWeightDevice": null,
+            "BlkioDeviceReadBps": null,
+            "BlkioDeviceWriteBps": null,
+            "BlkioDeviceReadIOps": null,
+            "BlkioDeviceWriteIOps": null,
+            "CpuPeriod": 0,
+            "CpuQuota": 0,
+            "CpuRealtimePeriod": 0,
+            "CpuRealtimeRuntime": 0,
+            "CpusetCpus": "",
+            "CpusetMems": "",
+            "Devices": null,
+            "DeviceCgroupRules": null,
+            "DeviceRequests": null,
+            "MemoryReservation": 0,
+            "MemorySwap": 0,
+            "MemorySwappiness": null,
+            "OomKillDisable": null,
+            "PidsLimit": null,
+            "Ulimits": null,
+            "CpuCount": 0,
+            "CpuPercent": 0,
+            "IOMaximumIOps": 0,
+            "IOMaximumBandwidth": 0,
+            "MaskedPaths": [
+                "/proc/acpi",
+                "/proc/asound",
+                "/proc/interrupts",
+                "/proc/kcore",
+                "/proc/keys",
+                "/proc/latency_stats",
+                "/proc/sched_debug",
+                "/proc/scsi",
+                "/proc/timer_list",
+                "/proc/timer_stats",
+                "/sys/devices/virtual/powercap",
+                "/sys/firmware"
+            ],
+            "ReadonlyPaths": [
+                "/proc/bus",
+                "/proc/fs",
+                "/proc/irq",
+                "/proc/sys",
+                "/proc/sysrq-trigger"
+            ]
+        },
+        "Storage": {
+            "RootFS": {
+                "Snapshot": {
+                    "Name": "overlayfs"
+                }
+            }
+        },
+        "Mounts": [
+            {
+                "Type": "bind",
+                "Source": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\n8n_docker_strong\\bridge-data",
+                "Destination": "/bridge-data",
+                "Mode": "rw",
+                "RW": true,
+                "Propagation": "rprivate"
+            }
+        ],
+        "Config": {
+            "Hostname": "882f446f024f",
+            "Domainname": "",
+            "User": "",
+            "AttachStdin": false,
+            "AttachStdout": true,
+            "AttachStderr": true,
+            "ExposedPorts": {
+                "8030/tcp": {}
+            },
+            "Tty": false,
+            "OpenStdin": false,
+            "StdinOnce": false,
+            "Env": [
+                "N8N_BASE_URL=http://n8n-main:5678",
+                "N8N_EDITOR_BASE_URL=http://127.0.0.1:5680",
+                "N8N_WEBHOOK_BASE_URL=http://127.0.0.1:5680",
+                "BRIDGE_CONFIG_PATH=/bridge-data/bridge-config.json",
+                "PATH=/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "LANG=C.UTF-8",
+                "GPG_KEY=7169605F62C751356D054A26A821E680E5FA6305",
+                "PYTHON_VERSION=3.12.13",
+                "PYTHON_SHA256=c08bc65a81971c1dd5783182826503369466c7e67374d1646519adf05207b684",
+                "PYTHONDONTWRITEBYTECODE=1",
+                "PYTHONUNBUFFERED=1"
+            ],
+            "Cmd": [
+                "uvicorn",
+                "jarvis_n8n_bridge:app",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "8030"
+            ],
+            "Image": "jarvis_n8n_strong-jarvis-bridge",
+            "Volumes": null,
+            "WorkingDir": "/app",
+            "Entrypoint": null,
+            "Labels": {
+                "com.docker.compose.config-hash": "4507a9c780817f5078861bcd29ae08fd885c13aff224a038d81bdef39fd361c5",
+                "com.docker.compose.container-number": "1",
+                "com.docker.compose.depends_on": "n8n-main:service_started:false",
+                "com.docker.compose.image": "sha256:aabd165393649081ae20d73e72671ce800617cab2a014235adcbe7e65f6ecd2b",
+                "com.docker.compose.oneoff": "False",
+                "com.docker.compose.project": "jarvis_n8n_strong",
+                "com.docker.compose.project.config_files": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\n8n_docker_strong\\docker-compose.yml",
+                "com.docker.compose.project.working_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\n8n_docker_strong",
+                "com.docker.compose.replace": "jarvis-n8n-bridge",
+                "com.docker.compose.service": "jarvis-bridge",
+                "com.docker.compose.version": "5.1.1"
+            },
+            "StopTimeout": 1
+        },
+        "NetworkSettings": {
+            "SandboxID": "7f5858745af29f75c92ea1ec19f184f053cb94ac5243ebe67a9507f138b28bb3",
+            "SandboxKey": "/var/run/docker/netns/7f5858745af2",
+            "Ports": {
+                "8030/tcp": [
+                    {
+                        "HostIp": "0.0.0.0",
+                        "HostPort": "8030"
+                    },
+                    {
+                        "HostIp": "::",
+                        "HostPort": "8030"
+                    }
+                ]
+            },
+            "Networks": {
+                "jarvis_n8n_strong_default": {
+                    "IPAMConfig": null,
+                    "Links": null,
+                    "Aliases": [
+                        "jarvis-n8n-bridge",
+                        "jarvis-bridge"
+                    ],
+                    "DriverOpts": null,
+                    "GwPriority": 0,
+                    "NetworkID": "2c6f2056c597adb646d3f8ca76b2fbda9c7de92b24035f9a8d1d4c2a698745c2",
+                    "EndpointID": "416beea82b8ac99227f9dbd87ed1bc5bcf825db88af89ed6f90ad26a1dce1336",
+                    "Gateway": "172.19.0.1",
+                    "IPAddress": "172.19.0.6",
+                    "MacAddress": "4a:96:c6:42:c0:a7",
+                    "IPPrefixLen": 16,
+                    "IPv6Gateway": "",
+                    "GlobalIPv6Address": "",
+                    "GlobalIPv6PrefixLen": 0,
+                    "DNSNames": [
+                        "jarvis-n8n-bridge",
+                        "jarvis-bridge",
+                        "882f446f024f"
+                    ]
+                }
+            }
+        },
+        "ImageManifestDescriptor": {
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "digest": "sha256:1a3fb68e5201d5b05a3b97ae820f30c6cff0197b9ef58b89a6de18c91218e204",
+            "size": 1623,
+            "platform": {
+                "architecture": "amd64",
+                "os": "linux"
+            }
+        }
+    }
+]

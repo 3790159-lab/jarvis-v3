@@ -1,0 +1,20 @@
+{
+  "target_files": [
+    "jarvis_stage3_artifacts/generated_modules/dependency_bundle_probe_depplan_20260423_223404_ff39ba4b.py"
+  ],
+  "support_files": [
+    "jarvis_stage3_artifacts/temp/dependency_bundle_probe_depplan_20260423_223404_ff39ba4b_verify.py",
+    "scripts/dependency_bundle_probe_depplan_20260423_223404_ff39ba4b_smoke.ps1"
+  ],
+  "total_files": 3,
+  "critical_files": [],
+  "forbidden_files": [],
+  "touched_directories": [
+    "jarvis_stage3_artifacts/generated_modules",
+    "jarvis_stage3_artifacts/temp",
+    "scripts"
+  ],
+  "estimated_lines_changed": 90,
+  "blast_radius_score": 48.5,
+  "reasons": []
+}

@@ -1,0 +1,96 @@
+{
+  "updatedAt": "2026-04-21T15:06:55.251Z",
+  "createdAt": "2026-04-21T15:06:55.251Z",
+  "id": "QJ4xhNDvtvM5o9Ek",
+  "name": "jarvis-direct-20260421_180654-184b0c8d",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "name": "Jarvis Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        600,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "jarvis-direct-20260421_180654-184b0c8d",
+        "options": {}
+      },
+      "id": "0909c5c9-beeb-40e1-a84c-2468ed6854b7"
+    }
+  ],
+  "connections": {},
+  "settings": {
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": null,
+  "versionId": "cb1a83e6-9ad3-40a9-966e-e131b564630f",
+  "activeVersionId": "cb1a83e6-9ad3-40a9-966e-e131b564630f",
+  "versionCounter": 3,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-04-21T15:06:55.252Z",
+      "createdAt": "2026-04-21T15:06:55.252Z",
+      "role": "workflow:owner",
+      "workflowId": "QJ4xhNDvtvM5o9Ek",
+      "projectId": "8aPubdf7jkKE6V5g",
+      "project": {
+        "updatedAt": "2026-01-20T10:41:04.645Z",
+        "createdAt": "2026-01-20T10:40:58.637Z",
+        "id": "8aPubdf7jkKE6V5g",
+        "name": "Daniil Lapin <3790159@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "30e95836-767f-4606-9e2d-b7775186bd03"
+      }
+    }
+  ],
+  "tags": [],
+  "activeVersion": {
+    "updatedAt": "2026-04-21T15:06:55.284Z",
+    "createdAt": "2026-04-21T15:06:55.284Z",
+    "versionId": "cb1a83e6-9ad3-40a9-966e-e131b564630f",
+    "workflowId": "QJ4xhNDvtvM5o9Ek",
+    "nodes": [
+      {
+        "name": "Jarvis Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 1,
+        "position": [
+          600,
+          300
+        ],
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "jarvis-direct-20260421_180654-184b0c8d",
+          "options": {}
+        },
+        "id": "0909c5c9-beeb-40e1-a84c-2468ed6854b7"
+      }
+    ],
+    "connections": {},
+    "authors": "Daniil Lapin",
+    "name": null,
+    "description": null,
+    "autosaved": false,
+    "workflowPublishHistory": [
+      {
+        "createdAt": "2026-04-21T15:06:56.440Z",
+        "id": 3,
+        "workflowId": "QJ4xhNDvtvM5o9Ek",
+        "versionId": "cb1a83e6-9ad3-40a9-966e-e131b564630f",
+        "event": "activated",
+        "userId": "30e95836-767f-4606-9e2d-b7775186bd03"
+      }
+    ]
+  }
+}

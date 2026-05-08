@@ -1,0 +1,223 @@
+{
+  "ok": true,
+  "result": {
+    "ok": true,
+    "query": "best practices autonomous AI agent night mode self healing n8n telegram automation observability 2026",
+    "max_results": 10,
+    "csv_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\telegram_tables\\best_practices_autonomous_AI_agent_night_mode_self_healing_n_20260428_233122.csv",
+    "xlsx_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\telegram_tables\\best_practices_autonomous_AI_agent_night_mode_self_healing_n_20260428_233122.xlsx",
+    "table_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\telegram_tables\\best_practices_autonomous_AI_agent_night_mode_self_healing_n_20260428_233122.xlsx",
+    "rows_count": 10,
+    "search": {
+      "ok": true,
+      "tool": "internet.search",
+      "provider": "tavily",
+      "query": "best practices autonomous AI agent night mode self healing n8n telegram automation observability 2026",
+      "created_at": "2026-04-28T23:31:24.923713Z",
+      "data": {
+        "query": "best practices autonomous AI agent night mode self healing n8n telegram automation observability 2026",
+        "follow_up_questions": null,
+        "answer": "Best practices for n8n AI agents include robust infrastructure, error handling, and monitoring. Use n8n for visual workflow automation with Telegram. Self-healing and night mode capabilities enhance reliability.",
+        "images": [],
+        "results": [
+          {
+            "url": "https://www.linkedin.com/posts/aagupta_n8n-guide-activity-7426152134389256192-9fWL",
+            "title": "Master Multi-Agent Systems with n8n in 2026 | Aakash Gupta posted on the topic | LinkedIn",
+            "content": "It lets you mix traditional business workflows with AI agents visually. • Agentic Workflow: orchestrated with detailed steps in the agent prompt. • AI Agent: prompt contains only the objective. - AI voice agent using n8n as the backend. - Multi-agent research system with agents calling other agents via the AI Agent Tool node. OpenAI Agent Builder has strong AI but no workflow orchestration. part 2: https://www.productcompass.pm/p/c21-ai-agents-practitioner-pm. It lets you mix traditional business workflows with AI agents visually. • Agentic Workflow: orchestrated with detailed steps in the agent prompt. • AI Agent: prompt contains only the objective. It lets you mix traditional business workflows with AI agents visually. Second, in Contextual AI, agent behavior is defined as a workflow graph made of customizable nodes:. It lets you mix traditional business workflows with AI agents visually. • AI Agent: prompt contains only the objective. It lets you mix traditional business workflows with AI agents visually. • AI Agent: prompt contains only the objective.",
+            "score": 0.43799233,
+            "raw_content": null
+          },
+          {
+            "url": "https://www.youtube.com/watch?v=np5xroxMp5o",
+            "title": "Stop Building AI Agents Until You Watch This (n8n Guide 2026)",
+            "content": "Everyone is rushing to build complex AI automation workflows, multi-agent systems, and 47-node pipelines. But after building 100+ agents and",
+            "score": 0.37779367,
+            "raw_content": null
+          },
+          {
+            "url": "https://blog.n8n.io/best-practices-for-deploying-ai-agents-in-production/",
+            "title": "15 best practices for deploying AI agents in production – n8n Blog",
+            "content": "# 15 best n8n practices for deploying AI agents in production. This guide walks you through the 15 best n8n practices for deploying production-ready AI Agents. Choose the best infrastructure, scale queue mode, handle errors, monitor, and deploy AI Agents reliably in n8n. 15 best n8n practices for deploying AI agents in production. Production-ready AI agents need more than functional workflows – they need solid infrastructure, proper error handling, monitoring, and maintenance procedures. This guide covers the 15 best n8n practices for deploying AI agents that run reliably in production. This section covers how to structure AI agent workflows in n8n on a high level – from choosing the right triggers to extending functionality with AI nodes, APIs, and custom logic. We’ve illustrated the possibilities of the n8n's visual workflow builder for launching powerful production-ready AI Agents. Use n8n to design, deploy, monitor, and retire AI agents across their entire production lifecycle!",
+            "score": 0.36752048,
+            "raw_content": null
+          },
+          {
+            "url": "https://www.youtube.com/watch?v=8DT4wcVOpwo",
+            "title": "Build a Smart AI Agent Using n8n & Telegram (No-Code Automation)",
+            "content": "In this tutorial, you'll learn how to build a powerful AI Agent using n8n and Telegram to automate conversations and workflows.",
+            "score": 0.35555163,
+            "raw_content": null
+          },
+          {
+            "url": "https://www.facebook.com/groups/vibecodinglife/posts/1934499860471875/",
+            "title": "How to create autonomous agents that run overnight? - Facebook",
+            "content": "I use GitHub Copilot in VS Code and Visual Studio 2026. Everything runs smoothly there - for hours. Either locally on my computer or in the",
+            "score": 0.34488514,
+            "raw_content": null
+          },
+          {
+            "url": "https://blog.n8n.io/we-need-re-learn-what-ai-agent-development-tools-are-in-2026/",
+            "title": "We need re-learn what AI agent development tools are in 2026",
+            "content": "When we first wrote the [Enterprise AI agent development tools](https://n8n.io/reports/ai-agent-development-tools/#vendors), we focused a lot on the building blocks of writing agents, such as RAG, memory, tools, and evaluations. *   [AI](https://n8n.io/integrations/categories/ai/). *   [AI agent chat](https://n8n.io/workflows/1954-ai-agent-chat/). *   [AI agents](https://blog.n8n.io/ai-agents/). [Show more](https://n8n.io/integrations). [Show more](https://n8n.io/integrations). | _shopify_essential | [Shopify](https://www.shopify.com/legal/privacy) merch.n8n.io | 11 months 4 weeks | This cookie is essential for the secure checkout and payment function on the merch store and is provided by Shopify. | CookieScriptConsent | [CookieScript](https://cookie-script.com/privacy-policy.html) .n8n.io | 11 months 4 weeks | This cookie is used by Cookie-Script.com service to remember visitor cookie consent preferences. | _gid | [Google LLC](https://policies.google.com/privacy) .n8n.io | 1 day | This cookie is set by Google Analytics. | _ga_0SC4FF2FH9 | [Google LLC](https://policies.google.com/privacy) .n8n.io | 1 year 1 month | This cookie is used by Google Analytics to persist session state. | _ga | [Google LLC](https://policies.google.com/privacy) .n8n.io | 1 year 1 month | This cookie name is associated with Google Universal Analytics - which is a significant update to Google's more commonly used analytics service.",
+            "score": 0.29672605,
+            "raw_content": null
+          },
+          {
+            "url": "https://medium.com/write-a-catalyst/build-a-self-healing-devops-agent-using-n8n-and-ai-451b4b16d93b",
+            "title": "Build a Self-Healing DevOps Agent Using n8n and AI - Medium",
+            "content": "With the addition of AI, these agents become even more powerful. They can analyze logs, understand errors, and recommend remediation strategies.",
+            "score": 0.2921008,
+            "raw_content": null
+          },
+          {
+            "url": "https://www.reddit.com/r/AI_Agents/comments/1il8b1i/my_guide_on_what_tools_to_use_to_build_ai_agents/",
+            "title": "My guide on what tools to use to build AI agents (if you are a newb)",
+            "content": "When you need to build an automation or an agent that can call on tools, use n8n. Its more powerful and more versatile than many others and gets",
+            "score": 0.18038115,
+            "raw_content": null
+          },
+          {
+            "url": "https://www.instagram.com/p/DWfFQbFDU2Z/",
+            "title": "Your AI agent should get smarter every week — not forget you exist ...",
+            "content": "Your AI agent should get smarter every week — not forget you exist after every chat. Hermes Agent by Nous Research is the free, open-source",
+            "score": 0.078961544,
+            "raw_content": null
+          },
+          {
+            "url": "https://github.com/VoltAgent/awesome-openclaw-skills",
+            "title": "VoltAgent/awesome-openclaw-skills - GitHub",
+            "content": "[Skip to content](https://github.com/VoltAgent/awesome-openclaw-skills#start-of-content). [Reload](https://github.com/VoltAgent/awesome-openclaw-skills) to refresh your session.You signed out in another tab or window. [Reload](https://github.com/VoltAgent/awesome-openclaw-skills) to refresh your session.You switched accounts on another tab or window. [Reload](https://github.com/VoltAgent/awesome-openclaw-skills) to refresh your session.Dismiss alert. [VoltAgent](https://github.com/VoltAgent)/**[awesome-openclaw-skills](https://github.com/VoltAgent/awesome-openclaw-skills)**Public. *   [Fork 4.6k](https://github.com/login?return_to=%2FVoltAgent%2Fawesome-openclaw-skills). *   [Code](https://github.com/VoltAgent/awesome-openclaw-skills). *   [Issues 1](https://github.com/VoltAgent/awesome-openclaw-skills/issues). *   [Pull requests 4](https://github.com/VoltAgent/awesome-openclaw-skills/pulls). *   [Actions](https://github.com/VoltAgent/awesome-openclaw-skills/actions). *   [Projects](https://github.com/VoltAgent/awesome-openclaw-skills/projects). *   [Security and quality 0](https://github.com/VoltAgent/awesome-openclaw-skills/security). *   [Insights](https://github.com/VoltAgent/awesome-openclaw-skills/pulse). *   [Code](https://github.com/VoltAgent/awesome-openclaw-skills). *   [Issues](https://github.com/VoltAgent/awesome-openclaw-skills/issues). *   [Pull requests](https://github.com/VoltAgent/awesome-openclaw-skills/pulls). *   [Actions](https://github.com/VoltAgent/awesome-openclaw-skills/actions). *   [Projects](https://github.com/VoltAgent/awesome-openclaw-skills/projects). *   [Security and quality](https://github.com/VoltAgent/awesome-openclaw-skills/security). *   [Insights](https://github.com/VoltAgent/awesome-openclaw-skills/pulse). [](https://github.com/VoltAgent/awesome-openclaw-skills). [](https://github.com/VoltAgent/awesome-openclaw-skills/branches)[](https://github.com/VoltAgent/awesome-openclaw-skills/tags). *   [README](https://github.com/VoltAgent/awesome-openclaw-skills#). *   [Contributing](https://github.com/VoltAgent/awesome-openclaw-skills#). *   [MIT license](https://github.com/VoltAgent/awesome-openclaw-skills#). > **[View all 32 skills in Self-Hosted & Automation →](https://github.com/VoltAgent/awesome-openclaw-skills/blob/main/categories/self-hosted-and-automation.md)**. [](https://github.com/VoltAgent/awesome-openclaw-skills#security--passwords). > **[View all 54 skills in Security & Passwords →](https://github.com/VoltAgent/awesome-openclaw-skills/blob/main/categories/security-and-passwords.md)**. [](https://github.com/VoltAgent/awesome-openclaw-skills#moltbook). [](https://github.com/VoltAgent/awesome-openclaw-skills#gaming). > **[View all 35 skills in Gaming →](https://github.com/VoltAgent/awesome-openclaw-skills/blob/main/categories/gaming.md)**. [](https://github.com/VoltAgent/awesome-openclaw-skills#-contributing). See [CONTRIBUTING.md](https://github.com/VoltAgent/awesome-openclaw-skills/blob/main/CONTRIBUTING.md) for detailed guidelines. [](https://github.com/VoltAgent/awesome-openclaw-skills#license). MIT License - see [LICENSE](https://github.com/VoltAgent/awesome-openclaw-skills/blob/main/LICENSE). [Readme](https://github.com/VoltAgent/awesome-openclaw-skills#readme-ov-file). [MIT license](https://github.com/VoltAgent/awesome-openclaw-skills#MIT-1-ov-file). [Contributing](https://github.com/VoltAgent/awesome-openclaw-skills#contributing-ov-file). [Please reload this page](https://github.com/VoltAgent/awesome-openclaw-skills). [Activity](https://github.com/VoltAgent/awesome-openclaw-skills/activity). [Custom properties](https://github.com/VoltAgent/awesome-openclaw-skills/custom-properties). [**47k** stars](https://github.com/VoltAgent/awesome-openclaw-skills/stargazers). [**293** watching](https://github.com/VoltAgent/awesome-openclaw-skills/watchers). [**4.6k** forks](https://github.com/VoltAgent/awesome-openclaw-skills/forks). ## [Releases](https://github.com/VoltAgent/awesome-openclaw-skills/releases). ## [Packages 0](https://github.com/orgs/VoltAgent/packages?repo_name=awesome-openclaw-skills). [Please reload this page](https://github.com/VoltAgent/awesome-openclaw-skills). ## [Contributors](https://github.com/VoltAgent/awesome-openclaw-skills/graphs/contributors). [Please reload this page](https://github.com/VoltAgent/awesome-openclaw-skills).",
+            "score": 0.054003943,
+            "raw_content": null
+          }
+        ],
+        "response_time": 1.95,
+        "request_id": "fb374fd8-511b-4c4c-bb54-04ca7bd40384"
+      },
+      "artifact_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\internet_tools\\search_20260428_233124_923713.json"
+    },
+    "research": {
+      "ok": true,
+      "tool": "internet.research",
+      "provider": "perplexity",
+      "query": "Summarize this search topic and give practical recommendations: best practices autonomous AI agent night mode self healing n8n telegram automation observability 2026",
+      "created_at": "2026-04-28T23:31:34.660235Z",
+      "answer": "### Summary\nThe search topic covers **best practices for building and deploying autonomous AI agents** in n8n (a no-code automation platform), with emphasis on **Telegram integrations** for triggers/conversations, **self-healing** via error handling/retry/fallbacks, **night mode** (implied low-disruption ops via queue mode/scaling for off-peak reliability), **observability** (monitoring/metrics/alerts), and forward-looking 2026 trends like enhanced security, autonomy (e.g., sub-agents, heartbeats), and tools like OpenClaw.[1][2][3][4][5]\n\nKey themes from 2026 context:\n- Production deployment phases: infrastructure, dev, pre-deploy, deploy, maintenance.[1]\n- Telegram bots for AI agent triggers (e.g., message → AI model → reply).[2]\n- Evolving tools prioritize **observability, self-healing, security** (e.g., killswitches, sandboxing, lineage).[3]\n- n8n excels for scalable, multi-agent workflows over alternatives like Zapier.[1][4]\n\n### Practical Recommendations\nImplement these **step-by-step** for a robust, self-healing n8n AI agent with Telegram, night mode (queue for low-load periods), and observability. Focus on self-hosted for control; use Cloud for quick starts (note: no queue mode yet).[1]\n\n#### 1. **Infrastructure Setup (Scalability + Night Mode)**\n   - Choose self-hosted n8n with **queue mode + Redis** for horizontal scaling: Main n8n process + worker pods. Handles night mode by queuing jobs during low traffic (e.g., 11 PM UTC).[1]\n     - **Steps**: Install Redis, set `N8N_SCALING_MODE=queue`, env vars for workers. Monitor queue depth (jobs waiting) to auto-scale down at night.[1]\n     - **Tradeoff**: Self-hosted = full control/observability; Cloud = easier but limited scaling.[1]\n     - **Next**: Test with `docker-compose` setup from n8n docs.\n\n#### 2. **Telegram Integration (Autonomous Triggers)**\n   - Build agent: Telegram Trigger → AI Agent Node (e.g., GPT-4o) → Telegram Reply.[2]\n     - **Steps**:\n       1. Create Telegram bot via BotFather → get token.\n       2. n8n: Add Telegram Trigger (On Message), connect credential, add OpenAI node.\n       3. Add Tools (e.g., HTTP for APIs) for autonomy.\n     - **Night mode**: Use Schedule Trigger or heartbeat (poll every X hours) to avoid constant polling.[3]\n     - **Risk**: Rate limits—add retry node.[1][2]\n     - **Next**: Deploy simple workflow, test via Telegram chat.\n\n#### 3. **Self-Healing (Error Handling + Fallbacks)**\n   - Core: Retry strategies, fallbacks, error workflows.[1]\n     | Mechanism | Implementation | Tradeoff |\n     |-----------|---------------|----------|\n     | **Retries** | Set max 3 attempts, exponential backoff in Error Workflow node.[1] | Prevents flakes but increases latency. |\n     | **Fallbacks** | If AI fails, route to human-in-loop (Wait node + webhook) or static response.[1] | Ensures uptime; track interventions as metric. |\n     | **Validation** | Schema node pre-AI; simulate failures (e.g., disconnect API).[1] | Catches 80% issues early. |\n   - **Pro tip**: Use n8n Evals for auto-testing with Sheets inputs.[1]\n   - **Next**: Add Error Trigger to all workflows; test by killing downstream APIs.\n\n#### 4. **Observability (Monitoring + Alerts)**\n   - n8n Insights dashboard for executions; expose `/metrics` (set `N8N_METRICS=true`).[1]\n     - **Key metrics**: Queue depth, worker CPU/memory, execution time, failed jobs.[1]\n     - **Tools**: Prometheus/Grafana scrape metrics; UptimeRobot for /healthz; integrate LangSmith for AI traces (self-hosted).[1]\n     - **Alerts**: n8n error workflows + external (e.g., queue >50 → Slack).[1]\n     - **2026 trend**: Add lineage/RBAC for multi-agents.[3]\n   - **Integration steps**: \n     1. Enable metrics endpoint.\n     2. Grafana dashboard: Query `n8n_scaling_mode_queue_jobs_waiting`.\n     3. Alert on thresholds (e.g., failed jobs >5%).\n   - **Risk**: Over-monitoring = noise; start with 3 core metrics.[1]\n   - **Next**: Set up free UptimeRobot; poll /healthz every 5min.\n\n#### 5. **Deployment + Maintenance (Production-Ready)**\n   - **Pre-deploy**: Version control (git for workflows), staging env, load test.[1]\n   - **Deploy**: Environment vars per stage (prod/staging); blue-green rollout.[1]\n   - **Multi-agent**: Clear roles per agent; monitor coordination.[1]\n   - **Security**: Secrets mgmt (n8n vars), protect logs, RBAC.[1][3]\n   - **Human-in-loop**: Wait node for approvals (custom webhook UI).[1]\n   - **Next actions**:\n     1. Fork n8n queue mode repo, deploy to VPS (e.g., DigitalOcean, $6/mo).\n     2. Build Telegram prototype (10min).\n     3. Add observability, test self-healing.\n     4. Scale to multi-agent with OpenClaw skills for local autonomy.[5]\n\nThis setup yields **95%+ uptime** with minimal intervention; iterate via feedback metrics.[1] For 2026, watch OpenClaw heartbeats for true autonomy.[3][5]",
+      "raw": {
+        "id": "35dfbf9b-f6a3-4c4d-83b0-121198b3c0fc",
+        "model": "sonar-pro",
+        "created": 1777419094,
+        "usage": {
+          "prompt_tokens": 65,
+          "completion_tokens": 1253,
+          "total_tokens": 1318,
+          "search_context_size": "low",
+          "cost": {
+            "input_tokens_cost": 0.00019,
+            "output_tokens_cost": 0.01879,
+            "request_cost": 0.006,
+            "total_cost": 0.02499
+          }
+        },
+        "citations": [
+          "https://blog.n8n.io/best-practices-for-deploying-ai-agents-in-production/",
+          "https://www.youtube.com/watch?v=8DT4wcVOpwo",
+          "https://blog.n8n.io/we-need-re-learn-what-ai-agent-development-tools-are-in-2026/",
+          "https://www.youtube.com/watch?v=np5xroxMp5o",
+          "https://github.com/VoltAgent/awesome-openclaw-skills"
+        ],
+        "search_results": [
+          {
+            "title": "15 best practices for deploying AI agents in production - n8n Blog",
+            "url": "https://blog.n8n.io/best-practices-for-deploying-ai-agents-in-production/",
+            "date": "2026-01-08",
+            "last_updated": "2026-04-27",
+            "snippet": "This guide walks you through the 15 best n8n practices for deploying production-ready AI Agents. Choose the best infrastructure, ...",
+            "source": "web"
+          },
+          {
+            "title": "Build a Smart AI Agent Using n8n & Telegram (No-Code Automation)",
+            "url": "https://www.youtube.com/watch?v=8DT4wcVOpwo",
+            "date": "2026-02-02",
+            "last_updated": "2026-04-28",
+            "snippet": "In this tutorial, you'll learn how to build a powerful AI Agent using n8n and Telegram to automate conversations and workflows.",
+            "source": "web"
+          },
+          {
+            "title": "We need re-learn what AI agent development tools are in 2026",
+            "url": "https://blog.n8n.io/we-need-re-learn-what-ai-agent-development-tools-are-in-2026/",
+            "date": "2026-04-07",
+            "last_updated": "2026-04-16",
+            "snippet": "These will include observability, data loss prevention, transparency and verifiability, proxy-based filtering and firewalling, authentication ...",
+            "source": "web"
+          },
+          {
+            "title": "Stop Building AI Agents Until You Watch This (n8n Guide 2026)",
+            "url": "https://www.youtube.com/watch?v=np5xroxMp5o",
+            "date": "2026-02-28",
+            "last_updated": "2026-04-28",
+            "snippet": "Everyone is rushing to build complex AI automation workflows, multi-agent systems, and 47-node pipelines. But after building 100+ agents and ...",
+            "source": "web"
+          },
+          {
+            "title": "VoltAgent/awesome-openclaw-skills - GitHub",
+            "url": "https://github.com/VoltAgent/awesome-openclaw-skills",
+            "date": "2026-01-25",
+            "last_updated": "2026-04-27",
+            "snippet": "OpenClaw is a locally-running AI assistant that operates directly on your machine. Skills extend its capabilities, allowing it to interact with external ...",
+            "source": "web"
+          }
+        ],
+        "object": "chat.completion",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "### Summary\nThe search topic covers **best practices for building and deploying autonomous AI agents** in n8n (a no-code automation platform), with emphasis on **Telegram integrations** for triggers/conversations, **self-healing** via error handling/retry/fallbacks, **night mode** (implied low-disruption ops via queue mode/scaling for off-peak reliability), **observability** (monitoring/metrics/alerts), and forward-looking 2026 trends like enhanced security, autonomy (e.g., sub-agents, heartbeats), and tools like OpenClaw.[1][2][3][4][5]\n\nKey themes from 2026 context:\n- Production deployment phases: infrastructure, dev, pre-deploy, deploy, maintenance.[1]\n- Telegram bots for AI agent triggers (e.g., message → AI model → reply).[2]\n- Evolving tools prioritize **observability, self-healing, security** (e.g., killswitches, sandboxing, lineage).[3]\n- n8n excels for scalable, multi-agent workflows over alternatives like Zapier.[1][4]\n\n### Practical Recommendations\nImplement these **step-by-step** for a robust, self-healing n8n AI agent with Telegram, night mode (queue for low-load periods), and observability. Focus on self-hosted for control; use Cloud for quick starts (note: no queue mode yet).[1]\n\n#### 1. **Infrastructure Setup (Scalability + Night Mode)**\n   - Choose self-hosted n8n with **queue mode + Redis** for horizontal scaling: Main n8n process + worker pods. Handles night mode by queuing jobs during low traffic (e.g., 11 PM UTC).[1]\n     - **Steps**: Install Redis, set `N8N_SCALING_MODE=queue`, env vars for workers. Monitor queue depth (jobs waiting) to auto-scale down at night.[1]\n     - **Tradeoff**: Self-hosted = full control/observability; Cloud = easier but limited scaling.[1]\n     - **Next**: Test with `docker-compose` setup from n8n docs.\n\n#### 2. **Telegram Integration (Autonomous Triggers)**\n   - Build agent: Telegram Trigger → AI Agent Node (e.g., GPT-4o) → Telegram Reply.[2]\n     - **Steps**:\n       1. Create Telegram bot via BotFather → get token.\n       2. n8n: Add Telegram Trigger (On Message), connect credential, add OpenAI node.\n       3. Add Tools (e.g., HTTP for APIs) for autonomy.\n     - **Night mode**: Use Schedule Trigger or heartbeat (poll every X hours) to avoid constant polling.[3]\n     - **Risk**: Rate limits—add retry node.[1][2]\n     - **Next**: Deploy simple workflow, test via Telegram chat.\n\n#### 3. **Self-Healing (Error Handling + Fallbacks)**\n   - Core: Retry strategies, fallbacks, error workflows.[1]\n     | Mechanism | Implementation | Tradeoff |\n     |-----------|---------------|----------|\n     | **Retries** | Set max 3 attempts, exponential backoff in Error Workflow node.[1] | Prevents flakes but increases latency. |\n     | **Fallbacks** | If AI fails, route to human-in-loop (Wait node + webhook) or static response.[1] | Ensures uptime; track interventions as metric. |\n     | **Validation** | Schema node pre-AI; simulate failures (e.g., disconnect API).[1] | Catches 80% issues early. |\n   - **Pro tip**: Use n8n Evals for auto-testing with Sheets inputs.[1]\n   - **Next**: Add Error Trigger to all workflows; test by killing downstream APIs.\n\n#### 4. **Observability (Monitoring + Alerts)**\n   - n8n Insights dashboard for executions; expose `/metrics` (set `N8N_METRICS=true`).[1]\n     - **Key metrics**: Queue depth, worker CPU/memory, execution time, failed jobs.[1]\n     - **Tools**: Prometheus/Grafana scrape metrics; UptimeRobot for /healthz; integrate LangSmith for AI traces (self-hosted).[1]\n     - **Alerts**: n8n error workflows + external (e.g., queue >50 → Slack).[1]\n     - **2026 trend**: Add lineage/RBAC for multi-agents.[3]\n   - **Integration steps**: \n     1. Enable metrics endpoint.\n     2. Grafana dashboard: Query `n8n_scaling_mode_queue_jobs_waiting`.\n     3. Alert on thresholds (e.g., failed jobs >5%).\n   - **Risk**: Over-monitoring = noise; start with 3 core metrics.[1]\n   - **Next**: Set up free UptimeRobot; poll /healthz every 5min.\n\n#### 5. **Deployment + Maintenance (Production-Ready)**\n   - **Pre-deploy**: Version control (git for workflows), staging env, load test.[1]\n   - **Deploy**: Environment vars per stage (prod/staging); blue-green rollout.[1]\n   - **Multi-agent**: Clear roles per agent; monitor coordination.[1]\n   - **Security**: Secrets mgmt (n8n vars), protect logs, RBAC.[1][3]\n   - **Human-in-loop**: Wait node for approvals (custom webhook UI).[1]\n   - **Next actions**:\n     1. Fork n8n queue mode repo, deploy to VPS (e.g., DigitalOcean, $6/mo).\n     2. Build Telegram prototype (10min).\n     3. Add observability, test self-healing.\n     4. Scale to multi-agent with OpenClaw skills for local autonomy.[5]\n\nThis setup yields **95%+ uptime** with minimal intervention; iterate via feedback metrics.[1] For 2026, watch OpenClaw heartbeats for true autonomy.[3][5]"
+            },
+            "delta": {
+              "role": "assistant",
+              "content": ""
+            },
+            "finish_reason": "stop"
+          }
+        ]
+      },
+      "artifact_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\internet_tools\\research_20260428_233134_660235.json"
+    },
+    "json_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\telegram_tables\\best_practices_autonomous_AI_agent_night_mode_self_healing_n_20260428_233122.json",
+    "telegram_send": {
+      "ok": true,
+      "telegram": {
+        "ok": true,
+        "result": {
+          "message_id": 923,
+          "from": {
+            "id": 7819877837,
+            "is_bot": true,
+            "first_name": "YA2",
+            "username": "YouAu_2_bot"
+          },
+          "chat": {
+            "id": 237616472,
+            "first_name": "Daniil",
+            "last_name": "Lapin",
+            "username": "DaniiLapin13",
+            "type": "private"
+          },
+          "date": 1777419095,
+          "document": {
+            "file_name": "best_practices_autonomous_AI_agent_night_mode_self_healing_n_202.xlsx",
+            "mime_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "file_id": "BQACAgIAAxkDAAIDm2nxQ1fzTokg40Ez0jS72pvzvweEAAKpqAACXTiRSxjX3xCbNi71OwQ",
+            "file_unique_id": "AgADqagAAl04kUs",
+            "file_size": 8454
+          },
+          "caption": "Jarvis internet table\nQuery: best practices autonomous AI agent night mode self healing n8n telegram automation observability 2026\nRows: 10"
+        }
+      },
+      "file_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\telegram_tables\\best_practices_autonomous_AI_agent_night_mode_self_healing_n_20260428_233122.xlsx"
+    }
+  }
+}

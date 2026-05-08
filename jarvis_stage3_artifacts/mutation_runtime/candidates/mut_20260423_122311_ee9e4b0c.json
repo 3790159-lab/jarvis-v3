@@ -1,0 +1,31 @@
+{
+  "mutation_id": "mut_20260423_122311_ee9e4b0c",
+  "goal": "Verify safe mutation foundation",
+  "reason": "Low-risk local probe patch",
+  "change_type": "small_code_patch",
+  "target_files": [
+    "jarvis_stage3_artifacts/temp/safe_mutation_probe.py"
+  ],
+  "expected_effect": "Replace probe string using controlled mutation",
+  "risk_level": "low",
+  "reversible": true,
+  "estimated_validation_scope": "local_compile_and_health",
+  "operations": [
+    {
+      "op": "replace_text",
+      "path": "jarvis_stage3_artifacts/temp/safe_mutation_probe.py",
+      "content": null,
+      "pattern": "\"before\"",
+      "replacement": "\"after\"",
+      "anchor": null,
+      "insert_text": null,
+      "create_if_missing": false,
+      "allow_multiple": false
+    }
+  ],
+  "metadata": {
+    "block": "safe_mutation_foundation",
+    "verify": true
+  },
+  "created_at": "2026-04-23T12:23:11+00:00"
+}

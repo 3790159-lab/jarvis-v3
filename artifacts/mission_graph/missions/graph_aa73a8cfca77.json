@@ -1,0 +1,82 @@
+{
+  "graph_mission_id": "graph_aa73a8cfca77",
+  "created_at": "2026-04-10T01:23:46.419228+00:00",
+  "updated_at": "2026-04-10T01:23:46.476226+00:00",
+  "objective": "Build a site and a browser game bundle",
+  "graph_kind": "site_game_bundle",
+  "auto_execute": false,
+  "status": "cancelled",
+  "execution_state": "final",
+  "can_execute": false,
+  "can_cancel": false,
+  "steps": [
+    {
+      "step_id": "step_site",
+      "title": "Build Site",
+      "objective": "Create a landing page",
+      "task_type": "site",
+      "depends_on": [],
+      "status": "cancelled",
+      "attempts": 0,
+      "constraints": {
+        "title": "Cancelled Graph Bundle",
+        "hero": "Cancel before execute",
+        "subtitle": "Graph cancellation test",
+        "cta": "Stop"
+      },
+      "payload": {},
+      "output": {
+        "reason": "graph_cancelled"
+      }
+    },
+    {
+      "step_id": "step_game",
+      "title": "Build Game",
+      "objective": "Build a browser mini-game",
+      "task_type": "game",
+      "depends_on": [
+        "step_site"
+      ],
+      "status": "cancelled",
+      "attempts": 0,
+      "constraints": {
+        "title": "Cancelled Graph Bundle"
+      },
+      "payload": {},
+      "output": {
+        "reason": "graph_cancelled"
+      }
+    }
+  ],
+  "summary": {
+    "steps_total": 2,
+    "steps_completed": 0,
+    "steps_failed": 0,
+    "steps_skipped": 0,
+    "steps_ready": 0,
+    "steps_pending": 0,
+    "steps_running": 0
+  },
+  "links": {
+    "mission_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\mission_graph\\missions\\graph_aa73a8cfca77.json"
+  },
+  "events": [
+    {
+      "ts": "2026-04-10T01:23:46.419377+00:00",
+      "event": "graph_submitted",
+      "step_id": null,
+      "message": "Graph mission submitted.",
+      "data": {
+        "graph_kind": "site_game_bundle",
+        "auto_execute": false
+      }
+    },
+    {
+      "ts": "2026-04-10T01:23:46.476186+00:00",
+      "event": "graph_cancelled",
+      "step_id": null,
+      "message": "Graph mission cancelled before execution.",
+      "data": {}
+    }
+  ]
+}

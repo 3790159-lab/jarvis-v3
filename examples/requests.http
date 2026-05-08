@@ -1,0 +1,38 @@
+### Health
+GET http://127.0.0.1:8014/health
+
+### Assistant chat: direct answer
+POST http://127.0.0.1:8014/chat
+Content-Type: application/json
+
+{
+  "message": "Что ты умеешь?",
+  "project_root": "C:\Users\Daniil Lapin\Downloads\supervisor_v1_4_ai_telegram",
+  "priority": 5,
+  "wait_for_completion": true,
+  "max_wait_seconds": 20
+}
+
+### Assistant chat: execute and explain
+POST http://127.0.0.1:8014/chat
+Content-Type: application/json
+
+{
+  "message": "Покажи файлы проекта",
+  "project_root": "C:\Users\Daniil Lapin\Downloads\supervisor_v1_4_ai_telegram",
+  "priority": 5,
+  "wait_for_completion": true,
+  "max_wait_seconds": 45
+}
+
+### Assistant webhook alias
+POST http://127.0.0.1:8014/webhook/chat
+Content-Type: application/json
+
+{
+  "message": "Run git status in my supervisor project",
+  "project_root": "C:\Users\Daniil Lapin\Downloads\supervisor_v1_4_ai_telegram",
+  "priority": 5,
+  "wait_for_completion": true,
+  "max_wait_seconds": 45
+}

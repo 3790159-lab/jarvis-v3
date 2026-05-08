@@ -1,0 +1,56 @@
+{
+  "task_id": "artifact_840f543d94fc",
+  "task_type": "table",
+  "name": "YouTube Content Calendar Pro",
+  "slug": "youtube-content-calendar-pro",
+  "created_at": "2026-04-10T12:48:19.183265+00:00",
+  "output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\tables\\20260410_124819_youtube-content-calendar-pro",
+  "files": [
+    {
+      "relative_path": "table.csv",
+      "size_bytes": 182
+    },
+    {
+      "relative_path": "table.json",
+      "size_bytes": 743
+    },
+    {
+      "relative_path": "table.xlsx",
+      "size_bytes": 5083
+    },
+    {
+      "relative_path": "schema.json",
+      "size_bytes": 206
+    },
+    {
+      "relative_path": "README.md",
+      "size_bytes": 197
+    }
+  ],
+  "summary": {
+    "rows": 3,
+    "columns": [
+      "day",
+      "title",
+      "format",
+      "status",
+      "platform",
+      "owner"
+    ],
+    "artifact_kind": "table_bundle_v2",
+    "deliverables": [
+      "table.csv",
+      "table.json",
+      "table.xlsx (optional)",
+      "schema.json",
+      "README.md"
+    ]
+  },
+  "validation": {
+    "output_dir_exists": true,
+    "created_files_count": 5,
+    "total_bytes": 6411,
+    "valid": true
+  },
+  "status": "created"
+}

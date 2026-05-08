@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Supervisor V1.5 Smart UI</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin: 0; font-family: Arial, sans-serif; background: #0f172a; color: #e5e7eb; }
+    .wrap { max-width: 1280px; margin: 0 auto; padding: 24px; }
+    h1 { margin: 0 0 8px; font-size: 34px; }
+    .muted { color: #94a3b8; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px; }
+    .card { background: #111827; border: 1px solid #334155; border-radius: 20px; padding: 18px; box-shadow: 0 10px 28px rgba(0,0,0,.25); }
+    label { display: block; margin: 0 0 8px; font-weight: 700; }
+    input, textarea, select { width: 100%; background: #020617; color: #f8fafc; border: 1px solid #475569; border-radius: 12px; padding: 12px; box-sizing: border-box; font: inherit; }
+    textarea { min-height: 130px; resize: vertical; }
+    .row { display: grid; grid-template-columns: 1fr 140px; gap: 12px; }
+    .btns { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+    button { border: 0; border-radius: 12px; padding: 12px 16px; font: inherit; cursor: pointer; background: #2563eb; color: white; font-weight: 700; }
+    button.secondary { background: #334155; }
+    button.ghost { background: #020617; border: 1px solid #475569; }
+    .status { margin-top: 12px; padding: 12px; border-radius: 12px; background: #020617; border: 1px solid #334155; }
+    .pill { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+    .queued { background: #78350f; color: #fde68a; }
+    .running { background: #0c4a6e; color: #bae6fd; }
+    .succeeded { background: #14532d; color: #bbf7d0; }
+    .failed { background: #7f1d1d; color: #fecaca; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #334155; vertical-align: top; }
+    pre { white-space: pre-wrap; word-break: break-word; background: #020617; border: 1px solid #334155; border-radius: 12px; padding: 12px; max-height: 380px; overflow: auto; }
+    .small { font-size: 13px; }
+    .badge { display:inline-block; padding:4px 8px; background:#1e3a8a; border-radius:999px; font-size:12px; font-weight:700; }
+    .assistant { font-size: 15px; line-height: 1.5; }
+    @media (max-width: 960px) { .grid { grid-template-columns: 1fr; } .row { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Supervisor V1.5 Smart UI</h1>
+    <div class="muted">The assistant now separates questions from commands, handles common typos better, and can optionally use an OpenAI-compatible LLM.</div>
+    <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
+      <span class="badge" id="tgBadge">Telegram: checking...</span>
+      <span class="badge" id="llmBadge">LLM: checking...</span>
+    </div>
+
+    <div class="grid">
+      <section class="card">
+        <label for="projectRoot">Project folder</label>
+        <input id="projectRoot" placeholder="C:\Users\Daniil Lapin\Downloads\supervisor_v1_5_smart_telegram" />
+
+        <div class="row" style="margin-top:14px;">
+          <div>
+            <label for="requestText">Write naturally. What should the system do?</label>
+            <textarea id="requestText" placeholder="Examples: Что ты умеешь? / Проверь версию Пайтан в проекте / Сможешь объяснить по какой схеме проектируют мосты?"></textarea>
+          </div>
+          <div>
+            <label for="priority">Priority</label>
+            <select id="priority">
+              <option value="3">3</option>
+              <option value="5" selected>5</option>
+              <option value="7">7</option>
+              <option value="9">9</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="btns">
+          <button id="runBtn">Ask assistant</button>
+          <button class="secondary" data-template="Проверь версию Пайтан в проекте">Check Python</button>
+          <button class="secondary" data-template="Покажи файлы проекта">List files</button>
+          <button class="secondary" data-template="Запусти git status в проекте">Git status</button>
+          <button class="secondary" data-template="Что ты умеешь?">What can you do?</button>
+          <button class="secondary" data-template="Сможешь мне рассказать по какой схеме проектируют мосты?">General question</button>
+          <button class="ghost" id="refreshBtn">Refresh tasks</button>
+        </div>
+
+        <div id="statusBox" class="status small">Ready.</div>
+
+        <h3>Assistant reply</h3>
+        <pre id="assistantReply" class="assistant">No reply yet.</pre>
+
+        <h3>Raw chat response</h3>
+        <pre id="rawResponse">No request yet.</pre>
+      </section>
+
+      <section class="card">
+        <h3 style="margin-top:0;">Recent tasks</h3>
+        <div class="small muted" style="margin-bottom:10px;">Auto-refresh every 3 seconds.</div>
+        <div style="overflow:auto; max-height: 700px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Task</th>
+                <th>Status</th>
+                <th>Title</th>
+                <th>Output</th>
+              </tr>
+            </thead>
+            <tbody id="taskRows"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </div>
+
+<script>
+const projectRoot = document.getElementById('projectRoot');
+const requestText = document.getElementById('requestText');
+const priority = document.getElementById('priority');
+const rawResponse = document.getElementById('rawResponse');
+const assistantReply = document.getElementById('assistantReply');
+const statusBox = document.getElementById('statusBox');
+const taskRows = document.getElementById('taskRows');
+const tgBadge = document.getElementById('tgBadge');
+const llmBadge = document.getElementById('llmBadge');
+
+projectRoot.value = localStorage.getItem('sv15_project_root') || '';
+requestText.value = localStorage.getItem('sv15_request_text') || 'Что ты умеешь?';
+priority.value = localStorage.getItem('sv15_priority') || '5';
+
+async function loadConfig() {
+  try {
+    const response = await fetch('/config');
+    const cfg = await response.json();
+    if (!projectRoot.value && cfg.default_project_root) {
+      projectRoot.value = cfg.default_project_root;
+    }
+    tgBadge.textContent = cfg.telegram_enabled ? 'Telegram: enabled' : 'Telegram: add TELEGRAM_BOT_TOKEN in .env';
+    llmBadge.textContent = cfg.llm_enabled ? 'LLM: enabled' : 'LLM: rule-based mode';
+  } catch (_) {
+    tgBadge.textContent = 'Telegram: config unavailable';
+    llmBadge.textContent = 'LLM: config unavailable';
+  }
+}
+
+function saveState() {
+  localStorage.setItem('sv15_project_root', projectRoot.value);
+  localStorage.setItem('sv15_request_text', requestText.value);
+  localStorage.setItem('sv15_priority', priority.value);
+}
+['input','change'].forEach(evt => {
+  projectRoot.addEventListener(evt, saveState);
+  requestText.addEventListener(evt, saveState);
+  priority.addEventListener(evt, saveState);
+});
+
+for (const btn of document.querySelectorAll('[data-template]')) {
+  btn.addEventListener('click', () => {
+    requestText.value = btn.dataset.template;
+    saveState();
+  });
+}
+
+function setStatus(text, kind='info') {
+  const colors = { info: ['#020617', '#334155'], ok: ['#052e16', '#166534'], warn: ['#422006', '#a16207'], err: ['#450a0a', '#b91c1c'] };
+  const [bg, border] = colors[kind] || colors.info;
+  statusBox.style.background = bg;
+  statusBox.style.borderColor = border;
+  statusBox.textContent = text;
+}
+
+function statusPill(status) {
+  return `<span class="pill ${status}">${status}</span>`;
+}
+
+function escapeHtml(text) {
+  return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+}
+
+function formatOutput(task) {
+  if (!task.result) return '<span class="muted">No output yet</span>';
+  const stdout = task.result.stdout || '';
+  const stderr = task.result.stderr || '';
+  const msg = task.result.message || '';
+  const compact = [stdout, stderr, msg].filter(Boolean).join('\n').trim();
+  return `<pre>${escapeHtml(compact || JSON.stringify(task.result, null, 2))}</pre>`;
+}
+
+async function refreshTasks() {
+  try {
+    const response = await fetch('/tasks');
+    const tasks = await response.json();
+    taskRows.innerHTML = tasks.slice(0, 20).map(task => `
+      <tr>
+        <td><code>${task.task_id}</code></td>
+        <td>${statusPill(task.status)}</td>
+        <td>${escapeHtml(task.title || '')}</td>
+        <td>${formatOutput(task)}</td>
+      </tr>
+    `).join('');
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+async function askAssistant() {
+  const body = {
+    message: requestText.value.trim(),
+    project_root: projectRoot.value.trim() || null,
+    priority: Number(priority.value),
+    wait_for_completion: true,
+    max_wait_seconds: 45,
+  };
+
+  if (!body.message) {
+    setStatus('Write what the system should do first.', 'warn');
+    return;
+  }
+
+  saveState();
+  setStatus('Assistant is thinking...', 'info');
+  rawResponse.textContent = 'Running...';
+  assistantReply.textContent = 'Thinking...';
+
+  try {
+    const response = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+
+    const data = await response.json();
+    rawResponse.textContent = JSON.stringify(data, null, 2);
+    assistantReply.textContent = data.assistant_message || '(no assistant message)';
+
+    if (!response.ok) {
+      setStatus(`Request failed: ${data.detail || response.status}`, 'err');
+      return;
+    }
+
+    if (data.mode === 'direct_answer') {
+      setStatus('Assistant answered directly without running executors.', 'ok');
+    } else if (data.completed) {
+      setStatus('Assistant finished the request and returned an explained result.', 'ok');
+    } else {
+      setStatus('Request accepted and still running. Check the tasks list below.', 'warn');
+    }
+    await refreshTasks();
+  } catch (error) {
+    rawResponse.textContent = String(error);
+    assistantReply.textContent = String(error);
+    setStatus(`Request failed: ${error}`, 'err');
+  }
+}
+
+document.getElementById('runBtn').addEventListener('click', askAssistant);
+document.getElementById('refreshBtn').addEventListener('click', refreshTasks);
+
+loadConfig();
+refreshTasks();
+setInterval(refreshTasks, 3000);
+</script>
+</body>
+</html>

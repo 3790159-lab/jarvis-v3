@@ -1,0 +1,42 @@
+﻿{
+    "created_at":  "2026-04-03T15:58:43",
+    "project_root":  ".",
+    "port":  8010,
+    "health":  null,
+    "guard_state":  {
+                        "updated_at":  "2026-04-03T15:57:27",
+                        "project_root":  ".",
+                        "port":  8010,
+                        "guard_pid":  38056,
+                        "child_pid":  null,
+                        "status":  "error",
+                        "restart_count":  5,
+                        "reason":  "Не удается найти свойство \"HasValue\" для этого объекта. Убедитесь, что оно существует."
+                    },
+    "guard_lock":  {
+                       "project_root":  ".",
+                       "port":  8010,
+                       "guard_pid":  38056,
+                       "child_pid":  null,
+                       "updated_at":  "2026-04-03T15:57:27"
+                   },
+    "python_processes":  [
+
+                         ],
+    "guard_processes":  [
+
+                        ],
+    "port_owners":  [
+
+                    ],
+    "repair_report":  {
+                          "repaired_at":  "2026-04-03T15:56:50",
+                          "project_root":  ".",
+                          "guard_script":  true,
+                          "run_api":  true,
+                          "artifacts":  true,
+                          "logs":  true,
+                          "python":  ".\\.venv\\Scripts\\python.exe",
+                          "status":  "ok"
+                      }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "YouTube Content Calendar",
+  "description": "30-day content planning starter",
+  "rows": [
+    {
+      "title": "Channel intro",
+      "format": "short",
+      "day": 1,
+      "status": "planned"
+    },
+    {
+      "title": "Pain point video",
+      "format": "short",
+      "day": 2,
+      "status": "planned"
+    },
+    {
+      "title": "Tool review",
+      "format": "short",
+      "day": 3,
+      "status": "planned"
+    }
+  ]
+}

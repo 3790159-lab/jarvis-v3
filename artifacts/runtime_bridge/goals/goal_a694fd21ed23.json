@@ -1,0 +1,20 @@
+{
+  "goal_id": "goal_a694fd21ed23",
+  "created_at": "2026-04-10T00:58:16.535197+00:00",
+  "updated_at": "2026-04-10T00:58:16.629159+00:00",
+  "objective": "Create a landing page for a cancelled demo",
+  "constraints": {
+    "cta": "Cancelled",
+    "title": "Cancelled Demo",
+    "hero": "This should not execute",
+    "subtitle": "Cancellation path test"
+  },
+  "payload": {},
+  "preferred_task_type": null,
+  "auto_execute": false,
+  "latest_mission_id": "mission_79348e915e14",
+  "status": "cancelled",
+  "metadata": {
+    "source": "runtime_bridge"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "index": 3,
+  "tool": "md_report",
+  "args": {
+    "path": "jarvis_stage3_artifacts/auto_reports_v7_2/error_scan_20260427.md",
+    "title": "Auto Error Scan",
+    "body": "Scanned recent artifacts for error/exception/failure patterns."
+  },
+  "ok": true,
+  "result": {
+    "ok": true,
+    "created_at": "2026-04-27T13:07:54",
+    "run_id": "tool_call_20260427_130754",
+    "tool": "md_report",
+    "registry": "v6_9",
+    "policy": {
+      "allowed": true,
+      "risk": "low",
+      "note": "Safe low-risk tool."
+    },
+    "args": {
+      "path": "jarvis_stage3_artifacts/auto_reports_v7_2/error_scan_20260427.md",
+      "title": "Auto Error Scan",
+      "body": "Scanned recent artifacts for error/exception/failure patterns."
+    },
+    "result": {
+      "ok": true,
+      "path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\auto_reports_v7_2\\error_scan_20260427.md"
+    },
+    "evidence_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\unified_tool_gateway_v7_0\\calls\\tool_call_20260427_130754"
+  },
+  "time": "2026-04-27T13:07:54"
+}

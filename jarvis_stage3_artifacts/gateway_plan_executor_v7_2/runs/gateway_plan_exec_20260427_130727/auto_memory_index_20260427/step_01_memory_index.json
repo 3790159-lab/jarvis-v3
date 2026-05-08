@@ -1,0 +1,48 @@
+{
+  "index": 1,
+  "tool": "memory_index",
+  "args": {},
+  "ok": true,
+  "result": {
+    "ok": true,
+    "created_at": "2026-04-27T13:08:30",
+    "run_id": "tool_call_20260427_130830",
+    "tool": "memory_index",
+    "registry": "v6_9",
+    "policy": {
+      "allowed": true,
+      "risk": "low",
+      "note": "Safe low-risk tool."
+    },
+    "args": {},
+    "result": {
+      "ok": true,
+      "files": [
+        "artifacts\\memory\\issues\\20260412_180153_known_issues_mission_block4_demo.md",
+        "artifacts\\memory\\issues\\20260413_101207_known_issues_mission_block5_demo.md",
+        "artifacts\\memory\\issues\\20260413_103212_known_issues_mission_block51_demo.md",
+        "artifacts\\memory\\issues\\20260413_130826_known_issues_mission_block52_demo.md",
+        "artifacts\\memory\\issues\\20260413_201110_known_issues_mission_multistep_71f941e5.md",
+        "artifacts\\memory\\lessons\\20260412_180153_block_4_memory_test.md",
+        "artifacts\\memory\\lessons\\20260412_180153_lessons_learned_mission_block4_demo.md",
+        "artifacts\\memory\\lessons\\20260413_101207_lessons_learned_mission_block5_demo.md",
+        "artifacts\\memory\\lessons\\20260413_103212_lessons_learned_mission_block51_demo.md",
+        "artifacts\\memory\\lessons\\20260413_130826_lessons_learned_mission_block52_demo.md",
+        "artifacts\\memory\\lessons\\20260413_201110_lessons_learned_mission_multistep_71f941e5.md",
+        "artifacts\\memory\\missions\\20260412_180153_mission_record_mission_block4_demo.md",
+        "artifacts\\memory\\missions\\20260413_101207_mission_record_mission_block5_demo.md",
+        "artifacts\\memory\\missions\\20260413_103212_mission_record_mission_block51_demo.md",
+        "artifacts\\memory\\missions\\20260413_130826_mission_record_mission_block52_demo.md",
+        "artifacts\\memory\\missions\\20260413_201110_mission_record_mission_multistep_71f941e5.md",
+        "artifacts\\memory\\summaries\\20260412_180153_mission_summary_mission_block4_demo.md",
+        "artifacts\\memory\\summaries\\20260413_101207_mission_summary_mission_block5_demo.md",
+        "artifacts\\memory\\summaries\\20260413_103212_mission_summary_mission_block51_demo.md",
+        "artifacts\\memory\\summaries\\20260413_130826_mission_summary_mission_block52_demo.md",
+        "artifacts\\memory\\summaries\\20260413_201110_mission_summary_mission_multistep_71f941e5.md",
+        "artifacts\\memory\\summaries\\strategy_snapshot_20260427_033139.md"
+      ]
+    },
+    "evidence_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\unified_tool_gateway_v7_0\\calls\\tool_call_20260427_130830"
+  },
+  "time": "2026-04-27T13:08:30"
+}

@@ -1,0 +1,44 @@
+{
+  "build_id": "canvas-ca37d92c6438",
+  "created_at": "2026-04-21T00:10:48.233583+00:00",
+  "workflow_name": "jarvis_autonomous_materialized_demo",
+  "webhook_path": "jarvis/autonomous_materialized_demo",
+  "description": "Autonomously generated and imported by Jarvis into n8n",
+  "step_count": 3,
+  "steps": [
+    {
+      "index": 1,
+      "step_id": "step-1",
+      "action": "echo.step1",
+      "intent": "materialized_demo_step1",
+      "payload": {
+        "message": "materialized step 1",
+        "order": 1
+      }
+    },
+    {
+      "index": 2,
+      "step_id": "step-2",
+      "action": "echo.step2",
+      "intent": "materialized_demo_step2",
+      "payload": {
+        "message": "materialized step 2",
+        "order": 2
+      }
+    },
+    {
+      "index": 3,
+      "step_id": "step-3",
+      "action": "echo.step3",
+      "intent": "materialized_demo_step3",
+      "payload": {
+        "message": "materialized step 3",
+        "order": 3
+      }
+    }
+  ],
+  "artifact_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\n8n_supervisor\\canvas_exports\\canvas-ca37d92c6438",
+  "workflow_json_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\n8n_supervisor\\canvas_exports\\canvas-ca37d92c6438\\n8n_workflow_stub.json",
+  "manifest_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\n8n_supervisor\\canvas_exports\\canvas-ca37d92c6438\\pipeline_manifest.json",
+  "import_notes_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\n8n_supervisor\\canvas_exports\\canvas-ca37d92c6438\\import_notes.md"
+}

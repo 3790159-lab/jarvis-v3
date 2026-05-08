@@ -1,0 +1,31 @@
+{
+  "mutation_id": "mut_20260423_123844_6933f901",
+  "goal": "Add safe low-risk helper patch",
+  "reason": "Local temp probe mutation for score testing",
+  "change_type": "small_code_patch",
+  "target_files": [
+    "jarvis_stage3_artifacts/temp/decision_probe_low.py"
+  ],
+  "expected_effect": "Create low-risk local code-backed mutation",
+  "risk_level": "low",
+  "reversible": true,
+  "estimated_validation_scope": "local_compile_and_health",
+  "operations": [
+    {
+      "op": "create_file",
+      "path": "jarvis_stage3_artifacts/temp/decision_probe_low.py",
+      "content": "def value() -> str:\n    return \"ok\"\n",
+      "pattern": null,
+      "replacement": null,
+      "anchor": null,
+      "insert_text": null,
+      "create_if_missing": true,
+      "allow_multiple": false
+    }
+  ],
+  "metadata": {
+    "verify": true,
+    "block": "decision_risk_engine"
+  },
+  "created_at": "2026-04-23T12:38:44+00:00"
+}

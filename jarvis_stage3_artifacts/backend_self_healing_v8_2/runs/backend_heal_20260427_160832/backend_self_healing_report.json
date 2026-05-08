@@ -1,0 +1,120 @@
+{
+  "schema": "jarvis.backend_self_healing.v8_2",
+  "run_id": "backend_heal_20260427_160832",
+  "created_at": "2026-04-27T16:08:32",
+  "base_url": "http://127.0.0.1:8015",
+  "actions": [
+    {
+      "action": "diagnostic_only",
+      "reason": "backend_partial_not_down"
+    }
+  ],
+  "port_8015_open_before": true,
+  "port_inspect_before": {
+    "ok": true,
+    "returncode": 0,
+    "stdout": "{\n    \"LocalAddress\":  \"127.0.0.1\",\n    \"LocalPort\":  8015,\n    \"State\":  2,\n    \"OwningProcess\":  34888\n}\n",
+    "stderr": "",
+    "cmd": [
+      "powershell",
+      "-NoProfile",
+      "-Command",
+      "Get-NetTCPConnection -LocalPort 8015 -ErrorAction SilentlyContinue | Select-Object LocalAddress,LocalPort,State,OwningProcess | ConvertTo-Json -Depth 3"
+    ]
+  },
+  "compile_scan": {
+    "ok": false,
+    "checked": 300,
+    "failed": [
+      {
+        "file": "app\\telegram_bot.before_google_fix.py",
+        "ok": false,
+        "stderr": "  File \"C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\app\\telegram_bot.before_google_fix.py\", line 227\n    return reply\n    ^^^^^^^^^^^^\nSyntaxError: 'return' outside function\n"
+      }
+    ]
+  },
+  "backend_before": {
+    "ok_count": 4,
+    "total": 5,
+    "status": "partial",
+    "results": [
+      {
+        "endpoint": "/",
+        "ok": false,
+        "elapsed_ms": 21,
+        "error": "HTTPError: HTTP Error 404: Not Found"
+      },
+      {
+        "endpoint": "/health",
+        "ok": true,
+        "status": 200,
+        "elapsed_ms": 13,
+        "body_preview": "{\"status\":\"healthy\",\"service\":\"jarvis_v3_supervisor\",\"env\":\"dev\"}"
+      },
+      {
+        "endpoint": "/api/ai/health",
+        "ok": true,
+        "status": 200,
+        "elapsed_ms": 21,
+        "body_preview": "{\"status\":\"healthy\",\"providers\":[{\"provider\":\"openai\",\"enabled\":true,\"configured\":true,\"details\":{\"timeout_seconds\":600}},{\"provider\":\"anthropic\",\"enabled\":true,\"configured\":true,\"details\":{\"timeout_seconds\":600}},{\"provider\":\"ollama\",\"enabled\":true,\"configured\":true,\"details\":{\"timeout_seconds\":600}}],\"default_provider\":\"ollama\"}"
+      },
+      {
+        "endpoint": "/api/autonomy/health",
+        "ok": true,
+        "status": 200,
+        "elapsed_ms": 23,
+        "body_preview": "{\"status\":\"healthy\",\"service\":\"autonomy_runtime\",\"components\":[\"store\",\"event_bus\",\"executor\",\"evaluator\",\"replanner\",\"guard_manager\",\"memory_manager\",\"mode_manager\",\"recovery_policy_manager\",\"operator_escalation_manager\",\"tool_registry\",\"tool_executor\",\"maintenance_manager\",\"mission_registry\",\"chain_manager\",\"workflow_manager\",\"execution_graph_manager\",\"repair_loop_manager\",\"execution_engine\",\"mission_plan_store\",\"mission_template_manager\",\"mission_runner\",\"reconciliation_manager\",\"scheduler\"],\"checked_at\":\"2026-04-27T13:08:59.530142+00:00\"}"
+      },
+      {
+        "endpoint": "/api/provider-routing/health",
+        "ok": true,
+        "status": 200,
+        "elapsed_ms": 19,
+        "body_preview": "{\"status\":\"healthy\",\"execution_mode\":\"hybrid\",\"routing_profile\":\"balanced\",\"available_providers\":[\"openai\",\"anthropic\",\"ollama\"],\"provider_status\":{\"openai\":{\"enabled\":true,\"configured\":true},\"anthropic\":{\"enabled\":true,\"configured\":true},\"ollama\":{\"enabled\":true,\"configured\":true}}}"
+      }
+    ]
+  },
+  "port_8015_open_after": true,
+  "backend_final": {
+    "ok_count": 4,
+    "total": 5,
+    "status": "partial",
+    "results": [
+      {
+        "endpoint": "/",
+        "ok": false,
+        "elapsed_ms": 21,
+        "error": "HTTPError: HTTP Error 404: Not Found"
+      },
+      {
+        "endpoint": "/health",
+        "ok": true,
+        "status": 200,
+        "elapsed_ms": 21,
+        "body_preview": "{\"status\":\"healthy\",\"service\":\"jarvis_v3_supervisor\",\"env\":\"dev\"}"
+      },
+      {
+        "endpoint": "/api/ai/health",
+        "ok": true,
+        "status": 200,
+        "elapsed_ms": 12,
+        "body_preview": "{\"status\":\"healthy\",\"providers\":[{\"provider\":\"openai\",\"enabled\":true,\"configured\":true,\"details\":{\"timeout_seconds\":600}},{\"provider\":\"anthropic\",\"enabled\":true,\"configured\":true,\"details\":{\"timeout_seconds\":600}},{\"provider\":\"ollama\",\"enabled\":true,\"configured\":true,\"details\":{\"timeout_seconds\":600}}],\"default_provider\":\"ollama\"}"
+      },
+      {
+        "endpoint": "/api/autonomy/health",
+        "ok": true,
+        "status": 200,
+        "elapsed_ms": 10,
+        "body_preview": "{\"status\":\"healthy\",\"service\":\"autonomy_runtime\",\"components\":[\"store\",\"event_bus\",\"executor\",\"evaluator\",\"replanner\",\"guard_manager\",\"memory_manager\",\"mode_manager\",\"recovery_policy_manager\",\"operator_escalation_manager\",\"tool_registry\",\"tool_executor\",\"maintenance_manager\",\"mission_registry\",\"chain_manager\",\"workflow_manager\",\"execution_graph_manager\",\"repair_loop_manager\",\"execution_engine\",\"mission_plan_store\",\"mission_template_manager\",\"mission_runner\",\"reconciliation_manager\",\"scheduler\"],\"checked_at\":\"2026-04-27T13:08:59.618812+00:00\"}"
+      },
+      {
+        "endpoint": "/api/provider-routing/health",
+        "ok": true,
+        "status": 200,
+        "elapsed_ms": 10,
+        "body_preview": "{\"status\":\"healthy\",\"execution_mode\":\"hybrid\",\"routing_profile\":\"balanced\",\"available_providers\":[\"openai\",\"anthropic\",\"ollama\"],\"provider_status\":{\"openai\":{\"enabled\":true,\"configured\":true},\"anthropic\":{\"enabled\":true,\"configured\":true},\"ollama\":{\"enabled\":true,\"configured\":true}}}"
+      }
+    ]
+  },
+  "verdict": "partial_review"
+}

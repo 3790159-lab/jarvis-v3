@@ -1,0 +1,89 @@
+{
+  "ok": true,
+  "tool": "internet.research",
+  "provider": "perplexity",
+  "query": "Act as an AI systems engineer. Research current tools and propose an implementation plan. Include architecture, APIs, failure modes, security concerns, testing, and rollout steps. Task: Создай пайплайн который будет делать 30 секундные видео о семейных отношениях и драмой котиков и собачек. Ответ и таблицу сделай на русском языке. Названия сервисов, компаний, моделей и продуктов оставляй в оригинале. Добавь источники/ссылки, если они доступны. Сделай результат полезным для принятия решения",
+  "created_at": "2026-05-02T20:31:32.357570Z",
+  "answer": "**Jarvis V3 Supervisor здесь. Режим: engineer + n8n. Статус системы: доступно сейчас — research, планирование пайплайнов; частично доступно — интеграция с API (Runway, ElevenLabs); нужно подключить — execution layer для автоматизации рендера.**\n\n### План реализации пайплайна для 30-секундных видео \"Семейные отношения и драма котиков/собачек\"\n\nПайплайн автоматизирует генерацию коротких видео в стиле трогательных историй дружбы/конфликтов между кошками и собаками (на основе примеров из [1], [2], [4], [5]). Формат: 30 сек, вертикальный (9:16 для TikTok/Reels), с нарративом \"семейной драмы\" (ревность, примирение, юмор). Общая стоимость на видео: ~$0.5-2 (зависит от моделей). Время генерации: 5-15 мин/видео.\n\n**Ключевые инструменты (актуальные на 2026):**\n- **Видео/анимация:** Runway ML (Gen-3 Alpha для текст-to-video с животными), Pika Labs (1.5 для динамичных сцен), Luma Dream Machine (анимация питомцев).\n- **Изображения:** Midjourney v7 / Flux.1 (Schnell) для стоковых кадров котов/собак.\n- **Аудио:** ElevenLabs (TTS для драматического нарратива), Suno AI / Udio для саундтрека (милые/драматические мелодии).\n- **Скриптинг:** GPT-4o / Claude 3.5 Sonnet для генерации сценария.\n- **Сборка:** FFmpeg (бесплатно, локально), CapCut API или Descript для монтажа.\n- **Автоматизация:** n8n (пайплайн с webhook), или Make.com / Zapier для no-code.\n\n#### Архитектура пайплайна (n8n workflow)\n```\n1. Триггер (Webhook/ Cron) → 2. Генерация сценария → 3. Текст-to-изображения → 4. Текст-to-video → 5. Аудио → 6. Монтаж → 7. Экспорт → 8. Upload (YouTube/TikTok)\n```\n- **n8n nodes:** HTTP Request (API calls), Execute Command (FFmpeg), Google Drive/Dropbox для хранения.\n- Масштаб: 10 видео/день на 1 GPU (через Runway credits).\n\n| Компонент | Инструменты/APIs | Вход/Выход | Стоимость (per видео) | Время |\n|-----------|------------------|------------|-----------------------|-------|\n| **Сценарий** | GPT-4o (OpenAI API) | Prompt: \"30сек драма: кот ревнует к щенку, примирение\" → JSON {scenes:3, narration:150 слов} | $0.01 | 10 сек |\n| **Изображения** | Midjourney API / Flux via Replicate | 6 кадров (кот/собака в эмоциях) → PNG 1080x1920 | $0.05 | 30 сек |\n| **Видео** | Runway Gen-3 (API: POST /v1/generate) или Pika 1.5 | Текст+изображения → 10сек клипы x3 → MP4 | $0.50-1 | 2-5 мин |\n| **Аудио** | ElevenLabs (voice: \"dramatic storyteller\") + Suno v3 | Narration + музыка → WAV | $0.10 | 20 сек |\n| **Монтаж** | FFmpeg (script: concat, transitions, subtitles) | Клипы + аудио → финальное MP4 30сек | Бесплатно | 1 мин |\n| **Upload** | YouTube API / TikTok API | MP4 + title/thumbnail → пост | Бесплатно | 30 сек |\n\n**Пример промпта для Runway:** \"Cute cartoon cat jealous of puppy stealing food from family bowl, dramatic slow-mo, heartwarming reconciliation hug, pet family drama, vibrant colors, 1080x1920, 10 seconds\" (вдохновлено [1][2]).\n\n#### APIs и интеграции\n- **Runway ML API:** `https://api.runwayml.com/v1/generate` (auth: API key, credits: $10=100 сек видео). Доки: runwayml.com/docs.\n- **ElevenLabs API:** `https://api.elevenlabs.io/v1/text-to-speech` (voices: premade pet-friendly). Доки: elevenlabs.io/docs.\n- **n8n setup:** Импорт JSON workflow из GitHub (поиск \"n8n runway video pipeline\"). Триггер: Telegram bot для тем (e.g. \"драма: кот vs хаски\").\n\n#### Failure modes и mitigation\n| Failure mode | Вероятность | Mitigation |\n|--------------|-------------|------------|\n| **API rate limit / outage** (Runway >5 мин) | Высокая | Fallback: Pika Labs + queue в n8n (retry node, max 3). Мониторинг: Telegram alert. |\n| **Низкое качество видео** (не драматично) | Средняя | Human review loop: n8n approval node перед монтажом. Fine-tune промпты на основе [5] (зоопсихология). |\n| **Длиннее 30 сек** | Низкая | FFmpeg trim: `-t 30`. |\n| **Высокая стоимость** | Низкая | Batch: генерировать 10 сценариев сразу, локальный Flux на ComfyUI. |\n\n#### Security concerns\n- **API keys:** Хранить в n8n credentials (encrypted). Не в Git.\n- **Данные:** Промпты с животными — low-risk, но добавить watermark (FFmpeg overlay) для ownership.\n- **Контент:** Избегать реальных фото (только AI-gen) для избежания copyright. Compliance: YouTube pet content OK (см. [2]).\n- **n8n:** Self-host на VPS (DigitalOcean, $10/мес), firewall + VPN.\n\n#### Testing план\n1. **Unit:** Тестировать каждый node в n8n (e.g. GPT → Runway).\n2. **E2E:** 5 тестовых видео на темы из [1][4]. Метрики: длина=30с, views potential (тест пост в TikTok).\n3. **Load:** 10 видео/час. Tools: n8n execution logs.\n4. **A/B:** Варьировать voices/models, track engagement.\n\n#### Rollout steps (2 недели)\n1. **День 1-2:** Setup n8n (локально/VPS), API keys (Runway free trial).\n2. **День 3-5:** Build workflow, test 3 видео (используй промпты из [1][2]).\n3. **День 6-7:** Добавь fallbacks, security. Human QA 10 видео.\n4. **День 8-10:** Автоматизация upload, cron every 2 часа.\n5. **День 11+:** Scale to 50 видео/день, мониторинг costs/views. ROI: 1к views/видео → монетизация YouTube.\n\n**Operator-ready команда для запуска:** `n8n import workflow.json --url https://github.com/search?q=n8n+runway+video` (адаптировать). Бюджет старт: $50 (credits). Ожидаемый output: вирусный контент как в [1], с драматургией из [5]. Готов к действию — дай webhook URL для теста.",
+  "raw": {
+    "id": "d4fed550-8f2e-484e-8900-7abd5a91db08",
+    "model": "sonar-pro",
+    "created": 1777753892,
+    "usage": {
+      "prompt_tokens": 500,
+      "completion_tokens": 1845,
+      "total_tokens": 2345,
+      "search_context_size": "low",
+      "cost": {
+        "input_tokens_cost": 0.0015,
+        "output_tokens_cost": 0.02768,
+        "request_cost": 0.006,
+        "total_cost": 0.03518
+      }
+    },
+    "citations": [
+      "https://www.youtube.com/watch?v=-bgPYrjvElQ",
+      "https://speechify.com/ru/studio/pet-video-maker/",
+      "https://vk.com/wall-47347778_641964",
+      "https://www.youtube.com/watch?v=g0Q1XPCN67c",
+      "https://www.youtube.com/watch?v=rfNA1yoIPj8"
+    ],
+    "search_results": [
+      {
+        "title": "Трогательные истории дружбы собак и кошек",
+        "url": "https://www.youtube.com/watch?v=-bgPYrjvElQ",
+        "date": "2018-12-13",
+        "last_updated": "2025-11-17",
+        "snippet": "Истории о настоящей дружбе между собаками и кошками. Не забудьте подписаться и нажать на колокольчик.",
+        "source": "web"
+      },
+      {
+        "title": "Создатель видео о питомцах",
+        "url": "https://speechify.com/ru/studio/pet-video-maker/",
+        "date": "2024-06-28",
+        "last_updated": "2025-10-22",
+        "snippet": "Лучший бесплатный создатель видео о питомцах. Будь вы энтузиастом питомцев или просто хотите поделиться своими милыми компаньонами с миром, ...",
+        "source": "web"
+      },
+      {
+        "title": "Дружба между животными разных видов",
+        "url": "https://vk.com/wall-47347778_641964",
+        "date": "2024-08-12",
+        "last_updated": "2025-01-01",
+        "snippet": "Потому что хорошо знаю лошадей. На самом деле, лошадь очень опасное, пугливое, непредсказуемое создание и совсем не друг для собаки. Во-первых, ...",
+        "source": "web"
+      },
+      {
+        "title": "The Cat Family - The History and Lives of Our Beloved Pets",
+        "url": "https://www.youtube.com/watch?v=g0Q1XPCN67c",
+        "date": "2024-03-29",
+        "last_updated": "2025-08-23",
+        "snippet": "Отправляйтесь в захватывающее путешествие в невероятный мир кошек в этом потрясающем документальном фильме о животных в 4K HDR. Это видео ...",
+        "source": "web"
+      },
+      {
+        "title": "Зоопсихолог о любви к котам-абьюзерам, психике ...",
+        "url": "https://www.youtube.com/watch?v=rfNA1yoIPj8",
+        "date": "2024-07-23",
+        "last_updated": "2026-03-08",
+        "snippet": "Сегодня у меня в гостях зоопсихолог Мирослав Волков, зоопсихолог, магистр сельскохозяйственных наук, ветеринарный врач.",
+        "source": "web"
+      }
+    ],
+    "object": "chat.completion",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "**Jarvis V3 Supervisor здесь. Режим: engineer + n8n. Статус системы: доступно сейчас — research, планирование пайплайнов; частично доступно — интеграция с API (Runway, ElevenLabs); нужно подключить — execution layer для автоматизации рендера.**\n\n### План реализации пайплайна для 30-секундных видео \"Семейные отношения и драма котиков/собачек\"\n\nПайплайн автоматизирует генерацию коротких видео в стиле трогательных историй дружбы/конфликтов между кошками и собаками (на основе примеров из [1], [2], [4], [5]). Формат: 30 сек, вертикальный (9:16 для TikTok/Reels), с нарративом \"семейной драмы\" (ревность, примирение, юмор). Общая стоимость на видео: ~$0.5-2 (зависит от моделей). Время генерации: 5-15 мин/видео.\n\n**Ключевые инструменты (актуальные на 2026):**\n- **Видео/анимация:** Runway ML (Gen-3 Alpha для текст-to-video с животными), Pika Labs (1.5 для динамичных сцен), Luma Dream Machine (анимация питомцев).\n- **Изображения:** Midjourney v7 / Flux.1 (Schnell) для стоковых кадров котов/собак.\n- **Аудио:** ElevenLabs (TTS для драматического нарратива), Suno AI / Udio для саундтрека (милые/драматические мелодии).\n- **Скриптинг:** GPT-4o / Claude 3.5 Sonnet для генерации сценария.\n- **Сборка:** FFmpeg (бесплатно, локально), CapCut API или Descript для монтажа.\n- **Автоматизация:** n8n (пайплайн с webhook), или Make.com / Zapier для no-code.\n\n#### Архитектура пайплайна (n8n workflow)\n```\n1. Триггер (Webhook/ Cron) → 2. Генерация сценария → 3. Текст-to-изображения → 4. Текст-to-video → 5. Аудио → 6. Монтаж → 7. Экспорт → 8. Upload (YouTube/TikTok)\n```\n- **n8n nodes:** HTTP Request (API calls), Execute Command (FFmpeg), Google Drive/Dropbox для хранения.\n- Масштаб: 10 видео/день на 1 GPU (через Runway credits).\n\n| Компонент | Инструменты/APIs | Вход/Выход | Стоимость (per видео) | Время |\n|-----------|------------------|------------|-----------------------|-------|\n| **Сценарий** | GPT-4o (OpenAI API) | Prompt: \"30сек драма: кот ревнует к щенку, примирение\" → JSON {scenes:3, narration:150 слов} | $0.01 | 10 сек |\n| **Изображения** | Midjourney API / Flux via Replicate | 6 кадров (кот/собака в эмоциях) → PNG 1080x1920 | $0.05 | 30 сек |\n| **Видео** | Runway Gen-3 (API: POST /v1/generate) или Pika 1.5 | Текст+изображения → 10сек клипы x3 → MP4 | $0.50-1 | 2-5 мин |\n| **Аудио** | ElevenLabs (voice: \"dramatic storyteller\") + Suno v3 | Narration + музыка → WAV | $0.10 | 20 сек |\n| **Монтаж** | FFmpeg (script: concat, transitions, subtitles) | Клипы + аудио → финальное MP4 30сек | Бесплатно | 1 мин |\n| **Upload** | YouTube API / TikTok API | MP4 + title/thumbnail → пост | Бесплатно | 30 сек |\n\n**Пример промпта для Runway:** \"Cute cartoon cat jealous of puppy stealing food from family bowl, dramatic slow-mo, heartwarming reconciliation hug, pet family drama, vibrant colors, 1080x1920, 10 seconds\" (вдохновлено [1][2]).\n\n#### APIs и интеграции\n- **Runway ML API:** `https://api.runwayml.com/v1/generate` (auth: API key, credits: $10=100 сек видео). Доки: runwayml.com/docs.\n- **ElevenLabs API:** `https://api.elevenlabs.io/v1/text-to-speech` (voices: premade pet-friendly). Доки: elevenlabs.io/docs.\n- **n8n setup:** Импорт JSON workflow из GitHub (поиск \"n8n runway video pipeline\"). Триггер: Telegram bot для тем (e.g. \"драма: кот vs хаски\").\n\n#### Failure modes и mitigation\n| Failure mode | Вероятность | Mitigation |\n|--------------|-------------|------------|\n| **API rate limit / outage** (Runway >5 мин) | Высокая | Fallback: Pika Labs + queue в n8n (retry node, max 3). Мониторинг: Telegram alert. |\n| **Низкое качество видео** (не драматично) | Средняя | Human review loop: n8n approval node перед монтажом. Fine-tune промпты на основе [5] (зоопсихология). |\n| **Длиннее 30 сек** | Низкая | FFmpeg trim: `-t 30`. |\n| **Высокая стоимость** | Низкая | Batch: генерировать 10 сценариев сразу, локальный Flux на ComfyUI. |\n\n#### Security concerns\n- **API keys:** Хранить в n8n credentials (encrypted). Не в Git.\n- **Данные:** Промпты с животными — low-risk, но добавить watermark (FFmpeg overlay) для ownership.\n- **Контент:** Избегать реальных фото (только AI-gen) для избежания copyright. Compliance: YouTube pet content OK (см. [2]).\n- **n8n:** Self-host на VPS (DigitalOcean, $10/мес), firewall + VPN.\n\n#### Testing план\n1. **Unit:** Тестировать каждый node в n8n (e.g. GPT → Runway).\n2. **E2E:** 5 тестовых видео на темы из [1][4]. Метрики: длина=30с, views potential (тест пост в TikTok).\n3. **Load:** 10 видео/час. Tools: n8n execution logs.\n4. **A/B:** Варьировать voices/models, track engagement.\n\n#### Rollout steps (2 недели)\n1. **День 1-2:** Setup n8n (локально/VPS), API keys (Runway free trial).\n2. **День 3-5:** Build workflow, test 3 видео (используй промпты из [1][2]).\n3. **День 6-7:** Добавь fallbacks, security. Human QA 10 видео.\n4. **День 8-10:** Автоматизация upload, cron every 2 часа.\n5. **День 11+:** Scale to 50 видео/день, мониторинг costs/views. ROI: 1к views/видео → монетизация YouTube.\n\n**Operator-ready команда для запуска:** `n8n import workflow.json --url https://github.com/search?q=n8n+runway+video` (адаптировать). Бюджет старт: $50 (credits). Ожидаемый output: вирусный контент как в [1], с драматургией из [5]. Готов к действию — дай webhook URL для теста."
+        },
+        "delta": {
+          "role": "assistant",
+          "content": ""
+        },
+        "finish_reason": "stop"
+      }
+    ]
+  }
+}

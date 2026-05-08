@@ -1,0 +1,30 @@
+{
+  "task_id": "artifact_6e67a2d009f9",
+  "task_type": "game",
+  "name": "Jarvis Tap",
+  "slug": "jarvis-tap",
+  "created_at": "2026-04-10T00:36:07.518969+00:00",
+  "output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\games\\20260410_003607_jarvis-tap",
+  "files": [
+    {
+      "relative_path": "index.html",
+      "size_bytes": 1216
+    },
+    {
+      "relative_path": "README.md",
+      "size_bytes": 72
+    }
+  ],
+  "summary": {
+    "artifact_kind": "mini_game",
+    "game_type": "clicker",
+    "launch_file": "index.html"
+  },
+  "validation": {
+    "output_dir_exists": true,
+    "created_files_count": 2,
+    "total_bytes": 1288,
+    "valid": true
+  },
+  "status": "created"
+}

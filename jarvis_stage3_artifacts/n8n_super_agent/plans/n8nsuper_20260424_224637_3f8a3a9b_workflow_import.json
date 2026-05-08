@@ -1,0 +1,74 @@
+{
+  "name": "Jarvis Super Agent - http_request_probe",
+  "nodes": [
+    {
+      "id": "ac5cd3ec-833b-47d8-8167-b958d6d90708",
+      "name": "Jarvis Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "jarvis-super-http-request-probe-3f8a3a9b",
+        "responseMode": "lastNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "d4036580-1993-40c5-a230-e5cf91fd652a",
+      "name": "External HTTP Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [
+        520,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.body && $json.body.url ? $json.body.url : 'https://api.github.com/zen' }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "0422ceef-a57a-4db8-98d5-10984de087cf",
+      "name": "Build HTTP Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        820,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const now = new Date().toISOString();\nreturn [{ json: {\n  ok: true,\n  kind: 'http_request_probe',\n  receivedAt: now,\n  externalResponse: $json,\n  note: 'External HTTP Request node executed successfully'\n} }];"
+      }
+    }
+  ],
+  "connections": {
+    "Jarvis Webhook": {
+      "main": [
+        [
+          {
+            "node": "External HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "External HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Build HTTP Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {}
+}

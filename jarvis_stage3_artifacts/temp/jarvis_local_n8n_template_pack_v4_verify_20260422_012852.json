@@ -1,0 +1,512 @@
+{
+  "health": {
+    "status_code": 200,
+    "ok": true,
+    "body": {
+      "status": "healthy",
+      "service": "jarvis_local_n8n_template_pack_v4",
+      "version": "4.0.0",
+      "timestamp": 1776810532,
+      "bridge_base_url": "http://127.0.0.1:8030",
+      "routes": 24,
+      "registry_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\n8n_templates\\template_registry_v1.json"
+    }
+  },
+  "whoami": {
+    "status_code": 200,
+    "ok": true,
+    "body": {
+      "status": "ok",
+      "service": "jarvis_local_n8n_template_pack_v4",
+      "version": "4.0.0",
+      "timestamp": 1776810532,
+      "marker": "TEMPLATE_PACK_V4_ACTIVE",
+      "routes": [
+        "/__whoami",
+        "/api/jarvis/n8n/_routes",
+        "/api/jarvis/n8n/config",
+        "/api/jarvis/n8n/health",
+        "/api/jarvis/n8n/ping",
+        "/api/jarvis/n8n/probe/{webhook_path}",
+        "/api/jarvis/n8n/public-api-check",
+        "/api/jarvis/n8n/smoke/local-webhook",
+        "/api/jarvis/n8n/status/all",
+        "/api/jarvis/n8n/templates",
+        "/api/jarvis/n8n/templates/create",
+        "/api/jarvis/n8n/templates/create-and-activate",
+        "/api/jarvis/n8n/templates/smoke",
+        "/api/jarvis/n8n/templates/{template_id}",
+        "/api/jarvis/n8n/version",
+        "/api/jarvis/n8n/workflows",
+        "/api/jarvis/n8n/workflows/activate/{workflow_id}",
+        "/api/jarvis/n8n/workflows/create-webhook",
+        "/api/jarvis/n8n/workflows/summary",
+        "/docs",
+        "/docs/oauth2-redirect",
+        "/health",
+        "/openapi.json",
+        "/redoc"
+      ]
+    }
+  },
+  "version": {
+    "status_code": 200,
+    "ok": true,
+    "body": {
+      "status": "ok",
+      "service": "jarvis_local_n8n_template_pack_v4",
+      "version": "4.0.0",
+      "timestamp": 1776810532
+    }
+  },
+  "status_all": {
+    "status_code": 200,
+    "ok": true,
+    "body": {
+      "status": "ok",
+      "service": "jarvis_local_n8n_template_pack_v4",
+      "gateway": {
+        "status": "healthy",
+        "service": "jarvis_local_n8n_template_pack_v4",
+        "version": "4.0.0",
+        "timestamp": 1776810532,
+        "bridge_base_url": "http://127.0.0.1:8030",
+        "routes": 24,
+        "registry_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\n8n_templates\\template_registry_v1.json"
+      },
+      "ping": {
+        "status": "ok",
+        "service": "jarvis_local_n8n_template_pack_v4",
+        "version": "4.0.0",
+        "timestamp": 1776810532,
+        "has_templates": true,
+        "has_status_all": true,
+        "has_workflows_summary": true
+      },
+      "bridge_health": {
+        "url": "http://127.0.0.1:8030/health",
+        "status_code": 200,
+        "ok": true,
+        "body": {
+          "status": "ok",
+          "service": "jarvis_n8n_bridge",
+          "config_path": "/bridge-data/bridge-config.json",
+          "n8n_base_url": "http://n8n-main:5678",
+          "n8n_editor_base_url": "http://127.0.0.1:5680",
+          "n8n_webhook_base_url": "http://n8n-main:5678",
+          "has_api_key": true,
+          "api_key_preview": "eyJh*******************************************************************************************************************************************************************************************************************************************************************ZLpM",
+          "n8n_main_readiness": {
+            "ok": true,
+            "url": "http://n8n-main:5678/healthz/readiness",
+            "status_code": 200
+          }
+        }
+      },
+      "bridge_config": {
+        "url": "http://127.0.0.1:8030/api/config",
+        "status_code": 200,
+        "ok": true,
+        "body": {
+          "n8n_base_url": "http://n8n-main:5678",
+          "n8n_editor_base_url": "http://127.0.0.1:5680",
+          "n8n_webhook_base_url": "http://n8n-main:5678",
+          "has_api_key": true,
+          "api_key_preview": "eyJh*******************************************************************************************************************************************************************************************************************************************************************ZLpM",
+          "config_path": "/bridge-data/bridge-config.json"
+        }
+      },
+      "public_api_check": {
+        "url": "http://127.0.0.1:8030/api/n8n/public-api-check",
+        "status_code": 200,
+        "ok": true,
+        "body": {
+          "url": "http://n8n-main:5678/api/v1/workflows?limit=1",
+          "status_code": 200,
+          "ok": true,
+          "body": {
+            "data": [
+              {
+                "updatedAt": "2026-04-21T21:37:10.491Z",
+                "createdAt": "2026-04-21T21:37:10.491Z",
+                "id": "1dQBtMjRsQMJSb9H",
+                "name": "jarvis-gateway-smoke-20260422_003710",
+                "active": true,
+                "isArchived": false,
+                "nodes": [
+                  {
+                    "name": "Jarvis Webhook",
+                    "type": "n8n-nodes-base.webhook",
+                    "typeVersion": 1,
+                    "position": [
+                      600,
+                      300
+                    ],
+                    "parameters": {
+                      "httpMethod": "POST",
+                      "path": "jarvis-gateway-smoke-20260422_003710",
+                      "options": {}
+                    },
+                    "id": "d358229a-fff3-45de-ae87-67b2133d2907",
+                    "webhookId": "5ef5c267-4319-4083-be36-86c81bc1ae93"
+                  }
+                ],
+                "connections": {},
+                "settings": {
+                  "callerPolicy": "workflowsFromSameOwner",
+                  "availableInMCP": false
+                },
+                "staticData": null,
+                "meta": null,
+                "pinData": null,
+                "versionId": "ec6b84d5-9f5d-4468-b9dd-757d0b9c2036",
+                "activeVersionId": "ec6b84d5-9f5d-4468-b9dd-757d0b9c2036",
+                "triggerCount": 1,
+                "shared": [
+                  {
+                    "updatedAt": "2026-04-21T21:37:10.491Z",
+                    "createdAt": "2026-04-21T21:37:10.491Z",
+                    "role": "workflow:owner",
+                    "workflowId": "1dQBtMjRsQMJSb9H",
+                    "projectId": "aveo7yB5O9cKpeLV"
+                  }
+                ],
+                "activeVersion": {
+                  "updatedAt": "2026-04-21T21:37:10.499Z",
+                  "createdAt": "2026-04-21T21:37:10.499Z",
+                  "versionId": "ec6b84d5-9f5d-4468-b9dd-757d0b9c2036",
+                  "workflowId": "1dQBtMjRsQMJSb9H",
+                  "nodes": [
+                    {
+                      "name": "Jarvis Webhook",
+                      "type": "n8n-nodes-base.webhook",
+                      "typeVersion": 1,
+                      "position": [
+                        600,
+                        300
+                      ],
+                      "parameters": {
+                        "httpMethod": "POST",
+                        "path": "jarvis-gateway-smoke-20260422_003710",
+                        "options": {}
+                      },
+                      "id": "d358229a-fff3-45de-ae87-67b2133d2907",
+                      "webhookId": "5ef5c267-4319-4083-be36-86c81bc1ae93"
+                    }
+                  ],
+                  "connections": {},
+                  "authors": "Daniil Lapin",
+                  "name": null,
+                  "description": null,
+                  "autosaved": false
+                },
+                "tags": []
+              }
+            ],
+            "nextCursor": "eyJsaW1pdCI6MSwib2Zmc2V0IjoxfQ=="
+          }
+        }
+      },
+      "workflow_counts": {
+        "total": 4,
+        "active": 4,
+        "inactive": 0
+      },
+      "all_core_ok": true
+    }
+  },
+  "summary": {
+    "status_code": 200,
+    "ok": true,
+    "body": {
+      "status": "ok",
+      "service": "jarvis_local_n8n_template_pack_v4",
+      "count_total": 4,
+      "count_active": 4,
+      "count_inactive": 0,
+      "recent": [
+        {
+          "id": "qvdafsUjmc3t1KWf",
+          "name": "jarvis-local-smoke-20260422_000354",
+          "active": true,
+          "updatedAt": "2026-04-21T21:03:54.860Z",
+          "createdAt": "2026-04-21T21:03:54.860Z",
+          "webhook_path": "jarvis-local-smoke-20260422_000354",
+          "triggerCount": 1
+        },
+        {
+          "id": "qfd0mQCclNMFilzz",
+          "name": "jarvis-gateway-smoke-20260422_003301",
+          "active": true,
+          "updatedAt": "2026-04-21T21:33:01.281Z",
+          "createdAt": "2026-04-21T21:33:01.281Z",
+          "webhook_path": "jarvis-gateway-smoke-20260422_003301",
+          "triggerCount": 1
+        },
+        {
+          "id": "1dQBtMjRsQMJSb9H",
+          "name": "jarvis-gateway-smoke-20260422_003710",
+          "active": true,
+          "updatedAt": "2026-04-21T21:37:10.491Z",
+          "createdAt": "2026-04-21T21:37:10.491Z",
+          "webhook_path": "jarvis-gateway-smoke-20260422_003710",
+          "triggerCount": 1
+        },
+        {
+          "id": "hhotek7idz5vplXz",
+          "name": "jarvis-identity-v3-smoke-20260422_010949",
+          "active": true,
+          "updatedAt": "2026-04-21T22:09:50.472Z",
+          "createdAt": "2026-04-21T22:09:50.472Z",
+          "webhook_path": "jarvis-identity-v3-smoke-20260422_010949",
+          "triggerCount": 1
+        }
+      ]
+    }
+  },
+  "templates": {
+    "status_code": 200,
+    "ok": true,
+    "body": {
+      "status": "ok",
+      "service": "jarvis_local_n8n_template_pack_v4",
+      "registry_id": "jarvis_n8n_template_registry_v1",
+      "registry_version": 1,
+      "count": 3,
+      "templates": [
+        {
+          "id": "webhook_inbox_v1",
+          "title": "Webhook Inbox",
+          "description": "Guaranteed-good POST webhook intake endpoint for Jarvis events.",
+          "kind": "single_webhook",
+          "path_prefix": "jarvis-inbox",
+          "name_prefix": "jarvis-inbox",
+          "tags": [
+            "stable",
+            "intake",
+            "webhook"
+          ]
+        },
+        {
+          "id": "webhook_operator_ack_v1",
+          "title": "Operator Ack",
+          "description": "Guaranteed-good POST webhook endpoint for operator confirmations and manual checkpoints.",
+          "kind": "single_webhook",
+          "path_prefix": "jarvis-operator-ack",
+          "name_prefix": "jarvis-operator-ack",
+          "tags": [
+            "stable",
+            "operator",
+            "ack"
+          ]
+        },
+        {
+          "id": "webhook_audit_v1",
+          "title": "Audit Hook",
+          "description": "Guaranteed-good POST webhook endpoint for audit, logging and trace events.",
+          "kind": "single_webhook",
+          "path_prefix": "jarvis-audit",
+          "name_prefix": "jarvis-audit",
+          "tags": [
+            "stable",
+            "audit",
+            "logging"
+          ]
+        }
+      ]
+    }
+  },
+  "template_smoke": {
+    "status_code": 200,
+    "ok": true,
+    "body": {
+      "status": "ok",
+      "service": "jarvis_local_n8n_template_pack_v4",
+      "template": {
+        "id": "webhook_inbox_v1",
+        "title": "Webhook Inbox",
+        "description": "Guaranteed-good POST webhook intake endpoint for Jarvis events.",
+        "kind": "single_webhook",
+        "path_prefix": "jarvis-inbox",
+        "name_prefix": "jarvis-inbox",
+        "tags": [
+          "stable",
+          "intake",
+          "webhook"
+        ]
+      },
+      "instance": {
+        "workflow_name": "webhook-inbox-v1-20260422-012852",
+        "webhook_path": "webhook-inbox-v1-20260422-012852"
+      },
+      "create": {
+        "url": "http://127.0.0.1:8030/api/n8n/workflows/create-webhook",
+        "status_code": 200,
+        "ok": true,
+        "body": {
+          "created": {
+            "url": "http://n8n-main:5678/api/v1/workflows",
+            "status_code": 200,
+            "ok": true,
+            "body": {
+              "name": "webhook-inbox-v1-20260422-012852",
+              "nodes": [
+                {
+                  "name": "Jarvis Webhook",
+                  "type": "n8n-nodes-base.webhook",
+                  "typeVersion": 1,
+                  "position": [
+                    600,
+                    300
+                  ],
+                  "parameters": {
+                    "httpMethod": "POST",
+                    "path": "webhook-inbox-v1-20260422-012852",
+                    "options": {}
+                  },
+                  "id": "7aeacab1-1122-436b-b500-647079688a55",
+                  "webhookId": "10a862aa-9311-468b-8bfd-afadb6467b5d"
+                }
+              ],
+              "connections": {},
+              "settings": {
+                "callerPolicy": "workflowsFromSameOwner",
+                "availableInMCP": false
+              },
+              "active": false,
+              "versionId": "e9b0c89e-0efe-44e7-a0f5-04e2ffef8955",
+              "id": "7tmSKZnwLRlVtfiM",
+              "description": null,
+              "staticData": null,
+              "meta": null,
+              "pinData": null,
+              "activeVersionId": null,
+              "updatedAt": "2026-04-21T22:28:53.287Z",
+              "createdAt": "2026-04-21T22:28:53.287Z",
+              "isArchived": false,
+              "versionCounter": 1,
+              "triggerCount": 0
+            }
+          },
+          "workflow_id": "7tmSKZnwLRlVtfiM",
+          "webhook_path": "webhook-inbox-v1-20260422-012852"
+        }
+      },
+      "workflow_id": "7tmSKZnwLRlVtfiM",
+      "activate": {
+        "url": "http://127.0.0.1:8030/api/n8n/workflows/activate/7tmSKZnwLRlVtfiM",
+        "status_code": 200,
+        "ok": true,
+        "body": {
+          "url": "http://n8n-main:5678/api/v1/workflows/7tmSKZnwLRlVtfiM/activate",
+          "status_code": 200,
+          "ok": true,
+          "body": {
+            "updatedAt": "2026-04-21T22:28:53.287Z",
+            "createdAt": "2026-04-21T22:28:53.287Z",
+            "id": "7tmSKZnwLRlVtfiM",
+            "name": "webhook-inbox-v1-20260422-012852",
+            "description": null,
+            "active": true,
+            "isArchived": false,
+            "nodes": [
+              {
+                "name": "Jarvis Webhook",
+                "type": "n8n-nodes-base.webhook",
+                "typeVersion": 1,
+                "position": [
+                  600,
+                  300
+                ],
+                "parameters": {
+                  "httpMethod": "POST",
+                  "path": "webhook-inbox-v1-20260422-012852",
+                  "options": {}
+                },
+                "id": "7aeacab1-1122-436b-b500-647079688a55",
+                "webhookId": "10a862aa-9311-468b-8bfd-afadb6467b5d"
+              }
+            ],
+            "connections": {},
+            "settings": {
+              "callerPolicy": "workflowsFromSameOwner",
+              "availableInMCP": false
+            },
+            "staticData": null,
+            "meta": null,
+            "pinData": null,
+            "versionId": "e9b0c89e-0efe-44e7-a0f5-04e2ffef8955",
+            "activeVersionId": "e9b0c89e-0efe-44e7-a0f5-04e2ffef8955",
+            "versionCounter": 3,
+            "triggerCount": 1,
+            "activeVersion": {
+              "updatedAt": "2026-04-21T22:28:53.300Z",
+              "createdAt": "2026-04-21T22:28:53.300Z",
+              "versionId": "e9b0c89e-0efe-44e7-a0f5-04e2ffef8955",
+              "workflowId": "7tmSKZnwLRlVtfiM",
+              "nodes": [
+                {
+                  "name": "Jarvis Webhook",
+                  "type": "n8n-nodes-base.webhook",
+                  "typeVersion": 1,
+                  "position": [
+                    600,
+                    300
+                  ],
+                  "parameters": {
+                    "httpMethod": "POST",
+                    "path": "webhook-inbox-v1-20260422-012852",
+                    "options": {}
+                  },
+                  "id": "7aeacab1-1122-436b-b500-647079688a55",
+                  "webhookId": "10a862aa-9311-468b-8bfd-afadb6467b5d"
+                }
+              ],
+              "connections": {},
+              "authors": "Daniil Lapin",
+              "name": null,
+              "description": null,
+              "autosaved": false,
+              "workflowPublishHistory": [
+                {
+                  "createdAt": "2026-04-21T22:28:53.431Z",
+                  "id": 5,
+                  "workflowId": "7tmSKZnwLRlVtfiM",
+                  "versionId": "e9b0c89e-0efe-44e7-a0f5-04e2ffef8955",
+                  "event": "activated",
+                  "userId": "1300330d-0eb5-43c1-81cb-cdcc19f8b6c2"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "probe": {
+        "url": "http://127.0.0.1:8030/api/n8n/probe/webhook-inbox-v1-20260422-012852",
+        "status_code": 200,
+        "ok": true,
+        "body": {
+          "ok": true,
+          "winner": {
+            "url": "http://n8n-main:5678/webhook/webhook-inbox-v1-20260422-012852",
+            "status_code": 200,
+            "ok": true,
+            "body": {
+              "message": "Workflow was started"
+            }
+          },
+          "attempts": [
+            {
+              "url": "http://n8n-main:5678/webhook/webhook-inbox-v1-20260422-012852",
+              "status_code": 200,
+              "ok": true,
+              "body": {
+                "message": "Workflow was started"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "mode": "B_guarded_autonomy",
+  "service_port": 8028,
+  "approval_wait_seconds": 600,
+  "runner_idle_sleep_seconds": 20,
+  "runner_cycle_limit": 6,
+  "night_default_hours": 8.0,
+  "auto_apply_low_risk": true,
+  "require_approval_medium_risk": true,
+  "require_approval_high_risk": true,
+  "skip_on_timeout": true,
+  "focus_default": "reliability",
+  "allowed_low_risk_actions": [
+    "health_snapshot_pack",
+    "regression_quick_pack",
+    "backup_state_pack",
+    "log_summary_pack"
+  ],
+  "supervisor_base_url": "http://127.0.0.1:8015",
+  "director_base_url": "http://127.0.0.1:8024",
+  "bridge_base_url": "http://127.0.0.1:8030",
+  "ai_consult_enabled": false,
+  "ai_consult_url": "",
+  "updated_at": "2026-04-22T00:53:03Z"
+}

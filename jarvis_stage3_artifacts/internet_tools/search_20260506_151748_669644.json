@@ -1,0 +1,13 @@
+{
+  "ok": false,
+  "tool": "internet.search",
+  "provider": "tavily",
+  "query": "seductive pose: sitting on the edge of the bed, legs spread slightly, leaning back on hands, chest forward, head tilted back with parted lips, looking at camera seductively, soft moody lighting, elegant dark bedroom. Ответ и таблицу сделай на русском языке. Названия сервисов, компаний, моделей и продуктов оставляй в оригинале. Добавь источники/ссылки, если они доступны. Сделай результат полезным для принятия решения",
+  "created_at": "2026-05-06T15:17:48.669644Z",
+  "data": {
+    "ok": false,
+    "http_error": 400,
+    "error": "{\"detail\":{\"error\":\"Query is too long. Max query length is 400 characters.\"}}",
+    "url": "https://api.tavily.com/search"
+  }
+}

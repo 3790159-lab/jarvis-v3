@@ -1,0 +1,11 @@
+{
+  "run_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\real_runs\\sop_20260415_123322",
+  "method": "real_openai:gpt-5.4",
+  "remote_error": "",
+  "draft_specificity": 246,
+  "result_specificity": 258,
+  "review_usable": false,
+  "final_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\real_runs\\sop_20260415_123322\\final_sop.md",
+  "phase2_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\real_runs\\sop_20260415_123322\\final_sop_phase2.md",
+  "timestamp": 1776246883
+}

@@ -1,0 +1,24 @@
+{
+  "name": "AI Launch Calendar",
+  "description": "Create a content calendar table",
+  "rows": [
+    {
+      "day": 1,
+      "title": "Channel intro",
+      "format": "short",
+      "status": "planned"
+    },
+    {
+      "day": 2,
+      "title": "Problem / solution",
+      "format": "short",
+      "status": "planned"
+    },
+    {
+      "day": 3,
+      "title": "Tool breakdown",
+      "format": "short",
+      "status": "planned"
+    }
+  ]
+}

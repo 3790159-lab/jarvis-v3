@@ -1,0 +1,41 @@
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: #111827;
+  color: #f9fafb;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+}
+.wrap {
+  width: min(680px, 92vw);
+  text-align: center;
+  padding: 24px;
+  border-radius: 20px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.panel {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin: 20px 0;
+}
+button {
+  font-size: 18px;
+  padding: 12px 18px;
+  border-radius: 12px;
+  border: 0;
+  cursor: pointer;
+}
+.stats {
+  display: flex;
+  justify-content: center;
+  gap: 18px;
+  font-size: 20px;
+  margin: 18px 0;
+}
+#message {
+  min-height: 28px;
+  font-size: 18px;
+}

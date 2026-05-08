@@ -1,0 +1,55 @@
+{
+  "task_id": "artifact_2e353e27782f",
+  "task_type": "youtube_pack",
+  "name": "AI Growth Channel Starter",
+  "slug": "ai-growth-channel-starter",
+  "created_at": "2026-04-10T00:26:59.095958+00:00",
+  "output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\youtube\\20260410_002659_ai-growth-channel-starter",
+  "files": [
+    {
+      "relative_path": "channel_profile.json",
+      "size_bytes": 235
+    },
+    {
+      "relative_path": "content_ideas.md",
+      "size_bytes": 541
+    },
+    {
+      "relative_path": "scripts.md",
+      "size_bytes": 996
+    },
+    {
+      "relative_path": "metadata_templates.md",
+      "size_bytes": 284
+    },
+    {
+      "relative_path": "thumbnail_prompts.md",
+      "size_bytes": 168
+    },
+    {
+      "relative_path": "README.md",
+      "size_bytes": 90
+    }
+  ],
+  "summary": {
+    "artifact_kind": "youtube_pack",
+    "niche": "AI productivity",
+    "audience": "beginners and creators",
+    "ideas_count": 10,
+    "files_expected": [
+      "channel_profile.json",
+      "content_ideas.md",
+      "scripts.md",
+      "metadata_templates.md",
+      "thumbnail_prompts.md",
+      "README.md"
+    ]
+  },
+  "validation": {
+    "output_dir_exists": true,
+    "created_files_count": 6,
+    "total_bytes": 2314,
+    "valid": true
+  },
+  "status": "created"
+}

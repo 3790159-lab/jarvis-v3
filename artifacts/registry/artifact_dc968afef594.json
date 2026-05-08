@@ -1,0 +1,44 @@
+{
+  "task_id": "artifact_dc968afef594",
+  "task_type": "site",
+  "name": "AI Launch Landing",
+  "slug": "ai-launch-landing",
+  "created_at": "2026-04-10T01:10:00.649884+00:00",
+  "output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\sites\\20260410_011000_ai-launch-landing",
+  "files": [
+    {
+      "relative_path": "index.html",
+      "size_bytes": 1017
+    },
+    {
+      "relative_path": "styles.css",
+      "size_bytes": 1031
+    },
+    {
+      "relative_path": "app.js",
+      "size_bytes": 135
+    },
+    {
+      "relative_path": "README.md",
+      "size_bytes": 76
+    }
+  ],
+  "summary": {
+    "artifact_kind": "site_bundle",
+    "title": "AI Launch Landing",
+    "hero": "Build your AI launch system",
+    "files_expected": [
+      "index.html",
+      "styles.css",
+      "app.js",
+      "README.md"
+    ]
+  },
+  "validation": {
+    "output_dir_exists": true,
+    "created_files_count": 4,
+    "total_bytes": 2259,
+    "valid": true
+  },
+  "status": "created"
+}

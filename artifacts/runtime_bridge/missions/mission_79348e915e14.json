@@ -1,0 +1,55 @@
+{
+  "mission_id": "mission_79348e915e14",
+  "goal_id": "goal_a694fd21ed23",
+  "created_at": "2026-04-10T00:58:16.535197+00:00",
+  "updated_at": "2026-04-10T00:58:16.627535+00:00",
+  "status": "cancelled",
+  "mode": "planned_only",
+  "objective": "Create a landing page for a cancelled demo",
+  "selected_task_type": "site",
+  "artifact_name": "Cancelled Demo",
+  "planning_state": "classified",
+  "execution_state": "cancelled",
+  "can_execute": false,
+  "can_cancel": false,
+  "classification": {
+    "objective": "Create a landing page for a cancelled demo",
+    "selected_task_type": "site",
+    "artifact_name": "Cancelled Demo",
+    "description": "Create a landing page for a cancelled demo",
+    "payload": {
+      "title": "Cancelled Demo",
+      "hero": "This should not execute",
+      "subtitle": "Cancellation path test",
+      "cta": "Cancelled"
+    },
+    "candidates": [
+      {
+        "task_type": "site",
+        "score": 25,
+        "reasons": [
+          "matched 'landing' (+9)",
+          "matched 'landing page' (+12)",
+          "matched 'page' (+4)"
+        ]
+      }
+    ],
+    "reasoning": [
+      "selected top candidate 'site' with score 25",
+      "matched 'landing' (+9)",
+      "matched 'landing page' (+12)",
+      "matched 'page' (+4)"
+    ]
+  },
+  "execution": {},
+  "summary": {
+    "stage": "cancelled",
+    "message": "Mission cancelled before execution.",
+    "selected_task_type": "site",
+    "artifact_name": "Cancelled Demo"
+  },
+  "links": {
+    "goal_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_bridge\\goals\\goal_a694fd21ed23.json",
+    "mission_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_bridge\\missions\\mission_79348e915e14.json"
+  }
+}

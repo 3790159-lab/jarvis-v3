@@ -1,0 +1,77 @@
+{
+  "name": "Jarvis Inbox",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "jarvis/inbox",
+        "httpMethod": "POST",
+        "responseMode": "responseNode"
+      },
+      "id": "jarvis_webhook",
+      "name": "Jarvis Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        260,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || $json;\\nreturn [{ json: {\\n  ok: true,\\n  source: 'jarvis',\\n  received_at: new Date().toISOString(),\\n  description: 'Receives general Jarvis tasks',\\n  payload: body\\n} }];"
+      },
+      "id": "jarvis_normalize",
+      "name": "Normalize Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}"
+      },
+      "id": "jarvis_response",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        780,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Jarvis Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Payload": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "staticData": null,
+  "pinData": {},
+  "versionId": null,
+  "triggerCount": 0,
+  "tags": []
+}

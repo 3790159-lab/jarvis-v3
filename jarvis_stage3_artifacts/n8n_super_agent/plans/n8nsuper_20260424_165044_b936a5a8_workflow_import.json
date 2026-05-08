@@ -1,0 +1,48 @@
+{
+  "name": "Jarvis Super Agent - telegram_operator_alert",
+  "nodes": [
+    {
+      "id": "a52f24e7-7c28-45e3-9fcb-f62a2e673754",
+      "name": "Jarvis Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "jarvis-super-telegram-operator-alert-b936a5a8",
+        "responseMode": "lastNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "5840a094-9e57-48d2-854b-6f1259a2feef",
+      "name": "Build Operator Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const now = new Date().toISOString();\nconst body = $json.body || $json;\nreturn [{ json: {\n  ok: true,\n  kind: 'telegram_operator_alert',\n  receivedAt: now,\n  alert: {\n    severity: body.severity || 'info',\n    title: body.title || 'Jarvis Alert',\n    message: body.message || 'Alert received',\n    nextAction: body.nextAction || 'Review Jarvis status'\n  },\n  original: body\n} }];"
+      }
+    }
+  ],
+  "connections": {
+    "Jarvis Webhook": {
+      "main": [
+        [
+          {
+            "node": "Build Operator Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {}
+}

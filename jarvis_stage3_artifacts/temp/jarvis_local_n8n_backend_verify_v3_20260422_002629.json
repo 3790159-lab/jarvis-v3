@@ -1,0 +1,46 @@
+{
+  "health": {
+    "status_code": 200,
+    "ok": true,
+    "body": {
+      "status": "healthy",
+      "service": "jarvis_v3_supervisor",
+      "env": "dev"
+    }
+  },
+  "ping": {
+    "status_code": 404,
+    "ok": false,
+    "body": {
+      "detail": "Not Found"
+    }
+  },
+  "routes": {
+    "status_code": 404,
+    "ok": false,
+    "body": {
+      "detail": "Not Found"
+    }
+  },
+  "bridge_health": {
+    "status_code": 404,
+    "ok": false,
+    "body": {
+      "detail": "Not Found"
+    }
+  },
+  "bridge_config": {
+    "status_code": 404,
+    "ok": false,
+    "body": {
+      "detail": "Not Found"
+    }
+  },
+  "public_api_check": {
+    "status_code": 404,
+    "ok": false,
+    "body": {
+      "detail": "Not Found"
+    }
+  }
+}

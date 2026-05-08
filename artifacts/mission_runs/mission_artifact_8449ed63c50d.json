@@ -1,0 +1,98 @@
+{
+  "run_id": "mission_artifact_8449ed63c50d",
+  "status": "completed",
+  "objective": "Create a content calendar table",
+  "selected_task_type": "table",
+  "artifact_name": "Failure Test Calendar",
+  "created_at": "2026-04-10T12:24:46.054743+00:00",
+  "plan": {
+    "selected_task_type": "table",
+    "artifact_name": "Failure Test Calendar",
+    "description": "Create a content calendar table",
+    "payload": {
+      "rows": [
+        {
+          "day": 1,
+          "title": "Channel intro",
+          "format": "short",
+          "status": "planned"
+        },
+        {
+          "day": 2,
+          "title": "Problem / solution",
+          "format": "short",
+          "status": "planned"
+        },
+        {
+          "day": 3,
+          "title": "Tool breakdown",
+          "format": "short",
+          "status": "planned"
+        }
+      ]
+    },
+    "candidates": [
+      {
+        "task_type": "table",
+        "score": 1000,
+        "reasons": [
+          "preferred_task_type override"
+        ]
+      }
+    ],
+    "reasoning": [
+      "used preferred task type override"
+    ]
+  },
+  "artifact_result": {
+    "ok": true,
+    "task_id": "artifact_091b3fd04fac",
+    "task_type": "table",
+    "category": "tables",
+    "name": "Failure Test Calendar",
+    "slug": "failure-test-calendar",
+    "output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\tables\\20260410_122446_failure-test-calendar",
+    "manifest_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\tables\\20260410_122446_failure-test-calendar\\manifest.json",
+    "files": [
+      {
+        "relative_path": "table.csv",
+        "size_bytes": 127
+      },
+      {
+        "relative_path": "table.json",
+        "size_bytes": 470
+      },
+      {
+        "relative_path": "README.md",
+        "size_bytes": 110
+      }
+    ],
+    "summary": {
+      "rows": 3,
+      "columns": [
+        "day",
+        "title",
+        "format",
+        "status"
+      ],
+      "artifact_kind": "table_bundle"
+    },
+    "validation": {
+      "output_dir_exists": true,
+      "created_files_count": 3,
+      "total_bytes": 707,
+      "valid": true
+    },
+    "status": "created"
+  },
+  "summary": {
+    "objective": "Create a content calendar table",
+    "selected_task_type": "table",
+    "artifact_name": "Failure Test Calendar",
+    "artifact_status": "created",
+    "artifact_ok": true,
+    "output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\tables\\20260410_122446_failure-test-calendar",
+    "manifest_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\tables\\20260410_122446_failure-test-calendar\\manifest.json",
+    "files_count": 3
+  }
+}

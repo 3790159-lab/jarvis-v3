@@ -1,0 +1,21 @@
+{
+  "name": "filesystem_adapters",
+  "category": "filesystem",
+  "enabled": true,
+  "mode": "allowlisted_fs",
+  "safe_actions": [
+    "read_allowlisted_file",
+    "write_allowlisted_file",
+    "snapshot_file"
+  ],
+  "blocked_actions": [
+    "write_secret_files",
+    "write_system_dirs",
+    "delete_unbounded_trees"
+  ],
+  "endpoints": [],
+  "required_env_vars": [],
+  "notes": [
+    "Allow only project-root and pre-approved artifact zones."
+  ]
+}

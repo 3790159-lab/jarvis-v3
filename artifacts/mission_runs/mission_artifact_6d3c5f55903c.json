@@ -1,0 +1,70 @@
+{
+  "run_id": "mission_artifact_6d3c5f55903c",
+  "status": "completed",
+  "objective": "Build a browser mini-game",
+  "selected_task_type": "game",
+  "artifact_name": "Bundle Landing",
+  "created_at": "2026-04-10T01:10:00.938931+00:00",
+  "plan": {
+    "selected_task_type": "game",
+    "artifact_name": "Bundle Landing",
+    "description": "Build a browser mini-game",
+    "payload": {
+      "title": "Bundle Landing"
+    },
+    "candidates": [
+      {
+        "task_type": "game",
+        "score": 1000,
+        "reasons": [
+          "preferred_task_type override"
+        ]
+      }
+    ],
+    "reasoning": [
+      "used preferred task type override"
+    ]
+  },
+  "artifact_result": {
+    "ok": true,
+    "task_id": "artifact_6a80cc37e71b",
+    "task_type": "game",
+    "category": "games",
+    "name": "Bundle Landing",
+    "slug": "bundle-landing",
+    "output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\games\\20260410_011000_bundle-landing",
+    "manifest_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\games\\20260410_011000_bundle-landing\\manifest.json",
+    "files": [
+      {
+        "relative_path": "index.html",
+        "size_bytes": 1224
+      },
+      {
+        "relative_path": "README.md",
+        "size_bytes": 76
+      }
+    ],
+    "summary": {
+      "artifact_kind": "mini_game",
+      "game_type": "clicker",
+      "launch_file": "index.html"
+    },
+    "validation": {
+      "output_dir_exists": true,
+      "created_files_count": 2,
+      "total_bytes": 1300,
+      "valid": true
+    },
+    "status": "created"
+  },
+  "summary": {
+    "objective": "Build a browser mini-game",
+    "selected_task_type": "game",
+    "artifact_name": "Bundle Landing",
+    "artifact_status": "created",
+    "artifact_ok": true,
+    "output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\games\\20260410_011000_bundle-landing",
+    "manifest_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\games\\20260410_011000_bundle-landing\\manifest.json",
+    "files_count": 2
+  }
+}

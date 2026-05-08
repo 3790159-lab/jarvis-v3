@@ -1,0 +1,18 @@
+{
+  "ok": true,
+  "run_id": "20260428_022707",
+  "source_json": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\influencer_v4\\influencer_generation_cmohsk93y0013mscpnm627y6k.json",
+  "image_urls": [
+    "https://influencer-studio.b-cdn.net/production/cmohophfk007i3argbjj1o8k7/e7d76e85-85fd-4c1d-baee-3897c6217fb4.png",
+    "https://influencer-studio.b-cdn.net/production/cmohophfk007i3argbjj1o8k7/562e8692-fc7b-4144-a2f9-b0e7c6540391.png",
+    "https://influencer-studio.b-cdn.net/production/cmohophfk007i3argbjj1o8k7/c2206e5c-58f7-4977-aae5-c36d77b1bf4a.png",
+    "https://influencer-studio.b-cdn.net/production/cmohophfk007i3argbjj1o8k7/61ec334c-cffa-4019-9fde-b3ea194661b4.png"
+  ],
+  "local_images": [
+    "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\influencer_v4_media\\run_20260428_022707\\v4_photo_001_e7d76e85-85fd-4c1d-baee-3897c6217fb4.png",
+    "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\influencer_v4_media\\run_20260428_022707\\v4_photo_002_562e8692-fc7b-4144-a2f9-b0e7c6540391.png",
+    "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\influencer_v4_media\\run_20260428_022707\\v4_photo_003_c2206e5c-58f7-4977-aae5-c36d77b1bf4a.png",
+    "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\influencer_v4_media\\run_20260428_022707\\v4_photo_004_61ec334c-cffa-4019-9fde-b3ea194661b4.png"
+  ],
+  "drive_folder_id": "1FHS1X4Fmb2xrHJszbg61kpJHsErYj_RX"
+}

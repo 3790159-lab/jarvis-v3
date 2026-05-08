@@ -1,0 +1,8 @@
+﻿{
+    "mission_type":  "project_pipeline_v2",
+    "project_name":  "managed_autonomous_api",
+    "project_path":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api",
+    "requested_port":  8011,
+    "generated_at":  "2026-04-01T02:52:15",
+    "objective":  "Generate, validate, test, health-check and initialize a FastAPI project"
+}

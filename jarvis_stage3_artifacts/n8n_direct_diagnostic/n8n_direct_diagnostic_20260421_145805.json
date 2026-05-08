@@ -1,0 +1,201 @@
+{
+    "summary":  {
+                    "created_at":  "2026-04-21T14:58:10.0167255+03:00",
+                    "n8n_base_url":  "https://daniliyc.app.n8n.cloud",
+                    "public_list_ok":  false,
+                    "public_list_status":  null,
+                    "rest_probe_ok":  false,
+                    "rest_probe_status":  null,
+                    "create_succeeded":  false,
+                    "create_label":  null,
+                    "workflow_id":  null,
+                    "webhook_url":  null,
+                    "probe_ok":  null,
+                    "next_plan":  "Public API create schema is blocking us and /rest/workflows is not directly available. Create one base workflow in n8n UI, export/get it, then adapt Jarvis to clone that known-good template."
+                },
+    "public_list_test":  {
+                             "ok":  false,
+                             "method":  "GET",
+                             "uri":  "https://daniliyc.app.n8n.cloud/api/v1/workflows?limit=1",
+                             "status_code":  null,
+                             "body_raw":  "Ссылка на объект не указывает на экземпляр объекта.",
+                             "body_json":  null
+                         },
+    "rest_probe":  {
+                       "ok":  false,
+                       "method":  "GET",
+                       "uri":  "https://daniliyc.app.n8n.cloud/rest/workflows",
+                       "status_code":  null,
+                       "body_raw":  "Ссылка на объект не указывает на экземпляр объекта.",
+                       "body_json":  null
+                   },
+    "create_candidates":  [
+                              {
+                                  "label":  "A1_public_min_v1_no_settings",
+                                  "ok":  false,
+                                  "status_code":  null,
+                                  "workflow_id":  null,
+                                  "request_body":  {
+                                                       "name":  "jarvis-diag-20260421145808-4710",
+                                                       "connections":  {
+
+                                                                       },
+                                                       "nodes":  [
+                                                                     {
+                                                                         "position":  [
+                                                                                          600,
+                                                                                          300
+                                                                                      ],
+                                                                         "typeVersion":  1,
+                                                                         "name":  "Jarvis Webhook",
+                                                                         "type":  "n8n-nodes-base.webhook",
+                                                                         "parameters":  {
+                                                                                            "path":  "jarvis-diag-20260421145808-4710",
+                                                                                            "options":  {
+
+                                                                                                        },
+                                                                                            "httpMethod":  "POST"
+                                                                                        }
+                                                                     }
+                                                                 ]
+                                                   },
+                                  "response_raw":  "Ссылка на объект не указывает на экземпляр объекта.",
+                                  "response_json":  null
+                              },
+                              {
+                                  "label":  "A2_public_min_v2_no_settings",
+                                  "ok":  false,
+                                  "status_code":  null,
+                                  "workflow_id":  null,
+                                  "request_body":  {
+                                                       "name":  "jarvis-diag-20260421145808-4710",
+                                                       "connections":  {
+
+                                                                       },
+                                                       "nodes":  [
+                                                                     {
+                                                                         "position":  [
+                                                                                          600,
+                                                                                          300
+                                                                                      ],
+                                                                         "typeVersion":  2,
+                                                                         "name":  "Jarvis Webhook",
+                                                                         "type":  "n8n-nodes-base.webhook",
+                                                                         "parameters":  {
+                                                                                            "path":  "jarvis-diag-20260421145808-4710",
+                                                                                            "options":  {
+
+                                                                                                        },
+                                                                                            "httpMethod":  "POST"
+                                                                                        }
+                                                                     }
+                                                                 ]
+                                                   },
+                                  "response_raw":  "Ссылка на объект не указывает на экземпляр объекта.",
+                                  "response_json":  null
+                              },
+                              {
+                                  "label":  "B1_public_min_v1_with_settings",
+                                  "ok":  false,
+                                  "status_code":  null,
+                                  "workflow_id":  null,
+                                  "request_body":  {
+                                                       "settings":  {
+
+                                                                    },
+                                                       "name":  "jarvis-diag-20260421145808-4710",
+                                                       "connections":  {
+
+                                                                       },
+                                                       "nodes":  [
+                                                                     {
+                                                                         "position":  [
+                                                                                          600,
+                                                                                          300
+                                                                                      ],
+                                                                         "typeVersion":  1,
+                                                                         "name":  "Jarvis Webhook",
+                                                                         "type":  "n8n-nodes-base.webhook",
+                                                                         "parameters":  {
+                                                                                            "path":  "jarvis-diag-20260421145808-4710",
+                                                                                            "options":  {
+
+                                                                                                        },
+                                                                                            "httpMethod":  "POST"
+                                                                                        }
+                                                                     }
+                                                                 ]
+                                                   },
+                                  "response_raw":  "Ссылка на объект не указывает на экземпляр объекта.",
+                                  "response_json":  null
+                              },
+                              {
+                                  "label":  "B2_public_min_v2_with_settings",
+                                  "ok":  false,
+                                  "status_code":  null,
+                                  "workflow_id":  null,
+                                  "request_body":  {
+                                                       "settings":  {
+
+                                                                    },
+                                                       "name":  "jarvis-diag-20260421145808-4710",
+                                                       "connections":  {
+
+                                                                       },
+                                                       "nodes":  [
+                                                                     {
+                                                                         "position":  [
+                                                                                          600,
+                                                                                          300
+                                                                                      ],
+                                                                         "typeVersion":  2,
+                                                                         "name":  "Jarvis Webhook",
+                                                                         "type":  "n8n-nodes-base.webhook",
+                                                                         "parameters":  {
+                                                                                            "path":  "jarvis-diag-20260421145808-4710",
+                                                                                            "options":  {
+
+                                                                                                        },
+                                                                                            "httpMethod":  "POST"
+                                                                                        }
+                                                                     }
+                                                                 ]
+                                                   },
+                                  "response_raw":  "Ссылка на объект не указывает на экземпляр объекта.",
+                                  "response_json":  null
+                              },
+                              {
+                                  "label":  "C1_public_min_v2_bare_params",
+                                  "ok":  false,
+                                  "status_code":  null,
+                                  "workflow_id":  null,
+                                  "request_body":  {
+                                                       "name":  "jarvis-diag-20260421145808-4710",
+                                                       "connections":  {
+
+                                                                       },
+                                                       "nodes":  [
+                                                                     {
+                                                                         "position":  [
+                                                                                          600,
+                                                                                          300
+                                                                                      ],
+                                                                         "typeVersion":  2,
+                                                                         "name":  "Jarvis Webhook",
+                                                                         "type":  "n8n-nodes-base.webhook",
+                                                                         "parameters":  {
+                                                                                            "httpMethod":  "POST",
+                                                                                            "path":  "jarvis-diag-20260421145808-4710"
+                                                                                        }
+                                                                     }
+                                                                 ]
+                                                   },
+                                  "response_raw":  "Ссылка на объект не указывает на экземпляр объекта.",
+                                  "response_json":  null
+                              }
+                          ],
+    "activation_attempts":  [
+
+                            ],
+    "webhook_probe":  null
+}

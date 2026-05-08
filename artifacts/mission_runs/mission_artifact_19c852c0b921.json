@@ -1,0 +1,102 @@
+{
+  "run_id": "mission_artifact_19c852c0b921",
+  "status": "completed",
+  "objective": "Prepare a YouTube starter pack for an AI automation channel",
+  "selected_task_type": "youtube_pack",
+  "artifact_name": "AI Automation Runtime Pack",
+  "created_at": "2026-04-10T00:58:16.464033+00:00",
+  "plan": {
+    "selected_task_type": "youtube_pack",
+    "artifact_name": "AI Automation Runtime Pack",
+    "description": "Prepare a YouTube starter pack for an AI automation channel",
+    "payload": {
+      "niche": "AI automation",
+      "audience": "builders and beginners",
+      "tone": "clear and practical"
+    },
+    "candidates": [
+      {
+        "task_type": "youtube_pack",
+        "score": 26,
+        "reasons": [
+          "matched 'youtube' (+10)",
+          "matched 'channel' (+6)",
+          "matched 'starter pack' (+10)"
+        ]
+      }
+    ],
+    "reasoning": [
+      "selected top candidate 'youtube_pack' with score 26",
+      "matched 'youtube' (+10)",
+      "matched 'channel' (+6)",
+      "matched 'starter pack' (+10)"
+    ]
+  },
+  "artifact_result": {
+    "ok": true,
+    "task_id": "artifact_cb67b824b158",
+    "task_type": "youtube_pack",
+    "category": "youtube",
+    "name": "AI Automation Runtime Pack",
+    "slug": "ai-automation-runtime-pack",
+    "output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\youtube\\20260410_005816_ai-automation-runtime-pack",
+    "manifest_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\youtube\\20260410_005816_ai-automation-runtime-pack\\manifest.json",
+    "files": [
+      {
+        "relative_path": "channel_profile.json",
+        "size_bytes": 227
+      },
+      {
+        "relative_path": "content_ideas.md",
+        "size_bytes": 521
+      },
+      {
+        "relative_path": "scripts.md",
+        "size_bytes": 976
+      },
+      {
+        "relative_path": "metadata_templates.md",
+        "size_bytes": 275
+      },
+      {
+        "relative_path": "thumbnail_prompts.md",
+        "size_bytes": 164
+      },
+      {
+        "relative_path": "README.md",
+        "size_bytes": 89
+      }
+    ],
+    "summary": {
+      "artifact_kind": "youtube_pack",
+      "niche": "AI automation",
+      "audience": "builders and beginners",
+      "ideas_count": 10,
+      "files_expected": [
+        "channel_profile.json",
+        "content_ideas.md",
+        "scripts.md",
+        "metadata_templates.md",
+        "thumbnail_prompts.md",
+        "README.md"
+      ]
+    },
+    "validation": {
+      "output_dir_exists": true,
+      "created_files_count": 6,
+      "total_bytes": 2252,
+      "valid": true
+    },
+    "status": "created"
+  },
+  "summary": {
+    "objective": "Prepare a YouTube starter pack for an AI automation channel",
+    "selected_task_type": "youtube_pack",
+    "artifact_name": "AI Automation Runtime Pack",
+    "artifact_status": "created",
+    "artifact_ok": true,
+    "output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\youtube\\20260410_005816_ai-automation-runtime-pack",
+    "manifest_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\youtube\\20260410_005816_ai-automation-runtime-pack\\manifest.json",
+    "files_count": 6
+  }
+}

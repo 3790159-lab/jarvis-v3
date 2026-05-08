@@ -1,0 +1,29 @@
+{
+  "index": 2,
+  "tool": "latency_probe",
+  "args": {
+    "url": "http://127.0.0.1:8015/health"
+  },
+  "ok": true,
+  "result": {
+    "ok": true,
+    "created_at": "2026-04-27T13:25:16",
+    "run_id": "tool_call_20260427_132516",
+    "tool": "latency_probe",
+    "registry": "v6_9",
+    "policy": {
+      "allowed": true,
+      "risk": "low",
+      "note": "Safe low-risk tool."
+    },
+    "args": {
+      "url": "http://127.0.0.1:8015/health"
+    },
+    "result": {
+      "ok": true,
+      "ms": 5
+    },
+    "evidence_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\unified_tool_gateway_v7_0\\calls\\tool_call_20260427_132516"
+  },
+  "time": "2026-04-27T13:25:16"
+}

@@ -1,0 +1,49 @@
+{
+  "mission_id": "mission_836799ec902b",
+  "goal_id": "goal_f8f204e21d10",
+  "created_at": "2026-04-10T00:48:56.634608+00:00",
+  "updated_at": "2026-04-10T00:48:56.639052+00:00",
+  "status": "running",
+  "objective": "Prepare a YouTube starter pack for an AI automation channel",
+  "selected_task_type": "youtube_pack",
+  "artifact_name": "AI Automation Runtime Pack",
+  "classification": {
+    "objective": "Prepare a YouTube starter pack for an AI automation channel",
+    "selected_task_type": "youtube_pack",
+    "artifact_name": "AI Automation Runtime Pack",
+    "description": "Prepare a YouTube starter pack for an AI automation channel",
+    "payload": {
+      "niche": "AI automation",
+      "audience": "builders and beginners",
+      "tone": "clear and practical"
+    },
+    "candidates": [
+      {
+        "task_type": "youtube_pack",
+        "score": 26,
+        "reasons": [
+          "matched 'youtube' (+10)",
+          "matched 'channel' (+6)",
+          "matched 'starter pack' (+10)"
+        ]
+      }
+    ],
+    "reasoning": [
+      "selected top candidate 'youtube_pack' with score 26",
+      "matched 'youtube' (+10)",
+      "matched 'channel' (+6)",
+      "matched 'starter pack' (+10)"
+    ]
+  },
+  "execution": {},
+  "summary": {
+    "stage": "classified",
+    "message": "Mission classified and prepared for execution.",
+    "selected_task_type": "youtube_pack",
+    "artifact_name": "AI Automation Runtime Pack"
+  },
+  "links": {
+    "goal_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_bridge\\goals\\goal_f8f204e21d10.json",
+    "mission_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_bridge\\missions\\mission_836799ec902b.json"
+  }
+}

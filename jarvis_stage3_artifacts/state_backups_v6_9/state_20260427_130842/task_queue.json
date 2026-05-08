@@ -1,0 +1,105 @@
+{
+  "items": [
+    {
+      "mission_id": "mission_9f7de142",
+      "task_id": "interpret_request",
+      "title": "Interpret request",
+      "type": "analysis",
+      "status": "queued",
+      "details": "Understand objective and expected outcome.",
+      "payload": {},
+      "depends_on": [],
+      "priority": "high",
+      "created_at": 1776433074,
+      "updated_at": 1776433074,
+      "next_run_at": 1776433074,
+      "attempt_count": 0,
+      "max_retries": 2,
+      "last_error": "",
+      "worker_id": ""
+    },
+    {
+      "mission_id": "mission_9f7de142",
+      "task_id": "telegram_layer",
+      "title": "Prepare Telegram layer",
+      "type": "integration",
+      "status": "queued",
+      "details": "Review Telegram routing and interaction layer.",
+      "payload": {},
+      "depends_on": [
+        "interpret_request"
+      ],
+      "priority": "high",
+      "created_at": 1776433074,
+      "updated_at": 1776433074,
+      "next_run_at": 1776433074,
+      "attempt_count": 0,
+      "max_retries": 2,
+      "last_error": "",
+      "worker_id": ""
+    },
+    {
+      "mission_id": "mission_9f7de142",
+      "task_id": "llm_layer",
+      "title": "Prepare LLM layer",
+      "type": "llm",
+      "status": "queued",
+      "details": "Enable LLM routing, timeout protection and fallback.",
+      "payload": {},
+      "depends_on": [
+        "backend_layer"
+      ],
+      "priority": "normal",
+      "created_at": 1776433074,
+      "updated_at": 1776433074,
+      "next_run_at": 1776433074,
+      "attempt_count": 0,
+      "max_retries": 2,
+      "last_error": "",
+      "worker_id": ""
+    },
+    {
+      "mission_id": "mission_9f7de142",
+      "task_id": "artifact_note",
+      "title": "Write artifact note",
+      "type": "file_write",
+      "status": "queued",
+      "details": "Write a controlled output artifact.",
+      "payload": {
+        "filename": "mission_note.txt",
+        "content": "Objective: Сгенерируй только готовый HTML код, без markdown, без тройных кавычек, без пояснений.\n\nЗадача:\nСоздай один self-contained HTML файл мини-приложения \"Jarvis Mini App\".\n\nТребования:\n- Только чистый HTML + встроенные CSS + встроенный JavaScript\n- Без внешних библиотек\n- Интерфейс должен быть современный, тёмный, аккуратный\n- Внутри должны быть:\n  1) Заголовок: Jarvis Mini App\n  2) Поле ввода задачи\n  3) Кнопка Add\n  4) Список задач\n  5) Возможность отметить задачу выполненной\n  6) Возможность удалить задачу\n  7) Счётчик общего количества задач\n  8) Счётчик выполненных задач\n- Всё должно работать локально при открытии html файла в браузере\n- Верни только HTML документ, который начинается с <!DOCTYPE html> или <html>\n\nНикакого текста до или после HTML.\n"
+      },
+      "depends_on": [
+        "interpret_request"
+      ],
+      "priority": "low",
+      "created_at": 1776433074,
+      "updated_at": 1776433074,
+      "next_run_at": 1776433074,
+      "attempt_count": 0,
+      "max_retries": 2,
+      "last_error": "",
+      "worker_id": ""
+    },
+    {
+      "mission_id": "mission_9f7de142",
+      "task_id": "stability_review",
+      "title": "Run stability review",
+      "type": "review",
+      "status": "queued",
+      "details": "Check fallback behavior, response speed and degradation strategy.",
+      "payload": {},
+      "depends_on": [
+        "interpret_request"
+      ],
+      "priority": "normal",
+      "created_at": 1776433074,
+      "updated_at": 1776433074,
+      "next_run_at": 1776433074,
+      "attempt_count": 0,
+      "max_retries": 2,
+      "last_error": "",
+      "worker_id": ""
+    }
+  ]
+}

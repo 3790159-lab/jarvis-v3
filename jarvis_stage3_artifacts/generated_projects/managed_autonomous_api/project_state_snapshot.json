@@ -1,0 +1,31 @@
+﻿{
+    "generated_at":  "2026-04-01T02:52:15",
+    "cwd":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\managed_autonomous_api",
+    "python_version":  "Python 3.14.3",
+    "files_top_level":  [
+                            ".git",
+                            ".pytest_cache",
+                            ".venv",
+                            "app",
+                            "tests",
+                            ".gitignore",
+                            "environment_snapshot.json",
+                            "file_hash_snapshot.json",
+                            "mission_manifest.json",
+                            "pipeline_summary.json",
+                            "project_control.ps1",
+                            "project_manifest.json",
+                            "project_runtime_policy.json",
+                            "project_self_check.json",
+                            "project_state_snapshot.json",
+                            "project_validation.json",
+                            "pytest.ini",
+                            "README.md",
+                            "requirements.lock.txt",
+                            "requirements.txt",
+                            "run_api.ps1",
+                            "run_tests.ps1",
+                            "tool_registry.json",
+                            "validate_project.ps1"
+                        ]
+}

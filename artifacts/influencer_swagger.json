@@ -1,0 +1,3708 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Influencer Studio API",
+    "version": "1.0.0",
+    "description": "REST API for Influencer Studio platform\n\n## Getting Started\n\n1. **Get your API Key**: Generate an API key from your account settings\n2. **Authenticate**: Include your API key in the Authorization header: `Authorization: Bearer YOUR_API_KEY`\n3. **Optional IDs**: Most endpoints work without providing workspace_id or influencer_id - they'll use your defaults\n4. **Check Status**: Use GET /api/v1/generations/{id}/status to poll generation results\n\n## Resource IDs\n\n- **workspace_id**: Optional. If omitted, your default workspace is used\n- **influencer_id**: Optional. Only needed when generating images with a trained influencer\n- **generation_id**: Returned from generation endpoints. Use it to check status\n\n## Tips\n\n- All image/video URLs must be publicly accessible\n- Use webhooks to get notified when generations complete instead of polling\n- Check the examples in each endpoint for ready-to-use request bodies",
+    "contact": {
+      "name": "API Support",
+      "email": "support@influencerstudio.com"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://influencerstudio.com",
+      "description": "Current environment"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Influencers",
+      "description": "Influencer management endpoints"
+    },
+    {
+      "name": "Music",
+      "description": "Music generation endpoints"
+    },
+    {
+      "name": "Voices",
+      "description": "Voice generation and management endpoints"
+    },
+    {
+      "name": "Images",
+      "description": "Image generation and editing endpoints"
+    },
+    {
+      "name": "Videos",
+      "description": "Video generation endpoints"
+    },
+    {
+      "name": "3D Models",
+      "description": "3D model generation endpoints"
+    },
+    {
+      "name": "Text",
+      "description": "Text generation endpoints"
+    },
+    {
+      "name": "Generations",
+      "description": "Generation status endpoints"
+    },
+    {
+      "name": "Billing",
+      "description": "Billing and payment endpoints"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Enter your API key"
+      }
+    }
+  },
+  "paths": {
+    "/api/v1/influencers": {
+      "get": {
+        "summary": "List influencers",
+        "description": "Get a list of all influencers belonging to your team with their basic information and generation readiness status.",
+        "tags": [
+          "Influencers"
+        ],
+        "responses": {
+          "200": {
+            "description": "List of influencers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "face_image": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true
+                      },
+                      "best_full_image": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true
+                      },
+                      "training_status": {
+                        "type": "string",
+                        "enum": [
+                          "pending",
+                          "training",
+                          "completed",
+                          "failed"
+                        ]
+                      },
+                      "ready_for_generation": {
+                        "type": "boolean"
+                      },
+                      "created_at": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name",
+                      "face_image",
+                      "best_full_image",
+                      "training_status",
+                      "ready_for_generation",
+                      "created_at"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/influencers/create": {
+      "post": {
+        "summary": "Create influencer",
+        "description": "Create a new influencer from a set of images. The first image will be used as the face image. Images are automatically analyzed for pose and content. Costs 250 credits.",
+        "tags": [
+          "Influencers"
+        ],
+        "responses": {
+          "200": {
+            "description": "Influencer created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "influencer_id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "completed",
+                        "training",
+                        "failed"
+                      ]
+                    },
+                    "ready_for_generation": {
+                      "type": "boolean"
+                    },
+                    "credits_used": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "influencer_id",
+                    "name",
+                    "status",
+                    "ready_for_generation",
+                    "credits_used"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "402": {
+            "description": "Insufficient credits"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Influencer creation parameters",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100,
+                    "description": "Name for the influencer (auto-generated if not provided)"
+                  },
+                  "image_urls": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "minItems": 1,
+                    "maxItems": 20,
+                    "description": "Array of image URLs (1-20 images). First image will be used as face image."
+                  },
+                  "workspace_id": {
+                    "type": "string",
+                    "description": "Optional workspace ID to associate the influencer with"
+                  }
+                },
+                "required": [
+                  "image_urls"
+                ],
+                "additionalProperties": false
+              },
+              "example": {
+                "name": "Sofia Martinez",
+                "image_urls": [
+                  "https://example.com/photo1.jpg",
+                  "https://example.com/photo2.jpg",
+                  "https://example.com/photo3.jpg",
+                  "https://example.com/photo4.jpg",
+                  "https://example.com/photo5.jpg"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/influencers/generate": {
+      "post": {
+        "summary": "Generate influencer images",
+        "description": "Generate images of a trained influencer using Studio 1. Provide high-level parameters like outfit, location, and product placement instead of crafting detailed prompts.",
+        "tags": [
+          "Influencers"
+        ],
+        "responses": {
+          "200": {
+            "description": "Generation queued successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "generation_id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "queued",
+                        "processing",
+                        "completed",
+                        "failed"
+                      ]
+                    },
+                    "estimated_time": {
+                      "type": "number"
+                    },
+                    "credits_used": {
+                      "type": "number"
+                    },
+                    "images": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "generation_id",
+                    "status",
+                    "estimated_time",
+                    "credits_used",
+                    "images"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or influencer not ready for generation"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "402": {
+            "description": "Insufficient credits"
+          },
+          "404": {
+            "description": "Influencer or workspace not found"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Influencer image generation parameters",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "influencer_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "ID of a trained influencer"
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "description": "Optional text prompt to guide the generation (e.g., 'professional headshot', 'smiling')"
+                  },
+                  "outfit_image": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "URL of an outfit image - the influencer will be dressed in this outfit"
+                  },
+                  "location_image": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "URL of a location/background image - the influencer will be placed in this setting"
+                  },
+                  "reference_pose_image": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "URL of a reference pose image - the influencer will match this pose"
+                  },
+                  "product_image": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "URL of a product image - the product will be placed naturally in the scene"
+                  },
+                  "camera_style": {
+                    "type": "string",
+                    "enum": [
+                      "pro",
+                      "smartphone"
+                    ],
+                    "default": "pro",
+                    "description": "Camera style: 'pro' for studio quality or 'smartphone' for casual social media style"
+                  },
+                  "lora_url": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "URL to a LoRA .safetensors file. When provided, routes generation through the LoRA flow. Pair with lora_type to select the correct base model."
+                  },
+                  "lora_type": {
+                    "type": "string",
+                    "enum": [
+                      "flux-2-klein",
+                      "z-image",
+                      "flux-lora",
+                      "flux-1-dev",
+                      "qwen-image-2512",
+                      "qwen-image-edit-2511"
+                    ],
+                    "description": "LoRA base model. Accepted values: 'flux-2-klein', 'z-image', 'flux-lora', 'flux-1-dev', 'qwen-image-2512', 'qwen-image-edit-2511'. Defaults to 'flux-1-dev'."
+                  },
+                  "batch": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 4,
+                    "default": 1,
+                    "description": "Number of images to generate (1-4)"
+                  },
+                  "settings": {
+                    "type": "object",
+                    "properties": {
+                      "aspect_ratio": {
+                        "type": "string",
+                        "default": "1:1",
+                        "description": "Image aspect ratio"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "workspace_id": {
+                    "type": "string",
+                    "description": "Workspace ID to save results"
+                  }
+                },
+                "required": [
+                  "influencer_id"
+                ],
+                "additionalProperties": false
+              },
+              "example": {
+                "influencer_id": "your-influencer-id",
+                "prompt": "professional portrait photo, smiling",
+                "outfit_image": "https://example.com/outfit.jpg",
+                "location_image": "https://example.com/beach-background.jpg",
+                "reference_pose_image": "https://example.com/pose-reference.jpg",
+                "product_image": "https://example.com/iphone.jpg",
+                "camera_style": "pro",
+                "lora_url": "https://example.com/my-style.safetensors",
+                "lora_type": "flux-1-dev",
+                "batch": 2,
+                "settings": {
+                  "aspect_ratio": "1:1"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/influencers/video": {
+      "post": {
+        "summary": "Generate influencer video",
+        "description": "Generate a video of a trained influencer using AI-powered planning and Veo 3.1 Quality. Provide a video concept and optional images for product, outfit, and location. The system uses OpenAI to plan the video frames and motion, generates the frames with Studio 1, and creates the video with Veo 3.1 Quality including native audio. If the influencer has a trained voice, voice conversion is automatically applied.",
+        "tags": [
+          "Influencers"
+        ],
+        "responses": {
+          "200": {
+            "description": "Video generation queued successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "generation_id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "queued",
+                        "processing"
+                      ]
+                    },
+                    "first_frame_url": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "last_frame_url": {
+                      "type": "string",
+                      "format": "uri",
+                      "nullable": true
+                    },
+                    "video_url": {
+                      "type": "string",
+                      "format": "uri",
+                      "nullable": true
+                    },
+                    "estimated_time": {
+                      "type": "number"
+                    },
+                    "credits_used": {
+                      "type": "number"
+                    },
+                    "has_voice_conversion": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "generation_id",
+                    "status",
+                    "first_frame_url",
+                    "last_frame_url",
+                    "video_url",
+                    "estimated_time",
+                    "credits_used",
+                    "has_voice_conversion"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or influencer not ready for generation"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "402": {
+            "description": "Insufficient credits"
+          },
+          "404": {
+            "description": "Influencer or workspace not found"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Influencer video generation parameters",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "influencer_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "ID of a trained influencer"
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Video concept/description (e.g., 'influencer walking on beach, picks up product and shows it to camera')"
+                  },
+                  "dialog": {
+                    "type": "string",
+                    "description": "Optional script/dialog for the video (used for audio context and motion planning)"
+                  },
+                  "product_image": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "URL of a product image to feature in the video"
+                  },
+                  "outfit_image": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "URL of an outfit image - the influencer will be dressed in this outfit"
+                  },
+                  "location_image": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "URL of a location/background image - the influencer will be placed in this setting"
+                  },
+                  "aspect_ratio": {
+                    "type": "string",
+                    "enum": [
+                      "16:9",
+                      "9:16"
+                    ],
+                    "default": "9:16",
+                    "description": "Video aspect ratio (Veo 3.1 only supports 16:9 and 9:16)"
+                  },
+                  "workspace_id": {
+                    "type": "string",
+                    "description": "Workspace ID to save results"
+                  }
+                },
+                "required": [
+                  "influencer_id",
+                  "prompt"
+                ],
+                "additionalProperties": false
+              },
+              "example": {
+                "influencer_id": "your-influencer-id",
+                "prompt": "Influencer walks toward camera on a beach, picks up a product, and shows it while smiling",
+                "dialog": "Hey everyone! Check out this amazing new product!",
+                "product_image": "https://example.com/product.jpg",
+                "outfit_image": "https://example.com/summer-outfit.jpg",
+                "location_image": "https://example.com/tropical-beach.jpg",
+                "aspect_ratio": "9:16"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/music": {
+      "get": {
+        "summary": "List music tracks",
+        "description": "Get a list of all music tracks generated by your team. Optionally filter by workspace.",
+        "tags": [
+          "Music"
+        ],
+        "responses": {
+          "200": {
+            "description": "List of music tracks",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "title": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "style": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "url": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "status": {
+                        "type": "string"
+                      },
+                      "generation_id": {
+                        "type": "string"
+                      },
+                      "created_at": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "title",
+                      "style",
+                      "url",
+                      "status",
+                      "generation_id",
+                      "created_at"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/music/generate": {
+      "post": {
+        "summary": "Generate music",
+        "description": "Generate a music track using Suno AI. Provide a title, optional style, lyrics, and vocal preferences. The track is generated asynchronously — poll GET /api/v1/generations/{id}/status for the result.",
+        "tags": [
+          "Music"
+        ],
+        "responses": {
+          "200": {
+            "description": "Music generation queued successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "generation_id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "queued",
+                        "processing",
+                        "completed",
+                        "failed"
+                      ]
+                    },
+                    "estimated_time": {
+                      "type": "number"
+                    },
+                    "credits_used": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "generation_id",
+                    "status",
+                    "estimated_time",
+                    "credits_used"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "402": {
+            "description": "Insufficient credits"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Music generation parameters",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100,
+                    "description": "Title for the music track"
+                  },
+                  "style": {
+                    "type": "string",
+                    "maxLength": 1000,
+                    "description": "Music style/genre description (e.g., 'pop, upbeat, electronic')"
+                  },
+                  "lyrics": {
+                    "type": "string",
+                    "maxLength": 5000,
+                    "description": "Lyrics for the song. Leave empty for instrumental."
+                  },
+                  "instrumental": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Generate instrumental only (no vocals)"
+                  },
+                  "vocal_gender": {
+                    "type": "string",
+                    "enum": [
+                      "m",
+                      "f"
+                    ],
+                    "description": "Vocal gender preference: 'm' for male, 'f' for female"
+                  },
+                  "model": {
+                    "type": "string",
+                    "enum": [
+                      "V3_5",
+                      "V4",
+                      "V4_5",
+                      "V4_5PLUS",
+                      "V5"
+                    ],
+                    "default": "V4_5PLUS",
+                    "description": "Suno model version"
+                  },
+                  "workspace_id": {
+                    "type": "string",
+                    "description": "Optional workspace ID"
+                  }
+                },
+                "required": [
+                  "title"
+                ],
+                "additionalProperties": false
+              },
+              "example": {
+                "title": "Summer Vibes",
+                "style": "pop, upbeat, electronic, feel-good",
+                "lyrics": "Walking on sunshine, feeling alive\nEvery moment is a reason to thrive",
+                "instrumental": false,
+                "vocal_gender": "f",
+                "model": "V4_5PLUS"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/music/{id}": {
+      "get": {
+        "summary": "Get music track",
+        "description": "Get details of a specific music track by its ID, including title, style, audio URL, and status.",
+        "tags": [
+          "Music"
+        ],
+        "responses": {
+          "200": {
+            "description": "Music track details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "style": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "url": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "generation_id": {
+                      "type": "string"
+                    },
+                    "created_at": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "title",
+                    "style",
+                    "url",
+                    "status",
+                    "generation_id",
+                    "created_at"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Workspace does not belong to team"
+          },
+          "404": {
+            "description": "Music track not found"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/voices": {
+      "get": {
+        "summary": "List voices",
+        "description": "Get a list of all voices belonging to your team. Optionally filter by influencer_id using a query parameter.",
+        "tags": [
+          "Voices"
+        ],
+        "responses": {
+          "200": {
+            "description": "List of voices",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "description": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "type": {
+                        "type": "string"
+                      },
+                      "audio_url": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "influencer_id": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "influencer_name": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "created_at": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name",
+                      "description",
+                      "type",
+                      "audio_url",
+                      "influencer_id",
+                      "influencer_name",
+                      "created_at"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/voices/generate": {
+      "post": {
+        "summary": "Generate voice",
+        "description": "Create a new AI voice by cloning from an audio file or designing from a text description. Optionally associate with an influencer. Clone uses Cartesia voice cloning; design uses MiniMax voice design.",
+        "tags": [
+          "Voices"
+        ],
+        "responses": {
+          "200": {
+            "description": "Voice created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "voice_id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "audio_url": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "influencer_id": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "completed"
+                      ]
+                    },
+                    "credits_used": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "voice_id",
+                    "name",
+                    "type",
+                    "audio_url",
+                    "influencer_id",
+                    "status",
+                    "credits_used"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Influencer not found"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Voice generation parameters",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "method": {
+                    "type": "string",
+                    "enum": [
+                      "clone",
+                      "design"
+                    ],
+                    "description": "Voice creation method: 'clone' from audio or 'design' from text prompt"
+                  },
+                  "influencer_id": {
+                    "type": "string",
+                    "description": "Optional influencer ID to associate the voice with"
+                  },
+                  "audio_url": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "Required for 'clone' method: public URL of audio to clone"
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "description": "Required for 'design' method: text description of the desired voice"
+                  },
+                  "name": {
+                    "type": "string",
+                    "description": "Optional name for the voice"
+                  },
+                  "workspace_id": {
+                    "type": "string",
+                    "description": "Optional workspace ID"
+                  }
+                },
+                "required": [
+                  "method"
+                ],
+                "additionalProperties": false
+              },
+              "example": {
+                "method": "clone",
+                "audio_url": "https://example.com/voice-sample.mp3",
+                "name": "My Custom Voice"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/voices/{id}": {
+      "get": {
+        "summary": "Get voice",
+        "description": "Get details of a specific voice by its ID, including the Cartesia voice ID for TTS generation.",
+        "tags": [
+          "Voices"
+        ],
+        "responses": {
+          "200": {
+            "description": "Voice details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "audio_url": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "influencer_id": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "influencer_name": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "created_at": {
+                      "type": "string"
+                    },
+                    "custom_voice_id": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "description",
+                    "type",
+                    "audio_url",
+                    "influencer_id",
+                    "influencer_name",
+                    "created_at",
+                    "custom_voice_id"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Voice not found"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/models/images": {
+      "get": {
+        "summary": "List image models",
+        "description": "Returns all supported image models with their capabilities, settings, and LoRA support. Models with supports_lora: true also include a lora_types array listing accepted lora_type values (e.g. 'flux-2-klein', 'z-image') for use alongside lora_url.",
+        "tags": [
+          "Models"
+        ],
+        "responses": {
+          "200": {
+            "description": "List of image models"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/models/videos": {
+      "get": {
+        "summary": "List video models",
+        "description": "Returns all supported video models with their capabilities and settings.",
+        "tags": [
+          "Models"
+        ],
+        "responses": {
+          "200": {
+            "description": "List of video models"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/images/generate-face": {
+      "post": {
+        "summary": "Generate face images",
+        "description": "Generate face images using multiple AI models (Grok Imagine + 14 FAL models) for maximum variety. Each image is generated by a different model. Batch 1-10 faces per request. Poll GET /api/v1/generations/{id}/status for results.",
+        "tags": [
+          "Images"
+        ],
+        "responses": {
+          "200": {
+            "description": "Face generation queued successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "generation_id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "queued",
+                        "processing",
+                        "completed",
+                        "failed"
+                      ]
+                    },
+                    "estimated_time": {
+                      "type": "number"
+                    },
+                    "credits_used": {
+                      "type": "number"
+                    },
+                    "batch": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "generation_id",
+                    "status",
+                    "estimated_time",
+                    "credits_used",
+                    "batch"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Face generation parameters",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Text description of the face to generate (e.g., 'beautiful woman with green eyes, natural lighting')"
+                  },
+                  "negative_prompt": {
+                    "type": "string",
+                    "description": "Things to avoid in the generated face"
+                  },
+                  "batch": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10,
+                    "default": 4,
+                    "description": "Number of face images to generate (1-10)"
+                  },
+                  "gender": {
+                    "type": "string",
+                    "description": "Gender for the face (e.g., 'female', 'male')"
+                  },
+                  "ethnicity": {
+                    "type": "string",
+                    "description": "Ethnicity for the face (e.g., 'Asian', 'White Caucasian')"
+                  },
+                  "hair_color": {
+                    "type": "string",
+                    "description": "Hair color (e.g., 'blonde hair', 'brown hair')"
+                  },
+                  "seed": {
+                    "type": "number",
+                    "description": "Optional seed for reproducibility"
+                  },
+                  "workspace_id": {
+                    "type": "string",
+                    "description": "Optional workspace ID"
+                  }
+                },
+                "required": [
+                  "prompt"
+                ],
+                "additionalProperties": false
+              },
+              "example": {
+                "prompt": "beautiful woman with green eyes, natural lighting, professional headshot",
+                "batch": 4,
+                "gender": "female",
+                "ethnicity": "White Caucasian",
+                "hair_color": "blonde hair"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/images/generate": {
+      "post": {
+        "summary": "Generate images",
+        "description": "Generate images using a unified model name (e.g., 'nano-banana-2', 'flux-ultra', 'seedream-5'). If init_image is provided, the model's image-to-image variant is used automatically; otherwise text-to-image. Use lora_url to apply a custom LoRA (.safetensors) and lora_type to select the base model (e.g. 'flux-2-klein', 'z-image'). See GET /api/v1/models/images for all models and their accepted lora_types.",
+        "tags": [
+          "Images"
+        ],
+        "responses": {
+          "200": {
+            "description": "Generation queued successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "generation_id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "queued",
+                        "processing",
+                        "completed",
+                        "failed"
+                      ]
+                    },
+                    "estimated_time": {
+                      "type": "number"
+                    },
+                    "credits_used": {
+                      "type": "number"
+                    },
+                    "images": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "generation_id",
+                    "status",
+                    "estimated_time",
+                    "credits_used",
+                    "images"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Influencer or workspace not found"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Image generation parameters",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Text description of the image to generate."
+                  },
+                  "negative_prompt": {
+                    "type": "string",
+                    "description": "Things to avoid in the generated image"
+                  },
+                  "model": {
+                    "type": "string",
+                    "default": "studio-1",
+                    "description": "AI model to use for generation. Use short names like 'nano-banana-2', 'flux-ultra', 'seedream-5'. Auto-routes to text-to-image or image-to-image based on whether init_image is provided."
+                  },
+                  "influencer_id": {
+                    "type": "string",
+                    "description": "Optional: ID of a trained influencer. If an influencer is used, studio-1 model will be used."
+                  },
+                  "lora_url": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "Optional: URL of a LoRA weights file (.safetensors) to apply custom style or character consistency. Only works with LoRA-compatible models — see GET /api/v1/models/images for models marked with supports_lora."
+                  },
+                  "lora_type": {
+                    "type": "string",
+                    "enum": [
+                      "flux-2-klein",
+                      "z-image",
+                      "flux-lora",
+                      "flux-1-dev",
+                      "qwen-image-2512",
+                      "qwen-image-edit-2511"
+                    ],
+                    "description": "LoRA base model. Accepted values: 'flux-2-klein', 'z-image', 'flux-lora', 'flux-1-dev', 'qwen-image-2512', 'qwen-image-edit-2511'. Defaults to 'flux-1-dev'."
+                  },
+                  "batch": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 4,
+                    "default": 1,
+                    "description": "Number of images to be generated."
+                  },
+                  "settings": {
+                    "type": "object",
+                    "properties": {
+                      "aspect_ratio": {
+                        "type": "string",
+                        "default": "1:1",
+                        "description": "Image aspect ratio"
+                      },
+                      "num_inference_steps": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 100,
+                        "default": 28
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "init_image": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "Optional: URL of an initial image"
+                  },
+                  "webhook": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "workspace_id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "prompt"
+                ],
+                "additionalProperties": false
+              },
+              "example": {
+                "prompt": "A professional headshot of a person in business attire, studio lighting",
+                "model": "flux-2-lora",
+                "lora_url": "https://example.com/my-custom-style.safetensors",
+                "batch": 2,
+                "settings": {
+                  "aspect_ratio": "1:1"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/images/edit": {
+      "post": {
+        "summary": "Edit image",
+        "description": "Edit an existing image using AI inpainting with a text prompt",
+        "tags": [
+          "Images"
+        ],
+        "responses": {
+          "200": {
+            "description": "Image edit queued successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "generation_id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "queued",
+                        "processing",
+                        "completed",
+                        "failed"
+                      ]
+                    },
+                    "estimated_time": {
+                      "type": "number"
+                    },
+                    "credits_used": {
+                      "type": "number"
+                    },
+                    "image_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "generation_id",
+                    "status",
+                    "estimated_time",
+                    "credits_used",
+                    "image_id"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Workspace does not belong to team"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Image editing parameters",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "image_url": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "Public URL of the image to edit"
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Description of the edits to make to the image"
+                  },
+                  "additional_images": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "description": "Optional: Additional reference images for context"
+                  },
+                  "model": {
+                    "type": "string",
+                    "default": "SEEDREAM",
+                    "description": "AI model for editing"
+                  },
+                  "webhook": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "Optional: Webhook URL to receive completion notifications"
+                  },
+                  "workspace_id": {
+                    "type": "string",
+                    "description": "Optional: Specific workspace ID"
+                  }
+                },
+                "required": [
+                  "image_url",
+                  "prompt"
+                ],
+                "additionalProperties": false
+              },
+              "example": {
+                "image_url": "https://example.com/image.jpg",
+                "prompt": "change the background to a beach"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/videos/generate": {
+      "post": {
+        "summary": "Generate video",
+        "description": "Generate a video using a unified model name (e.g., 'kling-3', 'veo-3.1', 'sora-2'). If first_frame_image is provided, the model's image-to-video variant is used automatically; otherwise text-to-video.",
+        "tags": [
+          "Videos"
+        ],
+        "responses": {
+          "200": {
+            "description": "Video generation queued successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "generation_id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "queued",
+                        "processing",
+                        "completed",
+                        "failed"
+                      ]
+                    },
+                    "estimated_time": {
+                      "type": "number"
+                    },
+                    "credits_used": {
+                      "type": "number"
+                    },
+                    "videos": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "generation_id",
+                    "status",
+                    "estimated_time",
+                    "credits_used",
+                    "videos"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or model not found"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Workspace does not belong to team"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Video generation parameters",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Text description of the video to generate."
+                  },
+                  "model": {
+                    "type": "string",
+                    "default": "kling-3",
+                    "description": "Video generation model. Use short names like 'kling-3', 'veo-3.1', 'sora-2'. Auto-routes to text-to-video or image-to-video based on whether first_frame_image is provided."
+                  },
+                  "settings": {
+                    "type": "object",
+                    "properties": {
+                      "aspect_ratio": {
+                        "type": "string",
+                        "default": "16:9",
+                        "description": "Video aspect ratio. Options: '16:9', '9:16', '1:1'. Default: '16:9'"
+                      },
+                      "duration": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 10,
+                        "default": 5,
+                        "description": "Video duration in seconds. Range: 1-10, Default: 5"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "first_frame_image": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "Optional: URL of image to use as first frame"
+                  },
+                  "webhook": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "Optional: Webhook URL to receive completion notifications"
+                  },
+                  "workspace_id": {
+                    "type": "string",
+                    "description": "Optional: Specific workspace ID"
+                  }
+                },
+                "required": [
+                  "prompt"
+                ],
+                "additionalProperties": false
+              },
+              "example": {
+                "prompt": "A person walking through a city, cinematic",
+                "model": "kling-video/v2.6/pro/text-to-video",
+                "settings": {
+                  "aspect_ratio": "16:9",
+                  "duration": 5
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/videos/lipsync": {
+      "post": {
+        "summary": "Create lip sync video",
+        "description": "Generate a lip-synced video by synchronizing video with audio",
+        "tags": [
+          "Videos"
+        ],
+        "responses": {
+          "200": {
+            "description": "Lip sync generation queued successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "generation_id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "queued",
+                        "processing",
+                        "completed",
+                        "failed"
+                      ]
+                    },
+                    "estimated_time": {
+                      "type": "number"
+                    },
+                    "credits_used": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "generation_id",
+                    "status",
+                    "estimated_time",
+                    "credits_used"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or model not found"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Workspace or generation not found"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Lip sync generation parameters",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "video_url": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "Public URL of the video file to lip-sync"
+                  },
+                  "audio_url": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "Public URL of the audio file to sync with"
+                  },
+                  "model": {
+                    "type": "string",
+                    "default": "sync-lipsync/v3",
+                    "description": "Lip-sync model to use"
+                  },
+                  "generation_id": {
+                    "type": "string",
+                    "description": "Optional: Existing generation ID to add this lip-sync to"
+                  },
+                  "workspace_id": {
+                    "type": "string",
+                    "description": "Optional: Specific workspace ID"
+                  }
+                },
+                "required": [
+                  "video_url",
+                  "audio_url"
+                ],
+                "additionalProperties": false
+              },
+              "example": {
+                "video_url": "https://example.com/video.mp4",
+                "audio_url": "https://example.com/audio.mp3"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/videos/motion-control": {
+      "post": {
+        "summary": "Motion control video",
+        "description": "Transfer movements from a reference video to a character image using Kling 3.0 Pro motion control. Supports element binding for facial consistency (requires character_orientation=\"video\"). Automatically handles video compression.",
+        "tags": [
+          "Videos"
+        ],
+        "responses": {
+          "200": {
+            "description": "Motion control generation queued successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "generation_id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "queued",
+                        "processing",
+                        "completed",
+                        "failed"
+                      ]
+                    },
+                    "estimated_time": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "generation_id",
+                    "status",
+                    "estimated_time"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "402": {
+            "description": "Insufficient credits"
+          },
+          "403": {
+            "description": "Workspace does not belong to team"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Motion control generation parameters",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "video_url": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "Public URL of the reference video containing the motion to transfer"
+                  },
+                  "image_url": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "Public URL of the character/subject image to apply motion to"
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "description": "Optional: Text description to guide the motion control generation. Use @Element1 to reference a bound element."
+                  },
+                  "character_orientation": {
+                    "type": "string",
+                    "enum": [
+                      "video",
+                      "image"
+                    ],
+                    "default": "video",
+                    "description": "Character orientation relative to the reference video. 'video' keeps the orientation from the reference video (max 30s), 'image' preserves the orientation from the character image (max 10s). Default: 'video'"
+                  },
+                  "element": {
+                    "type": "object",
+                    "properties": {
+                      "frontal_image_url": {
+                        "type": "string",
+                        "format": "uri",
+                        "description": "Frontal face image URL for the element. Used for facial consistency binding."
+                      },
+                      "reference_image_urls": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        "maxItems": 3,
+                        "description": "Optional: Additional reference images from different angles (1-3 images)"
+                      }
+                    },
+                    "required": [
+                      "frontal_image_url"
+                    ],
+                    "additionalProperties": false,
+                    "description": "Optional: Face element for identity preservation (Kling 3.0 only). Requires character_orientation='video'. Reference in prompt as @Element1."
+                  },
+                  "workspace_id": {
+                    "type": "string",
+                    "description": "Optional: Specific workspace ID"
+                  }
+                },
+                "required": [
+                  "video_url",
+                  "image_url"
+                ],
+                "additionalProperties": false
+              },
+              "example": {
+                "video_url": "https://example.com/reference-video.mp4",
+                "character_image_url": "https://example.com/character.jpg",
+                "character_orientation": "video",
+                "element_binding": [
+                  {
+                    "element_index": 0,
+                    "source_video_url": "https://example.com/face-reference.mp4"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/videos/wan22": {
+      "post": {
+        "summary": "Generate video with WAN 2.2 + LoRA",
+        "description": "Generate a video using WAN 2.2 14B with custom LoRA weights. Pass multiple LoRAs (e.g. high-noise + low-noise variants) together for best results. When image_url is provided, runs image-to-video (I2V); otherwise runs text-to-video (T2V). This call is synchronous and returns the video URL directly — no polling required.",
+        "tags": [
+          "Videos"
+        ],
+        "responses": {
+          "200": {
+            "description": "Video generated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "generation_id": {
+                      "type": "string"
+                    },
+                    "video_url": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "mode": {
+                      "type": "string",
+                      "enum": [
+                        "image-to-video",
+                        "text-to-video"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "generation_id",
+                    "video_url",
+                    "mode"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Generation failed"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "WAN 2.2 + LoRA video generation parameters",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "t2v",
+                      "i2v"
+                    ],
+                    "description": "Generation mode: 't2v' for text-to-video, 'i2v' for image-to-video."
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Text prompt describing the video content."
+                  },
+                  "image_url": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "Source image URL. Required when mode is 'i2v'."
+                  },
+                  "influencer_id": {
+                    "type": "string",
+                    "description": "Optional influencer ID for tracking."
+                  },
+                  "loras": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string",
+                          "format": "uri",
+                          "description": "URL to the LoRA .safetensors file. Pass high-noise and low-noise variants as separate entries in this array."
+                        },
+                        "scale": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 2,
+                          "default": 1,
+                          "description": "LoRA weight scale. Adjust to control influence strength. Default: 1.0"
+                        },
+                        "transformer": {
+                          "type": "string",
+                          "enum": [
+                            "high",
+                            "low",
+                            "both"
+                          ],
+                          "description": "Which transformer block this LoRA targets. Use 'high' for the high-noise variant and 'low' for the low-noise variant. Required for WAN 2.2 dual-LoRA setups."
+                        }
+                      },
+                      "required": [
+                        "path"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "minItems": 1,
+                    "description": "LoRA weights to apply. Include both high-noise and low-noise variants together for best results, each with their own scale."
+                  },
+                  "settings": {
+                    "type": "object",
+                    "properties": {
+                      "resolution": {
+                        "type": "string",
+                        "enum": [
+                          "480p",
+                          "580p",
+                          "720p"
+                        ],
+                        "default": "720p",
+                        "description": "Output resolution. Default: 720p"
+                      },
+                      "aspect_ratio": {
+                        "type": "string",
+                        "enum": [
+                          "16:9",
+                          "9:16",
+                          "1:1"
+                        ],
+                        "default": "16:9",
+                        "description": "Aspect ratio. Default: 16:9"
+                      },
+                      "num_frames": {
+                        "type": "integer",
+                        "minimum": 17,
+                        "maximum": 161,
+                        "default": 81,
+                        "description": "Number of frames to generate (17–161). Default: 81"
+                      },
+                      "frames_per_second": {
+                        "type": "integer",
+                        "minimum": 4,
+                        "maximum": 60,
+                        "default": 16,
+                        "description": "Playback FPS (4–60). Default: 16"
+                      },
+                      "num_inference_steps": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 100,
+                        "default": 27,
+                        "description": "Inference steps. Higher = better quality, slower. Default: 27"
+                      },
+                      "guidance_scale": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 20,
+                        "default": 3.5,
+                        "description": "Prompt adherence strength. Default: 3.5"
+                      },
+                      "enable_prompt_expansion": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Use LLM to expand the prompt with extra detail. Default: false"
+                      },
+                      "seed": {
+                        "type": "integer",
+                        "description": "Random seed for reproducibility"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "mode",
+                  "prompt",
+                  "loras"
+                ],
+                "additionalProperties": false
+              },
+              "example": {
+                "mode": "t2v",
+                "prompt": "A beautiful woman walks confidently along a sunlit beach, slow motion, cinematic",
+                "loras": [
+                  {
+                    "path": "https://example.com/loras/T2V_14b_HighNoise_v2.safetensors",
+                    "scale": 1,
+                    "transformer": "high"
+                  },
+                  {
+                    "path": "https://example.com/loras/T2V_14b_LowNoise_v2.safetensors",
+                    "scale": 1,
+                    "transformer": "low"
+                  }
+                ],
+                "settings": {
+                  "resolution": "720p",
+                  "aspect_ratio": "16:9",
+                  "num_frames": 81,
+                  "frames_per_second": 16
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/videos/reference-to-video": {
+      "post": {
+        "summary": "Reference to video",
+        "description": "Generate a video from reference images and text using Kling 3.0 Pro reference-to-video. Supports character/object elements for identity consistency, multi-shot prompts, start/end frames, voice conversion, and product/outfit/location images.",
+        "tags": [
+          "Videos"
+        ],
+        "responses": {
+          "200": {
+            "description": "Reference-to-video generation queued successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "generation_id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "queued",
+                        "processing",
+                        "completed",
+                        "failed"
+                      ]
+                    },
+                    "estimated_time": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "generation_id",
+                    "status",
+                    "estimated_time"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "402": {
+            "description": "Insufficient credits"
+          },
+          "403": {
+            "description": "Workspace does not belong to team"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Reference-to-video generation parameters",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Text description of the video to generate. Use @Element1, @Element2, etc. to reference character/object elements in the prompt. If influencer_id is provided, the influencer is automatically mapped to @Element1."
+                  },
+                  "influencer_id": {
+                    "type": "string",
+                    "description": "Optional: ID of a trained influencer to use as a character element. The influencer's images are automatically resolved and mapped to @Element1 in the prompt. Requires the influencer to be ready for generation."
+                  },
+                  "elements": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "frontal_image_url": {
+                          "type": "string",
+                          "format": "uri",
+                          "description": "Primary frontal image URL of the character or object"
+                        },
+                        "reference_image_urls": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "format": "uri"
+                          },
+                          "maxItems": 3,
+                          "description": "Optional: Additional reference images (max 3) for better identity consistency"
+                        }
+                      },
+                      "required": [
+                        "frontal_image_url"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "description": "Optional: Character/object elements for identity-consistent video generation. Each element gets an @Element{N} reference for the prompt. Cannot be used together with influencer_id."
+                  },
+                  "image_urls": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "maxItems": 2,
+                    "description": "Optional: Style or background reference images (max 2). Referenced as @Image1, @Image2 in the prompt."
+                  },
+                  "start_image_url": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "Optional: Image to use as the first frame of the video"
+                  },
+                  "end_image_url": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "Optional: Image to use as the last frame of the video"
+                  },
+                  "multi_prompt": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "prompt": {
+                          "type": "string",
+                          "description": "Prompt for this video segment"
+                        },
+                        "duration": {
+                          "type": "string",
+                          "description": "Duration of this segment in seconds (e.g. '5')"
+                        }
+                      },
+                      "required": [
+                        "prompt",
+                        "duration"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "description": "Optional: Multi-shot video with different prompts per segment. When provided, the main prompt is ignored and each segment uses its own prompt and duration."
+                  },
+                  "duration": {
+                    "type": "string",
+                    "default": "5",
+                    "description": "Video duration in seconds. Options: '5', '10'. Default: '5'. Ignored when multi_prompt is provided."
+                  },
+                  "aspect_ratio": {
+                    "type": "string",
+                    "enum": [
+                      "16:9",
+                      "9:16",
+                      "1:1"
+                    ],
+                    "default": "16:9",
+                    "description": "Video aspect ratio. Default: '16:9'"
+                  },
+                  "script": {
+                    "type": "string",
+                    "description": "Optional: Dialogue script for the character. Embedded into the prompt to generate lip movements."
+                  },
+                  "voice_id": {
+                    "type": "string",
+                    "description": "Optional: Voice ID for post-generation voice conversion. Use a voice from GET /api/v1/voices."
+                  },
+                  "product_image_urls": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "description": "Optional: Product images to incorporate into the video as elements"
+                  },
+                  "outfit_image_url": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "Optional: Outfit image to apply to the character"
+                  },
+                  "location_image_urls": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "description": "Optional: Location/background images for the scene"
+                  },
+                  "workspace_id": {
+                    "type": "string",
+                    "description": "Optional: Specific workspace ID"
+                  }
+                },
+                "required": [
+                  "prompt"
+                ],
+                "additionalProperties": false
+              },
+              "example": {
+                "prompt": "@Element1 walks toward camera on a beach, picks up @Image1, and shows it while smiling",
+                "influencer_id": "your-influencer-id",
+                "image_urls": [
+                  "https://example.com/product.jpg"
+                ],
+                "duration": "5",
+                "aspect_ratio": "9:16"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/videos/talking-head": {
+      "post": {
+        "summary": "Generate talking head video",
+        "description": "Create a talking head video from a start image and script/audio. Supports multiple models (veed-lipsync, seedance-2-talking-head, kling-3, veo-3.1, etc.), voice selection, emotion tags in scripts ([excited], [calm], [pause:1s]), and preset location templates (podcast studio, tech studio, etc.). Poll GET /api/v1/generations/{id}/status for results.",
+        "tags": [
+          "Videos"
+        ],
+        "responses": {
+          "200": {
+            "description": "Talking head generation queued successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "generation_id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "queued",
+                        "processing",
+                        "completed",
+                        "failed"
+                      ]
+                    },
+                    "estimated_time": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "generation_id",
+                    "status",
+                    "estimated_time"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "402": {
+            "description": "Insufficient credits"
+          },
+          "403": {
+            "description": "Workspace does not belong to team"
+          },
+          "404": {
+            "description": "Influencer or template not found"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Talking head video generation parameters",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "script": {
+                    "type": "string",
+                    "description": "Script for TTS audio generation. Supports Cartesia emotion tags: [excited], [calm], [pause:1s], etc. Required when audio_mode is 'generate'."
+                  },
+                  "audio_url": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "URL of pre-recorded audio file. Required when audio_mode is 'upload'."
+                  },
+                  "audio_mode": {
+                    "type": "string",
+                    "enum": [
+                      "generate",
+                      "upload"
+                    ],
+                    "default": "generate",
+                    "description": "Audio source: 'generate' uses script + voice for TTS, 'upload' uses audio_url directly. Default: 'generate'."
+                  },
+                  "voice_id": {
+                    "type": "string",
+                    "description": "Influencer voice ID (from GET /api/v1/voices). Used for TTS when audio_mode is 'generate'."
+                  },
+                  "cartesia_voice_id": {
+                    "type": "string",
+                    "description": "Cartesia global voice ID. Alternative to voice_id for global (non-influencer) voices."
+                  },
+                  "audio_settings": {
+                    "type": "object",
+                    "properties": {
+                      "speed": {
+                        "type": "number",
+                        "minimum": 0.5,
+                        "maximum": 2,
+                        "default": 1,
+                        "description": "Speech speed multiplier. Default: 1.0"
+                      },
+                      "volume": {
+                        "type": "number",
+                        "minimum": 0.5,
+                        "maximum": 2,
+                        "default": 1,
+                        "description": "Volume multiplier. Default: 1.0"
+                      },
+                      "emotion": {
+                        "type": "string",
+                        "default": "neutral",
+                        "description": "Default emotion for TTS. Options: neutral, excited, happy, calm, sad, angry, enthusiastic, curious, frustrated. Default: 'neutral'."
+                      },
+                      "language": {
+                        "type": "string",
+                        "default": "en",
+                        "description": "Language code (e.g. 'en', 'es', 'fr', 'de', 'ja', 'ko', 'zh'). Default: 'en'."
+                      }
+                    },
+                    "additionalProperties": false,
+                    "description": "TTS audio settings (used when audio_mode is 'generate')."
+                  },
+                  "model": {
+                    "type": "string",
+                    "default": "veed-lipsync",
+                    "description": "Talking head model. Options: veed-lipsync (default), veed, seedance-2-talking-head, kling-3, kling-3-video, veo-3.1, creatify-aurora, heygen-avatar4, omnihuman."
+                  },
+                  "duration": {
+                    "type": "string",
+                    "description": "Video duration in seconds (e.g. '5', '10'). Model-dependent."
+                  },
+                  "resolution": {
+                    "type": "string",
+                    "description": "Video resolution (e.g. '720p')."
+                  },
+                  "aspect_ratio": {
+                    "type": "string",
+                    "enum": [
+                      "16:9",
+                      "9:16"
+                    ],
+                    "default": "9:16",
+                    "description": "Video aspect ratio. Default: '9:16'."
+                  },
+                  "influencer_id": {
+                    "type": "string",
+                    "description": "Influencer ID. Required for seedance-2-talking-head and when using template-based start images."
+                  },
+                  "start_image_url": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "URL of the start frame / location image. Mutually exclusive with template_id + angle_id."
+                  },
+                  "template_id": {
+                    "type": "string",
+                    "description": "Talking head template ID (e.g. 'podcast', 'tech-studio', 'modern-home'). Use with angle_id. Requires influencer_id."
+                  },
+                  "angle_id": {
+                    "type": "string",
+                    "description": "Template angle ID (e.g. 'front-16-9', 'left-9-16'). Must match a valid angle for the chosen template."
+                  },
+                  "static_camera": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Seedance 2 only: keep camera static. Default: true."
+                  },
+                  "camera_motion_prompt": {
+                    "type": "string",
+                    "description": "Seedance 2 only: camera motion instruction when static_camera is false."
+                  },
+                  "workspace_id": {
+                    "type": "string",
+                    "description": "Optional workspace ID."
+                  }
+                },
+                "additionalProperties": false
+              },
+              "example": {
+                "script": "[excited] Hey everyone! Welcome to my channel. [calm] Today I want to talk about something really important.",
+                "model": "veed-lipsync",
+                "voice_id": "your-voice-id",
+                "influencer_id": "your-influencer-id",
+                "template_id": "tech-studio",
+                "angle_id": "front-16-9",
+                "aspect_ratio": "16:9",
+                "audio_settings": {
+                  "speed": 1,
+                  "emotion": "neutral",
+                  "language": "en"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/videos/upscale/seedvr": {
+      "post": {
+        "summary": "Upscale video with SeedVR",
+        "description": "Upscale a video using SeedVR (FAL AI). Supports factor-based or target-resolution upscaling. Priced per output megapixel. Poll GET /api/v1/generations/{id}/status for the result.",
+        "tags": [
+          "Videos"
+        ],
+        "responses": {
+          "200": {
+            "description": "Upscale queued successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "generation_id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "queued",
+                        "processing",
+                        "completed",
+                        "failed"
+                      ]
+                    },
+                    "estimated_time": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "generation_id",
+                    "status",
+                    "estimated_time"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "402": {
+            "description": "Insufficient credits"
+          },
+          "403": {
+            "description": "Workspace does not belong to team"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "SeedVR upscale parameters",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "video_url": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "Public URL of the video to upscale."
+                  },
+                  "upscale_mode": {
+                    "type": "string",
+                    "enum": [
+                      "factor",
+                      "target"
+                    ],
+                    "default": "factor",
+                    "description": "Upscale mode. 'factor' scales by a multiplier, 'target' scales to a specific resolution. Default: 'factor'"
+                  },
+                  "upscale_factor": {
+                    "type": "number",
+                    "minimum": 1,
+                    "maximum": 4,
+                    "default": 2,
+                    "description": "Upscale multiplier. Used when upscale_mode is 'factor'. Default: 2"
+                  },
+                  "target_resolution": {
+                    "type": "string",
+                    "enum": [
+                      "720p",
+                      "1080p",
+                      "1440p",
+                      "2160p"
+                    ],
+                    "description": "Target output resolution. Used when upscale_mode is 'target'."
+                  },
+                  "output_format": {
+                    "type": "string",
+                    "default": "X264 (.mp4)",
+                    "description": "Output video format. Default: 'X264 (.mp4)'"
+                  },
+                  "output_quality": {
+                    "type": "string",
+                    "enum": [
+                      "low",
+                      "medium",
+                      "high",
+                      "maximum"
+                    ],
+                    "default": "high",
+                    "description": "Output quality level. Default: 'high'"
+                  },
+                  "workspace_id": {
+                    "type": "string",
+                    "description": "Optional: Specific workspace ID"
+                  }
+                },
+                "required": [
+                  "video_url"
+                ],
+                "additionalProperties": false
+              },
+              "example": {
+                "video_url": "https://example.com/video.mp4",
+                "upscale_mode": "factor",
+                "upscale_factor": 2,
+                "output_quality": "high"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/videos/upscale/topaz": {
+      "post": {
+        "summary": "Upscale video with Topaz",
+        "description": "Upscale a video using Topaz (FAL AI). Supports 1-4x upscaling, optional FPS boost (16-60 fps), and H.264 output. Priced per second based on output resolution tier. Poll GET /api/v1/generations/{id}/status for the result.",
+        "tags": [
+          "Videos"
+        ],
+        "responses": {
+          "200": {
+            "description": "Upscale queued successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "generation_id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "queued",
+                        "processing",
+                        "completed",
+                        "failed"
+                      ]
+                    },
+                    "estimated_time": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "generation_id",
+                    "status",
+                    "estimated_time"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "402": {
+            "description": "Insufficient credits"
+          },
+          "403": {
+            "description": "Workspace does not belong to team"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Topaz upscale parameters",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "video_url": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "Public URL of the video to upscale."
+                  },
+                  "upscale_mode": {
+                    "type": "string",
+                    "enum": [
+                      "factor",
+                      "target"
+                    ],
+                    "default": "factor",
+                    "description": "Upscale mode. 'factor' scales by a multiplier, 'target' scales to a specific resolution. Default: 'factor'"
+                  },
+                  "upscale_factor": {
+                    "type": "number",
+                    "minimum": 1,
+                    "maximum": 4,
+                    "default": 2,
+                    "description": "Upscale multiplier (1-4x). Used when upscale_mode is 'factor'. Default: 2"
+                  },
+                  "target_resolution": {
+                    "type": "string",
+                    "enum": [
+                      "720p",
+                      "1080p",
+                      "1440p",
+                      "2160p"
+                    ],
+                    "description": "Target output resolution. Used when upscale_mode is 'target'."
+                  },
+                  "output_format": {
+                    "type": "string",
+                    "default": "X264 (.mp4)",
+                    "description": "Output video format. Default: 'X264 (.mp4)'"
+                  },
+                  "output_quality": {
+                    "type": "string",
+                    "enum": [
+                      "low",
+                      "medium",
+                      "high",
+                      "maximum"
+                    ],
+                    "default": "high",
+                    "description": "Output quality level. Default: 'high'"
+                  },
+                  "target_fps": {
+                    "type": "integer",
+                    "minimum": 16,
+                    "maximum": 60,
+                    "description": "Optional: Target frame rate for the output video (16-60 fps). Doubles the processing cost when set."
+                  },
+                  "h264_output": {
+                    "type": "boolean",
+                    "description": "Optional: Force H.264 codec for the output video."
+                  },
+                  "workspace_id": {
+                    "type": "string",
+                    "description": "Optional: Specific workspace ID"
+                  }
+                },
+                "required": [
+                  "video_url"
+                ],
+                "additionalProperties": false
+              },
+              "example": {
+                "video_url": "https://example.com/video.mp4",
+                "upscale_mode": "target",
+                "target_resolution": "1080p",
+                "output_quality": "high",
+                "target_fps": 30
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/videos/upscale/freepik": {
+      "post": {
+        "summary": "Upscale video with Freepik",
+        "description": "Upscale a video using Freepik. Maximum 15 seconds. Supports 1K/2K/4K output, FPS boost, creativity, sharpening, smart grain, and flavor controls. Flat credit pricing per resolution tier. Poll GET /api/v1/generations/{id}/status for the result.",
+        "tags": [
+          "Videos"
+        ],
+        "responses": {
+          "200": {
+            "description": "Upscale queued successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "generation_id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "queued",
+                        "processing",
+                        "completed",
+                        "failed"
+                      ]
+                    },
+                    "estimated_time": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "generation_id",
+                    "status",
+                    "estimated_time"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or video exceeds 15 second limit"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "402": {
+            "description": "Insufficient credits"
+          },
+          "403": {
+            "description": "Workspace does not belong to team"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Freepik upscale parameters",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "video_url": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "Public URL of the video to upscale. Maximum 15 seconds."
+                  },
+                  "resolution": {
+                    "type": "string",
+                    "enum": [
+                      "1k",
+                      "2k",
+                      "4k"
+                    ],
+                    "default": "2k",
+                    "description": "Output resolution. Options: '1k', '2k', '4k'. Default: '2k'"
+                  },
+                  "fps_boost": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Optional: Enable frame rate boost. Default: false"
+                  },
+                  "creativity": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100,
+                    "default": 0,
+                    "description": "Optional: Creativity level (0-100). Higher values add more detail. Default: 0"
+                  },
+                  "sharpen": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100,
+                    "default": 0,
+                    "description": "Optional: Sharpening intensity (0-100). Default: 0"
+                  },
+                  "smart_grain": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100,
+                    "default": 0,
+                    "description": "Optional: Grain reduction (0-100). Default: 0"
+                  },
+                  "flavor": {
+                    "type": "string",
+                    "enum": [
+                      "vivid",
+                      "natural"
+                    ],
+                    "default": "natural",
+                    "description": "Optional: Output style. 'vivid' for more vibrant colors, 'natural' for realistic output. Default: 'natural'"
+                  },
+                  "workspace_id": {
+                    "type": "string",
+                    "description": "Optional: Specific workspace ID"
+                  }
+                },
+                "required": [
+                  "video_url"
+                ],
+                "additionalProperties": false
+              },
+              "example": {
+                "video_url": "https://example.com/video.mp4",
+                "resolution": "2k",
+                "fps_boost": false,
+                "creativity": 20,
+                "sharpen": 30,
+                "flavor": "natural"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/models-3d/generate": {
+      "post": {
+        "summary": "Generate 3D model",
+        "description": "Generate a 3D model from a text prompt using Meshy v6.",
+        "tags": [
+          "3D Models"
+        ],
+        "responses": {
+          "200": {
+            "description": "3D model generation queued successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "generation_id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "queued",
+                        "processing",
+                        "completed",
+                        "failed"
+                      ]
+                    },
+                    "estimated_time": {
+                      "type": "number"
+                    },
+                    "credits_used": {
+                      "type": "number"
+                    },
+                    "model_url": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  },
+                  "required": [
+                    "generation_id",
+                    "status",
+                    "estimated_time",
+                    "credits_used",
+                    "model_url"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "402": {
+            "description": "Insufficient credits"
+          },
+          "403": {
+            "description": "Workspace does not belong to team"
+          },
+          "404": {
+            "description": "Workspace not found"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "3D model generation parameters",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Text description of the 3D model to generate."
+                  },
+                  "init_image": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "Optional: Image URL for image-to-3D generation"
+                  },
+                  "model": {
+                    "type": "string",
+                    "default": "meshy/v6/text-to-3d",
+                    "description": "Model ID for 3D generation"
+                  },
+                  "settings": {
+                    "type": "object",
+                    "properties": {
+                      "mode": {
+                        "type": "string",
+                        "enum": [
+                          "preview",
+                          "full"
+                        ],
+                        "description": "Generation mode. 'preview' is faster, 'full' is higher quality. Default: full"
+                      },
+                      "art_style": {
+                        "type": "string",
+                        "enum": [
+                          "realistic",
+                          "sculpture"
+                        ],
+                        "description": "Art style for the 3D model. Default: realistic"
+                      },
+                      "topology": {
+                        "type": "string",
+                        "enum": [
+                          "quad",
+                          "triangle"
+                        ],
+                        "description": "Mesh topology. 'quad' is better for animation/rigging. Default: triangle"
+                      },
+                      "target_polycount": {
+                        "type": "integer",
+                        "minimum": 1000,
+                        "maximum": 100000,
+                        "description": "Target polygon count. Range: 1000-100000. Default: 30000"
+                      },
+                      "symmetry_mode": {
+                        "type": "string",
+                        "enum": [
+                          "off",
+                          "auto",
+                          "on"
+                        ],
+                        "description": "Symmetry mode. 'auto' detects automatically. Default: auto"
+                      },
+                      "should_remesh": {
+                        "type": "boolean",
+                        "description": "Enable remeshing for cleaner topology. Default: true"
+                      },
+                      "is_a_t_pose": {
+                        "type": "boolean",
+                        "description": "Generate character in A/T pose for rigging. Default: false"
+                      },
+                      "enable_pbr": {
+                        "type": "boolean",
+                        "description": "Generate PBR texture maps (normal, roughness, metallic). Default: false"
+                      },
+                      "enable_prompt_expansion": {
+                        "type": "boolean",
+                        "description": "Expand prompt with AI for better results. Default: false"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "description": "Model settings"
+                  },
+                  "webhook": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "Optional: Webhook URL to receive completion notifications"
+                  },
+                  "workspace_id": {
+                    "type": "string",
+                    "description": "Optional: Specific workspace ID"
+                  }
+                },
+                "required": [
+                  "prompt"
+                ],
+                "additionalProperties": false
+              },
+              "example": {
+                "prompt": "A medieval knight in full armor",
+                "settings": {
+                  "mode": "full",
+                  "art_style": "realistic",
+                  "topology": "quad",
+                  "target_polycount": 50000,
+                  "symmetry_mode": "auto",
+                  "should_remesh": true,
+                  "is_a_t_pose": true,
+                  "enable_pbr": true,
+                  "enable_prompt_expansion": true
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/text/generate": {
+      "post": {
+        "summary": "Generate text",
+        "description": "Generate text using supported Venice, Gemini, and OpenAI models.",
+        "tags": [
+          "Text"
+        ],
+        "responses": {
+          "200": {
+            "description": "Text generated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "generation_id": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    },
+                    "model": {
+                      "type": "string"
+                    },
+                    "usage": {
+                      "type": "object",
+                      "properties": {
+                        "prompt_tokens": {
+                          "type": "number"
+                        },
+                        "completion_tokens": {
+                          "type": "number"
+                        },
+                        "total_tokens": {
+                          "type": "number"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "nullable": true
+                    }
+                  },
+                  "required": [
+                    "generation_id",
+                    "text",
+                    "model",
+                    "usage"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "402": {
+            "description": "Insufficient credits"
+          },
+          "403": {
+            "description": "Workspace does not belong to team"
+          },
+          "404": {
+            "description": "Workspace not found"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Text generation parameters",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The text prompt to generate a response for"
+                  },
+                  "model": {
+                    "type": "string",
+                    "enum": [
+                      "venice-uncensored",
+                      "venice-uncensored-role-play",
+                      "llama-3.3-70b",
+                      "llama-3.1-405b",
+                      "llama-3.2-3b",
+                      "mistral-small-3-2-24b-instruct",
+                      "qwen3-235b-a22b-instruct-2507",
+                      "olafangensan-glm-4.7-flash-heretic",
+                      "zai-org-glm-4.7",
+                      "zai-org-glm-5",
+                      "gemini-3.1-flash-lite-preview",
+                      "gpt-5.4",
+                      "gpt-5-mini",
+                      "gpt-4o-mini"
+                    ],
+                    "default": "venice-uncensored",
+                    "description": "AI model to use. Default: venice-uncensored"
+                  },
+                  "settings": {
+                    "type": "object",
+                    "properties": {
+                      "temperature": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 2,
+                        "description": "Controls randomness. Lower = more focused, Higher = more creative. Range: 0-2. Default: 0.7"
+                      },
+                      "max_tokens": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 16000,
+                        "description": "Maximum tokens to generate. Range: 1-16000. Default: 16000"
+                      },
+                      "system_prompt": {
+                        "type": "string",
+                        "description": "Optional system prompt to set AI behavior and context"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "description": "Generation settings: temperature, max_tokens, system_prompt"
+                  },
+                  "workspace_id": {
+                    "type": "string",
+                    "description": "Optional: Specific workspace ID"
+                  }
+                },
+                "required": [
+                  "prompt"
+                ],
+                "additionalProperties": false
+              },
+              "example": {
+                "prompt": "Write a creative story about a dog",
+                "model": "gpt-5.4",
+                "settings": {
+                  "temperature": 0.5,
+                  "max_tokens": 2000,
+                  "system_prompt": "You are a helpful teacher who explains complex topics simply"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/generations/{id}/status": {
+      "get": {
+        "summary": "Get generation status",
+        "description": "Check the status of any generation by its generation_id. Use this to poll for completion after creating an image, video, music, 3D model, or any async generation. The response includes the overall status (queued, processing, completed, failed), result URLs for completed items, per-item details with individual statuses, and credits used. Poll every 2-5 seconds until status is \"completed\" or \"failed\".",
+        "tags": [
+          "Generations"
+        ],
+        "responses": {
+          "200": {
+            "description": "Generation status with item details and result URLs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "generation_id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "queued",
+                        "processing",
+                        "completed",
+                        "failed"
+                      ]
+                    },
+                    "result_urls": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "format": "uri"
+                      }
+                    },
+                    "credits_used": {
+                      "type": "number"
+                    },
+                    "total_items": {
+                      "type": "number"
+                    },
+                    "completed_items": {
+                      "type": "number"
+                    },
+                    "failed_items": {
+                      "type": "number"
+                    },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "image",
+                              "video",
+                              "audio",
+                              "model3d"
+                            ]
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "url": {
+                            "type": "string",
+                            "format": "uri",
+                            "nullable": true
+                          },
+                          "created_at": {
+                            "type": "string"
+                          },
+                          "updated_at": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "type",
+                          "status",
+                          "url",
+                          "created_at",
+                          "updated_at"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "generation_id",
+                    "status",
+                    "result_urls",
+                    "credits_used",
+                    "total_items",
+                    "completed_items",
+                    "failed_items",
+                    "items"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Workspace does not belong to team"
+          },
+          "404": {
+            "description": "Generation not found"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/billing/plans": {
+      "get": {
+        "summary": "Get available credit plans",
+        "description": "Returns all available one-time credit purchase plans",
+        "tags": [
+          "Billing"
+        ],
+        "responses": {
+          "200": {
+            "description": "List of available plans",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "description": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "storeId": {
+                        "type": "string"
+                      },
+                      "variants": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "active": {
+                              "type": "boolean"
+                            },
+                            "price": {
+                              "type": "number"
+                            },
+                            "currency": {
+                              "type": "string"
+                            },
+                            "interval": {
+                              "type": "string"
+                            },
+                            "interval_count": {
+                              "type": "number"
+                            },
+                            "is_signup_bonus": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "active",
+                            "price",
+                            "currency",
+                            "interval",
+                            "interval_count"
+                          ],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name",
+                      "description",
+                      "storeId",
+                      "variants"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/billing/credits": {
+      "get": {
+        "summary": "Get current credit balance",
+        "description": "Returns the total credit balance for the authenticated team",
+        "tags": [
+          "Billing"
+        ],
+        "responses": {
+          "200": {
+            "description": "Total credits",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "number"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/billing/top-up": {
+      "post": {
+        "summary": "Purchase credits",
+        "description": "Create a Stripe checkout session to purchase credits (one-time purchases only)",
+        "tags": [
+          "Billing"
+        ],
+        "responses": {
+          "200": {
+            "description": "Checkout URL created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "checkoutUrl": {
+                      "type": "string",
+                      "format": "uri"
+                    }
+                  },
+                  "required": [
+                    "checkoutUrl"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Plan not found"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Credit purchase details",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "plan_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Plan ID from GET /api/v1/billing/plans"
+                  },
+                  "variant_id": {
+                    "type": "string",
+                    "description": "Optional: Specific variant ID"
+                  },
+                  "success_url": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "Optional: URL to redirect after successful payment"
+                  },
+                  "cancel_url": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "Optional: URL to redirect if payment is cancelled"
+                  },
+                  "dispute_policy_acknowledged": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Must be true. By calling this endpoint you acknowledge the dispute evidence policy described at /dispute-policy. See https://influencerstudio.com/dispute-policy"
+                  },
+                  "signature_name": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 120,
+                    "description": "Optional: your typed-name signature acknowledging the dispute policy for this charge."
+                  }
+                },
+                "required": [
+                  "plan_id"
+                ],
+                "additionalProperties": false
+              },
+              "example": {
+                "plan_id": "497267"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

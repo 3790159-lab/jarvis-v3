@@ -1,0 +1,24 @@
+﻿{
+  "phase": 12,
+  "name": "Tool Adapters Hardening",
+  "goals": [
+    "Introduce safe tool gateway",
+    "Enforce allowlist controls",
+    "Apply timeout budgets",
+    "Protect filesystem boundaries",
+    "Normalize tool outputs"
+  ],
+  "components": [
+    "tool_gateway",
+    "allowlist_validator",
+    "timeout_budget_manager",
+    "filesystem_guard",
+    "tool_result_normalizer"
+  ],
+  "acceptance_criteria": [
+    "All tools route through gateway",
+    "Blocked tools fail safely",
+    "Filesystem root boundaries are enforced",
+    "Tool result schema is consistent"
+  ]
+}

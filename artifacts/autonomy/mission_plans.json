@@ -1,0 +1,163 @@
+{
+  "missions": [
+    {
+      "mission_id": "msn_bb8b5e8d2fc4",
+      "objective": "Write and verify JSON config at artifacts/autonomy/mission_loop_test.json",
+      "template_id": "json_config_roundtrip",
+      "status": "completed",
+      "current_step_index": 1,
+      "steps": [
+        {
+          "type": "workflow",
+          "action": "json_write_verify",
+          "payload": {
+            "path": "artifacts/autonomy/mission_loop_test.json",
+            "data": {
+              "ok": true,
+              "source": "mission_loop_smoke",
+              "version": 1
+            }
+          },
+          "verify": {
+            "type": "status_in",
+            "values": [
+              "completed"
+            ]
+          },
+          "max_attempts": 2,
+          "max_repairs": 0,
+          "on_failure": "fail",
+          "step_id": "step_001",
+          "status": "completed",
+          "attempt_count": 0,
+          "repair_count": 0,
+          "last_error": null,
+          "started_at": "2026-04-09T21:19:10.777091+00:00",
+          "finished_at": "2026-04-09T21:19:10.893098+00:00",
+          "mission_id": "msn_bb8b5e8d2fc4",
+          "origin": "manual",
+          "reason": "mission_step:msn_bb8b5e8d2fc4:step_001"
+        }
+      ],
+      "metadata": {
+        "created_by": "jarvis_autonomous_mission_loop_smoke"
+      },
+      "attempt_count": 1,
+      "repair_count": 0,
+      "created_at": "2026-04-09T21:19:10.660935+00:00",
+      "updated_at": "2026-04-09T21:19:10.916456+00:00",
+      "started_at": "2026-04-09T21:19:10.752201+00:00",
+      "finished_at": "2026-04-09T21:19:10.916456+00:00",
+      "last_error": null,
+      "result_summary": {
+        "completed_steps": 1,
+        "message": "All mission steps completed"
+      }
+    },
+    {
+      "mission_id": "msn_c721a6d2c85e",
+      "objective": "Write and verify JSON config at artifacts/autonomy/mission_loop_test.json",
+      "template_id": "json_config_roundtrip",
+      "status": "completed",
+      "current_step_index": 1,
+      "steps": [
+        {
+          "type": "workflow",
+          "action": "json_write_verify",
+          "payload": {
+            "path": "artifacts/autonomy/mission_loop_test.json",
+            "data": {
+              "ok": true,
+              "source": "mission_loop_smoke",
+              "version": 1
+            }
+          },
+          "verify": {
+            "type": "status_in",
+            "values": [
+              "completed"
+            ]
+          },
+          "max_attempts": 2,
+          "max_repairs": 0,
+          "on_failure": "fail",
+          "step_id": "step_001",
+          "status": "completed",
+          "attempt_count": 0,
+          "repair_count": 0,
+          "last_error": null,
+          "started_at": "2026-04-09T21:21:35.722474+00:00",
+          "finished_at": "2026-04-09T21:21:35.828723+00:00",
+          "mission_id": "msn_c721a6d2c85e",
+          "origin": "manual",
+          "reason": "mission_step:msn_c721a6d2c85e:step_001"
+        }
+      ],
+      "metadata": {
+        "created_by": "jarvis_autonomous_mission_loop_smoke"
+      },
+      "attempt_count": 1,
+      "repair_count": 0,
+      "created_at": "2026-04-09T21:21:35.617821+00:00",
+      "updated_at": "2026-04-09T21:21:35.843349+00:00",
+      "started_at": "2026-04-09T21:21:35.689308+00:00",
+      "finished_at": "2026-04-09T21:21:35.843349+00:00",
+      "last_error": null,
+      "result_summary": {
+        "completed_steps": 1,
+        "message": "All mission steps completed"
+      }
+    },
+    {
+      "mission_id": "msn_55fe985784b8",
+      "objective": "Inspect and stabilize local service on port 8015",
+      "template_id": "service_health_repair",
+      "status": "completed",
+      "current_step_index": 1,
+      "steps": [
+        {
+          "type": "workflow",
+          "action": "inspect_repair_retest_port",
+          "payload": {
+            "port": 8015,
+            "allow_kill": false
+          },
+          "verify": {
+            "type": "status_in",
+            "values": [
+              "completed"
+            ]
+          },
+          "max_attempts": 2,
+          "max_repairs": 0,
+          "on_failure": "needs_operator",
+          "step_id": "step_001",
+          "status": "completed",
+          "attempt_count": 0,
+          "repair_count": 0,
+          "last_error": null,
+          "started_at": "2026-04-09T22:07:08.716378+00:00",
+          "finished_at": "2026-04-09T22:07:12.226018+00:00",
+          "mission_id": "msn_55fe985784b8",
+          "origin": "manual",
+          "reason": "mission_step:msn_55fe985784b8:step_001"
+        }
+      ],
+      "metadata": {
+        "scope": "controlled",
+        "created_by": "jarvis_next_block_test"
+      },
+      "attempt_count": 1,
+      "repair_count": 0,
+      "created_at": "2026-04-09T22:07:08.640481+00:00",
+      "updated_at": "2026-04-09T22:07:12.247443+00:00",
+      "started_at": "2026-04-09T22:07:08.679191+00:00",
+      "finished_at": "2026-04-09T22:07:12.247443+00:00",
+      "last_error": null,
+      "result_summary": {
+        "completed_steps": 1,
+        "message": "All mission steps completed"
+      }
+    }
+  ]
+}

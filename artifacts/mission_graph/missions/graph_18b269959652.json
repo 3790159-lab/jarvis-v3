@@ -1,0 +1,216 @@
+{
+  "graph_mission_id": "graph_18b269959652",
+  "created_at": "2026-04-10T12:24:45.632113+00:00",
+  "updated_at": "2026-04-10T12:24:46.146073+00:00",
+  "objective": "Failure injection graph for retry validation",
+  "graph_kind": "content_bundle",
+  "auto_execute": false,
+  "status": "completed",
+  "execution_state": "final",
+  "can_execute": false,
+  "can_cancel": false,
+  "steps": [
+    {
+      "step_id": "step_youtube_pack",
+      "title": "Build YouTube Pack",
+      "objective": "Prepare a YouTube starter pack",
+      "task_type": "youtube_pack",
+      "depends_on": [],
+      "status": "completed",
+      "attempts": 1,
+      "constraints": {
+        "name": "Failure Test Pack",
+        "niche": "AI testing",
+        "audience": "builders",
+        "tone": "technical"
+      },
+      "payload": {},
+      "output": {
+        "run_id": "mission_artifact_9e92e7b143c2",
+        "run_record_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\mission_runs\\mission_artifact_9e92e7b143c2.json",
+        "artifact_task_id": "artifact_36f40d05117a",
+        "artifact_manifest_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\youtube\\20260410_122445_failure-test-pack\\manifest.json",
+        "artifact_output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\youtube\\20260410_122445_failure-test-pack",
+        "artifact_name": "Failure Test Pack",
+        "selected_task_type": "youtube_pack"
+      }
+    },
+    {
+      "step_id": "step_content_table",
+      "title": "Build Content Table",
+      "objective": "Create a content calendar table",
+      "task_type": "table",
+      "depends_on": [
+        "step_youtube_pack"
+      ],
+      "status": "completed",
+      "attempts": 2,
+      "constraints": {
+        "name": "Failure Test Calendar"
+      },
+      "payload": {
+        "rows": [
+          {
+            "day": 1,
+            "title": "Channel intro",
+            "format": "short",
+            "status": "planned"
+          },
+          {
+            "day": 2,
+            "title": "Problem / solution",
+            "format": "short",
+            "status": "planned"
+          },
+          {
+            "day": 3,
+            "title": "Tool breakdown",
+            "format": "short",
+            "status": "planned"
+          }
+        ]
+      },
+      "output": {
+        "run_id": "mission_artifact_8449ed63c50d",
+        "run_record_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\mission_runs\\mission_artifact_8449ed63c50d.json",
+        "artifact_task_id": "artifact_091b3fd04fac",
+        "artifact_manifest_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\tables\\20260410_122446_failure-test-calendar\\manifest.json",
+        "artifact_output_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\runtime_outputs\\tables\\20260410_122446_failure-test-calendar",
+        "artifact_name": "Failure Test Calendar",
+        "selected_task_type": "table"
+      }
+    }
+  ],
+  "summary": {
+    "steps_total": 2,
+    "steps_completed": 2,
+    "steps_failed": 0,
+    "steps_skipped": 0,
+    "steps_ready": 0,
+    "steps_pending": 0,
+    "steps_running": 0,
+    "steps_cancelled": 0
+  },
+  "links": {
+    "mission_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\mission_graph\\missions\\graph_18b269959652.json",
+    "bundle_manifest_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\mission_graph\\bundles\\graph_18b269959652\\bundle_manifest.json",
+    "bundle_summary_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\mission_graph\\bundles\\graph_18b269959652\\bundle_summary.md",
+    "step_outputs_path": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\mission_graph\\bundles\\graph_18b269959652\\step_outputs.json"
+  },
+  "events": [
+    {
+      "ts": "2026-04-10T12:24:45.632113+00:00",
+      "event": "graph_submitted",
+      "step_id": null,
+      "message": "Graph mission submitted.",
+      "data": {
+        "graph_kind": "content_bundle",
+        "auto_execute": false
+      }
+    },
+    {
+      "ts": "2026-04-10T12:24:45.683108+00:00",
+      "event": "failure_injection_prepared",
+      "step_id": "step_content_table",
+      "message": "Forced failure enabled for step_content_table.",
+      "data": {
+        "force_fail": true
+      }
+    },
+    {
+      "ts": "2026-04-10T12:24:45.742731+00:00",
+      "event": "graph_execute_started",
+      "step_id": null,
+      "message": "Graph execution started.",
+      "data": {}
+    },
+    {
+      "ts": "2026-04-10T12:24:45.772278+00:00",
+      "event": "step_started",
+      "step_id": "step_youtube_pack",
+      "message": "Step started: Build YouTube Pack",
+      "data": {
+        "attempt": 1,
+        "task_type": "youtube_pack"
+      }
+    },
+    {
+      "ts": "2026-04-10T12:24:45.821731+00:00",
+      "event": "step_completed",
+      "step_id": "step_youtube_pack",
+      "message": "Step completed: Build YouTube Pack",
+      "data": {
+        "run_id": "mission_artifact_9e92e7b143c2"
+      }
+    },
+    {
+      "ts": "2026-04-10T12:24:45.844539+00:00",
+      "event": "step_failed",
+      "step_id": "step_content_table",
+      "message": "Step force-failed for testing: Build Content Table",
+      "data": {
+        "forced": true
+      }
+    },
+    {
+      "ts": "2026-04-10T12:24:45.865197+00:00",
+      "event": "graph_execute_finished",
+      "step_id": null,
+      "message": "Graph execution finished.",
+      "data": {
+        "status": "failed"
+      }
+    },
+    {
+      "ts": "2026-04-10T12:24:45.933464+00:00",
+      "event": "step_retry_prepared",
+      "step_id": "step_content_table",
+      "message": "Failed step reset to ready for retry.",
+      "data": {}
+    },
+    {
+      "ts": "2026-04-10T12:24:45.984357+00:00",
+      "event": "graph_execute_started",
+      "step_id": null,
+      "message": "Graph execution started.",
+      "data": {}
+    },
+    {
+      "ts": "2026-04-10T12:24:46.008461+00:00",
+      "event": "step_started",
+      "step_id": "step_content_table",
+      "message": "Step started: Build Content Table",
+      "data": {
+        "attempt": 2,
+        "task_type": "table"
+      }
+    },
+    {
+      "ts": "2026-04-10T12:24:46.055562+00:00",
+      "event": "step_completed",
+      "step_id": "step_content_table",
+      "message": "Step completed: Build Content Table",
+      "data": {
+        "run_id": "mission_artifact_8449ed63c50d"
+      }
+    },
+    {
+      "ts": "2026-04-10T12:24:46.077616+00:00",
+      "event": "graph_execute_finished",
+      "step_id": null,
+      "message": "Graph execution finished.",
+      "data": {
+        "status": "completed"
+      }
+    },
+    {
+      "ts": "2026-04-10T12:24:46.146073+00:00",
+      "event": "graph_packaged",
+      "step_id": null,
+      "message": "Graph mission packaged successfully.",
+      "data": {
+        "bundle_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\mission_graph\\bundles\\graph_18b269959652"
+      }
+    }
+  ]
+}

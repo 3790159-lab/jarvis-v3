@@ -1,0 +1,36 @@
+Test 4 SOP Package Report
+Mission ID: real_test_04_sop_fix_9d473f52
+
+Artifacts:
+- Claude draft: C:\Users\Daniil Lapin\Downloads\supervisor_v1_5_smart_telegram (1)\supervisor_v1_5_smart_telegram\jarvis_stage3_artifacts\real_tests\test4_sop_package\test4_claude_draft.md
+- OpenAI review: C:\Users\Daniil Lapin\Downloads\supervisor_v1_5_smart_telegram (1)\supervisor_v1_5_smart_telegram\jarvis_stage3_artifacts\real_tests\test4_sop_package\test4_openai_review.md
+- Final SOP: C:\Users\Daniil Lapin\Downloads\supervisor_v1_5_smart_telegram (1)\supervisor_v1_5_smart_telegram\jarvis_stage3_artifacts\real_tests\test4_sop_package\test4_final_sop.md
+
+Metrics:
+- Claude chars: 1176
+- OpenAI chars: 4102
+- Final chars: 5004
+- Claude markdown headings: 0
+- OpenAI markdown headings: 14
+- Final markdown headings: 16
+
+Checks:
+- Claude draft present: True
+- OpenAI review present: True
+- Final SOP present: True
+
+Preview:
+# Jarvis Real Task Execution SOP
+
+> Generated via Test 4 multi-agent workflow.
+> Mission ID: real_test_04_sop_fix_9d473f52
+
+## Final SOP
+# Standard Operating Procedure (SOP) for Running Jarvis on Real Tasks
+
+## Introduction
+This SOP provides a structured process to run Jarvis on real tasks, ensuring all necessary setups and checks are performed. Familiarity with the code and operational risks is necessary for successful task execution.
+
+## 1. Preconditions
+Before executing tasks, ensure the following are set up correctly:
+- Run `start_api.bat` and `start_worker.bat` to initiate the necessary services.

@@ -1,0 +1,31 @@
+{
+  "low": {
+    "recommended_action": "apply",
+    "allowed": true,
+    "gate_status": "open",
+    "score": 87.2,
+    "reasons": []
+  },
+  "high": {
+    "recommended_action": "blocked",
+    "allowed": false,
+    "gate_status": "blocked",
+    "score": 34.1,
+    "reasons": [
+      "critical_risk_level",
+      "too_many_target_files",
+      "blast_radius_too_large",
+      "validation_coverage_too_low",
+      "rollback_ease_too_low"
+    ]
+  },
+  "metrics": {
+    "scorecards_count": 4,
+    "outcomes_count": 4,
+    "apply_count": 2,
+    "artifact_only_count": 0,
+    "blocked_count": 2,
+    "collected_at": "2026-04-23T12:39:00+00:00",
+    "artifacts_root": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\decision_risk_engine"
+  }
+}

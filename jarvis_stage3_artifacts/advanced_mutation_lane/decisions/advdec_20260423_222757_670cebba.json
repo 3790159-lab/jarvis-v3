@@ -1,0 +1,45 @@
+{
+  "decision_id": "advdec_20260423_222757_670cebba",
+  "patch_class": "validation_patch",
+  "risk_lane": "medium_low",
+  "recommended_action": "artifact_only",
+  "allowed": false,
+  "confidence": 85.0,
+  "budget": {
+    "risk_lane": "medium_low",
+    "max_files": 3,
+    "max_operations": 5,
+    "max_lines_changed": 160,
+    "requires_verify": true,
+    "requires_smoke": true,
+    "requires_health": true,
+    "rollback_required": true,
+    "allowed_action": "apply"
+  },
+  "blast_radius": {
+    "target_files": [
+      "app/services/jarvis_external_systems_readiness.py"
+    ],
+    "support_files": [
+      "jarvis_stage3_artifacts/temp/external_readiness_verify.py",
+      "scripts/external_readiness_smoke.ps1"
+    ],
+    "total_files": 3,
+    "critical_files": [],
+    "forbidden_files": [],
+    "touched_directories": [
+      "app/services",
+      "jarvis_stage3_artifacts/temp",
+      "scripts"
+    ],
+    "estimated_lines_changed": 120,
+    "blast_radius_score": 56.0,
+    "reasons": []
+  },
+  "reasons": [
+    "blast_radius_requires_artifact_review",
+    "matched_keywords_for:validation_patch"
+  ],
+  "next_best_action": "Reduce scope or add support verify/smoke files before apply.",
+  "created_at": "2026-04-23T22:27:57+00:00"
+}

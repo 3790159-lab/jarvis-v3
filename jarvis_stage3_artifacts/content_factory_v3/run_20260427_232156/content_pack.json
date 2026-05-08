@@ -1,0 +1,224 @@
+{
+  "ok": true,
+  "pipeline": "jarvis_content_factory_v3",
+  "brief_summary": "Премиальный контент-пак для вымышленной AI-модели, демонстрирующей роскошный lifestyle и путешествия в кинематографическом стиле для Instagram с фокусом на эстетику и аудиторию 25-40 лет.",
+  "brand_direction": {
+    "tone": "элегантный, вдохновляющий, уверенный",
+    "style": "премиальный, кинематографический, минималистичный",
+    "audience": "взрослые 25-40 лет, интересующиеся luxury lifestyle, путешествиями, модой и искусством"
+  },
+  "assets_count": 12,
+  "assets": [
+    {
+      "index": 1,
+      "kind": "instagram_post",
+      "title": "Роскошный рассвет на вилле в Тоскане",
+      "content": "Начинаю день с вида, который вдохновляет мечтать дальше. Тоскана — место, где каждая минута наполнена красотой и гармонией. #LuxuryLife #TuscanyDreams",
+      "visual_prompt": "Вилла с видом на холмы Тосканы на рассвете, мягкий золотистый свет, элегантная женщина в легком платье на террасе, кинематографический стиль",
+      "hashtags": [
+        "#LuxuryLife",
+        "#TuscanyDreams",
+        "#PremiumTravel",
+        "#CinematicStyle",
+        "#Elegance",
+        "#TravelGoals"
+      ],
+      "status": "generated"
+    },
+    {
+      "index": 2,
+      "kind": "instagram_story",
+      "title": "Утренний кофе с видом на океан",
+      "content": "Начинаю утро с ароматного кофе и бескрайних морских просторов. Где бы вы хотели оказаться прямо сейчас?",
+      "visual_prompt": "Элегантная женщина с чашкой кофе на балконе люксового отеля, панорама океана, мягкое утреннее освещение, стиль luxury lifestyle",
+      "hashtags": [
+        "#MorningLuxury",
+        "#OceanView",
+        "#CoffeeTime"
+      ],
+      "status": "generated"
+    },
+    {
+      "index": 3,
+      "kind": "instagram_reels_script",
+      "title": "День из жизни в Париже",
+      "content": "Начинается с прогулки по узким улочкам Монмартра, затем посещение галереи современного искусства и вечер в изысканном ресторане с видом на Эйфелеву башню. Погружение в атмосферу Парижа — это искусство наслаждения жизнью.",
+      "visual_prompt": "Женщина в стильном наряде идет по улицам Парижа, кадры с музеями и кафе, вечерний вид на Эйфелеву башню, кинематографичный монтаж",
+      "hashtags": [
+        "#ParisLife",
+        "#LuxuryLifestyle",
+        "#TravelReels",
+        "#CityOfLights"
+      ],
+      "status": "generated"
+    },
+    {
+      "index": 4,
+      "kind": "instagram_caption",
+      "title": "Цитата о роскоши и времени",
+      "content": "Роскошь — это не только вещи, а умение ценить каждое мгновение и создавать воспоминания, достойные вечности.",
+      "visual_prompt": "",
+      "hashtags": [
+        "#LuxuryMindset",
+        "#Inspiration",
+        "#TimeIsLuxury"
+      ],
+      "status": "generated"
+    },
+    {
+      "index": 5,
+      "kind": "instagram_hashtags",
+      "title": "Общий набор хэштегов для профиля",
+      "content": "",
+      "visual_prompt": "",
+      "hashtags": [
+        "#LuxuryLifestyle",
+        "#PremiumTravel",
+        "#CinematicStyle",
+        "#Elegance",
+        "#TravelGoals",
+        "#Exclusive",
+        "#Wanderlust",
+        "#LuxuryLiving",
+        "#StyleInspiration",
+        "#JetSetLife"
+      ],
+      "status": "generated"
+    },
+    {
+      "index": 6,
+      "kind": "instagram_bio",
+      "title": "Описание профиля",
+      "content": "🌍 Путешествия | ✨ Роскошь | 🎥 Кинематографический стиль\n🎒 Исследую мир с элегантностью и вдохновением\n📍Следуй за эксклюзивным lifestyle",
+      "visual_prompt": "",
+      "hashtags": [],
+      "status": "generated"
+    },
+    {
+      "index": 7,
+      "kind": "instagram_carousel_plan",
+      "title": "План карусели: Неделя роскошных путешествий",
+      "content": "1. Рассвет в Тоскане\n2. Завтрак с видом на океан\n3. Прогулка по Парижу\n4. Вечерняя яхта\n5. Коктейли на крыше\n6. Шопинг в Милане\n7. Итальянская гастрономия",
+      "visual_prompt": "",
+      "hashtags": [],
+      "status": "generated"
+    },
+    {
+      "index": 8,
+      "kind": "short_video_prompt",
+      "title": "Видео 15 секунд: Прогулка по пляжу на закате",
+      "content": "Женщина в легком платье идет босиком по белому песку, закатное солнце отражается в воде, легкий ветер развевает волосы, спокойная и роскошная атмосфера.",
+      "visual_prompt": "Пляж на закате, мягкий оранжево-розовый свет, элегантная женщина, кинематографический стиль",
+      "hashtags": [
+        "#SunsetWalk",
+        "#BeachLuxury"
+      ],
+      "status": "generated"
+    },
+    {
+      "index": 9,
+      "kind": "long_video_prompt",
+      "title": "Видео 2 минуты: День из жизни в люксовом курорте",
+      "content": "От утреннего завтрака на террасе с видом на горы, через спа-процедуры и йогу на открытом воздухе, до вечернего ужина при свечах у бассейна. Видеоряд с плавными переходами, акцент на детали и атмосферу.",
+      "visual_prompt": "Люксовый курорт с горным пейзажем, женщина в стильной одежде, расслабленная атмосфера, кинематографический стиль",
+      "hashtags": [
+        "#LuxuryResort",
+        "#DayInLife",
+        "#PremiumExperience"
+      ],
+      "status": "generated"
+    },
+    {
+      "index": 10,
+      "kind": "telegram_post",
+      "title": "Пост для Telegram: Вдохновение роскошью",
+      "content": "Погружайтесь в мир элегантности и изящества. Наши путешествия — это не просто смена локаций, а создание уникальных историй, наполненных светом и стилем. Следите за обновлениями и вдохновляйтесь вместе с нами.",
+      "visual_prompt": "",
+      "hashtags": [],
+      "status": "generated"
+    },
+    {
+      "index": 11,
+      "kind": "x_twitter_post",
+      "title": "Пост для X/Twitter",
+      "content": "Каждое путешествие — это новый шедевр в галерее жизни. Стремись к красоте, вдохновляйся роскошью и живи на полную. #LuxuryLifestyle #TravelGoals #Inspiration",
+      "visual_prompt": "",
+      "hashtags": [
+        "#LuxuryLifestyle",
+        "#TravelGoals",
+        "#Inspiration"
+      ],
+      "status": "generated"
+    },
+    {
+      "index": 12,
+      "kind": "google_drive_manifest",
+      "title": "Манифест для Google Drive",
+      "content": "Папка Jarvis_Content_Factory_V3 содержит 12 файлов с визуальными и текстовыми материалами для premium lifestyle аккаунта AI-модели, включая посты, сторис, видео и планы контента.",
+      "visual_prompt": "",
+      "hashtags": [],
+      "status": "generated"
+    }
+  ],
+  "image_generation_pack": {
+    "prompts": [
+      {
+        "index": 1,
+        "filename": "asset_001.png",
+        "prompt": "Вилла с видом на холмы Тосканы на рассвете, мягкий золотистый свет, элегантная женщина в легком платье на террасе, кинематографический стиль"
+      },
+      {
+        "index": 2,
+        "filename": "asset_002.png",
+        "prompt": "Элегантная женщина с чашкой кофе на балконе люксового отеля, панорама океана, мягкое утреннее освещение, стиль luxury lifestyle"
+      },
+      {
+        "index": 3,
+        "filename": "asset_003.png",
+        "prompt": "Женщина в стильном наряде идет по улицам Парижа, кадры с музеями и кафе, вечерний вид на Эйфелеву башню, кинематографичный монтаж"
+      },
+      {
+        "index": 4,
+        "filename": "asset_004.png",
+        "prompt": "Пляж на закате, мягкий оранжево-розовый свет, элегантная женщина в легком платье идет босиком по белому песку, кинематографический стиль"
+      },
+      {
+        "index": 5,
+        "filename": "asset_005.png",
+        "prompt": "Люксовый курорт с горным пейзажем, женщина в стильной одежде, расслабленная атмосфера, кинематографический стиль"
+      },
+      {
+        "index": 6,
+        "filename": "asset_006.png",
+        "prompt": "Вечерняя яхта с видом на город, элегантно одетая женщина наслаждается коктейлем, ночное освещение, premium luxury lifestyle стиль"
+      }
+    ]
+  },
+  "google_drive_manifest": {
+    "folder_name": "Jarvis_Content_Factory_V3",
+    "files": [
+      "asset_001.png",
+      "asset_002.png",
+      "asset_003.png",
+      "asset_004.png",
+      "asset_005.png",
+      "asset_006.png",
+      "instagram_post_1.txt",
+      "instagram_story_2.txt",
+      "instagram_reels_script_3.txt",
+      "instagram_caption_4.txt",
+      "instagram_hashtags_5.txt",
+      "instagram_bio_6.txt",
+      "instagram_carousel_plan_7.txt",
+      "short_video_prompt_8.txt",
+      "long_video_prompt_9.txt",
+      "telegram_post_10.txt",
+      "x_twitter_post_11.txt",
+      "google_drive_manifest_12.txt"
+    ]
+  },
+  "operator_report": {
+    "content_policy_check": "Все материалы соответствуют правилам Instagram: отсутствует откровенный контент и личные данные реальных людей, используются только вымышленные персонажи.",
+    "recommendations": "Рекомендуется использовать высококачественные изображения и снимать видео с кинематографическим освещением для усиления премиального восприятия бренда."
+  }
+}

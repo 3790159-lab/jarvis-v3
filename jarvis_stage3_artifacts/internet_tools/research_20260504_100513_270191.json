@@ -1,0 +1,98 @@
+{
+  "ok": true,
+  "tool": "internet.research",
+  "provider": "perplexity",
+  "query": "some slow query",
+  "created_at": "2026-05-04T10:05:13.270191Z",
+  "answer": "**Jarvis V3 Supervisor здесь. Статус: онлайн, backend активен, инструменты research и engineer доступны.**\n\nМедленные SQL-запросы обычно вызваны отсутствием индексов, неоптимальной структурой запроса, большими объёмами данных, устаревшими статистиками, лимитами hardware или блокировками[1][2][4]. \n\n### Диагностика (первые шаги):\n1. **Идентифицируйте медленный запрос**: В SQL Server используйте DMV для анализа по времени выполнения:\n   ```\n   SELECT t.text,\n   (qs.total_elapsed_time/1000) / qs.execution_count AS avg_elapsed_time,\n   (qs.total_worker_time/1000) / qs.execution_count AS avg_cpu_time,\n   qs.total_logical_reads / qs.execution_count AS avg_logical_reads\n   FROM sys.dm_exec_query_stats qs\n   CROSS APPLY sys.dm_exec_sql_text(sql_handle) t\n   ORDER BY avg_elapsed_time DESC;\n   ``` \n   Замените фильтр на ваш запрос[4].\n2. **Проверьте execution plan**: Ищите full table scans, большие shuffles или spills. В data warehouses — I/O bottlenecks (partition/clustering misses)[2].\n3. **Аудит данных**: Проверьте индексы, статистику (UPDATE STATISTICS), layout (Parquet 128MB-1GB, сортировка по фильтрам)[2][4].\n\n### Оптимизация (по приоритетам I/O → Network → CPU[2]):\n- **Индексы**: Добавьте missing indexes по рекомендациям DMVs[1][4].\n- **Перепишите запрос**: Уберите лишние JOIN/filters, разбейте на мелкие[1][3].\n- **Data layout**: Partition/cluster по часто фильтруемым колонкам (user_id, date)[2].\n- **Статистика и hardware**: Обновите stats, мониторьте locks/CPU/RAM[1][4].\n\n**Mission-ready план для вас**:\n1. Запустите DMV-скрипт выше → пришлите топ-3 медленных запросов.\n2. Режим: *engineer* — пришлю точные индексы/фиксы по вашему плану.\n3. Если data warehouse — укажите тип (DuckDB, BigQuery?) для layout-оптимизации.\n\nГотов к действию. Что оптимизируем первым?",
+  "raw": {
+    "id": "48667e5e-bbeb-4ad5-8634-1255ba766aae",
+    "model": "sonar-pro",
+    "created": 1777889111,
+    "usage": {
+      "prompt_tokens": 373,
+      "completion_tokens": 558,
+      "total_tokens": 931,
+      "search_context_size": "low",
+      "cost": {
+        "input_tokens_cost": 0.00112,
+        "output_tokens_cost": 0.00837,
+        "request_cost": 0.006,
+        "total_cost": 0.01549
+      }
+    },
+    "citations": [
+      "https://sqream.com/blog/slow-sql-queries/",
+      "https://motherduck.com/learn/diagnose-fix-slow-queries/",
+      "https://www.docs.inductiveautomation.com/docs/8.1/platform/sql-in-ignition/basic-sql-troubleshooting/slow-queries",
+      "https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/performance/troubleshoot-slow-running-queries",
+      "https://blog.sentry.io/find-slow-database-queries-with-query-insights/",
+      "https://www.youtube.com/watch?v=Ylh-KdYPPnE"
+    ],
+    "search_results": [
+      {
+        "title": "Slow SQL Queries: How to Diagnose and Optimize Them - SQream",
+        "url": "https://sqream.com/blog/slow-sql-queries/",
+        "date": "2024-01-11",
+        "last_updated": "2026-05-02",
+        "snippet": "In this guide, we'll walk you through how to diagnose slow SQL queries and provide best practices for optimization.",
+        "source": "web"
+      },
+      {
+        "title": "Fix Slow Query: A Developer's Guide to Data Warehouse Performance",
+        "url": "https://motherduck.com/learn/diagnose-fix-slow-queries/",
+        "date": "2026-03-16",
+        "last_updated": "2026-04-30",
+        "snippet": "Diagnose and fix slow queries by targeting the true bottlenecks: I/O, Network, & CPU. This developer's guide helps you optimize data layout & joins for ...",
+        "source": "web"
+      },
+      {
+        "title": "Slow Queries - Ignition User Manual - Inductive Automation",
+        "url": "https://www.docs.inductiveautomation.com/docs/8.1/platform/sql-in-ignition/basic-sql-troubleshooting/slow-queries",
+        "date": "2025-04-07",
+        "last_updated": "2026-03-30",
+        "snippet": "Slow running queries can be a big problem. Not only can data take a long time to display on the screen, but it can end up slowing down the whole client.",
+        "source": "web"
+      },
+      {
+        "title": "Troubleshoot slow-running queries - SQL Server - Microsoft Learn",
+        "url": "https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/performance/troubleshoot-slow-running-queries",
+        "date": "2025-01-10",
+        "last_updated": "2026-04-26",
+        "snippet": "This article describes how to handle a performance issue that database applications may experience when using SQL Server: slow performance of a specific query ...",
+        "source": "web"
+      },
+      {
+        "title": "Find slow database queries with Query Insights - Sentry Blog",
+        "url": "https://blog.sentry.io/find-slow-database-queries-with-query-insights/",
+        "date": "2023-09-28",
+        "last_updated": "2026-04-26",
+        "snippet": "To see if a database query is behind the performance issue, click on the Queries from the left navigation menu under Performance.",
+        "source": "web"
+      },
+      {
+        "title": "Slow SQL Server Query: AI vs Me - YouTube",
+        "url": "https://www.youtube.com/watch?v=Ylh-KdYPPnE",
+        "date": "2026-02-23",
+        "last_updated": "2026-04-29",
+        "snippet": "... slow SQL Server query to make it run faster, then put the query and execution plan into an AI tool to see what AI suggests, and what I miss ...",
+        "source": "web"
+      }
+    ],
+    "object": "chat.completion",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "**Jarvis V3 Supervisor здесь. Статус: онлайн, backend активен, инструменты research и engineer доступны.**\n\nМедленные SQL-запросы обычно вызваны отсутствием индексов, неоптимальной структурой запроса, большими объёмами данных, устаревшими статистиками, лимитами hardware или блокировками[1][2][4]. \n\n### Диагностика (первые шаги):\n1. **Идентифицируйте медленный запрос**: В SQL Server используйте DMV для анализа по времени выполнения:\n   ```\n   SELECT t.text,\n   (qs.total_elapsed_time/1000) / qs.execution_count AS avg_elapsed_time,\n   (qs.total_worker_time/1000) / qs.execution_count AS avg_cpu_time,\n   qs.total_logical_reads / qs.execution_count AS avg_logical_reads\n   FROM sys.dm_exec_query_stats qs\n   CROSS APPLY sys.dm_exec_sql_text(sql_handle) t\n   ORDER BY avg_elapsed_time DESC;\n   ``` \n   Замените фильтр на ваш запрос[4].\n2. **Проверьте execution plan**: Ищите full table scans, большие shuffles или spills. В data warehouses — I/O bottlenecks (partition/clustering misses)[2].\n3. **Аудит данных**: Проверьте индексы, статистику (UPDATE STATISTICS), layout (Parquet 128MB-1GB, сортировка по фильтрам)[2][4].\n\n### Оптимизация (по приоритетам I/O → Network → CPU[2]):\n- **Индексы**: Добавьте missing indexes по рекомендациям DMVs[1][4].\n- **Перепишите запрос**: Уберите лишние JOIN/filters, разбейте на мелкие[1][3].\n- **Data layout**: Partition/cluster по часто фильтруемым колонкам (user_id, date)[2].\n- **Статистика и hardware**: Обновите stats, мониторьте locks/CPU/RAM[1][4].\n\n**Mission-ready план для вас**:\n1. Запустите DMV-скрипт выше → пришлите топ-3 медленных запросов.\n2. Режим: *engineer* — пришлю точные индексы/фиксы по вашему плану.\n3. Если data warehouse — укажите тип (DuckDB, BigQuery?) для layout-оптимизации.\n\nГотов к действию. Что оптимизируем первым?"
+        },
+        "delta": {
+          "role": "assistant",
+          "content": ""
+        },
+        "finish_reason": "stop"
+      }
+    ]
+  }
+}

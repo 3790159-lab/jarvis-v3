@@ -1,0 +1,107 @@
+{
+  "ok": true,
+  "tool": "internet.research",
+  "provider": "perplexity",
+  "query": "some slow query",
+  "created_at": "2026-05-04T10:14:49.729147Z",
+  "answer": "**Jarvis V3 Supervisor здесь. Статус: research mode активен, backend/tools online для анализа SQL-запросов.**\n\nМедленные SQL-запросы обычно вызваны отсутствием индексов, неоптимальной структурой запроса, большими датасетами, устаревшей статистикой, лимитами hardware или блокировками.[1][2][5] Диагностика начинается с выявления проблемных запросов по времени выполнения, I/O-нагрузке (часто основной bottleneck), CPU и сетевым задержкам.[2][4]\n\n### Быстрый план действий (operator-ready):\n1. **Найди медленные запросы**:\n   - В **SQL Server**: выполни DMV-запрос для топ по avg_elapsed_time и wait_time (замени `<Your Query>` на фрагмент твоего запроса).[4]\n     ```\n     SELECT t.text,\n     (qs.total_elapsed_time/1000) / qs.execution_count AS avg_elapsed_time,\n     (qs.total_worker_time/1000) / qs.execution_count AS avg_cpu_time,\n     ((qs.total_elapsed_time/1000) / qs.execution_count ) - ((qs.total_worker_time/1000) / qs.execution_count) AS avg_wait_time,\n     qs.total_logical_reads / qs.execution_count AS avg_logical_reads\n     FROM sys.dm_exec_query_stats qs\n     CROSS APPLY sys.dm_exec_sql_text(sql_handle) t\n     WHERE t.text LIKE '%your_slow_query%'\n     ORDER BY avg_elapsed_time DESC;\n     ```\n   - В **MySQL**: включи slow query log (`long_query_time=1`, `log_queries_not_using_indexes=1`) и проверь лог.[3]\n   - В инструментах: Sentry Query Insights для метрик по всем событиям[5] или execution plan в твоем DB-клиенте.\n\n2. **Анализируй bottleneck (I/O > Network > CPU)**[2]:\n   - Ищи full table scans, missing partitions/clustering, \"needle in haystack\" (данные разбросаны по файлам).[2]\n   - Проверь план выполнения: обнови статистику, найди missing indexes.[4]\n\n3. **Оптимизируй**:\n   | Проблема | Решение | Источник |\n   |----------|---------|----------|\n   | Нет индексов | Добавь на часто фильтруемые колонки (e.g., user_id, date) | [1][4] |\n   | Плохая структура | Убери лишние JOIN/filters, перепиши под access pattern | [1][2] |\n   | I/O-bound | Партиционируй/кластеризуй по фильтрам, используй Parquet 128MB-1GB | [2] |\n   | Locks/concurrency | Оптимизируй транзакции | [1] |\n   | Stats устарели | `UPDATE STATISTICS` | [4] |\n\n**Конкретный вывод**: 80% случаев — I/O от плохого data layout (full scans).[2] Поделись текстом твоего \"some slow query\" + DB (SQL Server/MySQL/PostgreSQL?) + execution plan — запустим engineer mode для фикса или n8n-пайплайн мониторинга. Готов к mission: \"optimize_query\".",
+  "raw": {
+    "id": "79e72059-9c7a-4a46-b78b-d1a8577013a5",
+    "model": "sonar-pro",
+    "created": 1777889688,
+    "usage": {
+      "prompt_tokens": 373,
+      "completion_tokens": 747,
+      "total_tokens": 1120,
+      "search_context_size": "low",
+      "cost": {
+        "input_tokens_cost": 0.00112,
+        "output_tokens_cost": 0.0112,
+        "request_cost": 0.006,
+        "total_cost": 0.01832
+      }
+    },
+    "citations": [
+      "https://sqream.com/blog/slow-sql-queries/",
+      "https://motherduck.com/learn/diagnose-fix-slow-queries/",
+      "https://vanseodesign.com/web-design/slow-sql-queries/",
+      "https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/performance/troubleshoot-slow-running-queries",
+      "https://blog.sentry.io/find-slow-database-queries-with-query-insights/",
+      "https://www.docs.inductiveautomation.com/docs/8.1/platform/sql-in-ignition/basic-sql-troubleshooting/slow-queries",
+      "https://www.youtube.com/watch?v=Ylh-KdYPPnE"
+    ],
+    "search_results": [
+      {
+        "title": "Slow SQL Queries: How to Diagnose and Optimize Them - SQream",
+        "url": "https://sqream.com/blog/slow-sql-queries/",
+        "date": "2024-01-11",
+        "last_updated": "2026-05-02",
+        "snippet": "In this guide, we'll walk you through how to diagnose slow SQL queries and provide best practices for optimization.",
+        "source": "web"
+      },
+      {
+        "title": "Fix Slow Query: A Developer's Guide to Data Warehouse Performance",
+        "url": "https://motherduck.com/learn/diagnose-fix-slow-queries/",
+        "date": "2026-03-16",
+        "last_updated": "2026-04-30",
+        "snippet": "Diagnose and fix slow queries by targeting the true bottlenecks: I/O, Network, & CPU. This developer's guide helps you optimize data layout & joins for ...",
+        "source": "web"
+      },
+      {
+        "title": "How To Find Slow SQL Queries - Vanseo Design",
+        "url": "https://vanseodesign.com/web-design/slow-sql-queries/",
+        "date": "2018-11-27",
+        "last_updated": "2024-02-03",
+        "snippet": "Before you can optimize slow SQL queries you need to know which are your slow queries. Here are several ways to do just that.",
+        "source": "web"
+      },
+      {
+        "title": "Troubleshoot slow-running queries - SQL Server - Microsoft Learn",
+        "url": "https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/performance/troubleshoot-slow-running-queries",
+        "date": "2025-01-10",
+        "last_updated": "2026-04-26",
+        "snippet": "This article describes how to handle a performance issue that database applications may experience when using SQL Server: slow performance of a specific query ...",
+        "source": "web"
+      },
+      {
+        "title": "Find slow database queries with Query Insights - Sentry Blog",
+        "url": "https://blog.sentry.io/find-slow-database-queries-with-query-insights/",
+        "date": "2023-09-28",
+        "last_updated": "2026-04-26",
+        "snippet": "To see if a database query is behind the performance issue, click on the Queries from the left navigation menu under Performance.",
+        "source": "web"
+      },
+      {
+        "title": "Slow Queries - Ignition User Manual - Inductive Automation",
+        "url": "https://www.docs.inductiveautomation.com/docs/8.1/platform/sql-in-ignition/basic-sql-troubleshooting/slow-queries",
+        "date": "2025-04-07",
+        "last_updated": "2026-03-30",
+        "snippet": "Slow running queries can be a big problem. Not only can data take a long time to display on the screen, but it can end up slowing down the whole client.",
+        "source": "web"
+      },
+      {
+        "title": "Slow SQL Server Query: AI vs Me - YouTube",
+        "url": "https://www.youtube.com/watch?v=Ylh-KdYPPnE",
+        "date": "2026-02-23",
+        "last_updated": "2026-05-04",
+        "snippet": "... slow SQL Server query to make it run faster, then put the query and execution plan into an AI tool to see what AI suggests, and what I miss ...",
+        "source": "web"
+      }
+    ],
+    "object": "chat.completion",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "**Jarvis V3 Supervisor здесь. Статус: research mode активен, backend/tools online для анализа SQL-запросов.**\n\nМедленные SQL-запросы обычно вызваны отсутствием индексов, неоптимальной структурой запроса, большими датасетами, устаревшей статистикой, лимитами hardware или блокировками.[1][2][5] Диагностика начинается с выявления проблемных запросов по времени выполнения, I/O-нагрузке (часто основной bottleneck), CPU и сетевым задержкам.[2][4]\n\n### Быстрый план действий (operator-ready):\n1. **Найди медленные запросы**:\n   - В **SQL Server**: выполни DMV-запрос для топ по avg_elapsed_time и wait_time (замени `<Your Query>` на фрагмент твоего запроса).[4]\n     ```\n     SELECT t.text,\n     (qs.total_elapsed_time/1000) / qs.execution_count AS avg_elapsed_time,\n     (qs.total_worker_time/1000) / qs.execution_count AS avg_cpu_time,\n     ((qs.total_elapsed_time/1000) / qs.execution_count ) - ((qs.total_worker_time/1000) / qs.execution_count) AS avg_wait_time,\n     qs.total_logical_reads / qs.execution_count AS avg_logical_reads\n     FROM sys.dm_exec_query_stats qs\n     CROSS APPLY sys.dm_exec_sql_text(sql_handle) t\n     WHERE t.text LIKE '%your_slow_query%'\n     ORDER BY avg_elapsed_time DESC;\n     ```\n   - В **MySQL**: включи slow query log (`long_query_time=1`, `log_queries_not_using_indexes=1`) и проверь лог.[3]\n   - В инструментах: Sentry Query Insights для метрик по всем событиям[5] или execution plan в твоем DB-клиенте.\n\n2. **Анализируй bottleneck (I/O > Network > CPU)**[2]:\n   - Ищи full table scans, missing partitions/clustering, \"needle in haystack\" (данные разбросаны по файлам).[2]\n   - Проверь план выполнения: обнови статистику, найди missing indexes.[4]\n\n3. **Оптимизируй**:\n   | Проблема | Решение | Источник |\n   |----------|---------|----------|\n   | Нет индексов | Добавь на часто фильтруемые колонки (e.g., user_id, date) | [1][4] |\n   | Плохая структура | Убери лишние JOIN/filters, перепиши под access pattern | [1][2] |\n   | I/O-bound | Партиционируй/кластеризуй по фильтрам, используй Parquet 128MB-1GB | [2] |\n   | Locks/concurrency | Оптимизируй транзакции | [1] |\n   | Stats устарели | `UPDATE STATISTICS` | [4] |\n\n**Конкретный вывод**: 80% случаев — I/O от плохого data layout (full scans).[2] Поделись текстом твоего \"some slow query\" + DB (SQL Server/MySQL/PostgreSQL?) + execution plan — запустим engineer mode для фикса или n8n-пайплайн мониторинга. Готов к mission: \"optimize_query\"."
+        },
+        "delta": {
+          "role": "assistant",
+          "content": ""
+        },
+        "finish_reason": "stop"
+      }
+    ]
+  }
+}

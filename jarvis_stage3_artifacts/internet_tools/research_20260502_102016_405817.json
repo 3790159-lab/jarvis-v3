@@ -1,0 +1,105 @@
+{
+  "ok": true,
+  "tool": "internet.research",
+  "provider": "perplexity",
+  "query": "Можешь работать с LoRA?. Ответ и таблицу сделай на русском языке. Названия сервисов, компаний, моделей и продуктов оставляй в оригинале. Добавь источники/ссылки, если они доступны. Сделай результат полезным для принятия решения",
+  "created_at": "2026-05-02T10:20:16.405817Z",
+  "answer": "**Да, Jarvis V3 Supervisor может работать с LoRA через доступные инструменты и backend (research, engineer, mission modes).**  \nЯ синтезировал информацию из источников: могу помогать в поиске/скачивании готовых моделей LoRA (с Civitai, @yes_ai_bot), планировании обучения (AI Toolkit, ComfyUI, SYNTX), настройке пайплайнов (n8n/ComfyUI workflows) и тестировании. Для полного обучения требуется подключение GPU-backend или Telegram-ботов (частично доступно сейчас, полное — через mission setup).\n\n### Что такое LoRA и зачем использовать\n**LoRA (Low-Rank Adaptation)** — метод эффективной донастройки моделей (Stable Diffusion, Flux.1, LLM), где обучается только малая часть параметров (до 10 000 раз меньше), снижая нагрузку на VRAM и GPU[3][4]. Используется для стилей, персонажей, фикса ошибок (пальцы, освещение), персонализации (лицо, стиль)[1][2][5][7].\n\n### Таблица: Сравнение способов работы с LoRA (для принятия решения)\n\n| Способ | Описание | Время обучения | Требования | Плюсы | Минусы | Источники |\n|--------|----------|----------------|------------|-------|--------|-----------|\n| **Готовые модели (Civitai)** | Скачать с civitai.com, использовать в Stable Diffusion/ComfyUI с весом <lora:имя:1.0>[2][5] | Нет (готово) | Stable Diffusion WebUI/ComfyUI | Быстро, тысячи моделей (стили, тела, освещение) | Не персонализировано | [2][5] |\n| **AI Toolkit + ComfyUI** | Обучить на датасете (10-50 изображений), trigger word, checkpoints. Тест в ComfyUI[1] | 10-30 мин (на GPU) | Windows, Z-Image/Flux, датасет с подписями | Полный контроль (dataset, параметры), workflow JSON | Установка, UTF-8 фиксы | [1][4] |\n| **Telegram-боты (@yes_ai_bot, SYNTX)** | Загрузить фото → автообучение LoRA для Flux.1/Stable Diffusion[5][6] | 3-5 мин (SYNTX) | 5-50 фото, Telegram | Просто, без GPU локально | Лимит фото, платно? | [5][6] |\n| **Flux + ComfyUI (fluxgym)** | Дообучить Flux, сохранить .safetensors, инференс с LoRA[4] | 10-60 мин | ComfyUI, fluxgym/outputs | Экономно (мало данных), масштабирование | Нужно workflow JSON | [4] |\n| **Ultralytics/LLM** | Для YOLO/LLM (не только изображения), низкий ранг матриц[3] | Варьируется | GPU (1 шт.) | Универсально (авто, медицина) | Для dev, не SD-first | [3] |\n\n**Рекомендация для решения:**  \n- **Новичку:** Начни с Civitai + @yes_ai_bot (быстро протестируй)[2][5].  \n- **Персонализация:** SYNTX (3-5 мин на Flux.1 с лицом)[6] или AI Toolkit (полный контроль)[1].  \n- **Дальше:** Mission для n8n-пайплайна (dataset → train → ComfyUI test). Укажи датасет/task — запустим engineer mode.  \n\nИсточники доступны в результатах поиска (YouTube[1], Yandex[2], Ultralytics[3], Habr[4], forum.yesai[5], vc.ru[6], VK[7]). Готов к действию: control/brain/mission?",
+  "raw": {
+    "id": "7b753efb-8f70-4beb-86fd-22f02155154e",
+    "model": "sonar-pro",
+    "created": 1777717214,
+    "usage": {
+      "prompt_tokens": 437,
+      "completion_tokens": 931,
+      "total_tokens": 1368,
+      "search_context_size": "low",
+      "cost": {
+        "input_tokens_cost": 0.00131,
+        "output_tokens_cost": 0.01396,
+        "request_cost": 0.006,
+        "total_cost": 0.02128
+      }
+    },
+    "citations": [
+      "https://www.youtube.com/watch?v=dYov0HZcn98",
+      "https://ya.ru/neurum/c/tehnologii/q/chto_takoe_lora_i_kak_ee_ispolzovat_dlya_uluchsheniya_76456de4",
+      "https://www.ultralytics.com/ru/glossary/lora-low-rank-adaptation",
+      "https://habr.com/ru/companies/ods/articles/871256/",
+      "https://forum.yesai.su/topic/63-chto-takoe-modeli-lora-dlya-stable-diffusion-i-kak-ih-ispolzovat/",
+      "https://vc.ru/ai/1663877-kak-sozdavat-svoi-lora-dlya-generacii-izobrazhenii-kak-obuchit-svoyu-model-za-3-5-minut",
+      "https://vk.com/@-219540644-stable-diffusion-rukovodstvo-po-rabote-s-lora"
+    ],
+    "search_results": [
+      {
+        "title": "How to train your LoRA in AI Toolkit: Image, Video, Audio - YouTube",
+        "url": "https://www.youtube.com/watch?v=dYov0HZcn98",
+        "date": "2026-04-18",
+        "last_updated": "2026-05-01",
+        "snippet": "В этом видео я показываю, как установить, настроить и использовать AI Toolkit для обучения собственных LoRA-моделей для генерации ...",
+        "source": "web"
+      },
+      {
+        "title": "Что такое LoRA и как ее использовать для улучшения ... - Яндекс",
+        "url": "https://ya.ru/neurum/c/tehnologii/q/chto_takoe_lora_i_kak_ee_ispolzovat_dlya_uluchsheniya_76456de4",
+        "last_updated": "2026-03-28",
+        "snippet": "LoRA (Low-Rank Adaptation) — это модели для нейросетей Stable Diffusion, которые расширяют возможности генерации изображений. forum.yesai.su Они включают ...",
+        "source": "web"
+      },
+      {
+        "title": "Что такое LoRA? Объяснение адаптации низкого ранга - Ultralytics",
+        "url": "https://www.ultralytics.com/ru/glossary/lora-low-rank-adaptation",
+        "last_updated": "2026-05-01",
+        "snippet": "Генеративный ИИ и искусство: LoRA является неотъемлемой частью сообщества генеративного ИИ. Цифровые художники используют его для обучения моделей генерации ...",
+        "source": "web"
+      },
+      {
+        "title": "Создаем воспоминания. Осваиваем FLUX, LoRA и ComfyUI - Habr",
+        "url": "https://habr.com/ru/companies/ods/articles/871256/",
+        "date": "2025-01-04",
+        "last_updated": "2026-03-19",
+        "snippet": "Один из самых экономных — дообучение методом LoRA (Low-Rank Adaptation), так обучается только малая часть параметров, эту часть можно хранить ...",
+        "source": "web"
+      },
+      {
+        "title": "Что такое модели Lora для Stable Diffusion и как их использовать",
+        "url": "https://forum.yesai.su/topic/63-chto-takoe-modeli-lora-dlya-stable-diffusion-i-kak-ih-ispolzovat/",
+        "date": "2024-06-16",
+        "last_updated": "2026-05-01",
+        "snippet": "Lora — это модели для нейросетей Stable Diffusion, которые расширяют возможности генерации изображений. Они включают дополнительные стили, ...",
+        "source": "web"
+      },
+      {
+        "title": "Как создавать свои LoRa для генерации изображений. Как ...",
+        "url": "https://vc.ru/ai/1663877-kak-sozdavat-svoi-lora-dlya-generacii-izobrazhenii-kak-obuchit-svoyu-model-za-3-5-minut",
+        "date": "2024-11-20",
+        "last_updated": "2025-09-05",
+        "snippet": "В телеграм-боте SYNTX можно обучать модель и создавать свои собственные LoRa для модели Flux.1 за считанные минуты!",
+        "source": "web"
+      },
+      {
+        "title": "Stable Diffusion - руководство по работе с LoRA. 2023 - VK",
+        "url": "https://vk.com/@-219540644-stable-diffusion-rukovodstvo-po-rabote-s-lora",
+        "date": "2023-09-10",
+        "last_updated": "2026-03-02",
+        "snippet": "LoRA на стиль. Позволяет переносить какой-то определённый стиль на генерируемые изображения, например, предоставляют возможность сделать чайник ...",
+        "source": "web"
+      }
+    ],
+    "object": "chat.completion",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "**Да, Jarvis V3 Supervisor может работать с LoRA через доступные инструменты и backend (research, engineer, mission modes).**  \nЯ синтезировал информацию из источников: могу помогать в поиске/скачивании готовых моделей LoRA (с Civitai, @yes_ai_bot), планировании обучения (AI Toolkit, ComfyUI, SYNTX), настройке пайплайнов (n8n/ComfyUI workflows) и тестировании. Для полного обучения требуется подключение GPU-backend или Telegram-ботов (частично доступно сейчас, полное — через mission setup).\n\n### Что такое LoRA и зачем использовать\n**LoRA (Low-Rank Adaptation)** — метод эффективной донастройки моделей (Stable Diffusion, Flux.1, LLM), где обучается только малая часть параметров (до 10 000 раз меньше), снижая нагрузку на VRAM и GPU[3][4]. Используется для стилей, персонажей, фикса ошибок (пальцы, освещение), персонализации (лицо, стиль)[1][2][5][7].\n\n### Таблица: Сравнение способов работы с LoRA (для принятия решения)\n\n| Способ | Описание | Время обучения | Требования | Плюсы | Минусы | Источники |\n|--------|----------|----------------|------------|-------|--------|-----------|\n| **Готовые модели (Civitai)** | Скачать с civitai.com, использовать в Stable Diffusion/ComfyUI с весом <lora:имя:1.0>[2][5] | Нет (готово) | Stable Diffusion WebUI/ComfyUI | Быстро, тысячи моделей (стили, тела, освещение) | Не персонализировано | [2][5] |\n| **AI Toolkit + ComfyUI** | Обучить на датасете (10-50 изображений), trigger word, checkpoints. Тест в ComfyUI[1] | 10-30 мин (на GPU) | Windows, Z-Image/Flux, датасет с подписями | Полный контроль (dataset, параметры), workflow JSON | Установка, UTF-8 фиксы | [1][4] |\n| **Telegram-боты (@yes_ai_bot, SYNTX)** | Загрузить фото → автообучение LoRA для Flux.1/Stable Diffusion[5][6] | 3-5 мин (SYNTX) | 5-50 фото, Telegram | Просто, без GPU локально | Лимит фото, платно? | [5][6] |\n| **Flux + ComfyUI (fluxgym)** | Дообучить Flux, сохранить .safetensors, инференс с LoRA[4] | 10-60 мин | ComfyUI, fluxgym/outputs | Экономно (мало данных), масштабирование | Нужно workflow JSON | [4] |\n| **Ultralytics/LLM** | Для YOLO/LLM (не только изображения), низкий ранг матриц[3] | Варьируется | GPU (1 шт.) | Универсально (авто, медицина) | Для dev, не SD-first | [3] |\n\n**Рекомендация для решения:**  \n- **Новичку:** Начни с Civitai + @yes_ai_bot (быстро протестируй)[2][5].  \n- **Персонализация:** SYNTX (3-5 мин на Flux.1 с лицом)[6] или AI Toolkit (полный контроль)[1].  \n- **Дальше:** Mission для n8n-пайплайна (dataset → train → ComfyUI test). Укажи датасет/task — запустим engineer mode.  \n\nИсточники доступны в результатах поиска (YouTube[1], Yandex[2], Ultralytics[3], Habr[4], forum.yesai[5], vc.ru[6], VK[7]). Готов к действию: control/brain/mission?"
+        },
+        "delta": {
+          "role": "assistant",
+          "content": ""
+        },
+        "finish_reason": "stop"
+      }
+    ]
+  }
+}

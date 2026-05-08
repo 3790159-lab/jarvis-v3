@@ -1,0 +1,87 @@
+{
+  "ok": true,
+  "tool": "internet.search",
+  "provider": "tavily",
+  "query": "Создай таблицу топ 10 лучших AI в каждой отрасли, опираясь на информацию из интернета и разных форумов Давай первой и второй категории",
+  "created_at": "2026-04-28T23:25:44.674756Z",
+  "data": {
+    "query": "Создай таблицу топ 10 лучших AI в каждой отрасли, опираясь на информацию из интернета и разных форумов Давай первой и второй категории",
+    "follow_up_questions": null,
+    "answer": "Top AIs in business: Anthropic, ElevenLabs, Gamma, Notion, and OpenAI. Top AIs in language: Claude, ChatPDF, Google NotebookLM, and Gemini.",
+    "images": [],
+    "results": [
+      {
+        "url": "https://www.forbes.com/lists/ai50/",
+        "title": "Forbes 2026 AI 50 List | Top Artificial Intelligence Companies",
+        "content": "*   [AI](https://www.forbes.com/ai/). *   [Under 30](https://www.forbes.com/under30/). *   [Business](https://www.forbes.com/business/). Business[See All](https://www.forbes.com/business/). *   [Fashion](https://www.forbes.com/lists/ai50/). *   [Electronics](https://www.forbes.com/lists/ai50/). *   [Sportswear & Gear](https://www.forbes.com/lists/ai50/). *   [Mattress & Sleep](https://www.forbes.com/lists/ai50/). *   [Travel](https://www.forbes.com/lists/ai50/). *   [Home & Garden](https://www.forbes.com/lists/ai50/). *   [30 Under 30](https://www.forbes.com/under30/). *   [50 Over 50](https://www.forbes.com/over-50/). *   [Advisor](https://www.forbes.com/advisor/). Advisor[See All](https://www.forbes.com/advisor/). *   [Forbes Magazine](https://www.forbes.com/lists/ai50/). *   [Corrections](https://www.forbes.com/lists/ai50/). *   [Cookie Preferences](https://www.forbes.com/lists/ai50/#). ![Image 16](https://www.forbes.com/lists/ai50/). | Anthropic[](https://www.forbes.com/companies/anthropic/?list=ai50) | AI models and products | $60 B | 2021 | San Francisco, California, United States |. | ElevenLabs[](https://www.forbes.com/companies/elevenlabs/?list=ai50) | Voice generation software | $800 M | 2022 | New York, New York, United States |. | Gamma[](https://www.forbes.com/companies/gamma/?list=ai50) | AI graphic design tools | $91 M | 2020 | San Francisco, California, United States |. | Notion[](https://www.forbes.com/companies/notion/?list=ai50) | Productivity software | $330 M | 2013 | San Francisco, California, United States |. | OpenAI[](https://www.forbes.com/companies/openai/?list=ai50) | AI models and products | $182.6 B | 2015 | San Francisco, California, United States |. [Elisabeth Brier](https://www.forbes.com/lists/ai50/). [Sofia Chierchio](https://www.forbes.com/lists/ai50/). [Iain Martin](https://www.forbes.com/lists/ai50/). [Learn More](https://www.forbes.com/accolades/ai-50/). [Learn More](https://www.forbes.com/accolades/ai-50/). [Learn More](https://www.forbes.com/accolades/ai-50/). *   [Your Privacy Choices](https://www.forbes.com/lists/ai50/#). *   [Cookie Preferences](https://www.forbes.com/lists/ai50/#).",
+        "score": 0.7393665,
+        "raw_content": null
+      },
+      {
+        "url": "https://vc.ru/ai/2686242-top-10-neyrosetey-2026-luchshie-ii-servisy",
+        "title": "Топ-10 нейросетей 2026: самые популярные ИИ-сервисы для работы, учебы и творчества — AI на vc.ru",
+        "content": "# Топ-10 нейросетей 2026: самые популярные ИИ-сервисы для работы, учебы и творчества. Топ-10 нейросетей 2026: самые популярные ИИ-сервисы для работы, учебы и творчества. Это практический обзор ИИ-инструментов, которые действительно используют люди: для работы, учёбы, бизнеса, дизайна и повседневных задач. 💡 Если вы хотите начать пользоваться ИИ на русском языке уже сейчас, многие пользователи делают это через Telegram — например, через @ChatGPTPoRusskiBot и @SoraMidjourneySunoBot, которые объединяют популярные модели в одном интерфейсе. В 2026 году он используется не только как чат, а как полноценный ассистент для жизни и работы. Claude — ИИ для текста и логики. Почему его выбирают: Идеален для офисных и бизнес-процессов. Почему его выбирают: Удобство и низкий порог входа. Canva с ИИ стала стандартом для малого бизнеса и контент-креаторов. Поэтому всё больше людей используют ИИ не напрямую, а через агрегаторы и привычные платформы. ## Telegram и ИИ: почему это стало популярно. Для этого часто используют @ChatGPTPoRusskiBot и @SoraMidjourneySunoBot, чтобы работать с популярными ИИ-моделями в одном месте.",
+        "score": 0.7192461,
+        "raw_content": null
+      },
+      {
+        "url": "https://www.ai-stat.ru/",
+        "title": "Рейтинг ИИ | Сравнение языковых моделей и нейросетей | Лучшие ИИ 2026",
+        "content": "Меняй значения в полях и смотри, как это влияет на время ответа. Тест на понимание языка и широкие знания в 57 предметах. Мультимодальные задачи на понимание изображений и текста. Тест на понимание языка и широкие знания в 57 предметах. Мультимодальные задачи на понимание изображений и текста. Рейтинг составлен на основе 6ключевых бенчмарков: GPQA, SWE-Bench, Tau2, MMLU, MMMU-Pro и ARC-AGI. PrismML выложил Bonsai 1.7B — 1-битную модель в 290 МБ, которая работает в Chrome через WebGPU без сервера и без установки. Видео китайской робот-руки, которая жонглирует кубиком Рубика, крутит спиннер и играет в «cat's cradle», за неделю набрало 1347 апвоутов на r/singularity и расходится через CGTN и Xinhua. Сегодня7 минTurboQuant: Google ужал KV-кэш в 5 раз и вышел на теоретический предел. ## TurboQuant: Google ужал KV-кэш в 5 раз и вышел на теоретический предел. Google Research показал на ICLR 2026 алгоритм TurboQuant — двухстадийная квантизация KV-кэша, которая режет VRAM в 4,5–5 раз без потерь качества и ускоряет внимание в 8 раз. Лучшие модели и API провайдеры в каждой категории.",
+        "score": 0.70287734,
+        "raw_content": null
+      },
+      {
+        "url": "https://habr.com/ru/companies/bothub/articles/992038/",
+        "title": "Топ нейросетей и ИИ-сервисов 2026 года: лучшие ИИ-инструменты / Хабр",
+        "content": "Тут тебе и текст от ChatGPT с Gemini, и картинки от Nano Banana Pro, и даже видео от Veo – и всё это на русском. **ChatPDF** решает эту проблему с изяществом слона в посудной лавке – просто агружаете документ и начинаете его расспрашивать, как будто это ваш личный секретарь, который всё прочитал вместо вас. **Google NotebookLM** – это тот самый ИИ, в который грузишь PDF, статьи, даже ссылки на YouTube, а он строчит конспекты, анализирует и генерирует аудиоподкасты. Готовую “гамму” можно не только в PDF выгрузить, но и как живой веб‑сайт опубликовать, что для питчей или портфолио – просто бомба. Иногда система как будто спрашивает “А кто это у нас в кадре?” – и блокирует промпты с известными лицами. Это не одна модель, а целый набор: от супербыстрого Turbo (6–7 секунд на картинку) до Flex с тончайшими настройками, открытой Dev‑версии и самой мощной версии Pro. Фишка в том, как в ней рендерится текст – намного четче, чем ранее.",
+        "score": 0.6745014,
+        "raw_content": null
+      },
+      {
+        "url": "https://setka.ru/posts/019ce7c0-d43d-75d2-b2e1-bbe2c326787a",
+        "title": "10 нейросетей, которые нужно знать в 2026 + аналоги без VPN",
+        "content": "1. ChatGPT. Универсальный AI-ассистент от OpenAI. · 2. Claude. Модель компании Anthropic хорошо работает с длинными текстами и сложной аналитикой. · 3. Gemini. ИИ",
+        "score": 0.65861565,
+        "raw_content": null
+      },
+      {
+        "url": "https://datanorth.ai/blog/top-10-ai-tools-for-2026",
+        "title": "Top 10 Best AI Tools for 2026 (Q2 Update) - DataNorth AI",
+        "content": "*   [Services](https://datanorth.ai/blog/top-10-ai-tools-for-2026#). *   [Services](https://datanorth.ai/blog/top-10-ai-tools-for-2026#). *   [Copilot](https://datanorth.ai/service/live-demonstration/microsoft-copilot). *   [Webinars](https://datanorth.ai/service/webinar/artificial-intelligence). *   [Copilot](https://datanorth.ai/service/training-workshop/copilot). *   [Assessments](https://datanorth.ai/service/assessment/artificial-intelligence). *   [Consulting](https://datanorth.ai/service/consultancy/artificial-intelligence). *   [Microsoft Copilot](https://datanorth.ai/service/consultancy/microsoft-copilot). *   [Development & Implementation](https://datanorth.ai/service/development-implementation/artificial-intelligence). *   [Artificial Intelligence](https://datanorth.ai/service/development-implementation/artificial-intelligence). *   [Services](https://datanorth.ai/blog/top-10-ai-tools-for-2026#). *   [Copilot](https://datanorth.ai/service/live-demonstration/microsoft-copilot). *   [Copilot](https://datanorth.ai/service/training-workshop/copilot). *   [Assessments](https://datanorth.ai/service/assessment/artificial-intelligence). *   [Consulting](https://datanorth.ai/service/consultancy/artificial-intelligence). *   [Microsoft Copilot](https://datanorth.ai/service/consultancy/microsoft-copilot). *   [Development & Implementation](https://datanorth.ai/service/development-implementation/artificial-intelligence). *   [Artificial Intelligence](https://datanorth.ai/service/development-implementation/artificial-intelligence). 5.   [Conclusion](https://datanorth.ai/blog/top-10-ai-tools-for-2026#fr-toc-content__heading-14). If you updated your [AI strategy](https://datanorth.ai/service/artificial-intelligence-strategy) in March, parts of it are already out of date. ![Image 14: claude logo top 10 ai tools](https://datanorth.ai/wp-content/uploads/2025/12/claude-logo-top-10-ai-tools.png). ![Image 15: copilot logo top 10 ai tools](https://datanorth.ai/wp-content/uploads/2025/12/copilot-logo-top-10-ai-tools.png). [Copilot Cowork](https://datanorth.ai/news/microsoft-introduces-copilot-cowork-to-automate-complex-workflows-in-microsoft-365) brings autonomous multi-step task execution into Microsoft 365, built in direct collaboration with Anthropic using Claude technology. *   **Service integration:** Optimize your 365 stack and prepare for the E7 migration with our [Microsoft Copilot Consultancy.](https://datanorth.ai/service/consultancy/microsoft-copilot). ![Image 16: gemini logo top 10 ai tools](https://datanorth.ai/wp-content/uploads/2025/12/gemini-logo-top-10-ai-tools.png). ![Image 18: perplexity logo top 10 ai tools](https://datanorth.ai/wp-content/uploads/2025/12/perplexity-logo-top-10-ai-tools.png). *   **Service integration:** Learn to leverage research tools via our [Perplexity Consultancy](https://datanorth.ai/service/consultancy/perplexity). *   **Service integration:** Design your own agents with our [n8n Workflow Development & Implementation](https://datanorth.ai/service/development-implementation/n8n-workflow-development-implementation). *   [AI Development](https://datanorth.ai/service/development-implementation/artificial-intelligence).",
+        "score": 0.657033,
+        "raw_content": null
+      },
+      {
+        "url": "https://the-tech.kz/50-luchshih-ii-instrumentov-v-2026-godu-2/",
+        "title": "50 лучших ИИ-инструментов в 2026 году - THE TECH",
+        "content": "50 лучших ИИ-инструментов в 2026 году ; Чат-боты и ассистенты: ChatGPT 5, Claude 3, Copilot, Perplexity, Gemini, SaneBox, Grok, DeepSeek",
+        "score": 0.5482629,
+        "raw_content": null
+      },
+      {
+        "url": "https://ru.so-development.org/the-best-ai-tools-in-2026-a-complete-guide-to-what-matters-now/",
+        "title": "Лучшие инструменты ИИ в 2026 году: полное руководство о том, что важно сейчас SO Development",
+        "content": "Эти инструменты не только быстрее и функциональнее — они глубоко интегрированы в профессиональные рабочие процессы, надежно соответствуют требованиям управления и разработаны для получения практических результатов, а не простого вывода информации. В этом руководстве рассматриваются наиболее значимые инструменты искусственного интеллекта, определяющие будущее до 2026 года, объясняется, что они умеют лучше всего, для кого предназначены и почему они важны сегодня. ## Лучшие инструменты для повышения производительности ИИ и второго пилота. Лучше всего подходит для: многоязычных команд и активных пользователей Google Workspace. ## Лучшие инструменты ИИ для создания контента и медиапроизводства. ## Лучшие инструменты ИИ для оптимизации данных и знаний. ## Лучшие инструменты ИИ для разработки программного обеспечения и инженерии. ## Лучшие платформы ИИ для образования и обучения. Наиболее стратегическим решением для отдельных лиц и предприятий является сопоставление ролей с правильными фреймворками ИИ: создателям контента нужны генеративные пакеты, аналитикам нужны помощники по структурированному рассуждению, а инженерам полезны постоянные агенты разработки.",
+        "score": 0.5248093,
+        "raw_content": null
+      },
+      {
+        "url": "https://prompts.ai/ru/blog/best-ai-solutions-enterprises-2026.html",
+        "title": "Лучшие предприятия в области ИИ-решений 2026 года | Prompts.ai",
+        "content": "AI platforms are transforming enterprise workflows in 2026, enabling businesses to deploy autonomous agents that streamline operations, improve productivity, and ensure compliance. * Platforms must integrate seamlessly with existing systems, prioritize security, and provide clear cost transparency. This article reviews six leading AI platforms for enterprises in 2026, focusing on their ability to manage workflows, ensure governance, and scale effectively:. 1. prompts.ai – Multi-model orchestration with cost control and no-code tools. 2. AWS Bedrock AgentCore – AWS-native integration for businesses in the AWS ecosystem. Let’s explore how these tools can help U.S. enterprises unlock the full potential of AI. The platform is built around four key priorities for U.S. enterprises: interoperability with existing systems, strong governance for compliance, scalability to support growth, and clear cost management. The platform meets compliance standards such as SOC 2, ISO 27001, GDPR, and HIPAA, making it a strong choice for heavily regulated sectors in the U.S. These governance measures are further supported by the platform's scalability, adding to its appeal for enterprise use.",
+        "score": 0.5082762,
+        "raw_content": null
+      },
+      {
+        "url": "https://www.reddit.com/r/b2bmarketing/comments/1pz941p/top_5_ai_development_companies_to_watch_in_2026/?tl=ru",
+        "title": "Топ-5 компаний по разработке ИИ, за которыми стоит следить в ...",
+        "content": "OutX ai специализируется на решениях для социального мониторинга и аналитики на основе ИИ. Они помогают компаниям отслеживать, анализировать и",
+        "score": 0.12092612,
+        "raw_content": null
+      }
+    ],
+    "response_time": 2.51,
+    "request_id": "83de6bb2-40b0-40b6-8e3a-a1c4b6d9dace"
+  }
+}

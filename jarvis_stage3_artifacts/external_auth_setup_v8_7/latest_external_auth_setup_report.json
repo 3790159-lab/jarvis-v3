@@ -1,0 +1,11 @@
+{
+    "schema":  "jarvis.external_auth_setup.v8_7_fixed_finish",
+    "created_at":  "2026-04-27T17:32:38",
+    "gh_after":  true,
+    "gh_auth_ok":  false,
+    "claude_cli_available":  true,
+    "claude_version":  "2.1.109 (Claude Code)",
+    "anthropic_api_key_after":  true,
+    "figma_token_after":  true,
+    "secrets_printed":  false
+}

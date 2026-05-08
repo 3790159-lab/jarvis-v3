@@ -1,0 +1,51 @@
+{
+  "task": "create_tool_chain_readiness_probe",
+  "created_at": "2026-04-27T17:54:27",
+  "ok": true,
+  "verdict": "ready_or_partial",
+  "results": [
+    {
+      "path": "app/services/tool_router.py",
+      "exists": true,
+      "kind": "file",
+      "size": 9903
+    },
+    {
+      "path": "app/services/tool_chain_planner.py",
+      "exists": true,
+      "kind": "file",
+      "size": 6209
+    },
+    {
+      "path": "app/services/tool_chain_executor.py",
+      "exists": true,
+      "kind": "file",
+      "size": 6087
+    },
+    {
+      "path": "app/routers/tool_chains.py",
+      "exists": true,
+      "kind": "file",
+      "size": 951
+    },
+    {
+      "path": "app/routers",
+      "exists": true,
+      "kind": "directory",
+      "size": null
+    },
+    {
+      "path": "tools",
+      "exists": true,
+      "kind": "directory",
+      "size": null
+    },
+    {
+      "path": "scripts",
+      "exists": true,
+      "kind": "directory",
+      "size": null
+    }
+  ],
+  "report": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\queue_executor_v6_5\\runs\\queue_exec_v6_5_20260427_175427\\create_tool_chain_readiness_probe\\tool_chain_readiness_report.md"
+}

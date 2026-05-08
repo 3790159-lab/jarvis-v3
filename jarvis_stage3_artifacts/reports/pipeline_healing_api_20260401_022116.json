@@ -1,0 +1,14 @@
+﻿{
+    "project_name":  "healing_api",
+    "project_path":  "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\generated_projects\\healing_api",
+    "status":  "success",
+    "started_at":  "2026-04-01T02:20:05",
+    "finished_at":  "2026-04-01T02:21:16",
+    "duration_seconds":  70.3,
+    "venv_created":  true,
+    "venv_reused":  false,
+    "tests_passed":  true,
+    "health_check_passed":  true,
+    "git_initialized":  true,
+    "port":  8012
+}

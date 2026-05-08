@@ -1,0 +1,22 @@
+{
+  "ok": true,
+  "pipeline": "jarvis_v5_super_hybrid",
+  "run_id": "20260428_154622",
+  "style_mode": "luxury_safe",
+  "prompt": "luxury hotel balcony, premium fashion editorial, realistic brunette influencer, golden hour, ocean view",
+  "image_generation_id": "cmoime2vx01qiw53wszpquesy",
+  "image_urls": [
+    "https://influencer-studio.b-cdn.net/production/cmohophfk007i3argbjj1o8k7/c2ab44d5-3156-4a4c-a527-d69d3e101082.png"
+  ],
+  "video_urls": [],
+  "credits_before": 6381,
+  "drive_folder_url": "https://drive.google.com/drive/folders/1zUcaJLifIB3fDAaiNLQG83Mhb4CuTG29",
+  "uploaded": [
+    {
+      "id": "1Q9ks0w-Asfw4B-2gHPhCjoXac5mHmZ1Q",
+      "name": "photo_001.png",
+      "webViewLink": "https://drive.google.com/file/d/1Q9ks0w-Asfw4B-2gHPhCjoXac5mHmZ1Q/view?usp=drivesdk"
+    }
+  ],
+  "local_run_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\jarvis_v5_content_factory\\run_20260428_154622"
+}
