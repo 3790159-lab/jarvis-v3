@@ -19,7 +19,10 @@ import asyncio
 import json
 import logging
 import os
+import queue
+import signal
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -65,6 +68,41 @@ _INVENTORY_BASH_COMMANDS = (
 
 _STATE_DIR = _ROOT / "state" / "runpod"
 _RUNS_DIR = _STATE_DIR / "inventory_runs"
+
+# How long to wait for user input on the SSH-fallback prompt before
+# auto-stopping. 8 minutes is generous for manual SSH inventory (3-5
+# typical) while keeping cost capped at <$0.05 on RTX 4000 Ada.
+_SSH_PAUSE_TIMEOUT_SEC: int = 8 * 60
+
+
+def _input_with_timeout(prompt: str, timeout_sec: float) -> str | None:
+    """Read a line from stdin with a timeout. Returns ``None`` on timeout.
+
+    Uses a daemon thread so the main thread can poll a queue. Cross-platform;
+    works on Windows where ``select()`` on stdin is unavailable. The thread
+    is daemonic and outlives a timeout — that's fine, the process exits
+    soon after anyway and the OS reaps it.
+    """
+    result_q: queue.Queue[str] = queue.Queue()
+
+    def _reader() -> None:
+        try:
+            line = input(prompt)
+            result_q.put(line)
+        except (EOFError, KeyboardInterrupt):
+            result_q.put("")
+
+    thread = threading.Thread(target=_reader, daemon=True)
+    thread.start()
+    try:
+        return result_q.get(timeout=timeout_sec)
+    except queue.Empty:
+        return None
+
+
+def _on_sigint(signum, frame) -> None:  # noqa: ARG001
+    logger.warning("SIGINT received — finally block will stop the Pod")
+    raise KeyboardInterrupt()
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -223,13 +261,14 @@ async def _wait_for_ready_with_progress(
 # ────────────────────────────────────────────────────────────────────────────
 
 
-def _interactive_ssh_pause(pod: PodInfo, rate_per_hour: float) -> None:
-    """Block until the user finishes manual SSH inventory.
+def _interactive_ssh_pause(pod: PodInfo, rate_per_hour: float) -> str:
+    """Block until user signals done/skip or the timeout fires.
 
     Called only when ``podExec`` is not available. The Pod is still
     running while the user works in another terminal; the surrounding
-    ``try/finally`` will stop it as soon as this function returns or
-    the user signals Ctrl+C.
+    ``try/finally`` will stop it as soon as this function returns.
+
+    Returns one of: ``"done"``, ``"skip"``, ``"timeout"``.
     """
     print()
     print("!" * 72)
@@ -244,16 +283,33 @@ def _interactive_ssh_pause(pod: PodInfo, rate_per_hour: float) -> None:
     print()
     print(f"Pod id            : {pod.id}")
     print(f"Current cost rate : ${rate_per_hour:.3f}/hr")
-    print("Pod will continue running until you signal completion.")
+    print(f"Auto-stop timeout : {_SSH_PAUSE_TIMEOUT_SEC // 60} minutes")
+    print("Pod will stop automatically if no input received.")
     print("!" * 72)
     print()
 
+    deadline = time.monotonic() + _SSH_PAUSE_TIMEOUT_SEC
     while True:
-        response = input(
-            "Type 'done' when inventory complete, or 'skip' to stop now: "
-        ).strip().lower()
+        remaining = max(0, int(deadline - time.monotonic()))
+        if remaining == 0:
+            logger.warning(
+                "SSH pause timed out after %ds — auto-stopping Pod",
+                _SSH_PAUSE_TIMEOUT_SEC,
+            )
+            return "timeout"
+        prompt = (
+            f"[~{remaining}s left] Type 'done' to stop the Pod now, "
+            f"'skip' for the same: "
+        )
+        response = _input_with_timeout(
+            prompt, timeout_sec=min(30.0, float(remaining))
+        )
+        if response is None:
+            # No input within poll window; loop and re-prompt with new countdown.
+            continue
+        response = response.strip().lower()
         if response in ("done", "skip", ""):
-            return
+            return response or "done"
         print(f"Unknown input '{response}'. Use 'done' or 'skip'.")
 
 
@@ -374,6 +430,7 @@ def _record_billing(
 
 
 async def _run() -> int:
+    signal.signal(signal.SIGINT, _on_sigint)
     config = get_runpod_config()
     _RUNS_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -463,7 +520,11 @@ async def _run() -> int:
 
         ok = await _inventory_via_exec(client, ready.id, raw_log)
         if not ok:
-            _interactive_ssh_pause(ready, chosen[2])
+            pause_result = _interactive_ssh_pause(ready, chosen[2])
+            if pause_result == "timeout":
+                logger.error(
+                    "Inventory pause timed out — Pod will be stopped by finally"
+                )
 
         return 0
 
