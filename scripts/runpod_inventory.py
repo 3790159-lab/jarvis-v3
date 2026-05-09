@@ -70,9 +70,9 @@ _STATE_DIR = _ROOT / "state" / "runpod"
 _RUNS_DIR = _STATE_DIR / "inventory_runs"
 
 # How long to wait for user input on the SSH-fallback prompt before
-# auto-stopping. 15 minutes is generous for manual SSH inventory while
-# keeping max cost at <$0.07 on RTX 4000 Ada.
-_SSH_PAUSE_TIMEOUT_SEC: int = 15 * 60
+# auto-stopping. 30 minutes — generous for full Wan2.2 i2v generation
+# (~10-15 min on PRO 6000) + manual SSH/inventory work.
+_SSH_PAUSE_TIMEOUT_SEC: int = 30 * 60
 
 
 def _input_with_timeout(prompt: str, timeout_sec: float) -> str | None:
@@ -119,13 +119,13 @@ def _gpu_lowest_price(gpu: GpuType) -> float | None:
 
 
 # Cards verified available in EU-RO-1 via RunPod web UI on 2026-05-09.
-# The substring matcher hits both id and display_name; order matters
-# (cheapest verified-available card first). Keep the legacy entries at
-# the end as fallbacks for other datacenters where they may be in stock.
+# The substring matcher hits both id and display_name; order matters.
+# PRO 6000 is first because Wan2.2 14B i2v needs ~80 GB VRAM — only
+# 96 GB cards are safe; smaller GPUs are kept as backups.
 _PREFERRED_GPU_NAMES: tuple[str, ...] = (
-    "RTX 4000 Ada",     # $0.26/hr, EU-RO-1 verified
-    "RTX 4090",         # $0.69/hr, EU-RO-1 verified
-    "RTX PRO 6000",     # $1.89/hr, EU-RO-1 verified — also our boevoi GPU for Wan2.2
+    "RTX PRO 6000",     # $1.89/hr, 96 GB — only safe choice for Wan2.2 14B i2v
+    "RTX 4090",         # $0.34/hr, 24 GB — backup, may OOM on 14B
+    "RTX 4000 Ada",     # $0.26/hr, 20 GB — backup, will OOM on 14B
     "RTX A4000",        # legacy fallback
     "RTX 3090",         # legacy fallback
 )
