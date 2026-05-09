@@ -63,6 +63,10 @@ class RunpodExecUnavailable(RunpodApiError):
     """
 
 
+class RunpodSupplyError(RunpodApiError):
+    """Raised when no GPU instances are available for the requested spec."""
+
+
 class ExecResult(BaseModel):
     """Outcome of :meth:`RunpodClient.execute_command`."""
 
@@ -335,7 +339,10 @@ class RunpodClient:
                 last_error = exc
                 if index + 1 >= len(attempts):
                     raise
-                if not _looks_like_gpu_unavailable(exc):
+                if not (
+                    isinstance(exc, RunpodSupplyError)
+                    or _looks_like_gpu_unavailable(exc)
+                ):
                     raise
                 logger.warning(
                     "Primary GPU '%s' unavailable (%s); retrying with fallback '%s'",
@@ -384,9 +391,18 @@ class RunpodClient:
             "  }"
             "}"
         )
-        data = await self._gql(
-            query, query_name="podFindAndDeployOnDemand", variables=variables
-        )
+        try:
+            data = await self._gql(
+                query, query_name="podFindAndDeployOnDemand", variables=variables
+            )
+        except RunpodApiError as exc:
+            if _looks_like_supply_constraint(exc):
+                raise RunpodSupplyError(
+                    f"no instances available for GPU '{gpu_type_id}' (original: {exc})",
+                    query_name="podFindAndDeployOnDemand",
+                    status_code=exc.status_code,
+                ) from exc
+            raise
         pod = data.get("podFindAndDeployOnDemand")
         if not pod:
             raise RunpodApiError(
@@ -535,4 +551,14 @@ def _looks_like_schema_missing(exc: RunpodApiError) -> bool:
         or "cannot query field" in text
         or "unknown type" in text
         or "unknown argument" in text
+    )
+
+
+def _looks_like_supply_constraint(exc: RunpodApiError) -> bool:
+    """Heuristic: GraphQL signalled there are no instances available."""
+    text = str(exc).lower()
+    return (
+        "supply_constraint" in text
+        or "no longer any instances" in text
+        or "no instances available" in text
     )

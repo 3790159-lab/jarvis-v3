@@ -36,6 +36,7 @@ from app.services.block_m2_video.runpod.runpod_client import (  # noqa: E402
     RunpodApiError,
     RunpodClient,
     RunpodExecUnavailable,
+    RunpodSupplyError,
 )
 from app.services.block_m2_video.runpod.runpod_config import (  # noqa: E402
     RunpodConfig,
@@ -79,25 +80,53 @@ def _gpu_lowest_price(gpu: GpuType) -> float | None:
     return min(candidates) if candidates else None
 
 
-def _pick_cheapest_gpu(
-    gpus: list[GpuType], *, preferred_id: str | None
-) -> GpuType:
-    """Pick the cheapest GPU offering by published per-hour price.
+# Cards that are usually in stock in EU-RO-1. Tried first regardless of
+# price, in this order. Substring match against id + display name.
+_PREFERRED_GPU_NAMES: tuple[str, ...] = (
+    "RTX A4000",
+    "RTX 3090",
+    "RTX 4000 Ada",
+)
 
-    If ``preferred_id`` matches an entry, prefer it over price as long as it
-    has at least one published price (so we know it's bookable).
+
+def _pick_gpu_candidates(
+    gpus: list[GpuType], *, top_n: int = 5
+) -> list[tuple[str, str, float]]:
+    """Return GPU candidates as ``(id, display_name, price)`` tuples.
+
+    Order: preferred cards (in declared order) first, then the top-N
+    cheapest offerings by published per-hour price. Cards with no
+    published price are skipped — we can't book what we can't price.
     """
-    if preferred_id:
-        for gpu in gpus:
-            if gpu.id == preferred_id and _gpu_lowest_price(gpu) is not None:
-                return gpu
-
-    priced = [(gpu, _gpu_lowest_price(gpu)) for gpu in gpus]
-    priced = [(gpu, price) for gpu, price in priced if price is not None]
+    priced: list[tuple[GpuType, float]] = []
+    for gpu in gpus:
+        price = _gpu_lowest_price(gpu)
+        if price is not None:
+            priced.append((gpu, price))
     if not priced:
         raise RuntimeError("No GPUs with published prices available")
     priced.sort(key=lambda item: item[1])
-    return priced[0][0]
+
+    candidates: list[tuple[GpuType, float]] = []
+    seen: set[str] = set()
+
+    def _matches_preferred(gpu: GpuType, needle: str) -> bool:
+        haystack = f"{gpu.id} {gpu.display_name or ''}".lower()
+        return needle.lower() in haystack
+
+    for needle in _PREFERRED_GPU_NAMES:
+        for gpu, price in priced:
+            if _matches_preferred(gpu, needle) and gpu.id not in seen:
+                candidates.append((gpu, price))
+                seen.add(gpu.id)
+                break
+
+    for gpu, price in priced[:top_n]:
+        if gpu.id not in seen:
+            candidates.append((gpu, price))
+            seen.add(gpu.id)
+
+    return [(gpu.id, gpu.display_name or gpu.id, price) for gpu, price in candidates]
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -107,35 +136,37 @@ def _pick_cheapest_gpu(
 
 def _print_plan(
     config: RunpodConfig,
-    gpu: GpuType,
+    candidates: list[tuple[str, str, float]],
     *,
     image: str,
     container_disk_gb: int,
-    estimated_cost_usd: float,
 ) -> None:
-    price = _gpu_lowest_price(gpu)
+    cheapest_price = min(price for _, _, price in candidates) if candidates else 0.0
+    estimated = cheapest_price * (5 / 60.0)
     print("\n" + "=" * 72)
     print("RunPod Phase 3.0 inventory plan")
     print("=" * 72)
     print(f"  Datacenter           : {config.datacenter}")
     print(f"  Network volume       : {config.network_volume_id}")
-    print(f"  GPU id               : {gpu.id}")
-    print(f"  GPU name             : {gpu.display_name}")
-    print(f"  GPU price (per hour) : ${price:.3f}" if price else "  GPU price            : ?")
     print(f"  Container image      : {image}")
     print(f"  Container disk (GB)  : {container_disk_gb}")
     print(f"  Lifetime ceiling     : {config.max_pod_lifetime_min} min "
           f"(guardian will force-stop)")
-    print(f"  Estimated cost       : ~${estimated_cost_usd:.3f} "
-          f"for a 5-minute run")
+    print(f"  Estimated cost       : ~${estimated:.3f} "
+          f"(cheapest candidate, 5 min)")
+    print(f"  GPU candidates       : {len(candidates)} (will be tried in order)")
+    for i, (gpu_id, gpu_name, price) in enumerate(candidates, 1):
+        print(f"    {i}. {gpu_name}  (${price:.3f}/hr)")
+        print(f"       id: {gpu_id}")
     print("=" * 72)
     print(
         "The script will:\n"
-        "  1. Start the Pod with the network volume mounted at /workspace.\n"
-        "  2. Wait up to 180s for status RUNNING.\n"
-        "  3. Try to inventory the volume via podExec (may not be available).\n"
-        "  4. ALWAYS stop the Pod in a finally block.\n"
-        "  5. Verify the Pod is EXITED/TERMINATED and log the cost.\n"
+        "  1. Try GPU candidates in order; on SUPPLY_CONSTRAINT, advance.\n"
+        "  2. Mount the network volume at /workspace on the chosen GPU.\n"
+        "  3. Wait up to 180s for status RUNNING.\n"
+        "  4. Try to inventory the volume via podExec (may not be available).\n"
+        "  5. ALWAYS stop the Pod in a finally block.\n"
+        "  6. Verify the Pod is EXITED/TERMINATED and log the cost.\n"
     )
 
 
@@ -278,18 +309,21 @@ async def _guaranteed_stop(
 
 
 def _record_billing(
-    pod_id: str, gpu: GpuType, started_at: float, stopped_at: float
+    pod_id: str,
+    gpu_id: str,
+    rate_per_hour: float,
+    started_at: float,
+    stopped_at: float,
 ) -> float:
     elapsed_hours = max(0.0, (stopped_at - started_at) / 3600.0)
-    rate = _gpu_lowest_price(gpu) or 0.0
-    cost = elapsed_hours * rate
+    cost = elapsed_hours * rate_per_hour
     _STATE_DIR.mkdir(parents=True, exist_ok=True)
     entry = {
         "ts": datetime.now(timezone.utc).isoformat(),
         "pod_id": pod_id,
-        "gpu_id": gpu.id,
+        "gpu_id": gpu_id,
         "elapsed_seconds": round(stopped_at - started_at, 1),
-        "rate_per_hour": rate,
+        "rate_per_hour": rate_per_hour,
         "cost_usd": round(cost, 4),
         "source": "phase3_inventory",
     }
@@ -298,7 +332,7 @@ def _record_billing(
     logger.info(
         "Billing recorded: %.0fs at $%.3f/hr = $%.4f",
         entry["elapsed_seconds"],
-        rate,
+        rate_per_hour,
         cost,
     )
     return cost
@@ -327,7 +361,7 @@ async def _run() -> int:
 
     pod: PodInfo | None = None
     started_at: float | None = None
-    chosen_gpu: GpuType | None = None
+    chosen: tuple[str, str, float] | None = None
     image = config.docker_image
     container_disk_gb = 5
 
@@ -335,16 +369,15 @@ async def _run() -> int:
     try:
         logger.info("Listing GPU offerings…")
         gpus = await client.list_gpu_types()
-        chosen_gpu = _pick_cheapest_gpu(gpus, preferred_id=None)
-        rate = _gpu_lowest_price(chosen_gpu) or 0.0
-        estimated = rate * (5 / 60.0)  # 5-min run
+        candidates = _pick_gpu_candidates(gpus)
+        if not candidates:
+            raise RuntimeError("No bookable GPU candidates found")
 
         _print_plan(
             config,
-            chosen_gpu,
+            candidates,
             image=image,
             container_disk_gb=container_disk_gb,
-            estimated_cost_usd=estimated,
         )
 
         if not _confirm():
@@ -352,18 +385,40 @@ async def _run() -> int:
             print("Aborted.")
             return 1
 
-        logger.info("Starting Pod with GPU=%s (%s)…",
-                    chosen_gpu.id, chosen_gpu.display_name)
-        pod = await client.start_pod(
-            name=f"jarvis-inventory-{timestamp}",
-            gpu_type_id=chosen_gpu.id,
-            image_name=image,
-            ports="22/tcp,8888/http",
-            container_disk_in_gb=container_disk_gb,
-            volume_in_gb=0,
-        )
+        last_supply_exc: RunpodSupplyError | None = None
+        for gpu_id, gpu_name, gpu_price in candidates:
+            logger.info(
+                "Trying %s (%s) at $%.3f/hr…", gpu_id, gpu_name, gpu_price
+            )
+            try:
+                pod = await client.start_pod(
+                    name=f"jarvis-inventory-{timestamp}",
+                    gpu_type_id=gpu_id,
+                    image_name=image,
+                    ports="22/tcp,8888/http",
+                    container_disk_in_gb=container_disk_gb,
+                    volume_in_gb=0,
+                )
+            except RunpodSupplyError as exc:
+                last_supply_exc = exc
+                logger.warning(
+                    "  -> no instances of %s available, trying next", gpu_name
+                )
+                continue
+            chosen = (gpu_id, gpu_name, gpu_price)
+            break
+
+        if pod is None:
+            if last_supply_exc is not None:
+                raise last_supply_exc
+            raise RuntimeError("All candidate GPUs are out of stock")
+
+        assert chosen is not None
         started_at = time.time()
-        logger.info("Pod started: id=%s name=%s", pod.id, pod.name)
+        logger.info(
+            "Pod started on %s: id=%s name=%s", chosen[1], pod.id, pod.name
+        )
+        print(f"\n>>> Booked {chosen[1]} at ${chosen[2]:.3f}/hr (pod {pod.id})")
 
         logger.info("Waiting for Pod to reach RUNNING (timeout 180s)…")
         ready = await _wait_for_ready_with_progress(
@@ -393,8 +448,11 @@ async def _run() -> int:
     finally:
         stopped_at = time.time()
         summary = await _guaranteed_stop(client, pod)
-        if pod and started_at and chosen_gpu:
-            cost = _record_billing(pod.id, chosen_gpu, started_at, stopped_at)
+        if pod and started_at and chosen:
+            gpu_id, _gpu_name, rate = chosen
+            cost = _record_billing(
+                pod.id, gpu_id, rate, started_at, stopped_at
+            )
             elapsed = stopped_at - started_at
             print("\n" + "=" * 72)
             print(
@@ -402,7 +460,10 @@ async def _run() -> int:
                 f"final_status={summary.get('final_status')}, cost ~${cost:.4f}"
             )
             print("=" * 72)
-        await client.aclose()
+        try:
+            await client.aclose()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("client.aclose() raised: %s", exc)
         logging.getLogger().removeHandler(file_handler)
         file_handler.close()
 

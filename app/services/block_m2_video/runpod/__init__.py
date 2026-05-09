@@ -8,6 +8,7 @@ from .runpod_client import (
     RunpodApiError,
     RunpodClient,
     RunpodExecUnavailable,
+    RunpodSupplyError,
 )
 from .runpod_guardian import CheckResult, RunpodGuardian
 
@@ -20,6 +21,7 @@ __all__ = [
     "RunpodApiError",
     "RunpodClient",
     "RunpodExecUnavailable",
+    "RunpodSupplyError",
     "CheckResult",
     "RunpodGuardian",
 ]

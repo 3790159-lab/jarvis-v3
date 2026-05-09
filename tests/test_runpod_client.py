@@ -18,6 +18,7 @@ from app.services.block_m2_video.runpod.runpod_client import (
     RunpodApiError,
     RunpodClient,
     RunpodExecUnavailable,
+    RunpodSupplyError,
     _mask_key,
 )
 from app.services.block_m2_video.runpod.runpod_config import RunpodConfig
@@ -199,6 +200,27 @@ async def test_start_pod_uses_network_volume_id():
     assert variables["gpuTypeId"] == "NVIDIA RTX TEST PRIMARY"
     assert variables["imageName"] == "runpod/test:latest"
     assert variables["gpuCount"] == 1
+
+
+@pytest.mark.anyio
+async def test_start_pod_raises_supply_error_on_supply_constraint():
+    """SUPPLY_CONSTRAINT errors are surfaced as RunpodSupplyError, not generic."""
+    payload = {
+        "errors": [
+            {
+                "message": "There are no longer any instances available...",
+                "extensions": {"code": "SUPPLY_CONSTRAINT"},
+            }
+        ]
+    }
+    # start_pod tries primary then fallback; both must fail to surface the error.
+    client, _ = _client_with_responses(
+        _make_response(payload),
+        _make_response(payload),
+    )
+
+    with pytest.raises(RunpodSupplyError):
+        await client.start_pod(name="x", gpu_type_id="X")
 
 
 @pytest.mark.anyio
