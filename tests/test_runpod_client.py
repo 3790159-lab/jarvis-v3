@@ -187,6 +187,17 @@ def _start_pod_response(pod_id: str = "pod_started") -> dict:
 
 
 @pytest.mark.anyio
+async def test_start_pod_passes_volume_mount_path():
+    """volumeMountPath must default to /workspace; RunPod fails without it."""
+    client, post = _client_with_responses(_make_response(_start_pod_response()))
+
+    await client.start_pod(name="test", gpu_type_id="X")
+
+    body = post.await_args.kwargs["json"]
+    assert body["variables"]["input"]["volumeMountPath"] == "/workspace"
+
+
+@pytest.mark.anyio
 async def test_start_pod_uses_network_volume_id():
     client, post = _client_with_responses(_make_response(_start_pod_response()))
 

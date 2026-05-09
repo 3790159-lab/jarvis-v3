@@ -70,9 +70,9 @@ _STATE_DIR = _ROOT / "state" / "runpod"
 _RUNS_DIR = _STATE_DIR / "inventory_runs"
 
 # How long to wait for user input on the SSH-fallback prompt before
-# auto-stopping. 8 minutes is generous for manual SSH inventory (3-5
-# typical) while keeping cost capped at <$0.05 on RTX 4000 Ada.
-_SSH_PAUSE_TIMEOUT_SEC: int = 8 * 60
+# auto-stopping. 15 minutes is generous for manual SSH inventory while
+# keeping max cost at <$0.07 on RTX 4000 Ada.
+_SSH_PAUSE_TIMEOUT_SEC: int = 15 * 60
 
 
 def _input_with_timeout(prompt: str, timeout_sec: float) -> str | None:

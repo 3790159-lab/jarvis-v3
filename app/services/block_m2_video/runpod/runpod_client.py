@@ -310,6 +310,7 @@ class RunpodClient:
         ports: str = "8188/http,22/tcp",
         container_disk_in_gb: int = 50,
         volume_in_gb: int = 0,
+        volume_mount_path: str = "/workspace",
         env: dict[str, str] | None = None,
     ) -> PodInfo:
         """Start a Pod with the configured network volume attached.
@@ -317,6 +318,10 @@ class RunpodClient:
         If the primary ``gpu_type_id`` is unavailable (RunPod returns an
         error containing 'gpu' or 'unavailable'), retry once with the
         configured fallback GPU and emit a WARNING log.
+
+        ``volume_mount_path`` is required by the RunPod Docker daemon
+        whenever a network volume is attached — otherwise the pod fails
+        to start with ``field Target must not be empty``.
         """
         primary = gpu_type_id or self._config.gpu_type_id
         attempts: list[str] = [primary]
@@ -333,6 +338,7 @@ class RunpodClient:
                     ports=ports,
                     container_disk_in_gb=container_disk_in_gb,
                     volume_in_gb=volume_in_gb,
+                    volume_mount_path=volume_mount_path,
                     env=env or {},
                 )
             except RunpodApiError as exc:
@@ -364,6 +370,7 @@ class RunpodClient:
         ports: str,
         container_disk_in_gb: int,
         volume_in_gb: int,
+        volume_mount_path: str,
         env: dict[str, str],
     ) -> PodInfo:
         env_payload = [{"key": k, "value": v} for k, v in env.items()]
@@ -376,6 +383,7 @@ class RunpodClient:
                 "ports": ports,
                 "containerDiskInGb": container_disk_in_gb,
                 "volumeInGb": volume_in_gb,
+                "volumeMountPath": volume_mount_path,
                 "networkVolumeId": self._config.network_volume_id,
                 "dataCenterId": self._config.datacenter,
                 "env": env_payload,
