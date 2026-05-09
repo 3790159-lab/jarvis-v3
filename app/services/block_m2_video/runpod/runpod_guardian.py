@@ -24,6 +24,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from app.services.notifications import TelegramNotifier, get_default_notifier
+
 from .runpod_client import PodInfo, RunpodApiError, RunpodClient
 from .runpod_config import RunpodConfig
 
@@ -55,6 +57,7 @@ class RunpodGuardian:
         config: RunpodConfig,
         *,
         state_dir: Path | None = None,
+        notifier: TelegramNotifier | None = None,
     ) -> None:
         self._client = client
         self._config = config
@@ -62,6 +65,7 @@ class RunpodGuardian:
         self._guardian_log = self._state_dir / "guardian.jsonl"
         self._billing_log = self._state_dir / "billing.jsonl"
         self._state_dir.mkdir(parents=True, exist_ok=True)
+        self._notifier = notifier if notifier is not None else get_default_notifier()
 
         self._task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
@@ -148,6 +152,10 @@ class RunpodGuardian:
                 ok = await self._safe_stop(pod.id, reason="lifetime_exceeded")
                 if ok:
                     result.stopped_for_lifetime.append(pod.id)
+                await self._notify(
+                    f"⏱️ Pod {pod.id} stopped: uptime {uptime:.0f}s "
+                    f"exceeded limit {max_lifetime_sec}s"
+                )
                 self._record(
                     {
                         "ts": result.timestamp,
@@ -173,6 +181,11 @@ class RunpodGuardian:
                 )
                 stopped = await self.emergency_stop_all("daily budget exceeded")
                 result.emergency_stopped.extend(stopped)
+                await self._notify(
+                    f"🚨 Daily RunPod budget exceeded: ${spend:.2f} "
+                    f">= ${self._config.max_budget_usd_per_day:.2f}; "
+                    f"stopped {len(stopped)} pod(s)"
+                )
                 self._record(
                     {
                         "ts": result.timestamp,
@@ -276,6 +289,15 @@ class RunpodGuardian:
                 }
             )
             return False
+
+    async def _notify(self, text: str) -> None:
+        """Best-effort Telegram alert. Logs and swallows any failure."""
+        if not self._notifier.is_configured():
+            return
+        try:
+            await self._notifier.send_async(text, prefix="🛡️ RunPod guardian")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Guardian notification failed: %s", exc)
 
     def _record(self, entry: dict[str, Any]) -> None:
         try:
