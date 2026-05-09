@@ -45,7 +45,7 @@ from app.services.block_m2_video.runpod.runpod_config import (  # noqa: E402
 
 logger = logging.getLogger("runpod_inventory")
 
-_INVENTORY_CMD = (
+_INVENTORY_BASH_COMMANDS = (
     "echo '=== ComfyUI ===' && ls -la /workspace/ComfyUI 2>/dev/null | head -5; "
     "echo '=== Models size ===' && du -sh /workspace/ComfyUI/models 2>/dev/null; "
     "echo '=== Diffusion models ===' "
@@ -223,16 +223,38 @@ async def _wait_for_ready_with_progress(
 # ────────────────────────────────────────────────────────────────────────────
 
 
-def _ssh_hint(pod: PodInfo) -> str:
-    """Best-effort SSH hint for the user when auto-exec is unavailable."""
-    return (
-        f"Pod id: {pod.id}\n"
-        f"Open RunPod console -> Pods -> {pod.name or pod.id}\n"
-        f"Click 'Connect' for the SSH command. Then run:\n"
-        f"  {_INVENTORY_CMD}\n"
-        f"Save the output before re-running this script "
-        f"(this run will stop the Pod momentarily)."
+def _interactive_ssh_pause(pod: PodInfo, rate_per_hour: float) -> None:
+    """Block until the user finishes manual SSH inventory.
+
+    Called only when ``podExec`` is not available. The Pod is still
+    running while the user works in another terminal; the surrounding
+    ``try/finally`` will stop it as soon as this function returns or
+    the user signals Ctrl+C.
+    """
+    print()
+    print("!" * 72)
+    print("podExec did not work in this account/schema.")
+    print(
+        f"Pod is RUNNING. Open RunPod console → Pods → "
+        f"{pod.name or pod.id}"
     )
+    print("Click 'Connect' button for the SSH command. Then in SSH run:")
+    print()
+    print(_INVENTORY_BASH_COMMANDS)
+    print()
+    print(f"Pod id            : {pod.id}")
+    print(f"Current cost rate : ${rate_per_hour:.3f}/hr")
+    print("Pod will continue running until you signal completion.")
+    print("!" * 72)
+    print()
+
+    while True:
+        response = input(
+            "Type 'done' when inventory complete, or 'skip' to stop now: "
+        ).strip().lower()
+        if response in ("done", "skip", ""):
+            return
+        print(f"Unknown input '{response}'. Use 'done' or 'skip'.")
 
 
 async def _inventory_via_exec(
@@ -240,7 +262,7 @@ async def _inventory_via_exec(
 ) -> bool:
     """Run the inventory command via podExec. Returns True if it produced output."""
     try:
-        result = await client.execute_command(pod_id, _INVENTORY_CMD)
+        result = await client.execute_command(pod_id, _INVENTORY_BASH_COMMANDS)
     except RunpodExecUnavailable as exc:
         logger.warning("podExec unavailable: %s", exc)
         return False
@@ -441,11 +463,7 @@ async def _run() -> int:
 
         ok = await _inventory_via_exec(client, ready.id, raw_log)
         if not ok:
-            print("\n" + "!" * 72)
-            print("podExec did not work in this account/schema.")
-            print("Pod will be stopped in a moment. To inventory by hand next time:")
-            print(_ssh_hint(ready))
-            print("!" * 72)
+            _interactive_ssh_pause(ready, chosen[2])
 
         return 0
 
