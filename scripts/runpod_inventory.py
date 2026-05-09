@@ -80,12 +80,16 @@ def _gpu_lowest_price(gpu: GpuType) -> float | None:
     return min(candidates) if candidates else None
 
 
-# Cards that are usually in stock in EU-RO-1. Tried first regardless of
-# price, in this order. Substring match against id + display name.
+# Cards verified available in EU-RO-1 via RunPod web UI on 2026-05-09.
+# The substring matcher hits both id and display_name; order matters
+# (cheapest verified-available card first). Keep the legacy entries at
+# the end as fallbacks for other datacenters where they may be in stock.
 _PREFERRED_GPU_NAMES: tuple[str, ...] = (
-    "RTX A4000",
-    "RTX 3090",
-    "RTX 4000 Ada",
+    "RTX 4000 Ada",     # $0.26/hr, EU-RO-1 verified
+    "RTX 4090",         # $0.69/hr, EU-RO-1 verified
+    "RTX PRO 6000",     # $1.89/hr, EU-RO-1 verified — also our boevoi GPU for Wan2.2
+    "RTX A4000",        # legacy fallback
+    "RTX 3090",         # legacy fallback
 )
 
 
@@ -112,6 +116,10 @@ def _pick_gpu_candidates(
 
     def _matches_preferred(gpu: GpuType, needle: str) -> bool:
         haystack = f"{gpu.id} {gpu.display_name or ''}".lower()
+        if "sff" in haystack:
+            # Exclude small-form-factor variants — they trade VRAM for size
+            # and have different supply patterns than the full card.
+            return False
         return needle.lower() in haystack
 
     for needle in _PREFERRED_GPU_NAMES:
