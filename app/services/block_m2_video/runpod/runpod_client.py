@@ -55,6 +55,23 @@ class RunpodApiError(Exception):
         return " | ".join(parts)
 
 
+class RunpodExecUnavailable(RunpodApiError):
+    """Raised when the RunPod GraphQL endpoint does not expose ``podExec``.
+
+    The public RunPod API does not currently document an exec mutation;
+    callers should catch this and fall back to SSH or Jupyter.
+    """
+
+
+class ExecResult(BaseModel):
+    """Outcome of :meth:`RunpodClient.execute_command`."""
+
+    output: str = ""
+    exit_code: int | None = None
+
+    model_config = {"extra": "ignore"}
+
+
 class GpuType(BaseModel):
     """A GPU offering returned by ``gpuTypes`` in the RunPod API."""
 
@@ -437,6 +454,49 @@ class RunpodClient:
             query_name="wait_for_ready",
         )
 
+    async def execute_command(
+        self, pod_id: str, command: str
+    ) -> ExecResult:
+        """Run ``command`` on a running Pod via the GraphQL ``podExec`` mutation.
+
+        RunPod's public schema does not currently document an exec
+        mutation, so this call may fail with
+        :class:`RunpodExecUnavailable`. Callers should handle that case
+        by falling back to SSH or Jupyter.
+        """
+        query = (
+            "mutation PodExec($input: PodExecInput!) {"
+            "  podExec(input: $input) { output exitCode }"
+            "}"
+        )
+        try:
+            data = await self._gql(
+                query,
+                query_name="podExec",
+                variables={"input": {"podId": pod_id, "command": command}},
+            )
+        except RunpodApiError as exc:
+            if _looks_like_schema_missing(exc):
+                raise RunpodExecUnavailable(
+                    f"podExec mutation not available on this RunPod account/schema "
+                    f"(original: {exc})",
+                    query_name="podExec",
+                    status_code=exc.status_code,
+                ) from exc
+            raise
+
+        payload = data.get("podExec")
+        if not isinstance(payload, dict):
+            raise RunpodApiError(
+                "podExec returned no payload", query_name="podExec"
+            )
+        return ExecResult.model_validate(
+            {
+                "output": payload.get("output") or "",
+                "exit_code": payload.get("exitCode"),
+            }
+        )
+
     async def get_pod_public_url(
         self, pod_id: str, port: int = 8188
     ) -> str | None:
@@ -465,3 +525,14 @@ def _looks_like_gpu_unavailable(exc: RunpodApiError) -> bool:
 def _looks_like_not_found(exc: RunpodApiError) -> bool:
     text = str(exc).lower()
     return "not found" in text or "no such" in text or "does not exist" in text
+
+
+def _looks_like_schema_missing(exc: RunpodApiError) -> bool:
+    """Heuristic: GraphQL signalled the field/type does not exist."""
+    text = str(exc).lower()
+    return (
+        "graphql_validation_failed" in text
+        or "cannot query field" in text
+        or "unknown type" in text
+        or "unknown argument" in text
+    )

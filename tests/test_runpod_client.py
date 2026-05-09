@@ -17,6 +17,7 @@ from pydantic import SecretStr
 from app.services.block_m2_video.runpod.runpod_client import (
     RunpodApiError,
     RunpodClient,
+    RunpodExecUnavailable,
     _mask_key,
 )
 from app.services.block_m2_video.runpod.runpod_config import RunpodConfig
@@ -256,6 +257,44 @@ async def test_stop_pod_returns_true_on_success():
 
 
 # ── logging masks the API key ────────────────────────────────────────────────
+
+
+# ── execute_command ──────────────────────────────────────────────────────────
+
+
+@pytest.mark.anyio
+async def test_execute_command_returns_exec_result():
+    payload = {
+        "data": {"podExec": {"output": "hello world\n", "exitCode": 0}}
+    }
+    client, post = _client_with_responses(_make_response(payload))
+
+    result = await client.execute_command("pod_x", "echo hello world")
+
+    assert result.output == "hello world\n"
+    assert result.exit_code == 0
+    body = post.await_args.kwargs["json"]
+    assert "podExec" in body["query"]
+    assert body["variables"]["input"] == {
+        "podId": "pod_x",
+        "command": "echo hello world",
+    }
+
+
+@pytest.mark.anyio
+async def test_execute_command_raises_unavailable_on_schema_error():
+    payload = {
+        "errors": [
+            {
+                "message": 'Cannot query field "podExec" on type "Mutation".',
+                "extensions": {"code": "GRAPHQL_VALIDATION_FAILED"},
+            }
+        ]
+    }
+    client, _ = _client_with_responses(_make_response(payload))
+
+    with pytest.raises(RunpodExecUnavailable):
+        await client.execute_command("pod_x", "echo hi")
 
 
 @pytest.mark.anyio
