@@ -6,15 +6,19 @@ import logging
 import re
 from pathlib import Path
 
+import httpx
+
 from app.services.block_m2_video.engines.engine_protocol import (
     GenerationMode,
     VideoRequest,
+    new_generation_id,
 )
 from app.services.block_m2_video.engines.history import (
     get_last_generation,
     save_result,
 )
 from app.services.block_m2_video.engines.router import EngineRouter
+from app.services.block_m2_video.generation_history import GenerationHistory
 from app.services.block_m_common.persona_storage import PersonaStorage
 
 logger = logging.getLogger(__name__)
@@ -33,9 +37,11 @@ class PersonaVideoHandler:
         self,
         router: EngineRouter | None = None,
         storage: PersonaStorage | None = None,
+        history: GenerationHistory | None = None,
     ) -> None:
         self.router = router or EngineRouter()
         self.storage = storage or PersonaStorage()
+        self.history = history or GenerationHistory()
 
     # ── parsing ─────────────────────────────────────────────────────────────
 
@@ -89,8 +95,11 @@ class PersonaVideoHandler:
 
     # ── persona resolution ──────────────────────────────────────────────────
 
-    async def _resolve_persona(self, persona_name: str) -> tuple[str, Path]:
-        """Find persona id by name and return (persona_id, latest_photo_path)."""
+    async def _resolve_persona_id(self, persona_name: str) -> str:
+        """Case-insensitive lookup of ``persona_id`` by display name.
+
+        Raises ``ValueError`` if no persona matches.
+        """
         personas = await self.storage.list_personas()
         target = persona_name.strip().lower()
         match = next(
@@ -99,25 +108,61 @@ class PersonaVideoHandler:
         )
         if match is None:
             raise ValueError(f"Persona '{persona_name}' not found")
-        persona_id = match.persona_id
+        return match.persona_id
 
-        photos_dir = Path("state/personas") / persona_id / "photos"
-        if not photos_dir.exists():
-            raise ValueError(
-                f"No photos directory for persona '{persona_name}'. "
-                f"Run /persona_photo first."
-            )
-        photos = sorted(
-            photos_dir.glob("*.png"),
-            key=lambda p: p.stat().st_mtime,
-            reverse=True,
+    async def _latest_photo_url(self, persona_id: str) -> str:
+        """Return the latest photo URL for ``persona_id`` from history.jsonl.
+
+        Order of preference:
+
+        1. Most recent ``kind == "photo"`` record's ``output_url``.
+        2. Otherwise the most recent record's ``input_url`` (source photo
+           of a prior video generation).
+
+        Raises ``ValueError`` if no usable URL is found.
+        """
+        records = await self.history.list_recent(persona_id, limit=50)
+        photo_records = [r for r in records if r.kind == "photo" and r.output_url]
+        if photo_records:
+            return photo_records[0].output_url
+
+        for rec in records:
+            if rec.input_url:
+                return rec.input_url
+
+        raise ValueError(
+            f"No photo or video history found for persona {persona_id!r}. "
+            f"Generate a photo first via /persona_photo."
         )
-        if not photos:
-            raise ValueError(
-                f"No photos found for persona '{persona_name}'. "
-                f"Run /persona_photo first."
-            )
-        return persona_id, photos[0]
+
+    async def _download_to(self, url: str, dest: Path) -> None:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            dest.write_bytes(resp.content)
+        logger.info("Downloaded input photo %s -> %s", url, dest)
+
+    async def _resolve_persona(
+        self, persona_name: str, *, generation_id: str
+    ) -> tuple[str, Path]:
+        """Resolve persona by name and stage its latest photo locally.
+
+        Returns ``(persona_id, local_input_path)``. The local file lives
+        at ``state/personas/videos/{persona_id}/{generation_id}/input_source.png``
+        so it is preserved alongside the resulting video.
+        """
+        persona_id = await self._resolve_persona_id(persona_name)
+        url = await self._latest_photo_url(persona_id)
+
+        local_path = (
+            Path("state/personas/videos")
+            / persona_id
+            / generation_id
+            / "input_source.png"
+        )
+        await self._download_to(url, local_path)
+        return persona_id, local_path
 
     # ── commands ────────────────────────────────────────────────────────────
 
@@ -128,7 +173,10 @@ class PersonaVideoHandler:
         to Telegram.
         """
         parsed = self.parse_command(text)
-        persona_id, input_image = await self._resolve_persona(parsed["persona_name"])
+        generation_id = new_generation_id()
+        persona_id, input_image = await self._resolve_persona(
+            parsed["persona_name"], generation_id=generation_id
+        )
 
         request = VideoRequest(
             persona_id=persona_id,
@@ -138,6 +186,7 @@ class PersonaVideoHandler:
             seconds=parsed["seconds"],
             seed=parsed["seed"],
             mode=parsed["mode"],
+            generation_id=generation_id,
         )
 
         engine = await self.router.select(parsed["mode"])
@@ -167,7 +216,10 @@ class PersonaVideoHandler:
         if len(parts) < 2:
             raise ValueError("Usage: /persona_video_redo <name>")
         persona_name = parts[1].strip()
-        persona_id, input_image = await self._resolve_persona(persona_name)
+        generation_id = new_generation_id()
+        persona_id, input_image = await self._resolve_persona(
+            persona_name, generation_id=generation_id
+        )
 
         last = get_last_generation(persona_id)
         if not last:
@@ -182,6 +234,7 @@ class PersonaVideoHandler:
             seconds=last["seconds"],
             seed=last["seed"],
             mode=mode,
+            generation_id=generation_id,
         )
         engine = await self.router.select(mode)
         logger.info(
