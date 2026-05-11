@@ -118,16 +118,24 @@ def _gpu_lowest_price(gpu: GpuType) -> float | None:
     return min(candidates) if candidates else None
 
 
-# Cards verified available in EU-RO-1 via RunPod web UI on 2026-05-09.
-# The substring matcher hits both id and display_name; order matters.
-# PRO 6000 is first because Wan2.2 14B i2v needs ~80 GB VRAM — only
-# 96 GB cards are safe; smaller GPUs are kept as backups.
+# Ordered by suitability for Wan 2.2 14B i2v workflow.
+# Requires ~24-48 GB VRAM minimum; 80+ GB ideal for no offloading.
+# Cards listed before "RTX 4090" can safely run the full pipeline.
+# Cards from "RTX 4090" onwards are fallbacks with OOM risk via wanBlockswap.
 _PREFERRED_GPU_NAMES: tuple[str, ...] = (
-    "RTX PRO 6000",     # $1.89/hr, 96 GB — only safe choice for Wan2.2 14B i2v
-    "RTX 4090",         # $0.34/hr, 24 GB — backup, may OOM on 14B
-    "RTX 4000 Ada",     # $0.26/hr, 20 GB — backup, will OOM on 14B
-    "RTX A4000",        # legacy fallback
-    "RTX 3090",         # legacy fallback
+    "RTX PRO 6000",        # 96 GB, ideal, ~$1.89/hr
+    "H200",                 # 141 GB, overkill, ~$4.00/hr
+    "H100 NVL",             # 94 GB, ~$2.69/hr
+    "H100 SXM",             # 80 GB, ~$2.69/hr
+    "H100 PCIe",            # 80 GB, ~$2.39/hr
+    "A100 SXM",             # 80 GB, ~$1.39/hr
+    "A100 PCIe",            # 80 GB, ~$1.19/hr
+    "L40S",                 # 48 GB, ~$1.22/hr
+    "RTX 6000 Ada",         # 48 GB, ~$1.22/hr
+    "L40",                  # 48 GB, ~$1.00/hr
+    "A40",                  # 48 GB, ~$0.50-0.70/hr (cheapest big VRAM)
+    "RTX 4090",             # 24 GB, fallback only, OOM risk
+    "RTX 4000 Ada",         # 20 GB, last resort
 )
 
 
