@@ -118,24 +118,27 @@ def _gpu_lowest_price(gpu: GpuType) -> float | None:
     return min(candidates) if candidates else None
 
 
-# Ordered by suitability for Wan 2.2 14B i2v workflow.
-# Requires ~24-48 GB VRAM minimum; 80+ GB ideal for no offloading.
-# Cards listed before "RTX 4090" can safely run the full pipeline.
-# Cards from "RTX 4090" onwards are fallbacks with OOM risk via wanBlockswap.
+# Ordered by suitability for Wan 2.2 14B i2v workflow, with actual
+# RunPod pricing snapshot (community/secure) folded in. Cheaper big-VRAM
+# options first; 24 GB cards remain as last-resort fallbacks.
 _PREFERRED_GPU_NAMES: tuple[str, ...] = (
-    "RTX PRO 6000",        # 96 GB, ideal, ~$1.89/hr
-    "H200",                 # 141 GB, overkill, ~$4.00/hr
-    "H100 NVL",             # 94 GB, ~$2.69/hr
-    "H100 SXM",             # 80 GB, ~$2.69/hr
-    "H100 PCIe",            # 80 GB, ~$2.39/hr
-    "A100 SXM",             # 80 GB, ~$1.39/hr
-    "A100 PCIe",            # 80 GB, ~$1.19/hr
-    "L40S",                 # 48 GB, ~$1.22/hr
-    "RTX 6000 Ada",         # 48 GB, ~$1.22/hr
-    "L40",                  # 48 GB, ~$1.00/hr
-    "A40",                  # 48 GB, ~$0.50-0.70/hr (cheapest big VRAM)
-    "RTX 4090",             # 24 GB, fallback only, OOM risk
-    "RTX 4000 Ada",         # 20 GB, last resort
+    "NVIDIA H200 NVL",      # 143 GB, $0.50/hr community — top pick
+    "RTX PRO 6000 MaxQ",    # 96 GB, $0.50/hr secure
+    "RTX PRO 6000 WK",      # 96 GB, $1.69/hr (Workstation Edition)
+    "RTX PRO 6000",         # 96 GB, $1.69/hr (catches PRO 6000 generic)
+    "A100 PCIe",            # 80 GB, $1.19/hr — cheaper than PRO 6000
+    "A100 SXM",             # 80 GB, $1.39/hr
+    "H100 NVL",             # 94 GB, $2.59/hr
+    "H100 PCIe",            # 80 GB, $1.99/hr
+    "H100 SXM",             # 80 GB, $2.69/hr
+    "RTX A6000",            # 48 GB, $0.33/hr — cheapest big VRAM
+    "A40",                  # 48 GB, $0.35/hr
+    "RTX 6000 Ada",         # 48 GB, $0.74/hr
+    "L40",                  # 48 GB, $0.69/hr
+    "L40S",                 # 48 GB, $0.79/hr
+    "PRO 6000 MIG 48GB",    # 48 GB MIG slice
+    "RTX 4090",             # 24 GB fallback
+    "RTX 4000 Ada",         # 20 GB last resort
 )
 
 
