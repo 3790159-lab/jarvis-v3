@@ -261,6 +261,27 @@ def _send_photo_url(chat_id: str, url: str, caption: str = "") -> None:
     })
 
 
+def _send_local_video(chat_id, path, caption: str = "") -> None:
+    """Upload a local MP4 to Telegram via multipart sendVideo.
+
+    Used by Block M.2 Phase A handlers which save videos to
+    ``state/personas/videos/...``.
+    """
+    import requests as _req
+    from pathlib import Path as _Path
+    p = _Path(path)
+    if not p.exists():
+        send(str(chat_id), f"⚠️ Video file not found: {p}")
+        return
+    with p.open("rb") as fh:
+        _req.post(
+            f"{TG}/sendVideo",
+            data={"chat_id": str(chat_id), "caption": caption[:1024] if caption else ""},
+            files={"video": (p.name, fh, "video/mp4")},
+            timeout=300,
+        )
+
+
 def backend_get(path: str, timeout: int = 60) -> Dict[str, Any]:
     return http_json("GET", BACKEND + path, timeout=timeout)
 
@@ -3803,19 +3824,43 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
         return
 
     if cmd == "/persona_video":
+        # Phase A: route to the new PersonaVideoHandler (Replicate engine).
         try:
             _r_pv = str(Path(__file__).parent.parent)
             import sys as _sys_pv
             if _r_pv not in _sys_pv.path:
                 _sys_pv.path.insert(0, _r_pv)
-            from app.handlers.persona_handler import (
-                init_bot as _persona_init_pv,
-                handle_persona_video as _hpv,
+            import asyncio as _asyncio_pv
+            from app.handlers.persona_video_handler import PersonaVideoHandler
+            _handler = PersonaVideoHandler()
+            _full_text = f"/persona_video {query}".strip()
+            _result = _asyncio_pv.run(
+                _handler.handle_video(_full_text, int(chat_id))
             )
-            _persona_init_pv(send, _send_photo_url)
-            _hpv(int(chat_id), query)
+            send(chat_id, _result["summary"])
+            _send_local_video(chat_id, _result["output_path"])
         except Exception as _pve:
             send(chat_id, f"Ошибка: {_pve}")
+        return
+
+    if cmd == "/persona_video_redo":
+        # Phase A: replay last Phase A generation for the persona.
+        try:
+            _r_pvr = str(Path(__file__).parent.parent)
+            import sys as _sys_pvr
+            if _r_pvr not in _sys_pvr.path:
+                _sys_pvr.path.insert(0, _r_pvr)
+            import asyncio as _asyncio_pvr
+            from app.handlers.persona_video_handler import PersonaVideoHandler
+            _handler_r = PersonaVideoHandler()
+            _full_text_r = f"/persona_video_redo {query}".strip()
+            _result_r = _asyncio_pvr.run(
+                _handler_r.handle_redo(_full_text_r, int(chat_id))
+            )
+            send(chat_id, _result_r["summary"])
+            _send_local_video(chat_id, _result_r["output_path"])
+        except Exception as _pvre:
+            send(chat_id, f"Ошибка: {_pvre}")
         return
 
     if cmd == "/persona_redo":
