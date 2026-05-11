@@ -100,10 +100,21 @@ class PersonaVideoHandler:
 
         Raises ``ValueError`` if no persona matches.
         """
+        raw_codes = " ".join(f"U+{ord(c):04X}" for c in persona_name)
+        logger.info(
+            "Persona lookup: query=%r codepoints=[%s]",
+            persona_name, raw_codes
+        )
         personas = await self.storage.list_personas()
+        for p in personas:
+            p_codes = " ".join(f"U+{ord(c):04X}" for c in p.name)
+            logger.info(
+                "  candidate: id=%s name=%r codepoints=[%s]",
+                p.persona_id, p.name, p_codes,
+            )
         target = persona_name.strip().lower()
         match = next(
-            (p for p in personas if (p.name or "").lower() == target),
+            (p for p in personas if p.name.strip().lower() == target),
             None,
         )
         if match is None:
