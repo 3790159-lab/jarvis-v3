@@ -73,7 +73,12 @@ def save_result(result: VideoResult, request: VideoRequest) -> None:
 
 
 def get_last_generation(persona_id: str) -> dict | None:
-    """Return the most recent generation metadata for ``persona_id`` or ``None``."""
+    """Return the most recent generation metadata for ``persona_id`` or ``None``.
+
+    Falls through to older directories if the newest one lacks
+    ``metadata.json`` — this handles concurrent writes (a fresh gen
+    directory exists but ``save_result`` has not yet written metadata).
+    """
     persona_dir = HISTORY_ROOT / persona_id
     if not persona_dir.exists():
         return None
@@ -82,12 +87,11 @@ def get_last_generation(persona_id: str) -> dict | None:
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
-    if not gens:
-        return None
-    meta_file = gens[0] / "metadata.json"
-    if not meta_file.exists():
-        return None
-    return json.loads(meta_file.read_text(encoding="utf-8"))
+    for gen in gens:
+        meta_file = gen / "metadata.json"
+        if meta_file.exists():
+            return json.loads(meta_file.read_text(encoding="utf-8"))
+    return None
 
 
 def list_generations(persona_id: str, limit: int = 20) -> list[dict]:
