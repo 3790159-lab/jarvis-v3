@@ -1,53 +1,278 @@
 {
-  "_comment": "TODO Phase B.2: replace this placeholder with the real workflow_v20.json from /workspace/jarvis_test/workflow_v20.json on the validated pod (vixlug88yeulai). Captured manually on 2026-05-14. Required nodes for the engine to wire into: '5' = LoadImage (inputs.image -> uploaded filename), '7' = positive CLIPTextEncode (inputs.text -> request.prompt), '16'/'18' = KSamplerAdvanced (inputs.noise_seed -> request.seed). The placeholder below preserves only that minimum surface so the engine code path can be unit-tested end-to-end.",
-  "5": {
-    "class_type": "LoadImage",
+  "1": {
     "inputs": {
-      "image": "PLACEHOLDER.png",
-      "upload": "image"
+      "unet_name": "Wan2.2_Remix_NSFW_i2v_14b_high_lighting_v2.0.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "UNETLoader (High Lighting)"
+    }
+  },
+  "2": {
+    "inputs": {
+      "unet_name": "Wan2.2_Remix_NSFW_i2v_14b_low_lighting_v2.0.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "UNETLoader (Low Lighting)"
+    }
+  },
+  "3": {
+    "inputs": {
+      "clip_name": "nsfw_wan_umt5-xxl_fp8_scaled.safetensors",
+      "type": "wan",
+      "device": "cpu"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "CLIPLoader"
+    }
+  },
+  "4": {
+    "inputs": {
+      "vae_name": "Wan2.1_VAE.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "VAELoader"
+    }
+  },
+  "5": {
+    "inputs": {
+      "image": "input.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "LoadImage"
+    }
+  },
+  "6": {
+    "inputs": {
+      "image": [
+        "5",
+        0
+      ],
+      "width": 1024,
+      "height": 1024,
+      "upscale_method": "nearest-exact",
+      "keep_proportion": "resize",
+      "pad_color": "0, 0, 0",
+      "crop_position": "center",
+      "divisible_by": 16
+    },
+    "class_type": "ImageResizeKJv2",
+    "_meta": {
+      "title": "ImageResizeKJv2"
     }
   },
   "7": {
-    "class_type": "CLIPTextEncode",
     "inputs": {
-      "text": "PLACEHOLDER positive prompt",
-      "clip": ["38", 0]
+      "text": "A cinematic video clip",
+      "clip": [
+        "3",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Positive)"
+    }
+  },
+  "8": {
+    "inputs": {
+      "text": "\u8272\u8c03\u8273\u4e3d\uff0c\u8fc7\u66dd\uff0c\u9759\u6001\uff0c\u7ec6\u8282\u6a21\u7cca\u4e0d\u6e05\uff0c\u5b57\u5e55\uff0c\u98ce\u683c\uff0c\u4f5c\u54c1\uff0c\u753b\u4f5c\uff0c\u753b\u9762\uff0c\u9759\u6b62\uff0c\u6574\u4f53\u53d1\u7070\uff0c\u6700\u5dee\u8d28\u91cf\uff0c\u4f4e\u8d28\u91cf\uff0cJPEG\u538b\u7f29\u6b8b\u7559\uff0c\u4e11\u964b\u7684\uff0c\u6b8b\u7f3a\u7684\uff0c\u591a\u4f59\u7684\u624b\u6307\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u624b\u90e8\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u8138\u90e8\uff0c\u7578\u5f62\u7684\uff0c\u6bc1\u5bb9\u7684\uff0c\u5f62\u6001\u7578\u5f62\u7684\u80a2\u4f53\uff0c\u624b\u6307\u878d\u5408\uff0c\u9759\u6b62\u4e0d\u52a8\u7684\u753b\u9762\uff0c\u6742\u4e71\u7684\u80cc\u666f\uff0c\u4e09\u6761\u817f\uff0c\u80cc\u666f\u4eba\u5f88\u591a\uff0c\u5012\u7740\u8d70",
+      "clip": [
+        "3",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Negative)"
+    }
+  },
+  "13": {
+    "inputs": {
+      "shift": 8,
+      "model": [
+        "1",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingSD3",
+    "_meta": {
+      "title": "ModelSamplingSD3 (High)"
+    }
+  },
+  "14": {
+    "inputs": {
+      "shift": 8,
+      "model": [
+        "2",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingSD3",
+    "_meta": {
+      "title": "ModelSamplingSD3 (Low)"
+    }
+  },
+  "15": {
+    "inputs": {
+      "positive": [
+        "7",
+        0
+      ],
+      "negative": [
+        "8",
+        0
+      ],
+      "vae": [
+        "4",
+        0
+      ],
+      "start_image": [
+        "6",
+        0
+      ],
+      "width": [
+        "6",
+        1
+      ],
+      "height": [
+        "6",
+        2
+      ],
+      "length": 121,
+      "batch_size": 1,
+      "motion_amplitude": 1.4,
+      "color_protect": true,
+      "correct_strength": 0.01
+    },
+    "class_type": "PainterI2VAdvanced",
+    "_meta": {
+      "title": "PainterI2VAdvanced"
     }
   },
   "16": {
-    "class_type": "KSamplerAdvanced",
     "inputs": {
-      "noise_seed": 0,
-      "steps": 20,
-      "cfg": 6.0,
-      "sampler_name": "euler",
-      "scheduler": "normal",
-      "model": ["50", 0],
-      "positive": ["7", 0],
-      "negative": ["8", 0],
-      "latent_image": ["55", 0],
+      "model": [
+        "13",
+        0
+      ],
+      "positive": [
+        "15",
+        0
+      ],
+      "negative": [
+        "15",
+        1
+      ],
+      "latent_image": [
+        "15",
+        4
+      ],
       "add_noise": "enable",
+      "noise_seed": 793718524748683,
+      "steps": 8,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
       "start_at_step": 0,
-      "end_at_step": 10,
+      "end_at_step": 4,
       "return_with_leftover_noise": "enable"
+    },
+    "class_type": "KSamplerAdvanced",
+    "_meta": {
+      "title": "KSampler (First Pass - High)"
+    }
+  },
+  "17": {
+    "inputs": {
+      "any_input": [
+        "16",
+        0
+      ],
+      "empty_cache": true,
+      "gc_collect": true,
+      "unload_all_models": false
+    },
+    "class_type": "VRAM_Debug",
+    "_meta": {
+      "title": "VRAM_Debug"
     }
   },
   "18": {
-    "class_type": "KSamplerAdvanced",
     "inputs": {
-      "noise_seed": 0,
-      "steps": 20,
-      "cfg": 6.0,
-      "sampler_name": "euler",
-      "scheduler": "normal",
-      "model": ["51", 0],
-      "positive": ["7", 0],
-      "negative": ["8", 0],
-      "latent_image": ["16", 0],
+      "model": [
+        "14",
+        0
+      ],
+      "positive": [
+        "15",
+        2
+      ],
+      "negative": [
+        "15",
+        3
+      ],
+      "latent_image": [
+        "17",
+        0
+      ],
       "add_noise": "disable",
-      "start_at_step": 10,
-      "end_at_step": 20,
+      "noise_seed": 793718524748683,
+      "steps": 8,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "start_at_step": 4,
+      "end_at_step": 10000,
       "return_with_leftover_noise": "disable"
+    },
+    "class_type": "KSamplerAdvanced",
+    "_meta": {
+      "title": "KSampler (Second Pass - Low)"
+    }
+  },
+  "19": {
+    "inputs": {
+      "samples": [
+        "18",
+        0
+      ],
+      "vae": [
+        "4",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAEDecode"
+    }
+  },
+  "21": {
+    "inputs": {
+      "images": [
+        "19",
+        0
+      ],
+      "frame_rate": 21,
+      "loop_count": 0,
+      "filename_prefix": "wan_output",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 19,
+      "save_metadata": true,
+      "trim_to_audio": false,
+      "pingpong": false,
+      "save_output": true
+    },
+    "class_type": "VHS_VideoCombine",
+    "_meta": {
+      "title": "VHS_VideoCombine"
     }
   }
 }
