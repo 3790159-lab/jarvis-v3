@@ -330,6 +330,111 @@ async def test_execute_command_raises_unavailable_on_schema_error():
         await client.execute_command("pod_x", "echo hi")
 
 
+# ── get_pod_public_url ───────────────────────────────────────────────────────
+
+
+def _pod_response(
+    *,
+    pod_id: str = "pod_x",
+    desired_status: str = "RUNNING",
+    ports: list[dict] | None = None,
+) -> dict:
+    """GraphQL ``pod(input: …)`` response builder for public-URL tests."""
+    return {
+        "data": {
+            "pod": {
+                "id": pod_id,
+                "name": "test-pod",
+                "desiredStatus": desired_status,
+                "costPerHr": 0.79,
+                "imageName": "runpod/comfy:1",
+                "machineId": "m1",
+                "gpuCount": 1,
+                "lastStatusChange": None,
+                "runtime": {
+                    "uptimeInSeconds": 60,
+                    "ports": ports if ports is not None else [],
+                },
+            }
+        }
+    }
+
+
+@pytest.mark.anyio
+async def test_get_pod_public_url_returns_tcp_when_available():
+    """When a TCP forward exists for the target port, prefer it over proxy."""
+    ports = [
+        {
+            "ip": "213.173.105.6",
+            "isIpPublic": True,
+            "privatePort": 8188,
+            "publicPort": 30188,
+            "type": "tcp",
+        }
+    ]
+    client, _ = _client_with_responses(
+        _make_response(_pod_response(pod_id="2ouge0cfq45eyu", ports=ports))
+    )
+
+    url = await client.get_pod_public_url("2ouge0cfq45eyu", port=8188)
+
+    assert url == "http://213.173.105.6:30188"
+
+
+@pytest.mark.anyio
+async def test_get_pod_public_url_returns_https_proxy_when_no_tcp():
+    """When only an HTTP entry exists for the target port, return the proxy URL."""
+    ports = [
+        {
+            "ip": None,
+            "isIpPublic": False,
+            "privatePort": 8188,
+            "publicPort": None,
+            "type": "http",
+        },
+        {
+            "ip": "213.173.105.6",
+            "isIpPublic": True,
+            "privatePort": 22,
+            "publicPort": 30104,
+            "type": "tcp",
+        },
+    ]
+    client, _ = _client_with_responses(
+        _make_response(_pod_response(pod_id="2ouge0cfq45eyu", ports=ports))
+    )
+
+    url = await client.get_pod_public_url("2ouge0cfq45eyu", port=8188)
+
+    assert url == "https://2ouge0cfq45eyu-8188.proxy.runpod.net"
+
+
+@pytest.mark.anyio
+async def test_get_pod_public_url_returns_https_proxy_when_runtime_empty():
+    """Running pod with empty runtime.ports still gets the proxy URL by convention."""
+    client, _ = _client_with_responses(
+        _make_response(
+            _pod_response(
+                pod_id="2ouge0cfq45eyu", ports=[], desired_status="RUNNING"
+            )
+        )
+    )
+
+    url = await client.get_pod_public_url("2ouge0cfq45eyu", port=8188)
+
+    assert url == "https://2ouge0cfq45eyu-8188.proxy.runpod.net"
+
+
+@pytest.mark.anyio
+async def test_get_pod_public_url_returns_none_when_pod_missing():
+    """If the pod cannot be found, return ``None``."""
+    client, _ = _client_with_responses(_make_response({"data": {"pod": None}}))
+
+    url = await client.get_pod_public_url("does_not_exist", port=8188)
+
+    assert url is None
+
+
 @pytest.mark.anyio
 async def test_api_key_masked_in_logs(caplog):
     payload = {"data": {"myself": {"id": "u", "email": "x@y"}}}

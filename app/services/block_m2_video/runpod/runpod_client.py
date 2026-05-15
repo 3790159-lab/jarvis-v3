@@ -524,17 +524,60 @@ class RunpodClient:
     async def get_pod_public_url(
         self, pod_id: str, port: int = 8188
     ) -> str | None:
+        """Resolve the externally reachable URL for ``port`` on ``pod_id``.
+
+        RunPod exposes pod services in two shapes:
+
+        1. **TCP forward** — a high random port on the datacenter's public
+           IP (legacy / explicit ``<port>/tcp`` config).
+        2. **HTTP proxy** — a stable HTTPS URL under
+           ``<pod-id>-<port>.proxy.runpod.net`` (the default for HTTP
+           services such as ComfyUI on 8188).
+
+        Prefer the TCP forward when it is advertised (lower latency from
+        the datacenter); otherwise fall back to the proxy URL, trusting
+        RunPod's naming convention if ``runtime.ports`` has not yet
+        populated the explicit entry.
+        """
         pod = await self.get_pod(pod_id)
-        if pod is None or not pod.runtime:
+        if pod is None:
             return None
-        ports = pod.runtime.get("ports") or []
+
+        ports = (pod.runtime or {}).get("ports") or []
+
         for entry in ports:
-            if entry.get("privatePort") == port and entry.get("isIpPublic"):
+            if (
+                entry.get("privatePort") == port
+                and entry.get("isIpPublic") is True
+                and entry.get("type") == "tcp"
+            ):
                 ip = entry.get("ip")
                 public_port = entry.get("publicPort")
-                proto = "https" if entry.get("type") == "http" else "http"
                 if ip and public_port:
-                    return f"{proto}://{ip}:{public_port}"
+                    url = f"http://{ip}:{public_port}"
+                    logger.info(
+                        "Resolved pod %s port %d via TCP forward: %s",
+                        pod_id,
+                        port,
+                        url,
+                    )
+                    return url
+
+        has_http_entry = any(
+            entry.get("privatePort") == port and entry.get("type") == "http"
+            for entry in ports
+        )
+        pod_running = (pod.desired_status or "").upper() == "RUNNING"
+        if has_http_entry or pod_running:
+            url = f"https://{pod_id}-{port}.proxy.runpod.net"
+            logger.info(
+                "Resolved pod %s port %d via RunPod HTTP proxy: %s",
+                pod_id,
+                port,
+                url,
+            )
+            return url
+
         return None
 
 
