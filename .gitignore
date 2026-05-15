@@ -25,3 +25,8 @@ creds/
 *_oauth_token*.json
 *.pid
 bot_heartbeat.txt
+
+# Block M.2 smoke test fixtures and local run logs
+data/test_inputs/
+scripts/smoke_test_*.log
+scripts/runpod_recreate_*.log
