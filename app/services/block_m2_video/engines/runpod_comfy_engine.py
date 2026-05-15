@@ -1,20 +1,474 @@
 # -*- coding: utf-8 -*-
-"""STUB for the RunPod ComfyUI engine. Real implementation lands in Phase B."""
+"""RunPod ComfyUI engine — Wan 2.2 i2v on a managed RunPod pod.
+
+Phase B implementation. The pipeline is:
+
+1. Validate the request and resolve a generation_id.
+2. Find or spawn a ``jarvis-m2-*`` pod, wait for it to reach RUNNING.
+3. Upload the input image to ComfyUI via ``/upload/image``.
+4. Inject the uploaded filename, prompt, and seed into the
+   ``wan22_i2v_v20`` workflow JSON, then submit via ``/prompt``.
+5. Poll ``/history/{prompt_id}`` until completion.
+6. Download the resulting MP4 via ``/view`` and return a
+   :class:`VideoResult`.
+7. Stop the pod in a ``finally`` block.
+
+All RunPod-side errors are wrapped in :class:`RunpodComfyError` so the
+router can fall back to Replicate without inspecting RunPod internals.
+"""
 from __future__ import annotations
 
-from .engine_protocol import VideoRequest, VideoResult
+import asyncio
+import copy
+import json
+import logging
+import os
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+import httpx
+
+from ..runpod.runpod_client import (
+    PodInfo,
+    RunpodApiError,
+    RunpodClient,
+    RunpodSupplyError,
+)
+from ..runpod.runpod_config import RunpodConfig, get_runpod_config
+from .engine_protocol import VideoRequest, VideoResult, new_generation_id
+
+logger = logging.getLogger(__name__)
+
+
+_VALID_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
+_WORKFLOW_FILE = (
+    Path(__file__).resolve().parent / "workflows" / "wan22_i2v_v20.json"
+)
+_DEFAULT_OUTPUT_DIR = Path(r"C:\jarvis\data\block_m2_video\outputs")
+_DEFAULT_HTTP_TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=30.0, pool=5.0)
+_UPLOAD_TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=120.0, pool=5.0)
+_POD_NAME_PREFIX = "jarvis-m2-"
+_POD_READY_TIMEOUT_SEC = 600
+_GENERATE_POLL_INTERVAL_SEC = 15.0
+_GENERATE_POLL_TIMEOUT_SEC = 1800
+_MIN_OUTPUT_BYTES = 100 * 1024
+
+
+class RunpodComfyError(RuntimeError):
+    """Raised when the RunPod / ComfyUI generation pipeline fails."""
 
 
 class RunpodComfyEngine:
+    """HQ video engine — Wan 2.2 i2v on RunPod ComfyUI."""
+
     engine_name = "runpod_comfy"
+    model_name = "wan2.2-remix-i2v-14b"
+    workflow_version = "v20"
+
+    def __init__(
+        self,
+        config: RunpodConfig | None = None,
+        client: RunpodClient | None = None,
+        *,
+        output_dir: Path | None = None,
+        http_client: httpx.AsyncClient | None = None,
+        poll_interval_sec: float = _GENERATE_POLL_INTERVAL_SEC,
+        poll_timeout_sec: int = _GENERATE_POLL_TIMEOUT_SEC,
+        pod_ready_timeout_sec: int = _POD_READY_TIMEOUT_SEC,
+    ) -> None:
+        self._config = config
+        self._client = client
+        self._owns_client = client is None
+        self._output_dir = output_dir or _resolve_output_dir()
+        self._http_client = http_client
+        self._owns_http = http_client is None
+        self._poll_interval_sec = poll_interval_sec
+        self._poll_timeout_sec = poll_timeout_sec
+        self._pod_ready_timeout_sec = pod_ready_timeout_sec
+
+    # -- public surface -------------------------------------------------------
 
     async def is_available(self) -> bool:
-        # Phase B will probe actual GPU availability; for now report unavailable
-        # so the router always falls through to Replicate in ``auto`` mode.
-        return False
+        cfg = self._resolve_config()
+        if not cfg.network_volume_id:
+            logger.warning(
+                "RunpodComfyEngine.is_available: network_volume_id not set"
+            )
+            return False
+        client = self._get_client()
+        try:
+            gpus = await client.list_gpu_types()
+        except RunpodApiError as exc:
+            logger.warning("RunpodComfyEngine.is_available: %s", exc)
+            return False
+        wanted = {cfg.gpu_type_id}
+        if cfg.gpu_fallback_id:
+            wanted.add(cfg.gpu_fallback_id)
+        ids = {g.id for g in gpus}
+        ok = bool(wanted & ids)
+        if not ok:
+            logger.info(
+                "RunpodComfyEngine.is_available: none of %s present in %d gpu types",
+                wanted,
+                len(ids),
+            )
+        return ok
 
     async def generate(self, request: VideoRequest) -> VideoResult:
-        raise NotImplementedError(
-            "RunpodComfyEngine is a stub. Implementation comes in Phase B "
-            "after manual Wan 2.2 MP4 capture confirms output JSON structure."
+        start_time = time.monotonic()
+        self._validate_request(request)
+        generation_id = request.generation_id or new_generation_id()
+        logger.info(
+            "RunpodComfyEngine.generate: starting %s persona=%s seconds=%d",
+            generation_id,
+            request.persona_id,
+            request.seconds,
         )
+
+        client = self._get_client()
+        pod_id: str | None = None
+        pod: PodInfo | None = None
+
+        try:
+            pod, pod_id, reused = await self._find_or_start_pod(
+                client, generation_id
+            )
+            if not reused:
+                # TODO: Phase B.2 — actively run bootstrap.sh via execute_command
+                # and verify before proceeding (currently we trust the pod
+                # template's startup CMD to have run it).
+                pass
+
+            pod_url = await client.get_pod_public_url(pod_id, port=8188)
+            if not pod_url:
+                raise RunpodComfyError(
+                    f"pod {pod_id} has no public URL on port 8188"
+                )
+            logger.info("RunpodComfyEngine: ComfyUI reachable at %s", pod_url)
+
+            uploaded = await self._upload_image(pod_url, request.input_image_path)
+            workflow = self._build_workflow(uploaded, request)
+            prompt_id = await self._submit_prompt(pod_url, workflow)
+            history_entry = await self._poll_until_done(pod_url, prompt_id)
+            mp4_filename = self._extract_mp4_filename(history_entry, prompt_id)
+            output_path = await self._download_output(
+                pod_url, mp4_filename, generation_id
+            )
+
+            duration = time.monotonic() - start_time
+            cost = (
+                (duration / 3600.0) * pod.cost_per_hr
+                if pod and pod.cost_per_hr
+                else 0.0
+            )
+            logger.info(
+                "RunpodComfyEngine.generate: %s done in %.1fs cost=$%.4f -> %s",
+                generation_id,
+                duration,
+                cost,
+                output_path,
+            )
+            return VideoResult(
+                generation_id=generation_id,
+                persona_id=request.persona_id,
+                output_path=output_path,
+                engine=self.engine_name,
+                model=self.model_name,
+                seed=request.seed if request.seed is not None else 0,
+                cost_usd=cost,
+                duration_sec=duration,
+                timestamp=datetime.now(timezone.utc),
+                prompt=request.prompt,
+                seconds=request.seconds,
+                extra={
+                    "prompt_id": prompt_id,
+                    "pod_id": pod_id,
+                    "workflow_version": self.workflow_version,
+                },
+            )
+        except RunpodComfyError:
+            raise
+        except RunpodApiError as exc:
+            logger.error("RunpodComfyEngine: RunPod API error: %s", exc)
+            raise RunpodComfyError(f"RunPod API error: {exc}") from exc
+        except httpx.HTTPError as exc:
+            logger.error("RunpodComfyEngine: HTTP error: %s", exc)
+            raise RunpodComfyError(f"HTTP error: {exc}") from exc
+        finally:
+            if pod_id is not None:
+                try:
+                    await client.stop_pod(pod_id)
+                    logger.info(
+                        "RunpodComfyEngine: stopped pod %s after generation",
+                        pod_id,
+                    )
+                except Exception as exc:  # noqa: BLE001 - cleanup must not raise
+                    logger.warning(
+                        "RunpodComfyEngine: stop_pod(%s) failed: %s",
+                        pod_id,
+                        exc,
+                    )
+            await self._maybe_close()
+
+    # -- internals ------------------------------------------------------------
+
+    def _resolve_config(self) -> RunpodConfig:
+        if self._config is None:
+            self._config = get_runpod_config()
+        return self._config
+
+    def _get_client(self) -> RunpodClient:
+        if self._client is None:
+            self._client = RunpodClient(config=self._resolve_config())
+        return self._client
+
+    def _get_http(self) -> httpx.AsyncClient:
+        if self._http_client is None:
+            self._http_client = httpx.AsyncClient(timeout=_DEFAULT_HTTP_TIMEOUT)
+        return self._http_client
+
+    async def _maybe_close(self) -> None:
+        if self._owns_http and self._http_client is not None:
+            await self._http_client.aclose()
+            self._http_client = None
+        if self._owns_client and self._client is not None:
+            await self._client.aclose()
+            self._client = None
+
+    @staticmethod
+    def _validate_request(request: VideoRequest) -> None:
+        path = request.input_image_path
+        if not isinstance(path, Path):
+            path = Path(path)
+        if not path.exists():
+            raise ValueError(f"input_image_path does not exist: {path}")
+        if not path.is_file():
+            raise ValueError(f"input_image_path is not a file: {path}")
+        suffix = path.suffix.lower()
+        if suffix not in _VALID_IMAGE_SUFFIXES:
+            raise ValueError(
+                f"input_image_path has unsupported extension {suffix!r}; "
+                f"expected one of {sorted(_VALID_IMAGE_SUFFIXES)}"
+            )
+
+    async def _find_or_start_pod(
+        self, client: RunpodClient, generation_id: str
+    ) -> tuple[PodInfo, str, bool]:
+        try:
+            pods = await client.list_pods()
+        except RunpodApiError as exc:
+            raise RunpodComfyError(f"list_pods failed: {exc}") from exc
+
+        for existing in pods:
+            name = existing.name or ""
+            if not name.startswith(_POD_NAME_PREFIX):
+                continue
+            status = (existing.desired_status or "").upper()
+            if status == "RUNNING":
+                logger.info("Reusing existing pod %s", existing.id)
+                return existing, existing.id, True
+            logger.warning(
+                "Found existing pod %s in state %s; spawning a fresh one "
+                "(Phase B.2 will add resume)",
+                existing.id,
+                existing.desired_status,
+            )
+
+        new_name = f"{_POD_NAME_PREFIX}{generation_id}"
+        try:
+            pod = await client.start_pod(name=new_name)
+        except RunpodSupplyError as exc:
+            raise RunpodComfyError(
+                f"no GPU supply for pod {new_name}: {exc}"
+            ) from exc
+        except RunpodApiError as exc:
+            raise RunpodComfyError(f"start_pod failed: {exc}") from exc
+
+        try:
+            ready = await client.wait_for_ready(
+                pod.id, timeout_sec=self._pod_ready_timeout_sec
+            )
+        except RunpodApiError as exc:
+            raise RunpodComfyError(
+                f"pod {pod.id} did not reach RUNNING: {exc}"
+            ) from exc
+        return ready, ready.id, False
+
+    async def _upload_image(self, pod_url: str, image_path: Path) -> str:
+        http = self._get_http()
+        with image_path.open("rb") as fh:
+            files = {"image": (image_path.name, fh, "application/octet-stream")}
+            data = {"type": "input"}
+            response = await http.post(
+                f"{pod_url}/upload/image",
+                files=files,
+                data=data,
+                timeout=_UPLOAD_TIMEOUT,
+            )
+        if response.status_code >= 400:
+            raise RunpodComfyError(
+                f"/upload/image HTTP {response.status_code}: {response.text}"
+            )
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise RunpodComfyError(
+                f"/upload/image returned non-JSON: {exc}"
+            ) from exc
+        uploaded = payload.get("name") or image_path.name
+        logger.info("RunpodComfyEngine: uploaded image -> %s", uploaded)
+        return str(uploaded)
+
+    def _build_workflow(
+        self, uploaded_image: str, request: VideoRequest
+    ) -> dict[str, Any]:
+        try:
+            with _WORKFLOW_FILE.open("r", encoding="utf-8") as fh:
+                base = json.load(fh)
+        except FileNotFoundError as exc:
+            raise RunpodComfyError(
+                f"workflow file missing: {_WORKFLOW_FILE}"
+            ) from exc
+
+        workflow = copy.deepcopy(base)
+        workflow.pop("_comment", None)
+
+        load_image = workflow.get("5")
+        if not isinstance(load_image, dict) or "inputs" not in load_image:
+            raise RunpodComfyError(
+                "workflow node '5' (LoadImage) missing or malformed"
+            )
+        load_image["inputs"]["image"] = uploaded_image
+
+        positive = workflow.get("7")
+        if (
+            isinstance(positive, dict)
+            and isinstance(positive.get("inputs"), dict)
+            and request.prompt
+        ):
+            positive["inputs"]["text"] = request.prompt
+
+        if request.seed is not None:
+            for node in workflow.values():
+                if (
+                    isinstance(node, dict)
+                    and node.get("class_type") == "KSamplerAdvanced"
+                    and isinstance(node.get("inputs"), dict)
+                ):
+                    node["inputs"]["noise_seed"] = int(request.seed)
+        return workflow
+
+    async def _submit_prompt(
+        self, pod_url: str, workflow: dict[str, Any]
+    ) -> str:
+        http = self._get_http()
+        response = await http.post(
+            f"{pod_url}/prompt", json={"prompt": workflow}
+        )
+        if response.status_code >= 400:
+            raise RunpodComfyError(
+                f"/prompt HTTP {response.status_code}: {response.text}"
+            )
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise RunpodComfyError(f"/prompt returned non-JSON: {exc}") from exc
+        node_errors = payload.get("node_errors") or {}
+        if node_errors:
+            raise RunpodComfyError(f"/prompt node_errors: {node_errors}")
+        prompt_id = payload.get("prompt_id")
+        if not prompt_id:
+            raise RunpodComfyError(f"/prompt returned no prompt_id: {payload}")
+        logger.info("RunpodComfyEngine: submitted prompt_id=%s", prompt_id)
+        return str(prompt_id)
+
+    async def _poll_until_done(
+        self, pod_url: str, prompt_id: str
+    ) -> dict[str, Any]:
+        http = self._get_http()
+        deadline = time.monotonic() + self._poll_timeout_sec
+        while True:
+            response = await http.get(f"{pod_url}/history/{prompt_id}")
+            if response.status_code >= 400:
+                raise RunpodComfyError(
+                    f"/history HTTP {response.status_code}: {response.text}"
+                )
+            try:
+                payload = response.json()
+            except ValueError as exc:
+                raise RunpodComfyError(
+                    f"/history returned non-JSON: {exc}"
+                ) from exc
+
+            entry = payload.get(prompt_id) if isinstance(payload, dict) else None
+            if isinstance(entry, dict):
+                status = entry.get("status") or {}
+                if status.get("completed"):
+                    status_str = str(status.get("status_str", "")).lower()
+                    if status_str != "success":
+                        raise RunpodComfyError(
+                            f"prompt {prompt_id} finished status={status_str!r} "
+                            f"messages={status.get('messages')}"
+                        )
+                    return entry
+
+            if time.monotonic() >= deadline:
+                raise RunpodComfyError(
+                    f"prompt {prompt_id} did not finish within "
+                    f"{self._poll_timeout_sec}s"
+                )
+            await asyncio.sleep(self._poll_interval_sec)
+
+    @staticmethod
+    def _extract_mp4_filename(entry: dict[str, Any], prompt_id: str) -> str:
+        outputs = entry.get("outputs") or {}
+        for node_outputs in outputs.values():
+            if not isinstance(node_outputs, dict):
+                continue
+            for items in node_outputs.values():
+                if not isinstance(items, list):
+                    continue
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    fn = item.get("filename")
+                    if isinstance(fn, str) and fn.lower().endswith(".mp4"):
+                        return fn
+        raise RunpodComfyError(
+            f"no .mp4 in /history outputs for prompt {prompt_id}"
+        )
+
+    async def _download_output(
+        self, pod_url: str, filename: str, generation_id: str
+    ) -> Path:
+        http = self._get_http()
+        self._output_dir.mkdir(parents=True, exist_ok=True)
+        target = self._output_dir / f"{generation_id}.mp4"
+        params = {"filename": filename, "type": "output"}
+        response = await http.get(f"{pod_url}/view", params=params)
+        if response.status_code >= 400:
+            raise RunpodComfyError(
+                f"/view HTTP {response.status_code}: {response.text}"
+            )
+        target.write_bytes(response.content)
+        size = target.stat().st_size
+        if size < _MIN_OUTPUT_BYTES:
+            raise RunpodComfyError(
+                f"downloaded mp4 too small ({size} bytes) at {target}"
+            )
+        logger.info(
+            "RunpodComfyEngine: downloaded %s (%d bytes) -> %s",
+            filename,
+            size,
+            target,
+        )
+        return target
+
+
+def _resolve_output_dir() -> Path:
+    raw = os.environ.get("M2_OUTPUT_DIR")
+    if raw:
+        return Path(raw)
+    return _DEFAULT_OUTPUT_DIR

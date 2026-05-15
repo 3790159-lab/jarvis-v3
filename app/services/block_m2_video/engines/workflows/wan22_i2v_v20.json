@@ -1,0 +1,53 @@
+{
+  "_comment": "TODO Phase B.2: replace this placeholder with the real workflow_v20.json from /workspace/jarvis_test/workflow_v20.json on the validated pod (vixlug88yeulai). Captured manually on 2026-05-14. Required nodes for the engine to wire into: '5' = LoadImage (inputs.image -> uploaded filename), '7' = positive CLIPTextEncode (inputs.text -> request.prompt), '16'/'18' = KSamplerAdvanced (inputs.noise_seed -> request.seed). The placeholder below preserves only that minimum surface so the engine code path can be unit-tested end-to-end.",
+  "5": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "PLACEHOLDER.png",
+      "upload": "image"
+    }
+  },
+  "7": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "PLACEHOLDER positive prompt",
+      "clip": ["38", 0]
+    }
+  },
+  "16": {
+    "class_type": "KSamplerAdvanced",
+    "inputs": {
+      "noise_seed": 0,
+      "steps": 20,
+      "cfg": 6.0,
+      "sampler_name": "euler",
+      "scheduler": "normal",
+      "model": ["50", 0],
+      "positive": ["7", 0],
+      "negative": ["8", 0],
+      "latent_image": ["55", 0],
+      "add_noise": "enable",
+      "start_at_step": 0,
+      "end_at_step": 10,
+      "return_with_leftover_noise": "enable"
+    }
+  },
+  "18": {
+    "class_type": "KSamplerAdvanced",
+    "inputs": {
+      "noise_seed": 0,
+      "steps": 20,
+      "cfg": 6.0,
+      "sampler_name": "euler",
+      "scheduler": "normal",
+      "model": ["51", 0],
+      "positive": ["7", 0],
+      "negative": ["8", 0],
+      "latent_image": ["16", 0],
+      "add_noise": "disable",
+      "start_at_step": 10,
+      "end_at_step": 20,
+      "return_with_leftover_noise": "disable"
+    }
+  }
+}
