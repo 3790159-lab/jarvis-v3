@@ -23,9 +23,11 @@ from app.services.block_m2_video.engines.runpod_comfy_engine import (
     RunpodComfyError,
 )
 from app.services.block_m2_video.runpod.runpod_client import (
+    ExecResult,
     GpuType,
     PodInfo,
     RunpodApiError,
+    RunpodExecUnavailable,
 )
 from app.services.block_m2_video.runpod.runpod_config import RunpodConfig
 
@@ -187,6 +189,7 @@ async def test_generate_happy_path_with_mocks(tmp_path):
     )
     http.get = AsyncMock(
         side_effect=[
+            _json_response({"system": {"os": "linux"}}),  # /system_stats health check
             _json_response(history_entry),  # poll → completed immediately
             _bytes_response(mp4_bytes),  # /view
         ]
@@ -256,10 +259,14 @@ async def test_generate_stops_pod_on_failure(tmp_path):
             _json_response({"prompt_id": "pid_xyz", "node_errors": {}}),
         ]
     )
-    # Polling fails with an HTTP 500 — generation must abort, but stop_pod
-    # still has to fire from the finally block.
+    # First GET is the /system_stats health check; subsequent calls (the
+    # /history poll) fail with HTTP 500 — generation must abort, but
+    # stop_pod still has to fire from the finally block.
     http.get = AsyncMock(
-        return_value=_json_response({"err": "boom"}, status_code=500)
+        side_effect=[
+            _json_response({"system": {"os": "linux"}}),
+            _json_response({"err": "boom"}, status_code=500),
+        ]
     )
 
     engine = RunpodComfyEngine(
@@ -278,3 +285,189 @@ async def test_generate_stops_pod_on_failure(tmp_path):
     with pytest.raises(RunpodComfyError):
         await engine.generate(req)
     client.stop_pod.assert_awaited_once_with("pod_abc")
+
+
+# ── _find_or_start_pod: pod discovery branches ───────────────────────────────
+
+
+def _pod(
+    pod_id: str,
+    status: str,
+    last_change: str | None = None,
+    name: str = "jarvis-m2-x",
+) -> PodInfo:
+    return PodInfo.model_construct(
+        id=pod_id,
+        name=name,
+        desired_status=status,
+        last_status_change=last_change,
+    )
+
+
+@pytest.mark.anyio
+async def test_find_or_start_pod_reuses_newest_running_pod():
+    """When multiple RUNNING pods exist, pick the newest by last_status_change."""
+    old_running = _pod("pod_old", "RUNNING", "2026-05-10T10:00:00Z")
+    new_running = _pod("pod_new", "RUNNING", "2026-05-15T10:00:00Z")
+    other_pod = _pod("pod_other", "RUNNING", "2026-05-14T10:00:00Z", name="unrelated")
+
+    client = MagicMock()
+    client.list_pods = AsyncMock(return_value=[old_running, other_pod, new_running])
+    client.aclose = AsyncMock()
+
+    engine = RunpodComfyEngine(config=_make_config(), client=client)
+    pod, pod_id, reused = await engine._find_or_start_pod(client, "gen_test")
+
+    assert reused is True
+    assert pod_id == "pod_new"
+    assert pod is new_running
+    # Should not have tried to spawn or resume.
+    assert not hasattr(client, "start_pod") or not client.start_pod.called  # type: ignore[truthy-function]
+
+
+@pytest.mark.anyio
+async def test_find_or_start_pod_resumes_stopped_pod():
+    """No RUNNING pod but a STOPPED one exists -> resume it."""
+    stopped = _pod("pod_stop", "EXITED", "2026-05-15T08:00:00Z")
+    resumed = _pod("pod_stop", "RUNNING", "2026-05-16T08:00:00Z")
+    ready = _pod("pod_stop", "RUNNING", "2026-05-16T08:00:05Z")
+
+    client = MagicMock()
+    client.list_pods = AsyncMock(return_value=[stopped])
+    client.resume_pod = AsyncMock(return_value=resumed)
+    client.wait_for_ready = AsyncMock(return_value=ready)
+    client.start_pod = AsyncMock()
+    client.aclose = AsyncMock()
+
+    engine = RunpodComfyEngine(config=_make_config(), client=client)
+    pod, pod_id, reused = await engine._find_or_start_pod(client, "gen_xyz")
+
+    assert reused is False
+    assert pod_id == "pod_stop"
+    assert pod is ready
+    client.resume_pod.assert_awaited_once_with("pod_stop")
+    client.start_pod.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_find_or_start_pod_falls_through_to_spawn_when_resume_fails():
+    """resume_pod raising falls through to spawning a brand-new pod."""
+    stopped = _pod("pod_stop", "EXITED", "2026-05-15T08:00:00Z")
+    spawned = _pod("pod_new", "RUNNING", "2026-05-16T09:00:00Z")
+    ready = _pod("pod_new", "RUNNING", "2026-05-16T09:00:30Z")
+
+    client = MagicMock()
+    client.list_pods = AsyncMock(return_value=[stopped])
+    client.resume_pod = AsyncMock(side_effect=RunpodApiError("resume failed"))
+    client.start_pod = AsyncMock(return_value=spawned)
+    client.wait_for_ready = AsyncMock(return_value=ready)
+    client.aclose = AsyncMock()
+
+    engine = RunpodComfyEngine(config=_make_config(), client=client)
+    pod, pod_id, reused = await engine._find_or_start_pod(client, "gen_abc")
+
+    assert reused is False
+    assert pod_id == "pod_new"
+    assert pod is ready
+    client.resume_pod.assert_awaited_once_with("pod_stop")
+    client.start_pod.assert_awaited_once()
+    call_kwargs = client.start_pod.await_args.kwargs
+    assert call_kwargs.get("name") == "jarvis-m2-gen_abc"
+
+
+# ── _ensure_comfyui_alive: health check + auto-start ─────────────────────────
+
+
+@pytest.mark.anyio
+async def test_ensure_comfyui_alive_returns_immediately_when_healthy():
+    """If /system_stats returns 200 OK with JSON, no auto-start runs."""
+    client = MagicMock()
+    client.execute_command = AsyncMock()
+    client.aclose = AsyncMock()
+
+    http = MagicMock()
+    http.aclose = AsyncMock()
+    http.get = AsyncMock(
+        return_value=_json_response({"system": {"os": "linux"}}, status_code=200)
+    )
+
+    engine = RunpodComfyEngine(
+        config=_make_config(), client=client, http_client=http
+    )
+    await engine._ensure_comfyui_alive(client, "pod_abc", "http://test-pod:8188")
+
+    client.execute_command.assert_not_awaited()
+    http.get.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_ensure_comfyui_alive_starts_comfyui_when_down(monkeypatch):
+    """When the first probe fails, execute_command is called and we poll until alive."""
+    # Avoid real sleeps inside the polling loop.
+    async def _no_sleep(*_a, **_kw) -> None:
+        return None
+
+    import app.services.block_m2_video.engines.runpod_comfy_engine as engine_mod
+
+    monkeypatch.setattr(engine_mod.asyncio, "sleep", _no_sleep)
+
+    client = MagicMock()
+    client.execute_command = AsyncMock(
+        return_value=ExecResult(output="", exit_code=0)
+    )
+    client.aclose = AsyncMock()
+
+    http = MagicMock()
+    http.aclose = AsyncMock()
+    # First probe = HTTP error (down); second probe = alive.
+    http.get = AsyncMock(
+        side_effect=[
+            httpx.ConnectError("conn refused"),
+            _json_response({"system": {"os": "linux"}}, status_code=200),
+        ]
+    )
+
+    engine = RunpodComfyEngine(
+        config=_make_config(), client=client, http_client=http
+    )
+    await engine._ensure_comfyui_alive(client, "pod_abc", "http://test-pod:8188")
+
+    client.execute_command.assert_awaited_once()
+    cmd = client.execute_command.await_args.args[1]
+    assert "main.py" in cmd
+    assert "--port 8188" in cmd
+    assert http.get.await_count == 2
+
+
+@pytest.mark.anyio
+async def test_ensure_comfyui_alive_swallows_exec_unavailable(monkeypatch):
+    """If podExec is not in the schema, log+continue and keep polling."""
+    async def _no_sleep(*_a, **_kw) -> None:
+        return None
+
+    import app.services.block_m2_video.engines.runpod_comfy_engine as engine_mod
+
+    monkeypatch.setattr(engine_mod.asyncio, "sleep", _no_sleep)
+
+    client = MagicMock()
+    client.execute_command = AsyncMock(
+        side_effect=RunpodExecUnavailable("no podExec on schema")
+    )
+    client.aclose = AsyncMock()
+
+    http = MagicMock()
+    http.aclose = AsyncMock()
+    # First probe down, then alive on second probe (something else started it).
+    http.get = AsyncMock(
+        side_effect=[
+            httpx.ConnectError("conn refused"),
+            _json_response({"system": {"os": "linux"}}, status_code=200),
+        ]
+    )
+
+    engine = RunpodComfyEngine(
+        config=_make_config(), client=client, http_client=http
+    )
+    await engine._ensure_comfyui_alive(client, "pod_abc", "http://test-pod:8188")
+
+    client.execute_command.assert_awaited_once()

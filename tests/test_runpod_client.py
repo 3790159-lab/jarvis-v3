@@ -289,6 +289,55 @@ async def test_stop_pod_returns_true_on_success():
     assert ok is True
 
 
+# ── resume_pod ───────────────────────────────────────────────────────────────
+
+
+@pytest.mark.anyio
+async def test_resume_pod_returns_pod_info_on_success():
+    payload = {
+        "data": {
+            "podResume": {
+                "id": "pod_resumed",
+                "name": "jarvis-m2-test",
+                "desiredStatus": "RUNNING",
+                "costPerHr": 0.79,
+                "imageName": "runpod/test:latest",
+                "machineId": "m_y",
+                "gpuCount": 1,
+                "lastStatusChange": "2026-05-16T10:00:00Z",
+                "runtime": None,
+            }
+        }
+    }
+    client, post = _client_with_responses(_make_response(payload))
+
+    pod = await client.resume_pod("pod_resumed")
+
+    assert pod.id == "pod_resumed"
+    assert pod.desired_status == "RUNNING"
+    body = post.await_args.kwargs["json"]
+    assert "podResume" in body["query"]
+    assert body["variables"]["input"]["podId"] == "pod_resumed"
+    # Default config gpu_count is 1; mutation should carry it through.
+    assert body["variables"]["input"]["gpuCount"] == 1
+
+
+@pytest.mark.anyio
+async def test_resume_pod_raises_on_graphql_error():
+    payload = {
+        "errors": [
+            {
+                "message": 'Cannot query field "podResume" on type "Mutation".',
+                "extensions": {"code": "GRAPHQL_VALIDATION_FAILED"},
+            }
+        ]
+    }
+    client, _ = _client_with_responses(_make_response(payload))
+
+    with pytest.raises(RunpodApiError):
+        await client.resume_pod("pod_x")
+
+
 # ── logging masks the API key ────────────────────────────────────────────────
 
 

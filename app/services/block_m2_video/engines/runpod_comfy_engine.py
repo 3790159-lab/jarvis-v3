@@ -34,6 +34,7 @@ from ..runpod.runpod_client import (
     PodInfo,
     RunpodApiError,
     RunpodClient,
+    RunpodExecUnavailable,
     RunpodSupplyError,
 )
 from ..runpod.runpod_config import RunpodConfig, get_runpod_config
@@ -54,6 +55,9 @@ _POD_READY_TIMEOUT_SEC = 600
 _GENERATE_POLL_INTERVAL_SEC = 15.0
 _GENERATE_POLL_TIMEOUT_SEC = 1800
 _MIN_OUTPUT_BYTES = 100 * 1024
+_COMFYUI_STARTUP_TIMEOUT_SEC = 120
+_COMFYUI_HEALTH_TIMEOUT = httpx.Timeout(5.0)
+_COMFYUI_HEALTH_POLL_INTERVAL_SEC = 5.0
 
 
 class RunpodComfyError(RuntimeError):
@@ -146,7 +150,9 @@ class RunpodComfyEngine:
                 raise RunpodComfyError(
                     f"pod {pod_id} has no public URL on port 8188"
                 )
-            logger.info("RunpodComfyEngine: ComfyUI reachable at %s", pod_url)
+            logger.info("RunpodComfyEngine: pod URL resolved -> %s", pod_url)
+
+            await self._ensure_comfyui_alive(client, pod_id, pod_url)
 
             uploaded = await self._upload_image(pod_url, request.input_image_path)
             workflow = self._build_workflow(uploaded, request)
@@ -261,22 +267,54 @@ class RunpodComfyEngine:
         except RunpodApiError as exc:
             raise RunpodComfyError(f"list_pods failed: {exc}") from exc
 
-        for existing in pods:
-            name = existing.name or ""
-            if not name.startswith(_POD_NAME_PREFIX):
-                continue
-            status = (existing.desired_status or "").upper()
-            if status == "RUNNING":
-                logger.info("Reusing existing pod %s", existing.id)
-                return existing, existing.id, True
-            logger.warning(
-                "Found existing pod %s in state %s; spawning a fresh one "
-                "(Phase B.2 will add resume)",
-                existing.id,
-                existing.desired_status,
-            )
+        candidates = [
+            p for p in pods if (p.name or "").startswith(_POD_NAME_PREFIX)
+        ]
+        # Newest first: prefer last_status_change, fall back to id as a
+        # stable tiebreaker. RunPod pod ids are roughly time-ordered.
+        candidates.sort(
+            key=lambda p: (p.last_status_change or "", p.id or ""),
+            reverse=True,
+        )
 
+        # Priority 1: any RUNNING pod — reuse it.
+        for pod in candidates:
+            if (pod.desired_status or "").upper() == "RUNNING":
+                logger.info("Reusing pod %s", pod.id)
+                return pod, pod.id, True
+
+        # Priority 2: a STOPPED/EXITED pod — attempt to resume.
+        resumable_states = {"STOPPED", "EXITED"}
+        for pod in candidates:
+            status = (pod.desired_status or "").upper()
+            if status not in resumable_states:
+                continue
+            logger.info("Resuming pod %s (state=%s)", pod.id, status)
+            try:
+                resumed = await client.resume_pod(pod.id)
+            except RunpodApiError as exc:
+                logger.warning(
+                    "resume_pod(%s) failed: %s; trying next candidate",
+                    pod.id,
+                    exc,
+                )
+                continue
+            try:
+                ready = await client.wait_for_ready(
+                    resumed.id, timeout_sec=self._pod_ready_timeout_sec
+                )
+            except RunpodApiError as exc:
+                logger.warning(
+                    "wait_for_ready after resume(%s) failed: %s",
+                    pod.id,
+                    exc,
+                )
+                continue
+            return ready, ready.id, False
+
+        # Priority 3: spawn a fresh pod.
         new_name = f"{_POD_NAME_PREFIX}{generation_id}"
+        logger.info("Spawning new pod %s", new_name)
         try:
             pod = await client.start_pod(name=new_name)
         except RunpodSupplyError as exc:
@@ -295,6 +333,63 @@ class RunpodComfyEngine:
                 f"pod {pod.id} did not reach RUNNING: {exc}"
             ) from exc
         return ready, ready.id, False
+
+    async def _ensure_comfyui_alive(
+        self, client: RunpodClient, pod_id: str, pod_url: str
+    ) -> None:
+        """Verify ComfyUI is reachable; if not, attempt to start it on the pod."""
+        if await self._comfyui_alive(pod_url):
+            logger.info("ComfyUI alive at %s", pod_url)
+            return
+
+        logger.info(
+            "ComfyUI not responding on %s; attempting auto-start on pod %s",
+            pod_url,
+            pod_id,
+        )
+        try:
+            await client.execute_command(
+                pod_id,
+                "cd /workspace/ComfyUI && nohup python3 main.py "
+                "--listen 0.0.0.0 --port 8188 > /tmp/comfyui.log 2>&1 &",
+            )
+            logger.info("Started ComfyUI on pod %s", pod_id)
+        except RunpodExecUnavailable:
+            # TODO: requires runpod_client.execute_command — fall back to
+            # assuming ComfyUI is pre-started and just keep polling.
+            logger.warning(
+                "podExec unavailable on this account; cannot auto-start "
+                "ComfyUI on pod %s, will poll and hope for the best",
+                pod_id,
+            )
+        except RunpodApiError as exc:
+            raise RunpodComfyError(
+                f"failed to start ComfyUI on pod {pod_id}: {exc}"
+            ) from exc
+
+        deadline = time.monotonic() + _COMFYUI_STARTUP_TIMEOUT_SEC
+        while time.monotonic() < deadline:
+            if await self._comfyui_alive(pod_url):
+                logger.info("ComfyUI alive at %s", pod_url)
+                return
+            await asyncio.sleep(_COMFYUI_HEALTH_POLL_INTERVAL_SEC)
+        raise RunpodComfyError(f"ComfyUI failed to start on pod {pod_id}")
+
+    async def _comfyui_alive(self, pod_url: str) -> bool:
+        http = self._get_http()
+        try:
+            response = await http.get(
+                f"{pod_url}/system_stats", timeout=_COMFYUI_HEALTH_TIMEOUT
+            )
+        except httpx.HTTPError:
+            return False
+        if response.status_code != 200:
+            return False
+        try:
+            response.json()
+        except ValueError:
+            return False
+        return True
 
     async def _upload_image(self, pod_url: str, image_path: Path) -> str:
         http = self._get_http()

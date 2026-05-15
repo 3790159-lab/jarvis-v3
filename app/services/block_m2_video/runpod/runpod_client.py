@@ -438,6 +438,37 @@ class RunpodClient:
             raise
         return True
 
+    async def resume_pod(self, pod_id: str) -> PodInfo:
+        """Resume a stopped/exited pod. Returns updated :class:`PodInfo`.
+
+        Uses the ``podResume`` GraphQL mutation. If RunPod's schema has
+        diverged (rename, removed, or different input type), this will
+        surface as :class:`RunpodApiError` with a "Cannot query field"
+        message — verify the current schema via the RunPod GraphQL
+        Explorer if you see that.
+        """
+        # TODO: verify ``podResume`` / ``PodResumeInput`` against the current
+        # RunPod GraphQL schema if the API changes.
+        query = (
+            "mutation ResumePod($input: PodResumeInput!) {"
+            "  podResume(input: $input) {"
+            f"    {_POD_FIELDS}"
+            "  }"
+            "}"
+        )
+        variables = {
+            "input": {"podId": pod_id, "gpuCount": self._config.gpu_count}
+        }
+        data = await self._gql(
+            query, query_name="podResume", variables=variables
+        )
+        pod = data.get("podResume")
+        if not pod:
+            raise RunpodApiError(
+                "podResume returned null", query_name="podResume"
+            )
+        return PodInfo.from_api(pod)
+
     async def terminate_pod(self, pod_id: str) -> bool:
         query = (
             "mutation TerminatePod($input: PodTerminateInput!) {"
