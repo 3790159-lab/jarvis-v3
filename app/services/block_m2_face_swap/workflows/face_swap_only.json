@@ -1,0 +1,52 @@
+{
+  "_comment": "Block M.2.5 face-swap-only ComfyUI workflow. Node 1 = source face LoadImage, node 2 = target LoadImage, node 3 = ReActorFaceSwap (engine probes /object_info and falls back to ReActorFaceSwapOpt at submit time if needed), node 4 = SaveImage. Engine injects filenames into nodes 1 & 2.",
+  "1": {
+    "inputs": {
+      "image": "source.jpg"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "LoadImage (Source Face)"
+    }
+  },
+  "2": {
+    "inputs": {
+      "image": "target.jpg"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "LoadImage (Target)"
+    }
+  },
+  "3": {
+    "inputs": {
+      "enabled": true,
+      "input_image": ["2", 0],
+      "source_image": ["1", 0],
+      "swap_model": "inswapper_128.onnx",
+      "facedetection": "retinaface_resnet50",
+      "face_restore_model": "GFPGANv1.4.pth",
+      "face_restore_visibility": 1.0,
+      "codeformer_weight": 0.5,
+      "detect_gender_input": "no",
+      "detect_gender_source": "no",
+      "input_faces_index": "0",
+      "source_faces_index": "0",
+      "console_log_level": 1
+    },
+    "class_type": "ReActorFaceSwap",
+    "_meta": {
+      "title": "ReActorFaceSwap"
+    }
+  },
+  "4": {
+    "inputs": {
+      "images": ["3", 0],
+      "filename_prefix": "swap_output"
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "SaveImage"
+    }
+  }
+}
