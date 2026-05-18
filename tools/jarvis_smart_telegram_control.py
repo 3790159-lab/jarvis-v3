@@ -282,6 +282,162 @@ def _send_local_video(chat_id, path, caption: str = "") -> None:
         )
 
 
+# ── Block M.2 Phase C: /persona_video dispatch ──────────────────────────────
+
+_video_lock = None  # GenerationLock singleton; lazily created on first use
+
+
+def _get_video_lock():
+    global _video_lock
+    if _video_lock is None:
+        _r = str(Path(__file__).parent.parent)
+        import sys as _sys
+        if _r not in _sys.path:
+            _sys.path.insert(0, _r)
+        from app.services.block_m2_video.generation_lock import GenerationLock
+        _video_lock = GenerationLock()
+    return _video_lock
+
+
+def _persona_video_dispatch(
+    chat_id,
+    query: str,
+    *,
+    input_photo_path: Optional[str] = None,
+    command: str = "video",
+) -> None:
+    """Phase C entry point for ``/persona_video`` and ``/persona_video_redo``.
+
+    Runs the generation in a daemon thread so the Telegram polling loop is
+    never blocked for the ~5–12 min the engine takes. Holds a per-chat
+    :class:`GenerationLock` for the duration; second concurrent invocations
+    for the same chat get rejected with a friendly message.
+    """
+    import asyncio as _aio
+    import threading
+    from pathlib import Path as _Path
+
+    _r = str(Path(__file__).parent.parent)
+    import sys as _sys
+    if _r not in _sys.path:
+        _sys.path.insert(0, _r)
+
+    from app.handlers.persona_video_handler import PersonaVideoHandler
+    from app.services.block_m2_video.generation_lock import GenerationLockBusy
+
+    handler = PersonaVideoHandler()
+    chat_id_int = int(chat_id)
+    chat_id_s = str(chat_id)
+    lock = _get_video_lock()
+
+    # Bare /persona_video → help reply (cheap, no lock).
+    if command == "video" and not query.strip():
+        try:
+            help_text = _aio.run(handler.handle_help())
+        except Exception as exc:
+            help_text = f"❌ Не удалось получить справку: {exc}"
+        send(chat_id_s, help_text)
+        return
+
+    try:
+        token = lock.acquire(chat_id_int)
+    except GenerationLockBusy:
+        send(chat_id_s, "⏳ Уже идёт генерация. Дождитесь завершения.")
+        return
+
+    # Stage 1 — immediate ack (well under 1s, before the thread starts).
+    persona_hint = query.split(None, 1)[0] if query.strip() else "?"
+    send(chat_id_s, f"🎬 Принял задачу. Запускаю генерацию для «{persona_hint}»…")
+
+    def _progress(stage: str, payload: dict) -> None:
+        if stage == "persona_resolved":
+            send(
+                chat_id_s,
+                f"✅ Найдена персона: {payload.get('persona_name')} "
+                f"({payload.get('persona_id')})",
+            )
+        elif stage == "engine_selected":
+            send(
+                chat_id_s,
+                f"🎥 Engine: {payload.get('engine_name')} "
+                f"(mode={payload.get('mode')}). Генерирую видео (~5–12 мин)…",
+            )
+
+    def _run() -> None:
+        photo_path_obj = _Path(input_photo_path) if input_photo_path else None
+        try:
+            if command == "redo":
+                full_text = f"/persona_video_redo {query}".strip()
+                result = _aio.run(handler.handle_redo(
+                    full_text, chat_id_int,
+                    progress_cb=_progress,
+                    input_photo_path=photo_path_obj,
+                ))
+            else:
+                full_text = f"/persona_video {query}".strip()
+                result = _aio.run(handler.handle_video(
+                    full_text, chat_id_int,
+                    progress_cb=_progress,
+                    input_photo_path=photo_path_obj,
+                ))
+            send(chat_id_s, result["summary"])
+            _send_local_video(chat_id_s, result["output_path"])
+        except Exception as exc:
+            send(chat_id_s, f"❌ Ошибка: {exc}")
+        finally:
+            lock.release(token)
+
+    threading.Thread(
+        target=_run, daemon=True, name=f"persona_video_{chat_id_int}"
+    ).start()
+
+
+def _persona_video_intercept(chat_id: str, msg: Dict[str, Any]) -> bool:
+    """Route /persona_video with attached or replied-to photo.
+
+    Returns True if the message was handled here. The caller must skip its
+    normal dispatch when this returns True.
+    """
+    text = msg.get("text") or ""
+    caption = msg.get("caption") or ""
+    cmd = "/persona_video"
+
+    # Case 1: photo attached, caption begins with /persona_video.
+    if msg.get("photo") and caption.startswith(cmd):
+        photo = msg["photo"][-1]
+        file_id = photo.get("file_id")
+        if not file_id:
+            return False
+        local = _download_telegram_file(
+            file_id, f"persona_video_caption_{int(time.time())}.jpg"
+        )
+        if not local:
+            send(chat_id, "❌ Не удалось скачать прикреплённое фото.")
+            return True
+        query = caption[len(cmd):].strip()
+        _persona_video_dispatch(chat_id, query, input_photo_path=local)
+        return True
+
+    # Case 2: text command replying to a photo message.
+    reply = msg.get("reply_to_message") or {}
+    if text.startswith(cmd) and reply.get("photo"):
+        photo = reply["photo"][-1]
+        file_id = photo.get("file_id")
+        if not file_id:
+            return False
+        local = _download_telegram_file(
+            file_id, f"persona_video_reply_{int(time.time())}.jpg"
+        )
+        if not local:
+            send(chat_id, "❌ Не удалось скачать фото из ответа.")
+            return True
+        query = text[len(cmd):].strip()
+        _persona_video_dispatch(chat_id, query, input_photo_path=local)
+        return True
+
+    return False
+
+
 def backend_get(path: str, timeout: int = 60) -> Dict[str, Any]:
     return http_json("GET", BACKEND + path, timeout=timeout)
 
@@ -3824,43 +3980,12 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
         return
 
     if cmd == "/persona_video":
-        # Phase A: route to the new PersonaVideoHandler (Replicate engine).
-        try:
-            _r_pv = str(Path(__file__).parent.parent)
-            import sys as _sys_pv
-            if _r_pv not in _sys_pv.path:
-                _sys_pv.path.insert(0, _r_pv)
-            import asyncio as _asyncio_pv
-            from app.handlers.persona_video_handler import PersonaVideoHandler
-            _handler = PersonaVideoHandler()
-            _full_text = f"/persona_video {query}".strip()
-            _result = _asyncio_pv.run(
-                _handler.handle_video(_full_text, int(chat_id))
-            )
-            send(chat_id, _result["summary"])
-            _send_local_video(chat_id, _result["output_path"])
-        except Exception as _pve:
-            send(chat_id, f"Ошибка: {_pve}")
+        # Phase C: threaded dispatch with per-chat lock and progress stages.
+        _persona_video_dispatch(chat_id, query)
         return
 
     if cmd == "/persona_video_redo":
-        # Phase A: replay last Phase A generation for the persona.
-        try:
-            _r_pvr = str(Path(__file__).parent.parent)
-            import sys as _sys_pvr
-            if _r_pvr not in _sys_pvr.path:
-                _sys_pvr.path.insert(0, _r_pvr)
-            import asyncio as _asyncio_pvr
-            from app.handlers.persona_video_handler import PersonaVideoHandler
-            _handler_r = PersonaVideoHandler()
-            _full_text_r = f"/persona_video_redo {query}".strip()
-            _result_r = _asyncio_pvr.run(
-                _handler_r.handle_redo(_full_text_r, int(chat_id))
-            )
-            send(chat_id, _result_r["summary"])
-            _send_local_video(chat_id, _result_r["output_path"])
-        except Exception as _pvre:
-            send(chat_id, f"Ошибка: {_pvre}")
+        _persona_video_dispatch(chat_id, query, command="redo")
         return
 
     if cmd == "/persona_redo":
@@ -4506,6 +4631,10 @@ def process_update(upd: Dict[str, Any], media_group_buffer: Optional[Dict[str, A
     has_voice = bool(msg.get("voice") or msg.get("audio"))
     media_gid = msg.get("media_group_id")
 
+    # Block M.2 Phase C: /persona_video with attached or replied-to photo.
+    if chat_id == ALLOWED_CHAT_ID and _persona_video_intercept(chat_id, msg):
+        return
+
     if text:
         handle(chat_id, text)
     elif has_voice and chat_id == ALLOWED_CHAT_ID:
@@ -4704,6 +4833,13 @@ def _main_inner() -> None:
                 has_file = bool(msg.get("document") or msg.get("photo") or msg.get("video"))
                 has_voice = bool(msg.get("voice") or msg.get("audio"))
                 media_gid = msg.get("media_group_id")
+
+                # Block M.2 Phase C: /persona_video with attached/replied photo.
+                if (
+                    str(chat_id) == ALLOWED_CHAT_ID
+                    and _persona_video_intercept(chat_id, msg)
+                ):
+                    continue
 
                 if text:
                     handle(chat_id, text)
