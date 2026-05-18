@@ -13,8 +13,10 @@ Backend selection at first call:
    (higher false-positive rate) but no extra deps. Logged when used so we
    know quality is reduced.
 
-The active backend is recorded in :data:`VALIDATOR_BACKEND` after the first
-call; tests can inspect it.
+The active backend is recorded in module-level :data:`VALIDATOR_BACKEND`
+after the first detection call. Public accessor:
+:func:`get_active_backend` — triggers the lazy load if needed and returns
+the selected backend name (``"insightface"``, ``"opencv"``, or ``"none"``).
 """
 from __future__ import annotations
 
@@ -30,7 +32,35 @@ BACKEND_INSIGHTFACE = "insightface"
 BACKEND_OPENCV = "opencv"
 BACKEND_NONE = "none"
 
-VALIDATOR_BACKEND: str = BACKEND_NONE  # set after first ensure_loaded()
+# Module-level record of which backend is in use. Updated by
+# ``FaceValidator._ensure_loaded()`` and observable via
+# :func:`get_active_backend`. Don't read this directly from external code —
+# call the getter so the lazy load is forced first.
+VALIDATOR_BACKEND: str = BACKEND_NONE
+
+__all__ = [
+    "FaceValidator",
+    "VALIDATOR_BACKEND",
+    "BACKEND_INSIGHTFACE",
+    "BACKEND_OPENCV",
+    "BACKEND_NONE",
+    "get_active_backend",
+]
+
+
+def get_active_backend() -> str:
+    """Return the currently active validator backend name.
+
+    Forces lazy initialisation if no FaceValidator has been used yet,
+    so the answer is always meaningful (not ``"none"`` just because the
+    library hasn't been exercised). Idempotent and safe to call repeatedly.
+    """
+    if VALIDATOR_BACKEND == BACKEND_NONE:
+        # Trigger the same lazy-load path FaceValidator uses; we do not
+        # need to actually detect on any image — _ensure_loaded() sets the
+        # module variable as a side effect.
+        FaceValidator()._ensure_loaded()
+    return VALIDATOR_BACKEND
 
 
 class FaceValidator:
@@ -74,10 +104,17 @@ class FaceValidator:
                 try:
                     import insightface  # type: ignore[import-not-found]
 
-                    app = insightface.app.FaceAnalysis(
-                        name="buffalo_l",
-                        allowed_modules=["detection"],
-                    )
+                    # Construct without ``allowed_modules`` for compatibility
+                    # with older insightface releases (0.2.x, only Py3.14
+                    # wheel available) that lack that kwarg. Modern releases
+                    # ignore the extra loaded modules cheaply.
+                    try:
+                        app = insightface.app.FaceAnalysis(
+                            name="buffalo_l",
+                            allowed_modules=["detection"],
+                        )
+                    except TypeError:
+                        app = insightface.app.FaceAnalysis(name="buffalo_l")
                     app.prepare(ctx_id=-1, det_size=(640, 640))  # ctx_id=-1 → CPU
                     self._insightface_app = app
                     VALIDATOR_BACKEND = BACKEND_INSIGHTFACE
@@ -152,7 +189,10 @@ class FaceValidator:
         if img is None:
             raise ValueError(f"cv2 could not read image: {path}")
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        # minNeighbors=3 (loosened from 5) — Haar cascade is conservative;
+        # 5 was rejecting clear casual frontal photos in production. 3 still
+        # rejects most spurious matches but accepts everyday selfies.
         rects = self._opencv_cascade.detectMultiScale(
-            gray, scaleFactor=1.1, minNeighbors=5, minSize=(40, 40)
+            gray, scaleFactor=1.1, minNeighbors=3, minSize=(40, 40)
         )
         return [(int(x), int(y), int(x + w), int(y + h)) for (x, y, w, h) in rects]

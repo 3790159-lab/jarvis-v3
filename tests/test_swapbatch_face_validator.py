@@ -17,6 +17,7 @@ from app.services.block_m2_face_swap.face_validator import (
     BACKEND_NONE,
     BACKEND_OPENCV,
     FaceValidator,
+    get_active_backend,
 )
 
 
@@ -117,3 +118,47 @@ def test_loaded_flag_prevents_double_init(tmp_path):
 
 def test_backend_constants_are_distinct():
     assert BACKEND_INSIGHTFACE != BACKEND_OPENCV != BACKEND_NONE
+
+
+# ── public accessor ─────────────────────────────────────────────────────────
+
+
+def test_get_active_backend_returns_one_of_known_values(monkeypatch):
+    """The getter forces a lazy load and returns a known backend name."""
+    monkeypatch.setattr(face_validator, "VALIDATOR_BACKEND", BACKEND_NONE)
+    result = get_active_backend()
+    assert result in (BACKEND_INSIGHTFACE, BACKEND_OPENCV, BACKEND_NONE)
+
+
+def test_get_active_backend_is_idempotent(monkeypatch):
+    """Calling twice does not re-init; second call returns same value."""
+    monkeypatch.setattr(face_validator, "VALIDATOR_BACKEND", BACKEND_OPENCV)
+    a = get_active_backend()
+    b = get_active_backend()
+    assert a == b == BACKEND_OPENCV
+
+
+def test_opencv_detect_uses_loosened_min_neighbors(tmp_path, monkeypatch):
+    """The OpenCV path passes minNeighbors=3 (loosened from 5)."""
+    import sys
+    from unittest.mock import MagicMock
+    fake_cv2 = MagicMock()
+    fake_cv2.imread.return_value = MagicMock()
+    fake_cv2.cvtColor.return_value = MagicMock()
+    fake_cv2.COLOR_BGR2GRAY = 6
+    monkeypatch.setitem(sys.modules, "cv2", fake_cv2)
+
+    v = FaceValidator()
+    v._loaded = True
+    cascade = MagicMock()
+    cascade.detectMultiScale.return_value = [(10, 10, 50, 50)]
+    v._opencv_cascade = cascade
+
+    img = tmp_path / "x.jpg"
+    img.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 64)
+    v._detect_opencv(img)
+
+    _, kwargs = cascade.detectMultiScale.call_args
+    assert kwargs["minNeighbors"] == 3
+    assert kwargs["scaleFactor"] == 1.1
+    assert kwargs["minSize"] == (40, 40)
