@@ -43,14 +43,38 @@ def test_parse_command_hq_mode():
     assert out["mode"] == "hq"
 
 
-def test_parse_command_missing_prompt_raises():
-    with pytest.raises(ValueError):
-        PersonaVideoHandler.parse_command("/persona_video Vera")
+def test_parse_command_missing_prompt_uses_default():
+    out = PersonaVideoHandler.parse_command("/persona_video Vera")
+    assert out["action"] == "video"
+    assert out["persona_name"] == "Vera"
+    assert out["prompt"] == PersonaVideoHandler.DEFAULT_PROMPT
 
 
-def test_parse_command_missing_args_raises():
-    with pytest.raises(ValueError):
-        PersonaVideoHandler.parse_command("/persona_video")
+def test_parse_command_bare_returns_help():
+    out = PersonaVideoHandler.parse_command("/persona_video")
+    assert out == {"action": "help"}
+
+
+def test_parse_command_bare_with_whitespace_returns_help():
+    out = PersonaVideoHandler.parse_command("/persona_video   ")
+    assert out == {"action": "help"}
+
+
+def test_parse_command_flags_only_returns_help():
+    # all tokens consumed by flag parsing — no persona, no prompt
+    out = PersonaVideoHandler.parse_command("/persona_video --fast --seconds 5")
+    assert out == {"action": "help"}
+
+
+def test_parse_command_persona_id_token():
+    # persona_id-shaped token works the same as a name at the parse layer;
+    # resolution-by-id is a downstream concern.
+    out = PersonaVideoHandler.parse_command(
+        "/persona_video persona_af2f a portrait"
+    )
+    assert out["persona_token"] == "persona_af2f"
+    assert out["persona_name"] == "persona_af2f"
+    assert out["prompt"] == "a portrait"
 
 
 # ── shared test helpers ─────────────────────────────────────────────────────
@@ -404,3 +428,193 @@ async def test_handle_redo_raises_when_no_history(tmp_path, monkeypatch):
     ):
         with pytest.raises(ValueError):
             await handler.handle_redo("/persona_video_redo Vera", chat_id=1)
+
+
+# ── handle_help ──────────────────────────────────────────────────────────────
+
+
+@pytest.mark.anyio
+async def test_handle_help_lists_personas():
+    p1 = _make_persona(name="Vera", pid="persona_v1")
+    p2 = _make_persona(name="Sofia", pid="persona_s2")
+    storage = MagicMock()
+    storage.list_personas = AsyncMock(return_value=[p1, p2])
+    handler = PersonaVideoHandler(
+        router=MagicMock(), storage=storage, history=_make_history([])
+    )
+
+    text = await handler.handle_help()
+    assert "/persona_video" in text
+    assert "Vera" in text and "persona_v1" in text
+    assert "Sofia" in text and "persona_s2" in text
+
+
+@pytest.mark.anyio
+async def test_handle_help_when_no_personas():
+    storage = MagicMock()
+    storage.list_personas = AsyncMock(return_value=[])
+    handler = PersonaVideoHandler(
+        router=MagicMock(), storage=storage, history=_make_history([])
+    )
+    text = await handler.handle_help()
+    assert "/persona_video" in text
+    # no entries shown — points user at /create_persona
+    assert "create_persona" in text
+
+
+@pytest.mark.anyio
+async def test_handle_help_tolerates_storage_failure():
+    storage = MagicMock()
+    storage.list_personas = AsyncMock(side_effect=RuntimeError("disk gone"))
+    handler = PersonaVideoHandler(
+        router=MagicMock(), storage=storage, history=_make_history([])
+    )
+    text = await handler.handle_help()
+    assert "/persona_video" in text
+
+
+# ── resolve by persona_id ────────────────────────────────────────────────────
+
+
+@pytest.mark.anyio
+async def test_resolve_persona_id_matches_persona_id_first():
+    by_id_persona = _make_persona(name="Vera", pid="persona_af2f")
+    storage = MagicMock()
+    storage.get_persona = AsyncMock(return_value=by_id_persona)
+    # list_personas should never be hit when get_persona returns a match
+    storage.list_personas = AsyncMock(return_value=[])
+    handler = PersonaVideoHandler(
+        router=MagicMock(), storage=storage, history=_make_history([])
+    )
+
+    pid = await handler._resolve_persona_id("persona_af2f")
+    assert pid == "persona_af2f"
+    storage.get_persona.assert_awaited_once_with("persona_af2f")
+    storage.list_personas.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_resolve_persona_id_falls_back_to_name_when_id_misses():
+    by_name_persona = _make_persona(name="Vera", pid="persona_af2f")
+    storage = MagicMock()
+    storage.get_persona = AsyncMock(return_value=None)
+    storage.list_personas = AsyncMock(return_value=[by_name_persona])
+    handler = PersonaVideoHandler(
+        router=MagicMock(), storage=storage, history=_make_history([])
+    )
+
+    pid = await handler._resolve_persona_id("Vera")
+    assert pid == "persona_af2f"
+    storage.get_persona.assert_awaited_once_with("Vera")
+    storage.list_personas.assert_awaited_once()
+
+
+# ── handle_video kwargs: input_photo_path, progress_cb ──────────────────────
+
+
+@pytest.mark.anyio
+async def test_handle_video_uses_input_photo_path_override(tmp_path, monkeypatch):
+    """When the caller supplies a photo, history lookup is bypassed."""
+    monkeypatch.chdir(tmp_path)
+    persona = _make_persona()
+    storage = _make_storage(persona)
+    # empty history would normally cause _latest_photo_url to raise —
+    # input_photo_path override must short-circuit that lookup.
+    history = _make_history([])
+
+    out_dir = tmp_path / "out"
+    result = _video_result(persona.persona_id, out_dir)
+    router, engine = _make_router(result)
+
+    handler = PersonaVideoHandler(router=router, storage=storage, history=history)
+
+    supplied_photo = tmp_path / "user_supplied.jpg"
+    supplied_photo.write_bytes(b"USER-PHOTO")
+
+    response = await handler.handle_video(
+        "/persona_video Vera a portrait",
+        chat_id=42,
+        input_photo_path=supplied_photo,
+    )
+
+    sent = engine.generate.await_args.args[0]
+    assert sent.input_image_path == supplied_photo
+    # history was not consulted for a fallback photo
+    history.list_recent.assert_not_called()
+    assert response["output_path"] == result.output_path
+
+
+@pytest.mark.anyio
+async def test_handle_video_invokes_progress_cb(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    persona = _make_persona()
+    storage = _make_storage(persona)
+    history = _make_history([_photo_record()])
+
+    out_dir = tmp_path / "out"
+    result = _video_result(persona.persona_id, out_dir)
+    router, engine = _make_router(result)
+
+    handler = PersonaVideoHandler(router=router, storage=storage, history=history)
+
+    stages: list[tuple[str, dict]] = []
+
+    def cb(stage: str, payload: dict) -> None:
+        stages.append((stage, payload))
+
+    fake_client = _mock_httpx_response()
+    with patch(
+        "app.handlers.persona_video_handler.httpx.AsyncClient",
+        return_value=fake_client,
+    ):
+        await handler.handle_video(
+            "/persona_video Vera a portrait --fast",
+            chat_id=1,
+            progress_cb=cb,
+        )
+
+    stage_names = [s[0] for s in stages]
+    assert stage_names == ["persona_resolved", "engine_selected"]
+    assert stages[0][1]["persona_id"] == persona.persona_id
+    assert stages[0][1]["persona_name"] == "Vera"
+    assert stages[1][1]["engine_name"] == "replicate"
+    assert stages[1][1]["mode"] == "fast"
+
+
+@pytest.mark.anyio
+async def test_handle_video_progress_cb_exception_is_swallowed(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    persona = _make_persona()
+    storage = _make_storage(persona)
+    history = _make_history([_photo_record()])
+    out_dir = tmp_path / "out"
+    result = _video_result(persona.persona_id, out_dir)
+    router, engine = _make_router(result)
+    handler = PersonaVideoHandler(router=router, storage=storage, history=history)
+
+    def bad_cb(stage, payload):
+        raise RuntimeError("send failed")
+
+    fake_client = _mock_httpx_response()
+    with patch(
+        "app.handlers.persona_video_handler.httpx.AsyncClient",
+        return_value=fake_client,
+    ):
+        # must not propagate — generation should still complete
+        response = await handler.handle_video(
+            "/persona_video Vera a portrait",
+            chat_id=1,
+            progress_cb=bad_cb,
+        )
+    assert response["output_path"] == result.output_path
+
+
+@pytest.mark.anyio
+async def test_handle_video_raises_on_bare_command():
+    handler = PersonaVideoHandler(
+        router=MagicMock(),
+        storage=MagicMock(list_personas=AsyncMock(return_value=[])),
+        history=_make_history([]),
+    )
+    with pytest.raises(ValueError, match="handle_help"):
+        await handler.handle_video("/persona_video", chat_id=1)
