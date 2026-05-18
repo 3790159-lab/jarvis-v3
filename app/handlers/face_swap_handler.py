@@ -1,0 +1,281 @@
+# -*- coding: utf-8 -*-
+"""Telegram handler for Block M.2.5 — batch face-swap pipeline.
+
+This handler is *transport-agnostic*: methods return reply text and, where
+relevant, ``actions`` describing what the bot wiring should do (e.g. send a
+media-group of swapped photos). The bot wiring (in
+``tools/jarvis_smart_telegram_control.py``) is responsible for actually
+calling Telegram.
+
+All user-visible strings are in Russian to match the Phase C UX style.
+"""
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Callable
+
+from app.services.block_m2_face_swap.batch_orchestrator import (
+    BatchOrchestrator,
+    OrchestratorError,
+    STATE_DONE,
+    STATE_EXPECTING_SOURCE,
+    STATE_EXPECTING_TARGETS,
+    STATE_IDLE,
+    STATE_SOURCE_RECEIVED,
+    STATE_SWAP_DONE,
+    STATE_TARGETS_RECEIVED,
+    get_orchestrator,
+)
+from app.services.block_m2_face_swap.cost_estimator import format_cost_report_ru
+
+logger = logging.getLogger(__name__)
+
+
+# ── reply types ──────────────────────────────────────────────────────────────
+
+
+@dataclass
+class HandlerReply:
+    """Structured reply from a handler method.
+
+    Attributes:
+        text: A text message to send (None ⇒ no message).
+        photos: Local photo paths to send as a media-group (after ``text``).
+        videos: Local video paths to send one-by-one (after photos).
+        consumed: Whether the handler took ownership of the inbound event.
+            For photo-ingestion methods this signals to the bot whether to
+            stop further dispatch.
+    """
+
+    text: str | None = None
+    photos: list[Path] | None = None
+    videos: list[Path] | None = None
+    consumed: bool = True
+
+
+HELP_TEXT = (
+    "🎭 Batch Face Swap (Block M.2.5)\n"
+    "\n"
+    "Команды:\n"
+    "  /swapbatch_source — следующее фото будет твоим источником лица\n"
+    "  /swapbatch_batch — начни загружать альбом target-фото (до 10 штук)\n"
+    "  /swapbatch_go — запустить swap после отчёта по стоимости\n"
+    "  /swapbatch_animate_yes — анимировать все swapped фото\n"
+    "  /swapbatch_animate_no — оставить только swapped фото\n"
+    "  /swapbatch_cancel — отменить текущий батч\n"
+    "  /swapbatch_status — показать состояние\n"
+    "\n"
+    "Поток: /swapbatch_source → пришли фото → /swapbatch_batch → пришли "
+    "альбом → /swapbatch_go → жди → /swapbatch_animate_yes (или _no)."
+)
+
+
+class FaceSwapHandler:
+    """Russian-language command handlers for /swapbatch_*.
+
+    Construct once at bot startup. The handler is stateless beyond the
+    injected ``BatchOrchestrator``. The bot wiring is responsible for:
+
+    - downloading photos to local paths (via ``_download_telegram_file``)
+    - running long-running phases (``run_swap_phase`` / ``run_animate_phase``)
+      in a worker thread + acquiring the shared video lock
+    - sending replies + media groups + videos
+    """
+
+    def __init__(
+        self,
+        orchestrator: BatchOrchestrator | None = None,
+    ) -> None:
+        self.orchestrator = orchestrator or get_orchestrator()
+
+    # ── commands ────────────────────────────────────────────────────────────
+
+    def handle_help(self) -> HandlerReply:
+        return HandlerReply(text=HELP_TEXT)
+
+    def handle_source_intent(self, chat_id: int) -> HandlerReply:
+        try:
+            self.orchestrator.begin_source(chat_id)
+        except OrchestratorError as exc:
+            return HandlerReply(text=f"⚠️ {exc}")
+        return HandlerReply(
+            text=(
+                "📸 Жду фото с твоим лицом. Пришли одно фото — лицо должно "
+                "быть чётко видно."
+            )
+        )
+
+    def handle_batch_intent(self, chat_id: int) -> HandlerReply:
+        try:
+            self.orchestrator.begin_targets(chat_id)
+        except OrchestratorError as exc:
+            return HandlerReply(text=f"⚠️ {exc}")
+        return HandlerReply(
+            text=(
+                "📦 Жду альбом target-фото (до 10 штук). Пришли все фото "
+                "одной отправкой (Telegram album). Я подожду 2 секунды после "
+                "последнего фото и покажу оценку."
+            )
+        )
+
+    def handle_status(self, chat_id: int) -> HandlerReply:
+        sess = self.orchestrator.get(chat_id)
+        if sess is None:
+            return HandlerReply(text="Нет активного батча.")
+        lines = [
+            f"📋 Состояние: {sess.status}",
+            f"  Source: {'есть' if sess.source_path else 'нет'} "
+            f"({sess.source_face_count} лиц)",
+            f"  Targets: {len(sess.targets)} (валидных "
+            f"{sum(1 for t in sess.targets if t.valid)})",
+        ]
+        if sess.cost_estimate:
+            lines.append(
+                f"  Оценка: ~${sess.cost_estimate.get('total_usd', 0):.2f} "
+                f"за {sess.cost_estimate.get('total_minutes', 0):.0f} мин"
+            )
+        if sess.last_error:
+            lines.append(f"  ⚠️ {sess.last_error}")
+        return HandlerReply(text="\n".join(lines))
+
+    def handle_cancel(self, chat_id: int) -> HandlerReply:
+        ok = self.orchestrator.cancel(chat_id)
+        if not ok:
+            return HandlerReply(text="Нет активного батча для отмены.")
+        return HandlerReply(
+            text="🛑 Запрошена отмена. Если идёт swap/animate — остановим "
+            "после текущего шага."
+        )
+
+    def handle_animate_no(self, chat_id: int) -> HandlerReply:
+        try:
+            sess = self.orchestrator.skip_animate(chat_id)
+        except OrchestratorError as exc:
+            return HandlerReply(text=f"⚠️ {exc}")
+        self.orchestrator.prune(chat_id)
+        n = sum(1 for t in sess.targets if t.swap_result_path)
+        return HandlerReply(
+            text=f"✅ Готово. Сохранено {n} swapped фото без анимации."
+        )
+
+    # ── photo ingestion ─────────────────────────────────────────────────────
+
+    def consume_source(
+        self, chat_id: int, local_photo_path: Path
+    ) -> HandlerReply:
+        """Process a single inbound photo as the source face."""
+        if not self.orchestrator.is_waiting_for_source(chat_id):
+            return HandlerReply(consumed=False)
+        try:
+            sess = self.orchestrator.submit_source(chat_id, local_photo_path)
+        except OrchestratorError as exc:
+            return HandlerReply(text=f"⚠️ {exc}")
+        return HandlerReply(
+            text=(
+                f"✅ Source принят. Лиц найдено: {sess.source_face_count}.\n"
+                "Теперь команда /swapbatch_batch и пришли альбом target-фото."
+            )
+        )
+
+    def consume_targets_album(
+        self, chat_id: int, local_photo_paths: list[Path]
+    ) -> HandlerReply:
+        """Process a buffered media-group as the targets album."""
+        if not self.orchestrator.is_waiting_for_targets(chat_id):
+            return HandlerReply(consumed=False)
+        try:
+            sess, est = self.orchestrator.submit_targets(
+                chat_id, local_photo_paths
+            )
+        except OrchestratorError as exc:
+            return HandlerReply(text=f"⚠️ {exc}")
+        msg = format_cost_report_ru(
+            est,
+            source_face_count=sess.source_face_count,
+            total_targets=len(sess.targets),
+        )
+        return HandlerReply(text=msg)
+
+    # ── long-running phases (called from worker thread) ─────────────────────
+
+    async def run_swap_phase(
+        self,
+        chat_id: int,
+        swap_fn,
+        progress_cb: Callable[[str, dict[str, Any]], None] | None = None,
+    ) -> HandlerReply:
+        """Run the swap engine and assemble a reply with the swapped photos."""
+        try:
+            await self.orchestrator.confirm_swap(
+                chat_id, swap_fn=swap_fn, progress_cb=progress_cb,
+            )
+        except OrchestratorError as exc:
+            return HandlerReply(text=f"⚠️ {exc}")
+        except Exception as exc:  # noqa: BLE001
+            return HandlerReply(text=f"❌ Ошибка swap: {exc}")
+
+        sess = self.orchestrator.get(chat_id)
+        if sess is None:
+            return HandlerReply(text="Сессия пропала (вероятно, отменена).")
+
+        photos = [
+            Path(t.swap_result_path)
+            for t in sess.targets
+            if t.swap_result_path
+        ]
+        succeeded = len(photos)
+        failed = sum(
+            1 for t in sess.targets if t.valid and not t.swap_result_path
+        )
+        skipped = sum(1 for t in sess.targets if not t.valid)
+        lines = [
+            f"✅ Swap завершён: {succeeded} успешно",
+        ]
+        if failed:
+            lines.append(f"  ⚠️ {failed} не удалось")
+        if skipped:
+            lines.append(f"  ⏭ {skipped} пропущено (без лица)")
+        if succeeded:
+            lines.append("")
+            lines.append(
+                "/swapbatch_animate_yes — анимировать все swapped фото\n"
+                "/swapbatch_animate_no — оставить только фото"
+            )
+        return HandlerReply(text="\n".join(lines), photos=photos)
+
+    async def run_animate_phase(
+        self,
+        chat_id: int,
+        animate_fn,
+        progress_cb: Callable[[str, dict[str, Any]], None] | None = None,
+    ) -> HandlerReply:
+        try:
+            await self.orchestrator.confirm_animate(
+                chat_id, animate_fn=animate_fn, progress_cb=progress_cb,
+            )
+        except OrchestratorError as exc:
+            return HandlerReply(text=f"⚠️ {exc}")
+        except Exception as exc:  # noqa: BLE001
+            return HandlerReply(text=f"❌ Ошибка animate: {exc}")
+
+        sess = self.orchestrator.get(chat_id)
+        if sess is None:
+            return HandlerReply(text="Сессия пропала (вероятно, отменена).")
+
+        videos = [
+            Path(t.animate_result_path)
+            for t in sess.targets
+            if t.animate_result_path
+        ]
+        succeeded = len(videos)
+        failed = sum(
+            1 for t in sess.targets
+            if t.swap_result_path and not t.animate_result_path
+        )
+        lines = [f"🎬 Animate завершён: {succeeded} видео"]
+        if failed:
+            lines.append(f"  ⚠️ {failed} не удалось")
+        self.orchestrator.prune(chat_id)
+        return HandlerReply(text="\n".join(lines), videos=videos)
