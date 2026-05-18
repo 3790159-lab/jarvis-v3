@@ -50,6 +50,13 @@ _clone_node ComfyUI-wanBlockswap          ""
 _clone_node ComfyUI-Manager                "https://github.com/ltdrdata/ComfyUI-Manager"
 _clone_node rgthree-comfy                  "https://github.com/rgthree/rgthree-comfy"
 
+# Block M.2.5 face-swap pipeline: ReActor node + InsightFace.
+_clone_node comfyui-reactor-node           "https://github.com/Gourieff/comfyui-reactor-node"
+echo "Installing InsightFace + onnxruntime-gpu for ReActor (Block M.2.5)..."
+pip install --break-system-packages insightface onnxruntime-gpu 2>/dev/null || \
+  pip install --break-system-packages insightface onnxruntime || \
+  echo "WARN: insightface install failed - ReActor will not work until fixed"
+
 # 3. Custom node (idempotent) - kept for backward compatibility with prior bootstrap
 cd "$COMFY_DIR/custom_nodes"
 if [ ! -d ComfyUI-PainterI2Vadvanced ]; then
@@ -81,6 +88,13 @@ if ls -d "$COMFY_DIR/custom_nodes/ComfyUI-VideoHelperSuite" > /dev/null 2>&1; th
 else
   echo "WARN: ComfyUI-VideoHelperSuite missing - VHS_VideoCombine node will fail"
 fi
+if ls -d "$COMFY_DIR/custom_nodes/comfyui-reactor-node" > /dev/null 2>&1; then
+  echo "OK: ReActorFaceSwap available (Block M.2.5)"
+else
+  echo "WARN: comfyui-reactor-node missing - ReActorFaceSwap node will fail"
+fi
+python -c "import insightface; print('insightface', insightface.__version__)" 2>/dev/null \
+  || echo "WARN: insightface not importable - face-swap pipeline will fail"
 
 echo ""
 echo "=== Bootstrap complete: $(date -u) ==="

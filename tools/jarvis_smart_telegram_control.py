@@ -282,6 +282,77 @@ def _send_local_video(chat_id, path, caption: str = "") -> None:
         )
 
 
+def _send_local_photo(chat_id, path, caption: str = "") -> None:
+    """Upload a local image to Telegram via multipart sendPhoto.
+
+    Used by Block M.2.5 face-swap to deliver swapped photos.
+    """
+    import requests as _req
+    from pathlib import Path as _Path
+    p = _Path(path)
+    if not p.exists():
+        send(str(chat_id), f"⚠️ Photo file not found: {p}")
+        return
+    with p.open("rb") as fh:
+        _req.post(
+            f"{TG}/sendPhoto",
+            data={"chat_id": str(chat_id), "caption": caption[:1024] if caption else ""},
+            files={"photo": (p.name, fh, "image/jpeg")},
+            timeout=120,
+        )
+
+
+def _send_local_media_group(chat_id, paths, caption: str = "") -> None:
+    """Upload up to 10 local images as a Telegram album via sendMediaGroup.
+
+    The first photo carries the caption; the rest are uncaptioned. If more
+    than 10 paths are supplied, chunks of 10 are sent sequentially.
+    """
+    import requests as _req
+    from pathlib import Path as _Path
+    files_kept: list = []
+    for chunk_start in range(0, len(paths), 10):
+        chunk = paths[chunk_start:chunk_start + 10]
+        media: list = []
+        files: dict = {}
+        attach_names: list = []
+        for idx, raw in enumerate(chunk):
+            p = _Path(raw)
+            if not p.exists():
+                continue
+            attach_name = f"file{idx}"
+            fh = p.open("rb")
+            files_kept.append(fh)  # keep open until requests finishes
+            files[attach_name] = (p.name, fh, "image/jpeg")
+            entry: Dict[str, Any] = {
+                "type": "photo",
+                "media": f"attach://{attach_name}",
+            }
+            if idx == 0 and chunk_start == 0 and caption:
+                entry["caption"] = caption[:1024]
+            media.append(entry)
+            attach_names.append(attach_name)
+        if not media:
+            continue
+        try:
+            _req.post(
+                f"{TG}/sendMediaGroup",
+                data={
+                    "chat_id": str(chat_id),
+                    "media": json.dumps(media, ensure_ascii=False),
+                },
+                files=files,
+                timeout=300,
+            )
+        finally:
+            for fh in files_kept:
+                try:
+                    fh.close()
+                except Exception:
+                    pass
+            files_kept.clear()
+
+
 # ── Block M.2 Phase C: /persona_video dispatch ──────────────────────────────
 
 _video_lock = None  # GenerationLock singleton; lazily created on first use
@@ -436,6 +507,282 @@ def _persona_video_intercept(chat_id: str, msg: Dict[str, Any]) -> bool:
         return True
 
     return False
+
+
+# ── Block M.2.5 /swapbatch dispatch ─────────────────────────────────────────
+
+
+def _swapbatch_get_handler():
+    """Lazy-init the FaceSwapHandler + orchestrator singletons.
+
+    Returns ``(handler, orchestrator)`` or ``(None, None)`` if the
+    block_m2_face_swap package is somehow not importable (broken install).
+    """
+    _r = str(Path(__file__).parent.parent)
+    import sys as _sys
+    if _r not in _sys.path:
+        _sys.path.insert(0, _r)
+    try:
+        from app.handlers.face_swap_handler import FaceSwapHandler
+        from app.services.block_m2_face_swap.batch_orchestrator import (
+            get_orchestrator,
+        )
+        orch = get_orchestrator()
+        return FaceSwapHandler(orchestrator=orch), orch
+    except Exception as exc:  # noqa: BLE001
+        print(f"[swapbatch] handler unavailable: {exc}", flush=True)
+        return None, None
+
+
+def _swapbatch_apply_reply(chat_id_s: str, reply) -> None:
+    """Render a HandlerReply: text → photos → videos."""
+    if reply is None:
+        return
+    if reply.text:
+        send(chat_id_s, reply.text)
+    if reply.photos:
+        try:
+            _send_local_media_group(chat_id_s, [str(p) for p in reply.photos])
+        except Exception as exc:  # noqa: BLE001
+            send(chat_id_s, f"⚠️ Не удалось отправить альбом: {exc}")
+            for p in reply.photos:
+                _send_local_photo(chat_id_s, str(p))
+    if reply.videos:
+        for v in reply.videos:
+            _send_local_video(chat_id_s, str(v))
+
+
+def _swapbatch_dispatch(chat_id, command: str) -> None:
+    """Synchronous /swapbatch_* command router.
+
+    Long-running phases (``go``, ``animate_yes``) spin up a worker thread
+    that acquires the shared Phase C video-lock and runs the engine.
+    """
+    chat_id_s = str(chat_id)
+    chat_id_int = int(chat_id)
+    handler, orch = _swapbatch_get_handler()
+    if handler is None:
+        send(chat_id_s, "⚠️ Модуль face-swap недоступен.")
+        return
+
+    if command in ("help", ""):
+        _swapbatch_apply_reply(chat_id_s, handler.handle_help())
+        return
+    if command == "source":
+        _swapbatch_apply_reply(chat_id_s, handler.handle_source_intent(chat_id_int))
+        return
+    if command == "batch":
+        _swapbatch_apply_reply(chat_id_s, handler.handle_batch_intent(chat_id_int))
+        return
+    if command == "status":
+        _swapbatch_apply_reply(chat_id_s, handler.handle_status(chat_id_int))
+        return
+    if command == "cancel":
+        _swapbatch_apply_reply(chat_id_s, handler.handle_cancel(chat_id_int))
+        return
+    if command == "animate_no":
+        _swapbatch_apply_reply(chat_id_s, handler.handle_animate_no(chat_id_int))
+        return
+
+    if command in ("go", "animate_yes"):
+        _swapbatch_run_phase(chat_id_int, chat_id_s, command, handler)
+        return
+
+    send(chat_id_s, f"Неизвестная команда: /swapbatch_{command}")
+
+
+def _swapbatch_run_phase(
+    chat_id_int: int,
+    chat_id_s: str,
+    command: str,
+    handler,
+) -> None:
+    """Acquire shared video lock, spawn worker thread, run swap/animate."""
+    import asyncio as _aio
+    import threading
+    from pathlib import Path as _Path
+
+    from app.services.block_m2_video.generation_lock import GenerationLockBusy
+
+    lock = _get_video_lock()
+    try:
+        token = lock.acquire(chat_id_int)
+    except GenerationLockBusy:
+        send(chat_id_s, "⏳ Уже идёт другая генерация. Дождитесь завершения.")
+        return
+
+    if command == "go":
+        send(chat_id_s, "🎭 Запускаю swap. Это займёт несколько минут…")
+    else:
+        send(chat_id_s, "🎬 Запускаю animate. Это займёт ~12 мин на видео…")
+
+    def _progress(stage: str, payload: dict) -> None:
+        if stage == "pod_ready":
+            send(
+                chat_id_s,
+                f"✅ Pod готов ({'reused' if payload.get('reused') else 'fresh'}).",
+            )
+        elif stage == "swap_started":
+            send(
+                chat_id_s,
+                f"⚙️ Swap {payload.get('index', 0) + 1}: {payload.get('filename')}",
+            )
+        elif stage == "swap_failed":
+            send(
+                chat_id_s,
+                f"⚠️ Swap #{payload.get('index', 0) + 1} не удался: "
+                f"{payload.get('error')}",
+            )
+        elif stage == "animate_step_done":
+            send(chat_id_s, f"✅ Animate #{payload.get('index', 0) + 1} готов.")
+        elif stage == "animate_step_failed":
+            send(
+                chat_id_s,
+                f"⚠️ Animate #{payload.get('index', 0) + 1} не удался: "
+                f"{payload.get('error')}",
+            )
+
+    def _run() -> None:
+        try:
+            if command == "go":
+                from app.services.block_m2_face_swap.face_swap_engine import (
+                    FaceSwapEngine,
+                )
+                engine = FaceSwapEngine()
+
+                async def _swap_fn(
+                    source: _Path,
+                    targets: list,
+                    cancel_check,
+                ):
+                    return await engine.swap_batch(
+                        source, targets,
+                        progress_cb=_progress, cancel_check=cancel_check,
+                    )
+
+                reply = _aio.run(
+                    handler.run_swap_phase(
+                        chat_id_int, _swap_fn, progress_cb=_progress,
+                    )
+                )
+            else:  # animate_yes
+                from app.services.block_m2_video.engines.runpod_comfy_engine import (
+                    RunpodComfyEngine,
+                )
+                from app.services.block_m2_video.engines.engine_protocol import (
+                    VideoRequest,
+                    new_generation_id,
+                )
+
+                video_engine = RunpodComfyEngine()
+
+                async def _animate_fn(swapped: _Path, idx: int, cancel_check):
+                    req = VideoRequest(
+                        persona_id=f"swapbatch_{chat_id_int}",
+                        persona_name="swapbatch",
+                        input_image_path=swapped,
+                        prompt="a cinematic portrait, soft natural light",
+                        seconds=5,
+                        seed=None,
+                        mode="hq",
+                        generation_id=new_generation_id(),
+                    )
+                    result = await video_engine.generate(req)
+                    return result.output_path
+
+                reply = _aio.run(
+                    handler.run_animate_phase(
+                        chat_id_int, _animate_fn, progress_cb=_progress,
+                    )
+                )
+            _swapbatch_apply_reply(chat_id_s, reply)
+        except Exception as exc:  # noqa: BLE001
+            send(chat_id_s, f"❌ Ошибка: {exc}")
+        finally:
+            lock.release(token)
+
+    threading.Thread(
+        target=_run, daemon=True, name=f"swapbatch_{command}_{chat_id_int}",
+    ).start()
+
+
+def _swapbatch_photo_intercept(chat_id: str, msg: Dict[str, Any]) -> bool:
+    """Single-photo intercept: route to swapbatch if session expects it.
+
+    Returns True if we consumed the message (caller MUST skip default
+    handling). Returns False to fall through to the legacy /faceswap path
+    and ``_handle_file_message``.
+    """
+    handler, orch = _swapbatch_get_handler()
+    if handler is None or orch is None:
+        return False
+    chat_id_int = int(chat_id)
+    if not (
+        orch.is_waiting_for_source(chat_id_int)
+        or orch.is_waiting_for_targets(chat_id_int)
+    ):
+        return False
+    photos = msg.get("photo")
+    if not photos:
+        return False
+    largest = sorted(photos, key=lambda p: p.get("file_size", 0))[-1]
+    file_id = largest.get("file_id")
+    if not file_id:
+        return False
+    local = _download_telegram_file(
+        file_id, f"swapbatch_{int(time.time())}_{file_id[:8]}.jpg"
+    )
+    if not local:
+        send(chat_id, "❌ Не удалось скачать фото.")
+        return True
+    from pathlib import Path as _Path
+    p = _Path(local)
+    if orch.is_waiting_for_source(chat_id_int):
+        _swapbatch_apply_reply(chat_id, handler.consume_source(chat_id_int, p))
+    else:
+        # Single-photo target treated as a 1-element album.
+        _swapbatch_apply_reply(
+            chat_id, handler.consume_targets_album(chat_id_int, [p])
+        )
+    return True
+
+
+def _swapbatch_album_intercept(chat_id: str, msgs: list) -> bool:
+    """Album-flush intercept: route media-group to swapbatch if waiting.
+
+    Called by the long-poll loop right before its existing
+    ``_handle_file_message`` loop. Returns True if consumed.
+    """
+    handler, orch = _swapbatch_get_handler()
+    if handler is None or orch is None:
+        return False
+    chat_id_int = int(chat_id)
+    if not orch.is_waiting_for_targets(chat_id_int):
+        return False
+
+    paths: list = []
+    from pathlib import Path as _Path
+    for m in msgs:
+        photos = m.get("photo")
+        if not photos:
+            continue
+        largest = sorted(photos, key=lambda p: p.get("file_size", 0))[-1]
+        file_id = largest.get("file_id")
+        if not file_id:
+            continue
+        local = _download_telegram_file(
+            file_id,
+            f"swapbatch_{int(time.time())}_{file_id[:8]}.jpg",
+        )
+        if local:
+            paths.append(_Path(local))
+    if not paths:
+        send(chat_id, "❌ Не удалось скачать фото из альбома.")
+        return True
+    _swapbatch_apply_reply(
+        chat_id, handler.consume_targets_album(chat_id_int, paths)
+    )
+    return True
 
 
 def backend_get(path: str, timeout: int = 60) -> Dict[str, Any]:
@@ -3988,6 +4335,32 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
         _persona_video_dispatch(chat_id, query, command="redo")
         return
 
+    # ── Block M.2.5 face-swap batch commands ────────────────────────────────
+    if cmd == "/swapbatch":
+        _swapbatch_dispatch(chat_id, "help")
+        return
+    if cmd == "/swapbatch_source":
+        _swapbatch_dispatch(chat_id, "source")
+        return
+    if cmd == "/swapbatch_batch":
+        _swapbatch_dispatch(chat_id, "batch")
+        return
+    if cmd == "/swapbatch_go":
+        _swapbatch_dispatch(chat_id, "go")
+        return
+    if cmd == "/swapbatch_animate_yes":
+        _swapbatch_dispatch(chat_id, "animate_yes")
+        return
+    if cmd == "/swapbatch_animate_no":
+        _swapbatch_dispatch(chat_id, "animate_no")
+        return
+    if cmd == "/swapbatch_cancel":
+        _swapbatch_dispatch(chat_id, "cancel")
+        return
+    if cmd == "/swapbatch_status":
+        _swapbatch_dispatch(chat_id, "status")
+        return
+
     if cmd == "/persona_redo":
         try:
             _r_pr = str(Path(__file__).parent.parent)
@@ -4788,11 +5161,13 @@ def _main_inner() -> None:
                     if msgs:
                         chat_id = str(msgs[0].get("chat", {}).get("id", ""))
                         if chat_id == ALLOWED_CHAT_ID:
-                            state = load_state()
-                            caption = next((m.get("caption", "") for m in msgs if m.get("caption")), "")
-                            send(chat_id, f"📦 Получено {len(msgs)} файлов{' с подписью: ' + caption if caption else ''}. Обрабатываю...")
-                            for m in msgs:
-                                _handle_file_message(chat_id, m, state)
+                            # Block M.2.5: route to swapbatch if session waiting.
+                            if not _swapbatch_album_intercept(chat_id, msgs):
+                                state = load_state()
+                                caption = next((m.get("caption", "") for m in msgs if m.get("caption")), "")
+                                send(chat_id, f"📦 Получено {len(msgs)} файлов{' с подписью: ' + caption if caption else ''}. Обрабатываю...")
+                                for m in msgs:
+                                    _handle_file_message(chat_id, m, state)
                     del media_group_buffer[gid]
 
             _au = urllib.parse.quote(json.dumps(["message", "edited_message", "callback_query"]))
@@ -4838,6 +5213,16 @@ def _main_inner() -> None:
                 if (
                     str(chat_id) == ALLOWED_CHAT_ID
                     and _persona_video_intercept(chat_id, msg)
+                ):
+                    continue
+
+                # Block M.2.5: single photo for active swapbatch session
+                # (only when not part of an album — those go through buffer).
+                if (
+                    str(chat_id) == ALLOWED_CHAT_ID
+                    and msg.get("photo")
+                    and not msg.get("media_group_id")
+                    and _swapbatch_photo_intercept(chat_id, msg)
                 ):
                     continue
 
