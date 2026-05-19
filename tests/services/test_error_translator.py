@@ -99,3 +99,20 @@ def test_aiohttp_client_error_subclass_when_available():
 def test_httpx_http_error_when_available():
     httpx = pytest.importorskip("httpx")
     assert translate_exception(httpx.HTTPError("net")) == "Сетевая ошибка"
+
+
+def test_daily_limit_exceeded_message_round_trips():
+    cost_tracker = pytest.importorskip("app.services.block_m_common.cost_tracker")
+    message = "Daily limit of $10 exceeded. Remaining: $0.00"
+    exc = cost_tracker.DailyLimitExceeded(message)
+    assert translate_exception(exc) == message
+
+
+def test_daily_limit_exceeded_is_not_swallowed_by_default():
+    # Regression guard for f9bd5c4: the custom exception must take priority
+    # over the catch-all default, otherwise budget info is lost.
+    cost_tracker = pytest.importorskip("app.services.block_m_common.cost_tracker")
+    exc = cost_tracker.DailyLimitExceeded("Daily limit of $5 exceeded. Remaining: $0.00")
+    result = translate_exception(exc)
+    assert result != "Что-то пошло не так. Подробности в логах."
+    assert "Daily limit" in result

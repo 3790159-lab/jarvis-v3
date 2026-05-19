@@ -22,6 +22,12 @@ try:
 except ImportError:
     _HAS_HTTPX = False
 
+try:
+    from app.services.block_m_common.cost_tracker import DailyLimitExceeded
+    _HAS_DAILY_LIMIT_EXCEEDED = True
+except ImportError:
+    _HAS_DAILY_LIMIT_EXCEEDED = False
+
 
 _DEFAULT = "Что-то пошло не так. Подробности в логах."
 
@@ -32,6 +38,11 @@ def translate_exception(exc: BaseException) -> str:
     Pure function — no side effects, no logging. Callers retain
     responsibility for logger.exception() in their except block.
     """
+    if _HAS_DAILY_LIMIT_EXCEEDED and isinstance(exc, DailyLimitExceeded):
+        # Custom exception carries user-facing budget info (e.g.
+        # "Daily limit of $10 exceeded. Remaining: $0.00"). Pass through.
+        return str(exc)
+
     if isinstance(exc, KeyError):
         # KeyError('foo').args[0] == 'foo' (no quotes).
         # str(KeyError('foo')) == "'foo'" — avoid that.
