@@ -30,6 +30,7 @@ from typing import Any
 
 import httpx
 
+from ..litterbox_uploader import LitterboxError, upload_to_litterbox
 from ..runpod.runpod_client import (
     PodInfo,
     RunpodApiError,
@@ -184,7 +185,7 @@ class RunpodComfyEngine:
                 cost,
                 output_path,
             )
-            return VideoResult(
+            result = VideoResult(
                 generation_id=generation_id,
                 persona_id=request.persona_id,
                 output_path=output_path,
@@ -202,6 +203,16 @@ class RunpodComfyEngine:
                     "workflow_version": self.workflow_version,
                 },
             )
+            try:
+                result.public_url = await upload_to_litterbox(
+                    output_path, retention="24h"
+                )
+            except LitterboxError as exc:
+                logger.warning(
+                    "Litterbox upload failed; returning local-only result: %s",
+                    exc,
+                )
+            return result
         except RunpodComfyError:
             raise
         except RunpodApiError as exc:

@@ -42,6 +42,7 @@ class VideoResult:
     prompt: str
     seconds: int
     extra: dict = field(default_factory=dict)
+    public_url: str | None = None  # Litterbox URL if upload succeeded
 
 
 @runtime_checkable

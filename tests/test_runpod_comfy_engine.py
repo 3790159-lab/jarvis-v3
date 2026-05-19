@@ -26,6 +26,7 @@ from app.services.block_m2_video.engines.runpod_comfy_engine import (
     RunpodComfyEngine,
     RunpodComfyError,
 )
+from app.services.block_m2_video.litterbox_uploader import LitterboxError
 from app.services.block_m2_video.runpod.runpod_client import (
     ExecResult,
     GpuType,
@@ -517,6 +518,112 @@ def test_build_workflow_rounds_fractional(tmp_path):
     req = _build_workflow_request(tmp_path, seconds=2.5)
     workflow = engine._build_workflow("input.png", req)
     assert workflow["15"]["inputs"]["length"] == 53
+
+
+# ── generate: litterbox upload integration ───────────────────────────────────
+
+
+def _happy_path_engine_and_request(tmp_path):
+    """Build the same happy-path engine+request as test_generate_happy_path."""
+    image = _make_image(tmp_path)
+    pod = _mock_pod()
+    client = _mock_runpod_client(pod)
+
+    history_entry = {
+        "pid_xyz": {
+            "outputs": {
+                "30": {
+                    "videos": [
+                        {
+                            "filename": "wan_output_00001.mp4",
+                            "subfolder": "",
+                            "type": "output",
+                        }
+                    ]
+                }
+            },
+            "status": {"status_str": "success", "completed": True},
+        }
+    }
+    mp4_bytes = b"\x00\x00\x00\x18ftypisom" + b"x" * (200 * 1024)
+
+    http = MagicMock()
+    http.aclose = AsyncMock()
+    http.post = AsyncMock(
+        side_effect=[
+            _json_response({"name": "input.png", "subfolder": "", "type": "input"}),
+            _json_response({"prompt_id": "pid_xyz", "number": 0, "node_errors": {}}),
+        ]
+    )
+    http.get = AsyncMock(
+        side_effect=[
+            _json_response({"system": {"os": "linux"}}),
+            _json_response(history_entry),
+            _bytes_response(mp4_bytes),
+        ]
+    )
+
+    engine = RunpodComfyEngine(
+        config=_make_config(),
+        client=client,
+        http_client=http,
+        output_dir=tmp_path / "out",
+        poll_interval_sec=0.0,
+    )
+    req = VideoRequest(
+        persona_id="p1",
+        persona_name="Test",
+        input_image_path=image,
+        prompt="walking on the beach",
+        seed=42,
+        seconds=5,
+    )
+    return engine, req
+
+
+@pytest.mark.anyio
+async def test_generate_sets_public_url_on_successful_upload(tmp_path, monkeypatch):
+    engine, req = _happy_path_engine_and_request(tmp_path)
+
+    upload_mock = AsyncMock(return_value="https://litter.catbox.moe/x.mp4")
+    monkeypatch.setattr(
+        "app.services.block_m2_video.engines.runpod_comfy_engine.upload_to_litterbox",
+        upload_mock,
+    )
+
+    result = await engine.generate(req)
+
+    assert result.public_url == "https://litter.catbox.moe/x.mp4"
+    upload_mock.assert_awaited_once()
+    args, kwargs = upload_mock.await_args
+    # The uploader is called with the local output path and retention="24h".
+    assert kwargs.get("retention") == "24h"
+    assert args[0] == result.output_path
+
+
+@pytest.mark.anyio
+async def test_generate_returns_result_without_public_url_on_upload_failure(
+    tmp_path, monkeypatch, caplog
+):
+    engine, req = _happy_path_engine_and_request(tmp_path)
+
+    upload_mock = AsyncMock(side_effect=LitterboxError("network down"))
+    monkeypatch.setattr(
+        "app.services.block_m2_video.engines.runpod_comfy_engine.upload_to_litterbox",
+        upload_mock,
+    )
+
+    with caplog.at_level("WARNING"):
+        result = await engine.generate(req)
+
+    # Result returned, exception swallowed, public_url left as None.
+    assert isinstance(result, VideoResult)
+    assert result.public_url is None
+    assert result.output_path.exists()
+    upload_mock.assert_awaited_once()
+    assert any(
+        "Litterbox upload failed" in rec.message for rec in caplog.records
+    )
 
 
 @pytest.mark.anyio
