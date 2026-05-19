@@ -19,6 +19,10 @@ from app.services.block_m2_video.engines.engine_protocol import (
     VideoResult,
 )
 from app.services.block_m2_video.engines.runpod_comfy_engine import (
+    DEFAULT_FRAMES,
+    FPS,
+    MAX_SECONDS,
+    MIN_SECONDS,
     RunpodComfyEngine,
     RunpodComfyError,
 )
@@ -437,6 +441,82 @@ async def test_ensure_comfyui_alive_starts_comfyui_when_down(monkeypatch):
     assert "main.py" in cmd
     assert "--port 8188" in cmd
     assert http.get.await_count == 2
+
+
+# ── _build_workflow: PainterI2VAdvanced.length parameterization ──────────────
+
+
+def _build_workflow_request(tmp_path: Path, **overrides) -> VideoRequest:
+    """Construct a VideoRequest suitable for direct _build_workflow() calls.
+
+    _build_workflow() does not run _validate_request, so the image path is
+    only referenced as a dataclass field — no file needed on disk.
+    """
+    defaults: dict = dict(
+        persona_id="p1",
+        persona_name="Test",
+        input_image_path=tmp_path / "unused.png",
+        prompt="a cinematic clip",
+    )
+    defaults.update(overrides)
+    return VideoRequest(**defaults)
+
+
+def _make_engine_for_workflow(tmp_path: Path) -> RunpodComfyEngine:
+    client = MagicMock()
+    client.aclose = AsyncMock()
+    return RunpodComfyEngine(
+        config=_make_config(), client=client, output_dir=tmp_path
+    )
+
+
+def test_build_workflow_default_length(tmp_path):
+    # When the caller doesn't request a custom length (seconds is falsy), the
+    # workflow's built-in default frames count must be preserved untouched.
+    engine = _make_engine_for_workflow(tmp_path)
+    req = _build_workflow_request(tmp_path, seconds=0)
+    workflow = engine._build_workflow("input.png", req)
+    assert workflow["15"]["inputs"]["length"] == DEFAULT_FRAMES == 121
+
+
+def test_build_workflow_seconds_3(tmp_path):
+    engine = _make_engine_for_workflow(tmp_path)
+    req = _build_workflow_request(tmp_path, seconds=3)
+    workflow = engine._build_workflow("input.png", req)
+    assert workflow["15"]["inputs"]["length"] == 63  # 3 * 21
+
+
+def test_build_workflow_seconds_10(tmp_path):
+    engine = _make_engine_for_workflow(tmp_path)
+    req = _build_workflow_request(tmp_path, seconds=10)
+    workflow = engine._build_workflow("input.png", req)
+    assert workflow["15"]["inputs"]["length"] == 210  # 10 * 21
+
+
+def test_build_workflow_clamps_below_min(tmp_path):
+    # 0.1 s → 2 frames, below the 21-frame floor → clamp to 21.
+    engine = _make_engine_for_workflow(tmp_path)
+    req = _build_workflow_request(tmp_path, seconds=0.1)
+    workflow = engine._build_workflow("input.png", req)
+    assert workflow["15"]["inputs"]["length"] == int(MIN_SECONDS * FPS) == 21
+
+
+def test_build_workflow_clamps_above_max(tmp_path):
+    # 30 s → 630 frames, above the 315-frame ceiling → clamp to 315.
+    engine = _make_engine_for_workflow(tmp_path)
+    req = _build_workflow_request(tmp_path, seconds=30)
+    workflow = engine._build_workflow("input.png", req)
+    assert workflow["15"]["inputs"]["length"] == int(MAX_SECONDS * FPS) == 315
+
+
+def test_build_workflow_rounds_fractional(tmp_path):
+    # 2.5 s * 21 fps = 52.5 → 53 frames via half-up rounding. (Python's built-in
+    # round() uses banker's rounding which would return 52 here — we use
+    # int(x + 0.5) in the engine to get the expected half-up behavior.)
+    engine = _make_engine_for_workflow(tmp_path)
+    req = _build_workflow_request(tmp_path, seconds=2.5)
+    workflow = engine._build_workflow("input.png", req)
+    assert workflow["15"]["inputs"]["length"] == 53
 
 
 @pytest.mark.anyio

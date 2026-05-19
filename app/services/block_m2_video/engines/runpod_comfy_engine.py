@@ -59,6 +59,14 @@ _COMFYUI_STARTUP_TIMEOUT_SEC = 120
 _COMFYUI_HEALTH_TIMEOUT = httpx.Timeout(5.0)
 _COMFYUI_HEALTH_POLL_INTERVAL_SEC = 5.0
 
+# -- workflow contract (wan22_i2v_v20) ---------------------------------------
+# VHS_VideoCombine (node 21) emits at FPS; PainterI2VAdvanced (node 15)
+# generates `length` latent frames. Default 121 frames = 5.76 s at 21 fps.
+FPS = 21
+DEFAULT_FRAMES = 121
+MIN_SECONDS = 1.0   # 21 frames floor
+MAX_SECONDS = 15.0  # 315 frames ceiling — conservative for A100-80GB VRAM
+
 
 class RunpodComfyError(RuntimeError):
     """Raised when the RunPod / ComfyUI generation pipeline fails."""
@@ -453,6 +461,15 @@ class RunpodComfyEngine:
                     and isinstance(node.get("inputs"), dict)
                 ):
                     node["inputs"]["noise_seed"] = int(request.seed)
+
+        if request.seconds:
+            # int(x + 0.5) is half-up rounding; Python's round() uses banker's
+            # rounding which would give the wrong answer for x.5 boundaries.
+            target = int(request.seconds * FPS + 0.5)
+            frames = max(
+                int(MIN_SECONDS * FPS), min(int(MAX_SECONDS * FPS), target)
+            )
+            workflow["15"]["inputs"]["length"] = frames
         return workflow
 
     async def _submit_prompt(
