@@ -259,7 +259,7 @@ def build_internet_table(query: str, max_results: int = 8, send_to_telegram: boo
     report["json_path"] = str(json_path)
 
     if send_to_telegram:
-        caption = f"Jarvis internet table\nQuery: {query}\nRows: {len(rows)}"
+        caption = f"Jarvis internet table\nQuery: {query}\nRows: {rows_count}"
         report["telegram_send"] = _send_telegram_document(table_path, caption)
 
     return report

@@ -1,4 +1,4 @@
-"""Phase 35: System Watchdog вЂ” monitors Jarvis health and auto-restarts services.
+"""Phase 35: System Watchdog — monitors Jarvis health and auto-restarts services.
 
 Runs as a background service (JarvisWatchdog) and checks every 60 seconds:
 - Backend /health endpoint
@@ -112,7 +112,7 @@ def send_telegram_alert(text: str) -> bool:
         import json
         payload = json.dumps({
             "chat_id": ADMIN_CHAT_ID,
-            "text": f"рџљЁ Jarvis Watchdog:\n{text}",
+            "text": f"🚨 Jarvis Watchdog:\n{text}",
         }).encode()
         req = urllib.request.Request(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
@@ -171,7 +171,7 @@ def restart_bot_if_dead() -> bool:
         return False
     if check_bot_alive():
         return False
-    logger.warning("Bot heartbeat stale вЂ” attempting restart via start_jarvis.ps1")
+    logger.warning("Bot heartbeat stale — attempting restart via start_jarvis.ps1")
     try:
         project_root = Path(__file__).parent.parent.parent
         script = project_root / "start_jarvis.ps1"
@@ -180,11 +180,11 @@ def restart_bot_if_dead() -> bool:
                 ["powershell", "-File", str(script)],
                 cwd=str(project_root),
             )
-            send_telegram_alert("Bot heartbeat stale вЂ” РїРµСЂРµР·Р°РїСѓС‰РµРЅ С‡РµСЂРµР· start_jarvis.ps1")
+            send_telegram_alert("Bot heartbeat stale — перезапущен через start_jarvis.ps1")
             return True
         else:
             logger.warning("start_jarvis.ps1 not found at %s", script)
-            send_telegram_alert("Bot heartbeat stale вЂ” start_jarvis.ps1 РЅРµ РЅР°Р№РґРµРЅ, СЂСѓС‡РЅРѕР№ РїРµСЂРµР·Р°РїСѓСЃРє!")
+            send_telegram_alert("Bot heartbeat stale — start_jarvis.ps1 не найден, ручной перезапуск!")
             return False
     except Exception as exc:
         logger.error("restart_bot_if_dead failed: %s", exc)
@@ -213,13 +213,13 @@ def run_watchdog_cycle() -> Dict[str, Any]:
             restart_service("JarvisBot")
             results["actions_taken"].append("restarted_backend")
             send_telegram_alert(
-                f"Backend РЅРµ РѕС‚РІРµС‡Р°Р». РџРµСЂРµР·Р°РїСѓС‰РµРЅ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё.\n"
-                f"РџСЂРёС‡РёРЅР°: {backend['detail']}"
+                f"Backend не отвечал. Перезапущен автоматически.\n"
+                f"Причина: {backend['detail']}"
             )
         else:
             send_telegram_alert(
-                f"Backend РЅРµ РѕС‚РІРµС‡Р°РµС‚ Рё РЅРµ СѓРґР°Р»РѕСЃСЊ РїРµСЂРµР·Р°РїСѓСЃС‚РёС‚СЊ!\n"
-                f"Р”РµС‚Р°Р»Рё: {backend['detail']}"
+                f"Backend не отвечает и не удалось перезапустить!\n"
+                f"Детали: {backend['detail']}"
             )
 
     # Disk check
@@ -230,8 +230,8 @@ def run_watchdog_cycle() -> Dict[str, Any]:
         cleaned = cleanup_old_logs()
         results["actions_taken"].append(f"cleaned_{cleaned}_logs")
         send_telegram_alert(
-            f"РњР°Р»Рѕ РјРµСЃС‚Р° РЅР° РґРёСЃРєРµ: {disk['detail']}\n"
-            f"РџРѕС‡РёС‰РµРЅРѕ Р»РѕРі-С„Р°Р№Р»РѕРІ: {cleaned}"
+            f"Мало места на диске: {disk['detail']}\n"
+            f"Почищено лог-файлов: {cleaned}"
         )
 
     # Memory check
@@ -240,8 +240,8 @@ def run_watchdog_cycle() -> Dict[str, Any]:
     if not mem["ok"]:
         logger.warning("High memory usage: %s", mem["detail"])
         send_telegram_alert(
-            f"Р’С‹СЃРѕРєРѕРµ РїРѕС‚СЂРµР±Р»РµРЅРёРµ РїР°РјСЏС‚Рё: {mem['detail']}\n"
-            "Р РµРєРѕРјРµРЅРґСѓРµС‚СЃСЏ РїРµСЂРµР·Р°РїСѓСЃС‚РёС‚СЊ СЃРµСЂРІРёСЃС‹."
+            f"Высокое потребление памяти: {mem['detail']}\n"
+            "Рекомендуется перезапустить сервисы."
         )
 
     return results

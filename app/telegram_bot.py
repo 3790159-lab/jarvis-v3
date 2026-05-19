@@ -317,7 +317,7 @@ def _handle_google_commands(text: str):
             )
 
             if result.get("ok"):
-                return f"Событие создано:`n{result.get('html_link')}"
+                return f"Событие создано:\n{result.get('html_link')}"
             return f"Ошибка создания события: {result}"
         except Exception as e:
             return f"Ошибка создания события: {str(e)}"
