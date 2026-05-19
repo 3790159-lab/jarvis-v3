@@ -1370,10 +1370,13 @@ The bot only responds to `TELEGRAM_ALLOWED_CHAT_ID`. This is a cost guardrail as
 
 ### 18.1 Critical (block user experience or make alerts unreadable)
 
-1. **Mojibake in watchdog alerts.** `app/services/system_watchdog.py:115, 183, 187, 216, 220, 232, 242` — Russian strings stored as corrupted CP1251→UTF-8 bytes (`РџСЂРёС‡РёРЅР°` instead of `Причина`). Visible to operator *exactly when something is broken*. Phase E.1 voice audit recommends fixing during voice rewrite.
-2. **Raw exception text leaked to user.** 25+ instances of `f"Ошибка: {exc}"` pattern in `tools/jarvis_smart_telegram_control.py` (lines 3455, 3592, 3634, 3739, 3772, 3829, 4230, 4246, 4262, 4278, 4294, 4310, 4326, 4377, 4393, 4409, 4425, 4441, 4457, 4473, 4489, 4505, 4564), plus `app/telegram_bot.py:187, 193` and `app/handlers/persona_handler.py:291, 342, 361, 411, 433, 451, 496, 565, 627, 693, 759, 809, 851`. User sees `KeyError: 'figma_url'` style messages.
-3. **`NameError` bug in internet table builder.** `app/services/jarvis_telegram_file_tools.py:262` — `f"Jarvis internet table\nQuery: {query}\nRows: {len(rows)}"` references undefined `rows` (should be `smart_rows` or `rows_count`). Will raise at runtime, replacing the success message with a Python crash.
-4. **PowerShell escape leaked into Python source.** `app/telegram_bot.py:320` — `f"Событие создано:\`n{result.get('html_link')}"` — literal backtick-n instead of `\n`. User sees `\n` as raw text.
+1. ✅ **FIXED in `ad2299c`.** **Mojibake in watchdog alerts.** `app/services/system_watchdog.py:115, 183, 187, 216, 220, 232, 242` — Russian strings stored as corrupted CP1251→UTF-8 bytes (`РџСЂРёС‡РёРЅР°` instead of `Причина`). Visible to operator *exactly when something is broken*. Phase E.1 voice audit recommends fixing during voice rewrite.
+2. ✅ **FIXED across `b336c80` + `f9bd5c4` + `f225d94`.** **Raw exception text leaked to user.** 25+ instances of `f"Ошибка: {exc}"` pattern in `tools/jarvis_smart_telegram_control.py` (lines 3455, 3592, 3634, 3739, 3772, 3829, 4230, 4246, 4262, 4278, 4294, 4310, 4326, 4377, 4393, 4409, 4425, 4441, 4457, 4473, 4489, 4505, 4564), plus `app/telegram_bot.py:187, 193` and `app/handlers/persona_handler.py:291, 342, 361, 411, 433, 451, 496, 565, 627, 693, 759, 809, 851`. User sees `KeyError: 'figma_url'` style messages.
+   - `b336c80` — new `app/services/error_translator.py` (pure `translate_exception(exc) → str`) + 16 unit tests.
+   - `f9bd5c4` — applied translator at 23 + 2 + 14 callsites across the 3 files (spec listed 13 persona_handler sites; 2 were non-leaks, 3 additional leaks at lines 960/1000/1066 were caught by grep and translated for consistency). Added module logger + `logger.exception(...)` to all 23 `tools/jarvis_smart_telegram_control.py` except blocks (file had no logger).
+   - `f225d94` — regression fix: `DailyLimitExceeded` was falling through to the default "Что-то пошло не так" message, swallowing useful budget detail; added a pass-through handler so its `str(exc)` is returned verbatim.
+3. ✅ **FIXED in `ad2299c`.** **`NameError` bug in internet table builder.** `app/services/jarvis_telegram_file_tools.py:262` — `f"Jarvis internet table\nQuery: {query}\nRows: {len(rows)}"` referenced undefined `rows` (resolved to `rows_count`, `len()` removed). Will raise at runtime, replacing the success message with a Python crash.
+4. ✅ **FIXED in `ad2299c`.** **PowerShell escape leaked into Python source.** `app/telegram_bot.py:320` — `f"Событие создано:\`n{result.get('html_link')}"` — literal backtick-n instead of `\n`. User sees `\n` as raw text.
 
 ### 18.2 Moderate (works, but inconsistent or surprising)
 
@@ -1382,6 +1385,8 @@ The bot only responds to `TELEGRAM_ALLOWED_CHAT_ID`. This is a cost guardrail as
 7. **English alerts in self-healing.** `app/services/self_healing.py:292, 299` — `"Disk low ({free_gb:.1f}GB free) — cleaned {cleaned} log files"`. Inconsistent with the rest of the (mostly Russian) operator surface.
 8. **Internal identifiers leaked to the user.** `task_id`, `workflow_id`, `decision_id`, `chat_id`, file paths (`scheduled_tasks.json`), API endpoint names — visible in many command replies. Acceptable for power-user mode but should be hidden by default.
 9. **Telegram bot duplication.** Two bot entry points coexist: `tools/jarvis_smart_telegram_control.py` (5,272 lines — the real one) and `app/telegram_bot.py` (the thin polling client). The thin client still points to port 8010 in some configs; legacy comments mention port 8015. Source of "Backend DOWN" confusion.
+36. **~14 remaining exception-leak patterns in `tools/jarvis_smart_telegram_control.py`** outside the Quick Wins scope (e.g. `f"❌ Ошибка получения статуса: {exc}"` at L2603, `f"❌ Ошибка чтения логов: {exc}"` at L2851, plus sites at L462, 705, 2618, 2670, 2734, 3009, 3338, 3371, 3687, 3897, 5034, 5257). Same pattern as item 2 — should be routed through `translate_exception()`. Phase F candidate.
+37. **UTF-8 BOM in `app/telegram_bot.py`.** Pre-existing, harmless at runtime but inconsistent with the rest of the codebase. `python -c "ast.parse(open(path, encoding='utf-8').read())"` fails on this file with `SyntaxError: invalid non-printable character U+FEFF`; the parse only succeeds with `encoding='utf-8-sig'`. Strip during next touch.
 
 ### 18.3 Bootstrap / setup
 
@@ -1396,6 +1401,7 @@ The bot only responds to `TELEGRAM_ALLOWED_CHAT_ID`. This is a cost guardrail as
 15. **Lines 7 + 18:** double import of `time_brain`.
 16. **Line 221:** unprotected bare-import of `n8n_action_router_materializer_router`. If the import fails, the whole app fails to start. Should be inside a `try/except`.
 17. **Line 222:** related — must be edited before `n8n_action_router_materializer_router.py` can be safely deleted in Phase 3.3.
+38. **FastAPI `on_event("startup")` deprecation.** `app/main.py:263` uses the legacy `@app.on_event("startup")` decorator. Migrate to a `lifespan` async context manager. Low priority — currently emits 2 `DeprecationWarning`s during `pytest` runs but otherwise works.
 
 ### 18.5 Duplicates pending decisions (`PHASE3_ANALYSIS.md`)
 
@@ -1409,6 +1415,7 @@ The bot only responds to `TELEGRAM_ALLOWED_CHAT_ID`. This is a cost guardrail as
 
 23. **~140 service modules have no test file.** AI/LLM core, ~60 execution modules, 15 autonomy modules, 8 n8n modules, 10 storage modules, 20+ infra modules. See [[#12.3 What has NO test coverage]].
 24. **No CI.** No `.github/workflows`, no Jenkinsfile. Tests run locally on Daniil's machine. If a refactor breaks something un-tested, it's caught at runtime.
+39. **`tests/test_restaurant_mode.py::TestBuildFoodPrompt::test_includes_dish_name` fails on `main`.** Pre-existing; verified during the error-translator work by stashing the in-progress changes and re-running. The test asserts a Russian dish name (`борщ`, but stored mojibake'd in the test file as `����`) appears in an English-translated prompt — so the assertion compares mojibake against `borscht`. Unrelated to error handling. Needs investigation of both the file encoding *and* the dish-name translation behaviour.
 
 ### 18.7 Operational
 
