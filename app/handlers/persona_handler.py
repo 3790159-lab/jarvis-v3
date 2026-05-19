@@ -23,6 +23,7 @@ from app.services.block_m1_persona.persona_dialog import (
     STATUS_GENERATING,
     STATUS_WAITING_SELECTION,
 )
+from app.services.error_translator import translate_exception
 
 logger = get_logger("persona_handler")
 
@@ -288,7 +289,7 @@ def _start_generation(chat_id: int, dialog: PersonaDialog) -> None:
         except DailyLimitExceeded as exc:
             logger.warning("DailyLimitExceeded during generation chat=%s: %s", chat_id, exc)
             dialog.cancel()
-            _safe_send(chat_id, f"Превышен дневной лимит расходов. {exc}")
+            _safe_send(chat_id, f"Превышен дневной лимит расходов. {translate_exception(exc)}")
         except Exception as exc:
             logger.error(
                 "Persona generation failed chat=%s: %s: %s",
@@ -339,7 +340,7 @@ def _do_train_lora(chat_id: int, persona_id: str) -> None:
             asyncio.run(_async())
         except Exception as exc:
             logger.error("LoRA training launch failed chat=%s: %s", chat_id, exc, exc_info=True)
-            _safe_send(chat_id, f"Ошибка запуска тренировки: {exc}")
+            _safe_send(chat_id, f"Ошибка запуска тренировки: {translate_exception(exc)}")
 
     threading.Thread(target=_run, daemon=True).start()
 
@@ -358,7 +359,7 @@ def handle_train_lora(chat_id: int, args: str) -> None:
     try:
         persona = _run_async(PersonaStorage().get_persona(persona_id))
     except Exception as exc:
-        _safe_send(chat_id, f"Ошибка при поиске персоны: {exc}")
+        _safe_send(chat_id, f"Ошибка при поиске персоны: {translate_exception(exc)}")
         return
 
     if not persona:
@@ -409,7 +410,7 @@ def handle_lora_status(chat_id: int, args: str) -> None:
 
         status = _run_async(_check())
     except Exception as exc:
-        _safe_send(chat_id, f"Ошибка проверки статуса: {exc}")
+        _safe_send(chat_id, f"Ошибка проверки статуса: {translate_exception(exc)}")
         return
 
     if not status:
@@ -448,7 +449,7 @@ def handle_list_loras(chat_id: int) -> None:
 
         trained = _run_async(trainer.list_trained())
     except Exception as exc:
-        _safe_send(chat_id, f"Ошибка: {exc}")
+        _safe_send(chat_id, f"Ошибка: {translate_exception(exc)}")
         return
 
     if not trained:
@@ -493,7 +494,7 @@ def handle_persona_photo(chat_id: int, args: str) -> None:
         try:
             result = asyncio.run(_async())
         except DailyLimitExceeded as exc:
-            _safe_send(chat_id, f"Превышен дневной лимит: {exc}")
+            _safe_send(chat_id, f"Превышен дневной лимит: {translate_exception(exc)}")
             return
         except ValueError as exc:
             _safe_send(chat_id, str(exc))
@@ -562,7 +563,7 @@ def handle_persona_video(chat_id: int, args: str) -> None:
         try:
             result = asyncio.run(_async())
         except DailyLimitExceeded as exc:
-            _safe_send(chat_id, f"Превышен дневной лимит: {exc}")
+            _safe_send(chat_id, f"Превышен дневной лимит: {translate_exception(exc)}")
             return
         except ValueError as exc:
             _safe_send(chat_id, str(exc))
@@ -624,7 +625,7 @@ def handle_persona_redo(chat_id: int, args: str) -> None:
             _safe_send(chat_id, str(exc))
             return
         except DailyLimitExceeded as exc:
-            _safe_send(chat_id, f"Превышен дневной лимит: {exc}")
+            _safe_send(chat_id, f"Превышен дневной лимит: {translate_exception(exc)}")
             return
         except Exception as exc:
             logger.error(
@@ -690,7 +691,7 @@ def handle_cancel_lora(chat_id: int, args: str) -> None:
 
         cancelled = _run_async(trainer.cancel_training(persona_id))
     except Exception as exc:
-        _safe_send(chat_id, f"Ошибка отмены: {exc}")
+        _safe_send(chat_id, f"Ошибка отмены: {translate_exception(exc)}")
         return
 
     if cancelled:
@@ -756,7 +757,7 @@ def handle_me_done(chat_id: int) -> None:
         _run_async(_save())
     except Exception as exc:
         logger.error("handle_me_done save failed chat=%s: %s", chat_id, exc, exc_info=True)
-        _safe_send(chat_id, f"Ошибка сохранения: {exc}")
+        _safe_send(chat_id, f"Ошибка сохранения: {translate_exception(exc)}")
         return
 
     _me_pending_train_confirm[chat_id] = None
@@ -806,7 +807,7 @@ def _do_train_me_lora(chat_id: int) -> None:
             asyncio.run(_async())
         except Exception as exc:
             logger.error("Me-LoRA training failed chat=%s: %s", chat_id, exc, exc_info=True)
-            _safe_send(chat_id, f"Ошибка тренировки Me-Persona: {exc}")
+            _safe_send(chat_id, f"Ошибка тренировки Me-Persona: {translate_exception(exc)}")
 
     threading.Thread(target=_run, daemon=True).start()
 
@@ -956,7 +957,7 @@ def handle_costs(chat_id: int) -> None:
 
         summary = _run_async(_async())
     except Exception as exc:
-        _safe_send(chat_id, f"Ошибка получения статистики: {exc}")
+        _safe_send(chat_id, f"Ошибка получения статистики: {translate_exception(exc)}")
         return
 
     lines = [
@@ -996,7 +997,7 @@ def handle_history(chat_id: int, args: str) -> None:
 
         records = _run_async(_async())
     except Exception as exc:
-        _safe_send(chat_id, f"Ошибка получения истории: {exc}")
+        _safe_send(chat_id, f"Ошибка получения истории: {translate_exception(exc)}")
         return
 
     if not records:
@@ -1062,7 +1063,7 @@ def handle_persona_batch(chat_id: int, args: str) -> None:
             logger.error(
                 "handle_persona_batch failed chat=%s: %s", chat_id, exc, exc_info=True
             )
-            _safe_send(chat_id, f"Ошибка batch-генерации: {exc}")
+            _safe_send(chat_id, f"Ошибка batch-генерации: {translate_exception(exc)}")
             return
 
         total_cost = sum(r.get("cost_usd", 0.0) for r in results)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import sys
@@ -11,6 +12,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+logger = logging.getLogger(__name__)
+
 # --- File logging (M.1.5 #2) ---
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
@@ -20,6 +23,8 @@ try:
     setup_app_logging("jarvis_bot.log")
 except Exception as _logging_exc:
     print(f"[bot] logging setup failed: {_logging_exc}", flush=True)
+
+from app.services.error_translator import translate_exception
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 ALLOWED_CHAT_ID = str(os.getenv("TELEGRAM_ALLOWED_CHAT_ID", "")).strip()
@@ -3452,7 +3457,8 @@ def cmd_design(chat_id: str, query: str) -> None:
             f"3. Дизайн появится в Figma!\n\n"
             f"ID запроса: {queue_id}")
     except Exception as exc:
-        send(chat_id, f"Ошибка: {exc}")
+        logger.exception("cmd_design failed chat=%s", chat_id)
+        send(chat_id, f"Ошибка: {translate_exception(exc)}")
 
 
 def cmd_figma_queue(chat_id: str, query: str) -> None:
@@ -3589,7 +3595,8 @@ def cmd_create_app(chat_id: str, query: str) -> None:
             f"<b>Промпт для bolt.diy:</b>\n"
             f"<pre>{bolt_prompt[:800]}</pre>")
     except Exception as exc:
-        send(chat_id, f"Ошибка: {exc}")
+        logger.exception("cmd_create_app failed chat=%s", chat_id)
+        send(chat_id, f"Ошибка: {translate_exception(exc)}")
 
 
 def cmd_create_simple(chat_id: str, query: str) -> None:
@@ -3631,7 +3638,8 @@ def cmd_create_simple(chat_id: str, query: str) -> None:
             f"<b>Промпт для bolt.diy:</b>\n"
             f"<pre>{bolt_prompt[:600]}</pre>")
     except Exception as exc:
-        send(chat_id, f"Ошибка: {exc}")
+        logger.exception("cmd_create_simple failed chat=%s", chat_id)
+        send(chat_id, f"Ошибка: {translate_exception(exc)}")
 
 
 def cmd_bolt_queue(chat_id: str, query: str) -> None:
@@ -3736,7 +3744,8 @@ def cmd_smart_photo(chat_id: str, query: str) -> None:
         else:
             send(chat_id, f"Промпт готов, но генерация фото не удалась.\n\nПромпт:\n{enhanced}")
     except Exception as exc:
-        send(chat_id, f"Ошибка: {exc}")
+        logger.exception("cmd_smart_photo failed chat=%s", chat_id)
+        send(chat_id, f"Ошибка: {translate_exception(exc)}")
 
 
 def cmd_pro_food(chat_id: str, query: str) -> None:
@@ -3769,7 +3778,8 @@ def cmd_pro_food(chat_id: str, query: str) -> None:
         else:
             send(chat_id, f"Промпт создан, фото не удалось.\nПромпт: {enhanced}")
     except Exception as exc:
-        send(chat_id, f"Ошибка: {exc}")
+        logger.exception("cmd_pro_food failed chat=%s", chat_id)
+        send(chat_id, f"Ошибка: {translate_exception(exc)}")
 
 
 # ── Landing Brief 2.0 (Block L.4) ────────────────────────────────────────────
@@ -3826,7 +3836,8 @@ def cmd_landing_brief_answer(chat_id: str, text: str) -> bool:
                 f"Кликабельные кнопки\n\n"
                 f"Можешь продать клиенту за $50-200!")
         except Exception as exc:
-            send(chat_id, f"Ошибка генерации: {exc}")
+            logger.exception("cmd_landing_brief generation failed chat=%s", chat_id)
+            send(chat_id, f"Ошибка генерации: {translate_exception(exc)}")
     else:
         send(chat_id, next_q)
 
@@ -4227,7 +4238,8 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
             _persona_init(send, _send_photo_url)
             _hcp(int(chat_id))
         except Exception as _cpe:
-            send(chat_id, f"Ошибка создания персоны: {_cpe}")
+            logger.exception("/create_persona failed chat=%s", chat_id)
+            send(chat_id, f"Ошибка создания персоны: {translate_exception(_cpe)}")
         return
 
     if cmd == "/cancel_persona":
@@ -4243,7 +4255,8 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
             _persona_init2(send, _send_photo_url)
             _hcancel(int(chat_id))
         except Exception as _cpe2:
-            send(chat_id, f"Ошибка отмены персоны: {_cpe2}")
+            logger.exception("/cancel_persona failed chat=%s", chat_id)
+            send(chat_id, f"Ошибка отмены персоны: {translate_exception(_cpe2)}")
         return
 
     if cmd == "/train_lora":
@@ -4259,7 +4272,8 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
             _persona_init_tl(send, _send_photo_url)
             _htl(int(chat_id), query)
         except Exception as _tle:
-            send(chat_id, f"Ошибка: {_tle}")
+            logger.exception("/train_lora failed chat=%s", chat_id)
+            send(chat_id, f"Ошибка: {translate_exception(_tle)}")
         return
 
     if cmd == "/lora_status":
@@ -4275,7 +4289,8 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
             _persona_init_ls(send, _send_photo_url)
             _hls(int(chat_id), query)
         except Exception as _lse:
-            send(chat_id, f"Ошибка: {_lse}")
+            logger.exception("/lora_status failed chat=%s", chat_id)
+            send(chat_id, f"Ошибка: {translate_exception(_lse)}")
         return
 
     if cmd == "/list_loras":
@@ -4291,7 +4306,8 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
             _persona_init_ll(send, _send_photo_url)
             _hll(int(chat_id))
         except Exception as _lle:
-            send(chat_id, f"Ошибка: {_lle}")
+            logger.exception("/list_loras failed chat=%s", chat_id)
+            send(chat_id, f"Ошибка: {translate_exception(_lle)}")
         return
 
     if cmd == "/cancel_lora":
@@ -4307,7 +4323,8 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
             _persona_init_cl(send, _send_photo_url)
             _hcl(int(chat_id), query)
         except Exception as _cle:
-            send(chat_id, f"Ошибка: {_cle}")
+            logger.exception("/cancel_lora failed chat=%s", chat_id)
+            send(chat_id, f"Ошибка: {translate_exception(_cle)}")
         return
 
     if cmd == "/persona_photo":
@@ -4323,7 +4340,8 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
             _persona_init_pp(send, _send_photo_url)
             _hpp(int(chat_id), query)
         except Exception as _ppe:
-            send(chat_id, f"Ошибка: {_ppe}")
+            logger.exception("/persona_photo failed chat=%s", chat_id)
+            send(chat_id, f"Ошибка: {translate_exception(_ppe)}")
         return
 
     if cmd == "/persona_video":
@@ -4374,7 +4392,8 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
             _persona_init_pr(send, _send_photo_url)
             _hpr(int(chat_id), query)
         except Exception as _pre:
-            send(chat_id, f"Ошибка: {_pre}")
+            logger.exception("/persona_redo failed chat=%s", chat_id)
+            send(chat_id, f"Ошибка: {translate_exception(_pre)}")
         return
 
     if cmd == "/persona_engine":
@@ -4390,7 +4409,8 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
             _persona_init_pe(send, _send_photo_url)
             _hpe(int(chat_id), query)
         except Exception as _pee:
-            send(chat_id, f"Ошибка: {_pee}")
+            logger.exception("/persona_engine failed chat=%s", chat_id)
+            send(chat_id, f"Ошибка: {translate_exception(_pee)}")
         return
 
     if cmd == "/me_seed":
@@ -4406,7 +4426,8 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
             _persona_init_ms(send, _send_photo_url)
             _hms(int(chat_id))
         except Exception as _mse:
-            send(chat_id, f"Ошибка: {_mse}")
+            logger.exception("/me_seed failed chat=%s", chat_id)
+            send(chat_id, f"Ошибка: {translate_exception(_mse)}")
         return
 
     if cmd == "/me_done":
@@ -4422,7 +4443,8 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
             _persona_init_md(send, _send_photo_url)
             _hmd(int(chat_id))
         except Exception as _mde:
-            send(chat_id, f"Ошибка: {_mde}")
+            logger.exception("/me_done failed chat=%s", chat_id)
+            send(chat_id, f"Ошибка: {translate_exception(_mde)}")
         return
 
     if cmd == "/me_swap_photo":
@@ -4438,7 +4460,8 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
             _persona_init_msp(send, _send_photo_url)
             _hmsp(int(chat_id), query)
         except Exception as _mspe:
-            send(chat_id, f"Ошибка: {_mspe}")
+            logger.exception("/me_swap_photo failed chat=%s", chat_id)
+            send(chat_id, f"Ошибка: {translate_exception(_mspe)}")
         return
 
     if cmd == "/me_swap_video":
@@ -4454,7 +4477,8 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
             _persona_init_msv(send, _send_photo_url)
             _hmsv(int(chat_id), query)
         except Exception as _msve:
-            send(chat_id, f"Ошибка: {_msve}")
+            logger.exception("/me_swap_video failed chat=%s", chat_id)
+            send(chat_id, f"Ошибка: {translate_exception(_msve)}")
         return
 
     if cmd == "/costs":
@@ -4470,7 +4494,8 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
             _persona_init_cs(send, _send_photo_url)
             _hcs(int(chat_id))
         except Exception as _cse:
-            send(chat_id, f"Ошибка: {_cse}")
+            logger.exception("/costs failed chat=%s", chat_id)
+            send(chat_id, f"Ошибка: {translate_exception(_cse)}")
         return
 
     if cmd == "/history":
@@ -4486,7 +4511,8 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
             _persona_init_hs(send, _send_photo_url)
             _hhs(int(chat_id), query)
         except Exception as _hse:
-            send(chat_id, f"Ошибка: {_hse}")
+            logger.exception("/history failed chat=%s", chat_id)
+            send(chat_id, f"Ошибка: {translate_exception(_hse)}")
         return
 
     if cmd == "/persona_batch":
@@ -4502,7 +4528,8 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
             _persona_init_pb(send, _send_photo_url)
             _hpb(int(chat_id), query)
         except Exception as _pbe:
-            send(chat_id, f"Ошибка: {_pbe}")
+            logger.exception("/persona_batch failed chat=%s", chat_id)
+            send(chat_id, f"Ошибка: {translate_exception(_pbe)}")
         return
 
     mapped = {
@@ -4561,7 +4588,8 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
             _ps_cmd_map[cmd]()
             return
     except Exception as _ps_err:
-        send(chat_id, f"❌ Photo Studio error: {_ps_err}")
+        logger.exception("Photo Studio command failed chat=%s", chat_id)
+        send(chat_id, f"❌ Photo Studio error: {translate_exception(_ps_err)}")
         return
 
     send(chat_id, "Не знаю такую команду. Напиши /smart_help")

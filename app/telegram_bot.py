@@ -8,6 +8,8 @@ import telebot
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from app.services.error_translator import translate_exception
+
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -184,13 +186,13 @@ def handle_text(message):
         logging.exception("Request to backend failed")
         bot.reply_to(
             message,
-            f"Ошибка запроса к backend:\n{type(e).__name__}: {e}"
+            f"Ошибка запроса к backend:\n{translate_exception(e)}"
         )
     except Exception as e:
         logging.exception("Unexpected conversational error")
         bot.reply_to(
             message,
-            f"Не удалось получить conversational ответ.\n{type(e).__name__}: {e}"
+            f"Не удалось получить conversational ответ.\n{translate_exception(e)}"
         )
 
 def main():
