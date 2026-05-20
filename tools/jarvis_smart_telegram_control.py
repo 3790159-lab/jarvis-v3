@@ -459,7 +459,7 @@ def _persona_video_dispatch(
             send(chat_id_s, result["summary"])
             _send_local_video(chat_id_s, result["output_path"])
         except Exception as exc:
-            send(chat_id_s, f"❌ Ошибка: {exc}")
+            send(chat_id_s, f"❌ Ошибка: {translate_exception(exc)}")
         finally:
             lock.release(token)
 
@@ -702,7 +702,7 @@ def _swapbatch_run_phase(
                 )
             _swapbatch_apply_reply(chat_id_s, reply)
         except Exception as exc:  # noqa: BLE001
-            send(chat_id_s, f"❌ Ошибка: {exc}")
+            send(chat_id_s, f"❌ Ошибка: {translate_exception(exc)}")
         finally:
             lock.release(token)
 
@@ -1576,7 +1576,7 @@ def _handle_mesh_task(chat_id: str, query: str, state: Dict[str, Any]) -> None:
         send(chat_id, f"✨ Готово!\n\n{final}")
 
     except Exception as e:
-        send(chat_id, f"❌ Smart Router ошибка: {e}\nПробую стандартный планировщик...")
+        send(chat_id, f"❌ Smart Router ошибка: {translate_exception(e)}\nПробую стандартный планировщик...")
         _handle_compound_task(chat_id, query, state)
 
 
@@ -2600,7 +2600,7 @@ def _handle_n8n_command(chat_id: str, query: str) -> None:
                 f"Завершён: {'да' if status.get('finished') else 'нет'}"
             ))
         except Exception as exc:
-            send(chat_id, f"❌ Ошибка получения статуса: {exc}")
+            send(chat_id, f"❌ Ошибка получения статуса: {translate_exception(exc)}")
         return
 
     if sub in ("enable", "disable"):
@@ -2615,7 +2615,7 @@ def _handle_n8n_command(chat_id: str, query: str) -> None:
             action = "включён" if active else "выключен"
             send(chat_id, f"{icon} Workflow {wf_id} {action}." if ok else f"❌ Не удалось изменить статус.")
         except Exception as exc:
-            send(chat_id, f"❌ Ошибка: {exc}")
+            send(chat_id, f"❌ Ошибка: {translate_exception(exc)}")
         return
 
     send(chat_id, (
@@ -2667,7 +2667,7 @@ def _handle_remind_command(chat_id: str, query: str) -> None:
         from app.services.scheduler import parse_remind_text
         parsed = parse_remind_text(query)
     except Exception as exc:
-        send(chat_id, f"❌ Ошибка парсера: {exc}")
+        send(chat_id, f"❌ Ошибка парсера: {translate_exception(exc)}")
         return
 
     if not parsed:
@@ -2731,7 +2731,7 @@ def _handle_schedule_command(chat_id: str, query: str) -> None:
             tasks = sched.list_tasks()
             send(chat_id, format_task_list(tasks))
         except Exception as exc:
-            send(chat_id, f"❌ Ошибка: {exc}")
+            send(chat_id, f"❌ Ошибка: {translate_exception(exc)}")
         return
 
     if sub == "remove" and len(parts) >= 2:
@@ -2848,7 +2848,7 @@ def _handle_logs_command(chat_id: str, query: str) -> None:
             text = f"📄 {component} (последние {len(tail)} строк):\n" + "\n".join(tail)
             send(chat_id, text[:3800])
         except Exception as exc:
-            send(chat_id, f"❌ Ошибка чтения логов: {exc}")
+            send(chat_id, f"❌ Ошибка чтения логов: {translate_exception(exc)}")
         return
 
     # Try to read Python log files from root
@@ -3006,7 +3006,7 @@ def _handle_improve_command(chat_id: str, query: str) -> None:
             analysis = analyze_decisions(50)
             send(chat_id, f"🧠 Анализ и рекомендации:\n\n{analysis}")
         except Exception as exc:
-            send(chat_id, f"❌ Ошибка анализа: {exc}")
+            send(chat_id, f"❌ Ошибка анализа: {translate_exception(exc)}")
         return
 
     if sub == "stats":
@@ -3319,7 +3319,7 @@ def cmd_night_status(chat_id: str) -> None:
     import json as _jns
     tasks_path = Path("state") / "scheduled_tasks.json"
     if not tasks_path.exists():
-        send(chat_id, "❌ Night Autonomy не активирована — нет scheduled_tasks.json")
+        send(chat_id, "❌ Night Autonomy не активирована — конфигурация задач не найдена.")
         return
     try:
         tasks = _jns.loads(tasks_path.read_text(encoding="utf-8"))
@@ -3335,7 +3335,7 @@ def cmd_night_status(chat_id: str) -> None:
             lines.append(f"{active} {action}: {cron}")
         send(chat_id, "\n".join(lines))
     except Exception as exc:
-        send(chat_id, f"⚠️ Ошибка чтения расписания: {exc}")
+        send(chat_id, f"⚠️ Ошибка чтения расписания: {translate_exception(exc)}")
 
 
 def cmd_night_now(chat_id: str) -> None:
@@ -3368,7 +3368,7 @@ def cmd_night_now(chat_id: str) -> None:
                  "- state/improvement_log.json\n"
                  "- /night_status")
         except Exception as exc:
-            send(chat_id, f"❌ Ошибка night workflow: {exc}")
+            send(chat_id, f"❌ Ошибка night workflow: {translate_exception(exc)}")
 
     _thr_nn.Thread(target=_run, daemon=True).start()
 
@@ -3405,7 +3405,7 @@ def cmd_restart_backend(chat_id: str) -> None:
                 pass
             send(chat_id, "⚠️ Backend перезапущен, но health check не прошёл. Подожди 30с и проверь /selfcheck")
         else:
-            send(chat_id, "❌ Скрипт запуска backend не найден. Перезапусти вручную.")
+            send(chat_id, "❌ Скрипт запуска backend не найден. Запустите вручную: `.\\start_jarvis.ps1`")
     except Exception as exc:
         send(chat_id, f"❌ Не удалось запустить backend: {exc}")
 
@@ -3687,7 +3687,7 @@ def cmd_landing(chat_id: str, query: str) -> None:
             f"4. Откроется в браузере\n\n"
             f"💡 Можешь редактировать в любом редакторе.")
     except Exception as exc:
-        send(chat_id, f"❌ Ошибка: {exc}")
+        send(chat_id, f"❌ Ошибка: {translate_exception(exc)}")
 
 
 # ── Smart Photo Prompts (Block L.3) ──────────────────────────────────────────
@@ -3900,7 +3900,7 @@ def cmd_simple_game(chat_id: str, query: str) -> None:
     except ValueError as exc:
         send(chat_id, f"❌ {exc}")
     except Exception as exc:
-        send(chat_id, f"❌ Ошибка: {exc}")
+        send(chat_id, f"❌ Ошибка: {translate_exception(exc)}")
 
 
 def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) -> None:
@@ -5054,7 +5054,7 @@ def process_update(upd: Dict[str, Any], media_group_buffer: Optional[Dict[str, A
                     else:
                         send(ALLOWED_CHAT_ID, transcribe_voice_placeholder(audio_path))
                 except Exception as ve:
-                    send(ALLOWED_CHAT_ID, f"❌ Ошибка транскрипции: {ve}")
+                    send(ALLOWED_CHAT_ID, f"❌ Ошибка транскрипции: {translate_exception(ve)}")
     elif has_file and chat_id == ALLOWED_CHAT_ID:
         if media_gid:
             if media_gid not in media_group_buffer:
@@ -5277,7 +5277,7 @@ def _main_inner() -> None:
                                 else:
                                     send(ALLOWED_CHAT_ID, transcribe_voice_placeholder(audio_path))
                             except Exception as ve:
-                                send(ALLOWED_CHAT_ID, f"❌ Ошибка транскрипции: {ve}")
+                                send(ALLOWED_CHAT_ID, f"❌ Ошибка транскрипции: {translate_exception(ve)}")
                         else:
                             send(ALLOWED_CHAT_ID, "❌ Не удалось скачать голосовое. Попробуй ещё раз.")
                     else:

@@ -372,7 +372,7 @@ def handle_train_lora(chat_id: int, args: str) -> None:
         _safe_send(
             chat_id,
             f"Недостаточно seed-фото: {n_photos}/{MIN_PHOTOS} минимум.\n"
-            f"Сначала сгенерируй фото: /create_persona",
+            f"Сначала сгенерируйте фото: /create_persona",
         )
         return
 
@@ -453,7 +453,7 @@ def handle_list_loras(chat_id: int) -> None:
         return
 
     if not trained:
-        _safe_send(chat_id, "Нет натренированных персон.\nЗапусти: /train_lora <persona_id>")
+        _safe_send(chat_id, "Нет натренированных персон.\nЗапустите: /train_lora <persona_id>")
         return
 
     lines = ["Натренированные персоны:"]

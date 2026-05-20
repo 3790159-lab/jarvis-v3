@@ -226,7 +226,7 @@ def generate_reply(text: str) -> dict[str, Any]:
 
     if intent == "task":
         return {
-            "reply": "Похоже на задачу. Такой текст лучше передать в supervisor goal-routing.",
+            "reply": "Это похоже на задачу — переключаюсь в режим работы. Жду формулировку, что нужно сделать.",
             "intent": "task",
             "mode": "router",
             "source": "local_router",
@@ -235,7 +235,7 @@ def generate_reply(text: str) -> dict[str, Any]:
 
     if intent == "status":
         return {
-            "reply": "Похоже на запрос статуса или логов. Такой текст лучше направить в mission/status-routing.",
+            "reply": "Похоже на запрос статуса. Уточните, по какой системе нужна сводка, и я её соберу.",
             "intent": "status",
             "mode": "router",
             "source": "local_router",

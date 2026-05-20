@@ -29,6 +29,7 @@ from app.services.block_m2_face_swap.batch_orchestrator import (
     get_orchestrator,
 )
 from app.services.block_m2_face_swap.cost_estimator import format_cost_report_ru
+from app.services.error_translator import translate_exception
 
 logger = logging.getLogger(__name__)
 
@@ -214,7 +215,7 @@ class FaceSwapHandler:
         except OrchestratorError as exc:
             return HandlerReply(text=f"⚠️ {exc}")
         except Exception as exc:  # noqa: BLE001
-            return HandlerReply(text=f"❌ Ошибка swap: {exc}")
+            return HandlerReply(text=f"❌ Ошибка swap: {translate_exception(exc)}")
 
         sess = self.orchestrator.get(chat_id)
         if sess is None:
@@ -258,7 +259,7 @@ class FaceSwapHandler:
         except OrchestratorError as exc:
             return HandlerReply(text=f"⚠️ {exc}")
         except Exception as exc:  # noqa: BLE001
-            return HandlerReply(text=f"❌ Ошибка animate: {exc}")
+            return HandlerReply(text=f"❌ Ошибка animate: {translate_exception(exc)}")
 
         sess = self.orchestrator.get(chat_id)
         if sess is None:
