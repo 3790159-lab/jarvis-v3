@@ -30,3 +30,28 @@ bot_heartbeat.txt
 data/test_inputs/
 scripts/smoke_test_*.log
 scripts/runpod_recreate_*.log
+
+# --- Phase 3 additions (May 20, 2026) ---
+
+# Env-variant backups missed by existing patterns
+.env.*.bak_*
+.env.runpod.bak_*
+
+# Research result dumps (non-source artifacts)
+jarvis_stage3_artifacts/internet_tools/research_*.json
+
+# Block M.2 video output directory (mirror of data/test_inputs/ rule)
+data/block_m2_video/
+
+# Brain / runtime state JSON shouldn't be tracked
+jarvis_stage3_artifacts/telegram_smart_control/brain_v2_state.json
+
+# Debug / scratch scripts (commit useful ones under proper names instead)
+scripts/debug_*.py
+scripts/_*.py
+
+# .log.err sibling files alongside .log
+scripts/*.log.err
+
+# Nested generated-project venvs (recursive certifi/pip bloat)
+jarvis_stage3_artifacts/generated_projects/*/.venv/
