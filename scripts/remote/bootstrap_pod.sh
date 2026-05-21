@@ -1,92 +1,111 @@
 #!/usr/bin/env bash
-# scripts/remote/bootstrap_pod.sh
-#
-# Runs on the RunPod pod at container start (via the RunPod template's
-# startCmd = `bash -lc '/workspace/bootstrap.sh'`). Repo is source of
-# truth; the actual file at /workspace/bootstrap.sh is pasted onto the
-# network volume once per environment via the RunPod web terminal.
-#
-# Contract (matches docs/superpowers/specs/2026-05-21-sniper-provisioning-
-# callback-design.md):
-#   - Idempotent: safe to run on every container boot.
-#   - Versioned-manifest gate: BOOTSTRAP_VERSION constant + on-volume
-#     /workspace/.bootstrap_version. Mismatch → slow install path.
-#   - Import probe: ALWAYS runs, even on warm cache. Fails fast (exit 1)
-#     with MISSING_MODULE log line that the human reads in RunPod
-#     console logs.
-#   - On success: exec python main.py so ComfyUI becomes PID 1; its
-#     exit propagates as container exit → CONTAINER_EXITED to the
-#     Python provisioner.
+# Jarvis V3 Pod Bootstrap Script
+# Lives on network volume: /workspace/bootstrap.sh
+# Invoked by RunPod template startCmd: bash -lc '/workspace/bootstrap.sh'
 
 set -euo pipefail
 
 BOOTSTRAP_VERSION="2026.05.21-001"
 VOLUME_VERSION_FILE="/workspace/.bootstrap_version"
 LOG_FILE="/workspace/.bootstrap_log"
+COMFYUI_DIR="/workspace/ComfyUI"
 
-# Mirror stdout/stderr to a log file on the volume for after-the-fact debug.
+# --- Logging ---
 exec > >(tee -a "$LOG_FILE") 2>&1
+echo "=== bootstrap.sh starting at $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+echo "BOOTSTRAP_VERSION=$BOOTSTRAP_VERSION"
 
-echo "[bootstrap] start version=$BOOTSTRAP_VERSION at $(date -Is)"
-
-# 1. Activate venv (created during first cold setup; lives on /workspace)
-if [[ ! -f /workspace/venv/bin/activate ]]; then
-    echo "[bootstrap] FATAL: /workspace/venv missing — initial setup not done"
-    echo "MISSING_VENV=/workspace/venv"
+# --- Sanity check ---
+if [[ ! -d "$COMFYUI_DIR" ]]; then
+    echo "ERROR: COMFYUI_NOT_FOUND ($COMFYUI_DIR)" >&2
     exit 1
 fi
-# shellcheck disable=SC1091
-source /workspace/venv/bin/activate
 
-# 2. Cache check
-cached_version="$(cat "$VOLUME_VERSION_FILE" 2>/dev/null || echo "")"
-if [[ "$cached_version" != "$BOOTSTRAP_VERSION" ]]; then
-    echo "[bootstrap] version mismatch (cached='$cached_version' wanted='$BOOTSTRAP_VERSION') — running slow install"
-    # Slow install path — refine these with the actual install commands
-    # from yesterday's manual transcript when the human first builds the
-    # on-volume copy. Examples:
-    #   pip install -r /workspace/requirements.txt
-    #   pip install "transformers<4.45"  # PyTorch 2.4 compat pin
-    #   apt-get update && apt-get install -y ffmpeg
-    #   git -C /workspace/ComfyUI/custom_nodes/comfyui-reactor-node pull
-    echo "[bootstrap] (slow install steps run here — see comments above)"
+# --- Version gate ---
+NEED_INSTALL=true
+if [[ -f "$VOLUME_VERSION_FILE" ]]; then
+    CACHED_VERSION=$(cat "$VOLUME_VERSION_FILE")
+    if [[ "$CACHED_VERSION" == "$BOOTSTRAP_VERSION" ]]; then
+        echo "[fast path] cache version $CACHED_VERSION matches, skipping install"
+        NEED_INSTALL=false
+    else
+        echo "[slow path] cache version $CACHED_VERSION != $BOOTSTRAP_VERSION, reinstalling"
+    fi
 else
-    echo "[bootstrap] cache HIT — skipping slow install"
+    echo "[slow path] no cached version, full install"
 fi
 
-# 3. Import probe (ALWAYS runs, even on warm cache)
-echo "[bootstrap] running import probe"
-python - <<'PY' || { echo "MISSING_MODULE=$?"; exit 1; }
-import importlib, sys
+# --- Slow install path ---
+if [[ "$NEED_INSTALL" == "true" ]]; then
+    echo "=== Step: apt update + install unzip ==="
+    apt-get update -qq
+    apt-get install -y unzip
 
-# Modules whose missing imports broke things in the 2026-05-20 manual fix.
-# Extend this list as new failure modes surface.
-MODULES = [
-    "insightface",
-    "segment_anything",
-    "onnxruntime",
-    "transformers",
+    echo "=== Step: install Python deps ==="
+    pip install --quiet \
+        onnxruntime-gpu \
+        insightface \
+        segment_anything \
+        "transformers<4.45"
+
+    echo "=== Step: verify model files on volume ==="
+    INSWAPPER="$COMFYUI_DIR/models/insightface/inswapper_128.onnx"
+    BUFFALO_DIR="$COMFYUI_DIR/models/insightface/models/buffalo_l"
+
+    if [[ ! -f "$INSWAPPER" ]]; then
+        echo "WARNING: $INSWAPPER missing - re-downloading"
+        mkdir -p "$COMFYUI_DIR/models/insightface"
+        cd "$COMFYUI_DIR/models/insightface"
+        wget -q https://huggingface.co/ezioruan/inswapper_128.onnx/resolve/main/inswapper_128.onnx -O inswapper_128.onnx
+    fi
+
+    if [[ ! -d "$BUFFALO_DIR" ]] || [[ -z "$(ls -A $BUFFALO_DIR 2>/dev/null)" ]]; then
+        echo "WARNING: buffalo_l models missing - re-downloading"
+        mkdir -p "$BUFFALO_DIR"
+        cd "$COMFYUI_DIR/models/insightface/models"
+        wget -q https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip
+        unzip -o buffalo_l.zip -d buffalo_l/
+        rm -f buffalo_l.zip
+    fi
+fi
+
+# --- Import probe (ALWAYS runs, regardless of cache state) ---
+echo "=== Import probe ==="
+python << 'PYEOF'
+import sys
+modules_to_check = [
+    'insightface',
+    'segment_anything',
+    'onnxruntime',
 ]
-
-failed = []
-for m in MODULES:
+missing = []
+for mod in modules_to_check:
     try:
-        importlib.import_module(m)
-    except Exception as e:
-        failed.append(f"{m}: {type(e).__name__}: {e}")
+        __import__(mod)
+        print(f"  OK {mod}")
+    except ImportError as e:
+        missing.append(mod)
+        print(f"  FAIL {mod}: {e}", file=sys.stderr)
 
-if failed:
-    sys.stderr.write("IMPORT_PROBE_FAILED:\n")
-    for line in failed:
-        sys.stderr.write(f"  MISSING_MODULE={line}\n")
-    sys.exit(1)
-print("[bootstrap] import probe OK")
-PY
+try:
+    from transformers import pipeline
+    print(f"  OK transformers.pipeline")
+except (ImportError, RuntimeError) as e:
+    missing.append('transformers.pipeline')
+    print(f"  FAIL transformers.pipeline: {e}", file=sys.stderr)
 
-# 4. Mark version on success
+if missing:
+    for mod in missing:
+        print(f"MISSING_MODULE={mod}", file=sys.stderr)
+    sys.exit(2)
+print("Import probe: ALL OK")
+PYEOF
+
+# --- Mark version as installed ---
 echo "$BOOTSTRAP_VERSION" > "$VOLUME_VERSION_FILE"
+echo "=== Version cached: $BOOTSTRAP_VERSION ==="
 
-# 5. Launch ComfyUI as PID 1
-echo "[bootstrap] launching ComfyUI"
-cd /workspace/ComfyUI
+# --- Launch ComfyUI ---
+echo "=== Launching ComfyUI ==="
+cd "$COMFYUI_DIR"
 exec python main.py --listen 0.0.0.0 --port 8188
