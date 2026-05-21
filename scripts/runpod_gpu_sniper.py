@@ -297,7 +297,26 @@ async def _snipe(
                 )
                 return 0
 
-            # Tasks 8-9 add CONTAINER_EXITED / TIMEOUT / SIGINT branches.
+            if result.outcome is ProvisionOutcome.CONTAINER_EXITED:
+                _safe_notify(
+                    f"❌ Pod bootstrap failed\n"
+                    f"pod_id: {result.pod_id}\n"
+                    f"{result.detail}",
+                    enabled=notify,
+                )
+                return 0
+
+            if result.outcome is ProvisionOutcome.TIMEOUT:
+                _safe_notify(
+                    f"⏰ Pod unresponsive\n"
+                    f"pod_id: {result.pod_id}\n"
+                    f"{result.detail}",
+                    enabled=notify,
+                )
+                return 0
+
+            # Defensive — all three ProvisionOutcomes are handled above.
+            logger.warning("[sniper] unexpected ProvisionOutcome: %s", result.outcome)
             return 0
 
         # Hard attempt cap reached without timeout (unusual: very short poll interval)

@@ -330,3 +330,85 @@ async def test_calls_provisioner_after_catch_and_alerts_ready(
     assert "✅" in sent[1]
     assert "ready" in sent[1].lower()
     assert pod.id in sent[1]
+
+
+@pytest.mark.asyncio
+async def test_alerts_container_exited(
+    status_file: Path,
+    fake_sleep: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CONTAINER_EXITED outcome → ❌ alert mentioning the pod_id."""
+    pod = _make_pod()
+    client = AsyncMock()
+    client.start_pod = AsyncMock(return_value=pod)
+
+    sent: list[str] = []
+    monkeypatch.setattr(sniper, "send_alert", lambda text: sent.append(text) or True)
+
+    async def _fake_wait(_c, _p, **_kw):
+        return ProvisionResult(
+            outcome=ProvisionOutcome.CONTAINER_EXITED,
+            pod_id=_p.id,
+            public_url=None,
+            elapsed_sec=45.0,
+            detail=f"Container exited 45s after spawn — check RunPod console logs for pod {_p.id}",
+        )
+
+    monkeypatch.setattr(sniper, "wait_for_pod_ready", _fake_wait)
+
+    rc = await sniper._snipe(
+        max_duration_min=120,
+        poll_interval_sec=20,
+        notify=True,
+        dry_run=False,
+        config=_make_config(),
+        client=client,
+        sleeper=fake_sleep,
+    )
+
+    assert rc == 0  # catch succeeded; provisioning failure is not a sniper-level error
+    assert len(sent) == 2
+    assert "❌" in sent[1]
+    assert pod.id in sent[1]
+
+
+@pytest.mark.asyncio
+async def test_alerts_timeout(
+    status_file: Path,
+    fake_sleep: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TIMEOUT outcome → ⏰ alert mentioning the pod_id."""
+    pod = _make_pod()
+    client = AsyncMock()
+    client.start_pod = AsyncMock(return_value=pod)
+
+    sent: list[str] = []
+    monkeypatch.setattr(sniper, "send_alert", lambda text: sent.append(text) or True)
+
+    async def _fake_wait(_c, _p, **_kw):
+        return ProvisionResult(
+            outcome=ProvisionOutcome.TIMEOUT,
+            pod_id=_p.id,
+            public_url=f"https://{_p.id}-8188.proxy.runpod.net",
+            elapsed_sec=1500.0,
+            detail=f"Pod still RUNNING but /system_stats never returned 200 in 25 min — check web terminal for pod {_p.id}",
+        )
+
+    monkeypatch.setattr(sniper, "wait_for_pod_ready", _fake_wait)
+
+    rc = await sniper._snipe(
+        max_duration_min=120,
+        poll_interval_sec=20,
+        notify=True,
+        dry_run=False,
+        config=_make_config(),
+        client=client,
+        sleeper=fake_sleep,
+    )
+
+    assert rc == 0
+    assert len(sent) == 2
+    assert "⏰" in sent[1]
+    assert pod.id in sent[1]
