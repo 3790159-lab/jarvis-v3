@@ -61,11 +61,52 @@ async def wait_for_pod_ready(
     kwargs are injectable so the function can be unit-tested with zero
     real time and zero real network.
     """
-    # Placeholder — later tasks build out the real loop.
-    return ProvisionResult(
-        outcome=ProvisionOutcome.TIMEOUT,
-        pod_id=pod.id,
-        public_url=None,
-        elapsed_sec=0.0,
-        detail="not implemented yet",
-    )
+    import asyncio
+    import time
+
+    _clock = clock if clock is not None else time.monotonic
+    _sleep = sleeper if sleeper is not None else asyncio.sleep
+    _own_http = http_client is None
+    http = http_client or httpx.AsyncClient(timeout=HTTP_PROBE_TIMEOUT_SEC)
+
+    public_url = f"https://{pod.id}-8188.proxy.runpod.net"
+    start = _clock()
+    deadline = start + timeout_min * 60
+
+    try:
+        while _clock() < deadline:
+            # 1. HTTP probe
+            try:
+                response = await http.get(
+                    f"{public_url}{SYSTEM_STATS_PATH}",
+                    timeout=HTTP_PROBE_TIMEOUT_SEC,
+                )
+                if response.status_code == 200:
+                    elapsed = _clock() - start
+                    return ProvisionResult(
+                        outcome=ProvisionOutcome.READY,
+                        pod_id=pod.id,
+                        public_url=public_url,
+                        elapsed_sec=elapsed,
+                        detail=f"ComfyUI ready in {elapsed:.1f}s",
+                    )
+            except (httpx.ConnectError, httpx.TimeoutException) as exc:
+                logger.debug("[provisioner] HTTP probe transient: %s", exc)
+
+            await _sleep(poll_interval_sec)
+
+        # Deadline reached
+        elapsed = _clock() - start
+        return ProvisionResult(
+            outcome=ProvisionOutcome.TIMEOUT,
+            pod_id=pod.id,
+            public_url=public_url,
+            elapsed_sec=elapsed,
+            detail=(
+                f"Pod still RUNNING but /system_stats never returned 200 "
+                f"in {timeout_min} min — check web terminal for pod {pod.id}"
+            ),
+        )
+    finally:
+        if _own_http:
+            await http.aclose()

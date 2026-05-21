@@ -99,3 +99,58 @@ def test_provision_result_is_pydantic_model():
     assert r.outcome is ProvisionOutcome.READY
     assert r.pod_id == "pod_abc123"
     assert r.elapsed_sec == 12.5
+
+
+@pytest.mark.asyncio
+async def test_outcome_ready_on_first_poll(fake_sleep: AsyncMock) -> None:
+    """First HTTP call returns 200 → READY without sleeping."""
+    pod = _make_pod()
+    client = AsyncMock(spec=RunpodClient)
+    client.get_pod = AsyncMock(return_value=pod)
+    http = _make_http(_make_response(200))
+
+    result = await wait_for_pod_ready(
+        client,
+        pod,
+        http_client=http,
+        clock=_make_clock(0.0, 0.0, 0.5),  # start, deadline-check, post-success
+        sleeper=fake_sleep,
+        timeout_min=25,
+        poll_interval_sec=30,
+    )
+
+    assert result.outcome is ProvisionOutcome.READY
+    assert result.pod_id == pod.id
+    assert result.public_url == "https://pod_abc123-8188.proxy.runpod.net"
+    assert result.elapsed_sec == pytest.approx(0.5, abs=0.01)
+    http.get.assert_awaited_once()
+    fake_sleep.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_outcome_ready_after_transient_connect_errors(
+    fake_sleep: AsyncMock,
+) -> None:
+    """ConnectError on the first two probes, then 200 on the third → READY."""
+    pod = _make_pod()
+    client = AsyncMock(spec=RunpodClient)
+    client.get_pod = AsyncMock(return_value=pod)
+    http = _make_http(
+        httpx.ConnectError("not bound yet"),
+        httpx.TimeoutException("slow"),
+        _make_response(200),
+    )
+
+    result = await wait_for_pod_ready(
+        client,
+        pod,
+        http_client=http,
+        clock=_make_clock(0.0, 0.0, 30.0, 60.0, 60.5),
+        sleeper=fake_sleep,
+        timeout_min=25,
+        poll_interval_sec=30,
+    )
+
+    assert result.outcome is ProvisionOutcome.READY
+    assert http.get.await_count == 3
+    assert fake_sleep.await_count == 2  # one sleep per failed probe
