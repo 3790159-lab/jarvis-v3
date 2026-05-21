@@ -307,12 +307,20 @@ async def _snipe(
                 return 0
 
             if result.outcome is ProvisionOutcome.TIMEOUT:
-                _safe_notify(
-                    f"⏰ Pod unresponsive\n"
-                    f"pod_id: {result.pod_id}\n"
-                    f"{result.detail}",
-                    enabled=notify,
-                )
+                if "SIGINT" in result.detail:
+                    _safe_notify(
+                        f"🛑 Pod caught but readiness check aborted by SIGINT\n"
+                        f"pod_id: {result.pod_id}\n"
+                        f"Pod still RUNNING — check manually",
+                        enabled=notify,
+                    )
+                else:
+                    _safe_notify(
+                        f"⏰ Pod unresponsive\n"
+                        f"pod_id: {result.pod_id}\n"
+                        f"{result.detail}",
+                        enabled=notify,
+                    )
                 return 0
 
             # Defensive — all three ProvisionOutcomes are handled above.

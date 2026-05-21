@@ -412,3 +412,50 @@ async def test_alerts_timeout(
     assert len(sent) == 2
     assert "⏰" in sent[1]
     assert pod.id in sent[1]
+
+
+@pytest.mark.asyncio
+async def test_sigint_during_readiness_sends_aborted_alert(
+    status_file: Path,
+    fake_sleep: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SIGINT during wait_for_pod_ready → 🛑 'readiness aborted' alert, pod left alive."""
+    pod = _make_pod()
+    client = AsyncMock()
+    client.start_pod = AsyncMock(return_value=pod)
+    # The sniper must NOT call terminate_pod
+    client.terminate_pod = AsyncMock()
+
+    sent: list[str] = []
+    monkeypatch.setattr(sniper, "send_alert", lambda text: sent.append(text) or True)
+
+    async def _fake_wait(_c, _p, **_kw):
+        # Simulate the provisioner returning TIMEOUT with the SIGINT marker
+        # — the sniper differentiates by detail content, not by outcome.
+        return ProvisionResult(
+            outcome=ProvisionOutcome.TIMEOUT,
+            pod_id=_p.id,
+            public_url=f"https://{_p.id}-8188.proxy.runpod.net",
+            elapsed_sec=120.0,
+            detail=f"SIGINT during readiness wait for {_p.id}",
+        )
+
+    monkeypatch.setattr(sniper, "wait_for_pod_ready", _fake_wait)
+
+    rc = await sniper._snipe(
+        max_duration_min=120,
+        poll_interval_sec=20,
+        notify=True,
+        dry_run=False,
+        config=_make_config(),
+        client=client,
+        sleeper=fake_sleep,
+    )
+
+    assert rc == 0
+    assert len(sent) == 2
+    assert "🛑" in sent[1]
+    assert "aborted" in sent[1].lower()
+    assert pod.id in sent[1]
+    client.terminate_pod.assert_not_awaited()
