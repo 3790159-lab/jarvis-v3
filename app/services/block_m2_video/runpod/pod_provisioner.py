@@ -93,6 +93,26 @@ async def wait_for_pod_ready(
             except (httpx.ConnectError, httpx.TimeoutException) as exc:
                 logger.debug("[provisioner] HTTP probe transient: %s", exc)
 
+            # 2. Pod-state check (precedence over continued HTTP 404)
+            try:
+                pod_now = await client.get_pod(pod.id)
+            except Exception as exc:  # noqa: BLE001 — handled in Task 5
+                logger.debug("[provisioner] get_pod transient: %s", exc)
+                pod_now = None
+
+            if pod_now and (pod_now.desired_status or "").upper() == "EXITED":
+                elapsed = _clock() - start
+                return ProvisionResult(
+                    outcome=ProvisionOutcome.CONTAINER_EXITED,
+                    pod_id=pod.id,
+                    public_url=public_url,
+                    elapsed_sec=elapsed,
+                    detail=(
+                        f"Container exited {elapsed:.0f}s after spawn — "
+                        f"check RunPod console logs for pod {pod.id}"
+                    ),
+                )
+
             await _sleep(poll_interval_sec)
 
         # Deadline reached

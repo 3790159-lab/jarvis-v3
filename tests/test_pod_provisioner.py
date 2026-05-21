@@ -154,3 +154,57 @@ async def test_outcome_ready_after_transient_connect_errors(
     assert result.outcome is ProvisionOutcome.READY
     assert http.get.await_count == 3
     assert fake_sleep.await_count == 2  # one sleep per failed probe
+
+
+@pytest.mark.asyncio
+async def test_outcome_container_exited_on_pod_exited(
+    fake_sleep: AsyncMock,
+) -> None:
+    """Pod desired_status flips to EXITED → CONTAINER_EXITED, no further waits."""
+    running_pod = _make_pod()
+    exited_pod = _make_pod(desired_status="EXITED")
+    client = AsyncMock(spec=RunpodClient)
+    # First get_pod = RUNNING, second = EXITED
+    client.get_pod = AsyncMock(side_effect=[running_pod, exited_pod])
+    http = _make_http(_make_response(404), _make_response(404))
+
+    result = await wait_for_pod_ready(
+        client,
+        running_pod,
+        http_client=http,
+        clock=_make_clock(0.0, 0.0, 30.0, 60.0, 60.5),
+        sleeper=fake_sleep,
+        timeout_min=25,
+        poll_interval_sec=30,
+    )
+
+    assert result.outcome is ProvisionOutcome.CONTAINER_EXITED
+    assert result.pod_id == running_pod.id
+    assert "exited" in result.detail.lower()
+    assert running_pod.id in result.detail
+    # Returned before deadline — at most a handful of polls
+    assert client.get_pod.await_count <= 3
+
+
+@pytest.mark.asyncio
+async def test_container_exited_takes_precedence_over_http_404(
+    fake_sleep: AsyncMock,
+) -> None:
+    """Even if HTTP keeps 404-ing, EXITED state wins in the same iteration."""
+    running_pod = _make_pod()
+    exited_pod = _make_pod(desired_status="EXITED")
+    client = AsyncMock(spec=RunpodClient)
+    client.get_pod = AsyncMock(return_value=exited_pod)  # always EXITED
+    http = _make_http(_make_response(404))  # one 404, then EXITED wins
+
+    result = await wait_for_pod_ready(
+        client,
+        running_pod,
+        http_client=http,
+        clock=_make_clock(0.0, 0.0, 1.0),
+        sleeper=fake_sleep,
+        timeout_min=25,
+        poll_interval_sec=30,
+    )
+
+    assert result.outcome is ProvisionOutcome.CONTAINER_EXITED
