@@ -21,6 +21,10 @@ from app.services.block_m2_video.runpod.runpod_client import (
     RunpodSupplyError,
 )
 from app.services.block_m2_video.runpod.runpod_config import RunpodConfig
+from app.services.block_m2_video.runpod.pod_provisioner import (
+    ProvisionOutcome,
+    ProvisionResult,
+)
 from scripts import runpod_gpu_sniper as sniper
 
 
@@ -79,6 +83,27 @@ def _make_pod(pod_id: str = "pod_abc123") -> PodInfo:
 def _no_real_notify(monkeypatch: pytest.MonkeyPatch) -> None:
     """Don't ever hit Telegram from these tests, even if env happens to be set."""
     monkeypatch.setattr(sniper, "send_alert", lambda _text: True)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_provisioner(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub wait_for_pod_ready so existing tests don't block on HTTP/RunPod polls."""
+
+    async def _instant_ready(_client: Any, _pod: Any, **_kw: Any) -> Any:
+        from app.services.block_m2_video.runpod.pod_provisioner import (
+            ProvisionOutcome,
+            ProvisionResult,
+        )
+
+        return ProvisionResult(
+            outcome=ProvisionOutcome.READY,
+            pod_id=_pod.id,
+            public_url=f"https://{_pod.id}-8188.proxy.runpod.net",
+            elapsed_sec=0.0,
+            detail="stub",
+        )
+
+    monkeypatch.setattr(sniper, "wait_for_pod_ready", _instant_ready)
 
 
 @pytest.fixture
@@ -260,3 +285,48 @@ async def test_dry_run_no_spawn(
     assert status["status"] == "caught"
     assert status["pod_id"] == "DRY-RUN-NO-POD"
     assert status["config"]["dry_run"] is True
+
+
+@pytest.mark.asyncio
+async def test_calls_provisioner_after_catch_and_alerts_ready(
+    status_file: Path,
+    fake_sleep: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """After catch, sniper calls wait_for_pod_ready and sends a ✅ Pod ready alert."""
+    pod = _make_pod()
+    client = AsyncMock()
+    client.start_pod = AsyncMock(return_value=pod)
+
+    sent: list[str] = []
+    monkeypatch.setattr(sniper, "send_alert", lambda text: sent.append(text) or True)
+
+    async def _fake_wait_for_pod_ready(_client, _pod, **_kw):
+        return ProvisionResult(
+            outcome=ProvisionOutcome.READY,
+            pod_id=_pod.id,
+            public_url=f"https://{_pod.id}-8188.proxy.runpod.net",
+            elapsed_sec=42.0,
+            detail="ComfyUI ready in 42.0s",
+        )
+
+    monkeypatch.setattr(sniper, "wait_for_pod_ready", _fake_wait_for_pod_ready)
+
+    rc = await sniper._snipe(
+        max_duration_min=120,
+        poll_interval_sec=20,
+        notify=True,
+        dry_run=False,
+        config=_make_config(),
+        client=client,
+        sleeper=fake_sleep,
+    )
+
+    assert rc == 0
+    # Two alerts: catch + ready
+    assert len(sent) == 2
+    assert "🎯" in sent[0]
+    assert "waiting for ComfyUI bootstrap" in sent[0]
+    assert "✅" in sent[1]
+    assert "ready" in sent[1].lower()
+    assert pod.id in sent[1]

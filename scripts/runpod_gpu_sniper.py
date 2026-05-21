@@ -41,6 +41,11 @@ from app.services.block_m2_video.runpod.runpod_config import (  # noqa: E402
     RunpodConfig,
     get_runpod_config,
 )
+from app.services.block_m2_video.runpod.pod_provisioner import (  # noqa: E402
+    ProvisionOutcome,
+    ProvisionResult,
+    wait_for_pod_ready,
+)
 from app.services.notifications import send_alert  # noqa: E402
 
 logger = logging.getLogger("runpod_gpu_sniper")
@@ -264,15 +269,35 @@ async def _snipe(
                 pod_status["pod_public_url"],
                 attempt,
             )
+            # Existing catch alert (with tweak — append the bootstrap-wait note)
             _safe_notify(
                 (
                     f"🎯 RunPod sniper caught A100 in {cfg.datacenter}!\n"
                     f"pod_id: {pod_status['pod_id']}\n"
                     f"url: {pod_status['pod_public_url']}\n"
-                    f"attempts: {attempt}"
+                    f"attempts: {attempt}\n"
+                    f"(waiting for ComfyUI bootstrap, will alert when ready)"
                 ),
                 enabled=notify,
             )
+
+            # Provisioning callback — passive readiness observation
+            result = await wait_for_pod_ready(
+                rp_client,
+                pod,
+                interrupted=lambda: _interrupted,
+            )
+
+            if result.outcome is ProvisionOutcome.READY:
+                _safe_notify(
+                    f"✅ Pod ready: {result.public_url}\n"
+                    f"pod_id: {result.pod_id}\n"
+                    f"{result.detail}",
+                    enabled=notify,
+                )
+                return 0
+
+            # Tasks 8-9 add CONTAINER_EXITED / TIMEOUT / SIGINT branches.
             return 0
 
         # Hard attempt cap reached without timeout (unusual: very short poll interval)
