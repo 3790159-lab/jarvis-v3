@@ -331,3 +331,36 @@ async def test_transient_runpod_api_failures_below_threshold_recover(
     assert result.outcome is ProvisionOutcome.READY
     assert client.get_pod.await_count == 3
     assert http.get.await_count == 4
+
+
+SIGINT_DETAIL_MARKER = "SIGINT"  # also asserted in sniper tests later
+
+
+@pytest.mark.asyncio
+async def test_interrupted_short_circuits_loop(fake_sleep: AsyncMock) -> None:
+    """interrupted() returning True mid-loop → TIMEOUT with SIGINT marker."""
+    pod = _make_pod()
+    client = AsyncMock(spec=RunpodClient)
+    client.get_pod = AsyncMock(return_value=pod)  # always RUNNING
+    http = _make_http(*[_make_response(404)] * 5)
+
+    # interrupted: returns False on first call (loop entry), True on second.
+    interrupted_calls = {"n": 0}
+
+    def _interrupted() -> bool:
+        interrupted_calls["n"] += 1
+        return interrupted_calls["n"] >= 2
+
+    result = await wait_for_pod_ready(
+        client,
+        pod,
+        http_client=http,
+        clock=_make_clock(0.0, 0.0, 30.0, 60.0, 60.5),
+        sleeper=fake_sleep,
+        timeout_min=25,
+        poll_interval_sec=30,
+        interrupted=_interrupted,
+    )
+
+    assert result.outcome is ProvisionOutcome.TIMEOUT
+    assert SIGINT_DETAIL_MARKER in result.detail

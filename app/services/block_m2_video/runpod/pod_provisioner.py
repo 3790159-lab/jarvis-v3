@@ -77,6 +77,16 @@ async def wait_for_pod_ready(
 
     try:
         while _clock() < deadline:
+            if interrupted is not None and interrupted():
+                elapsed = _clock() - start
+                return ProvisionResult(
+                    outcome=ProvisionOutcome.TIMEOUT,
+                    pod_id=pod.id,
+                    public_url=public_url,
+                    elapsed_sec=elapsed,
+                    detail=f"SIGINT during readiness wait for {pod.id}",
+                )
+
             # 1. HTTP probe
             try:
                 response = await http.get(
