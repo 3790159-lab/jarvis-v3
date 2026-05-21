@@ -17,7 +17,7 @@ from typing import Awaitable, Callable
 import httpx
 from pydantic import BaseModel
 
-from .runpod_client import PodInfo, RunpodClient
+from .runpod_client import PodInfo, RunpodApiError, RunpodClient
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +73,8 @@ async def wait_for_pod_ready(
     start = _clock()
     deadline = start + timeout_min * 60
 
+    consecutive_api_failures = 0
+
     try:
         while _clock() < deadline:
             # 1. HTTP probe
@@ -96,8 +98,28 @@ async def wait_for_pod_ready(
             # 2. Pod-state check (precedence over continued HTTP 404)
             try:
                 pod_now = await client.get_pod(pod.id)
-            except Exception as exc:  # noqa: BLE001 — handled in Task 5
-                logger.debug("[provisioner] get_pod transient: %s", exc)
+                consecutive_api_failures = 0
+            except RunpodApiError as exc:
+                consecutive_api_failures += 1
+                logger.debug(
+                    "[provisioner] get_pod failed (%d/%d): %s",
+                    consecutive_api_failures,
+                    CONSECUTIVE_TRANSIENT_FAILURE_THRESHOLD,
+                    exc,
+                )
+                if consecutive_api_failures >= CONSECUTIVE_TRANSIENT_FAILURE_THRESHOLD:
+                    elapsed = _clock() - start
+                    return ProvisionResult(
+                        outcome=ProvisionOutcome.TIMEOUT,
+                        pod_id=pod.id,
+                        public_url=public_url,
+                        elapsed_sec=elapsed,
+                        detail=(
+                            f"RunPod API unreachable for {consecutive_api_failures} "
+                            f"consecutive polls — cannot determine pod state for "
+                            f"{pod.id}"
+                        ),
+                    )
                 pod_now = None
 
             if pod_now and (pod_now.desired_status or "").upper() == "EXITED":

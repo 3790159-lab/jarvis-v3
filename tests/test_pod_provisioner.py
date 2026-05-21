@@ -259,3 +259,75 @@ async def test_outcome_timeout_when_pod_pending_throughout(
     )
 
     assert result.outcome is ProvisionOutcome.TIMEOUT
+
+
+@pytest.mark.asyncio
+async def test_consecutive_runpod_api_failures_return_timeout(
+    fake_sleep: AsyncMock,
+) -> None:
+    """3 consecutive RunpodApiError from get_pod → TIMEOUT with API-unreachable detail."""
+    from app.services.block_m2_video.runpod.runpod_client import RunpodApiError
+
+    pod = _make_pod()
+    client = AsyncMock(spec=RunpodClient)
+    client.get_pod = AsyncMock(
+        side_effect=[
+            RunpodApiError("HTTP 500"),
+            RunpodApiError("HTTP 500"),
+            RunpodApiError("HTTP 500"),
+        ]
+    )
+    http = _make_http(*[_make_response(404)] * 3)
+
+    result = await wait_for_pod_ready(
+        client,
+        pod,
+        http_client=http,
+        clock=_make_clock(0.0, 0.0, 30.0, 60.0, 90.0),
+        sleeper=fake_sleep,
+        timeout_min=25,
+        poll_interval_sec=30,
+    )
+
+    assert result.outcome is ProvisionOutcome.TIMEOUT
+    assert "api unreachable" in result.detail.lower()
+    assert client.get_pod.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_transient_runpod_api_failures_below_threshold_recover(
+    fake_sleep: AsyncMock,
+) -> None:
+    """2 failures then a success resets the counter; eventual 200 → READY."""
+    from app.services.block_m2_video.runpod.runpod_client import RunpodApiError
+
+    pod = _make_pod()
+    client = AsyncMock(spec=RunpodClient)
+    client.get_pod = AsyncMock(
+        side_effect=[
+            RunpodApiError("HTTP 500"),
+            RunpodApiError("HTTP 502"),
+            pod,  # recovered
+            pod,  # still RUNNING
+        ]
+    )
+    http = _make_http(
+        _make_response(404),
+        _make_response(404),
+        _make_response(404),
+        _make_response(200),
+    )
+
+    result = await wait_for_pod_ready(
+        client,
+        pod,
+        http_client=http,
+        clock=_make_clock(0.0, 0.0, 30.0, 60.0, 90.0, 120.0, 120.5),
+        sleeper=fake_sleep,
+        timeout_min=25,
+        poll_interval_sec=30,
+    )
+
+    assert result.outcome is ProvisionOutcome.READY
+    assert client.get_pod.await_count == 3
+    assert http.get.await_count == 4
