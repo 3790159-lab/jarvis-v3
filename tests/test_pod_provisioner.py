@@ -208,3 +208,54 @@ async def test_container_exited_takes_precedence_over_http_404(
     )
 
     assert result.outcome is ProvisionOutcome.CONTAINER_EXITED
+
+
+@pytest.mark.asyncio
+async def test_outcome_timeout_when_pod_running_but_http_never_200(
+    fake_sleep: AsyncMock,
+) -> None:
+    """Pod stays RUNNING; HTTP returns 404 every time; deadline triggers TIMEOUT."""
+    pod = _make_pod()
+    client = AsyncMock(spec=RunpodClient)
+    client.get_pod = AsyncMock(return_value=pod)  # always RUNNING
+    http = _make_http(*[_make_response(404)] * 10)
+
+    # Clock: 2-min timeout, jumps 60s per call after start
+    # (start, deadline-check x3 → 0, 60, 120, then > 120 fails check → TIMEOUT)
+    result = await wait_for_pod_ready(
+        client,
+        pod,
+        http_client=http,
+        clock=_make_clock(0.0, 0.0, 60.0, 120.0, 121.0),
+        sleeper=fake_sleep,
+        timeout_min=2,
+        poll_interval_sec=30,
+    )
+
+    assert result.outcome is ProvisionOutcome.TIMEOUT
+    assert "never returned 200" in result.detail
+    assert pod.id in result.detail
+
+
+@pytest.mark.asyncio
+async def test_outcome_timeout_when_pod_pending_throughout(
+    fake_sleep: AsyncMock,
+) -> None:
+    """Pod stays PENDING; HTTP errors; deadline triggers TIMEOUT."""
+    pod = _make_pod()
+    pending_pod = _make_pod(desired_status="PENDING")
+    client = AsyncMock(spec=RunpodClient)
+    client.get_pod = AsyncMock(return_value=pending_pod)
+    http = _make_http(*[httpx.ConnectError("not bound") for _ in range(10)])
+
+    result = await wait_for_pod_ready(
+        client,
+        pod,
+        http_client=http,
+        clock=_make_clock(0.0, 0.0, 60.0, 120.0, 121.0),
+        sleeper=fake_sleep,
+        timeout_min=2,
+        poll_interval_sec=30,
+    )
+
+    assert result.outcome is ProvisionOutcome.TIMEOUT
