@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-BOOTSTRAP_VERSION="2026.05.21-001"
+BOOTSTRAP_VERSION="2026.05.21-002"
 VOLUME_VERSION_FILE="/workspace/.bootstrap_version"
 LOG_FILE="/workspace/.bootstrap_log"
 COMFYUI_DIR="/workspace/ComfyUI"
@@ -37,16 +37,22 @@ fi
 
 # --- Slow install path ---
 if [[ "$NEED_INSTALL" == "true" ]]; then
-    echo "=== Step: apt update + install unzip ==="
+    echo "=== Step: apt update + install system deps ==="
     apt-get update -qq
-    apt-get install -y unzip
+    apt-get install -y unzip ffmpeg
 
-    echo "=== Step: install Python deps ==="
+    echo "=== Step: install ComfyUI requirements ==="
+    pip install -r "$COMFYUI_DIR/requirements.txt"
+
+    echo "=== Step: install face swap deps ==="
     pip install --quiet \
         onnxruntime-gpu \
         insightface \
         segment_anything \
-        "transformers<4.45"
+        gitpython
+
+    echo "=== Step: re-pin transformers (ComfyUI installs newer; reactor needs <4.45 with PyTorch 2.4) ==="
+    pip install --force-reinstall --quiet "transformers<4.45"
 
     echo "=== Step: verify model files on volume ==="
     INSWAPPER="$COMFYUI_DIR/models/insightface/inswapper_128.onnx"
@@ -77,6 +83,7 @@ modules_to_check = [
     'insightface',
     'segment_anything',
     'onnxruntime',
+    'git',
 ]
 missing = []
 for mod in modules_to_check:
@@ -104,6 +111,11 @@ PYEOF
 # --- Mark version as installed ---
 echo "$BOOTSTRAP_VERSION" > "$VOLUME_VERSION_FILE"
 echo "=== Version cached: $BOOTSTRAP_VERSION ==="
+
+# --- Kill any existing ComfyUI process (port 8188 conflict prevention) ---
+echo "=== Step: clean port 8188 ==="
+pkill -9 -f "python main.py" 2>/dev/null || true
+sleep 2
 
 # --- Launch ComfyUI ---
 echo "=== Launching ComfyUI ==="
