@@ -459,3 +459,47 @@ async def test_sigint_during_readiness_sends_aborted_alert(
     assert "aborted" in sent[1].lower()
     assert pod.id in sent[1]
     client.terminate_pod.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_status_file_carries_provisioning_fields(
+    status_file: Path,
+    fake_sleep: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """After provisioner returns, status JSON has provisioning_* fields."""
+    pod = _make_pod()
+    client = AsyncMock()
+    client.start_pod = AsyncMock(return_value=pod)
+
+    async def _fake_wait(_c, _p, **_kw):
+        return ProvisionResult(
+            outcome=ProvisionOutcome.READY,
+            pod_id=_p.id,
+            public_url=f"https://{_p.id}-8188.proxy.runpod.net",
+            elapsed_sec=42.0,
+            detail="ComfyUI ready in 42.0s",
+        )
+
+    monkeypatch.setattr(sniper, "wait_for_pod_ready", _fake_wait)
+
+    rc = await sniper._snipe(
+        max_duration_min=120,
+        poll_interval_sec=20,
+        notify=False,
+        dry_run=False,
+        config=_make_config(),
+        client=client,
+        sleeper=fake_sleep,
+    )
+
+    assert rc == 0
+    status = _read_status(status_file)
+    # Existing fields preserved
+    assert status["status"] == "caught"
+    assert status["pod_id"] == pod.id
+    # New provisioning fields
+    assert status["provisioning_outcome"] == "ready"
+    assert status["provisioning_detail"] == "ComfyUI ready in 42.0s"
+    assert status["provisioning_elapsed_sec"] == 42.0
+    assert "provisioning_completed_at" in status

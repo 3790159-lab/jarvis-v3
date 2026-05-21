@@ -93,6 +93,15 @@ def _safe_notify(text: str, *, enabled: bool) -> None:
         logger.warning("[notify] failed: %s", exc)
 
 
+def _provisioning_status(result: ProvisionResult) -> dict[str, Any]:
+    return {
+        "provisioning_outcome": result.outcome.value,
+        "provisioning_detail": result.detail,
+        "provisioning_elapsed_sec": result.elapsed_sec,
+        "provisioning_completed_at": _now_iso(),
+    }
+
+
 def _pod_to_status(pod: PodInfo) -> dict[str, Any]:
     runtime = pod.runtime or {}
     ports = runtime.get("ports") or []
@@ -287,6 +296,9 @@ async def _snipe(
                 pod,
                 interrupted=lambda: _interrupted,
             )
+
+            base_status.update(_provisioning_status(result))
+            _write_status(base_status)
 
             if result.outcome is ProvisionOutcome.READY:
                 _safe_notify(
