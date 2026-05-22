@@ -384,3 +384,38 @@ def test_build_workflow_injects_source_and_target_filenames(tmp_path):
     assert wf["2"]["inputs"]["image"] == "tgt.jpg"
     assert wf["3"]["class_type"] == "ReActorFaceSwap"
     assert "_comment" not in wf
+
+
+# ── explicit pod override (FACE_SWAP_POD_ID) ────────────────────────────────
+
+
+@pytest.mark.anyio
+async def test_find_or_start_pod_uses_explicit_pod_when_running(
+    tmp_path, monkeypatch,
+):
+    """FACE_SWAP_POD_ID set + pod RUNNING → engine returns it directly."""
+    monkeypatch.setenv("FACE_SWAP_POD_ID", "pod_explicit")
+
+    explicit_pod = PodInfo.model_construct(
+        id="pod_explicit", name="some-arbitrary-name",
+        desired_status="RUNNING", cost_per_hr=1.59,
+    )
+    # Include a jarvis-m2-* candidate too; the explicit branch must win.
+    prefix_pod = PodInfo.model_construct(
+        id="pod_other", name="jarvis-m2-other",
+        desired_status="RUNNING", cost_per_hr=1.59,
+    )
+    client = _mock_runpod_client(pods=[prefix_pod, explicit_pod])
+
+    engine = FaceSwapEngine(
+        config=_make_config(), client=client,
+        output_dir=tmp_path / "out",
+    )
+    pod, pod_id, reused = await engine._find_or_start_pod(client)
+
+    assert pod is explicit_pod  # same object, not a re-fetch
+    assert pod_id == "pod_explicit"
+    assert reused is True
+    client.resume_pod.assert_not_awaited()
+    client.start_pod.assert_not_awaited()
+    client.wait_for_ready.assert_not_awaited()

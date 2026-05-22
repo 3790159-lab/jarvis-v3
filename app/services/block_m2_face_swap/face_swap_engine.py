@@ -24,6 +24,7 @@ import asyncio
 import copy
 import json
 import logging
+import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -51,6 +52,7 @@ _WORKFLOW_FILE = (
     Path(__file__).resolve().parent / "workflows" / "face_swap_only.json"
 )
 _POD_NAME_PREFIX = "jarvis-m2-"  # share pods with Phase B (same ComfyUI image)
+_EXPLICIT_POD_ENV = "FACE_SWAP_POD_ID"  # set in .env (NOT .env.runpod — that file is read only by pydantic-settings and never reaches os.environ)
 _POD_READY_TIMEOUT_SEC = 600
 _DEFAULT_HTTP_TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=30.0, pool=5.0)
 _UPLOAD_TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=120.0, pool=5.0)
@@ -265,6 +267,20 @@ class FaceSwapEngine:
             pods = await client.list_pods()
         except RunpodApiError as exc:
             raise FaceSwapError(f"list_pods failed: {exc}") from exc
+
+        explicit_id = os.environ.get(_EXPLICIT_POD_ENV)
+        if explicit_id:
+            explicit = next(
+                (p for p in pods if p.id == explicit_id), None
+            )
+            if explicit is not None:
+                status = (explicit.desired_status or "").upper()
+                if status == "RUNNING":
+                    logger.info(
+                        "FaceSwapEngine: using explicit pod %s (RUNNING)",
+                        explicit_id,
+                    )
+                    return explicit, explicit.id, True
 
         candidates = [
             p for p in pods if (p.name or "").startswith(_POD_NAME_PREFIX)
