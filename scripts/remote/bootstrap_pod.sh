@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-BOOTSTRAP_VERSION="2026.05.21-002"
+BOOTSTRAP_VERSION="2026.05.22-003"
 VOLUME_VERSION_FILE="/workspace/.bootstrap_version"
 LOG_FILE="/workspace/.bootstrap_log"
 COMFYUI_DIR="/workspace/ComfyUI"
@@ -21,7 +21,7 @@ if [[ ! -d "$COMFYUI_DIR" ]]; then
     exit 1
 fi
 
-# --- Import probe (function; called pre-gate and post-install in later tasks) ---
+# --- Import probe (callable; invoked pre-gate and post-install) ---
 run_import_probe() {
     python << 'PYEOF'
 import sys
@@ -55,13 +55,19 @@ print("Import probe: ALL OK")
 PYEOF
 }
 
-# --- Version gate ---
+# --- Version gate (probe-before-skip) ---
 NEED_INSTALL=true
 if [[ -f "$VOLUME_VERSION_FILE" ]]; then
     CACHED_VERSION=$(cat "$VOLUME_VERSION_FILE")
     if [[ "$CACHED_VERSION" == "$BOOTSTRAP_VERSION" ]]; then
-        echo "[fast path] cache version $CACHED_VERSION matches, skipping install"
-        NEED_INSTALL=false
+        echo "[version-gate] cached version $CACHED_VERSION matches; verifying modules..."
+        if run_import_probe; then
+            echo "[fast path] version match + modules present → skipping install"
+            NEED_INSTALL=false
+        else
+            echo "[forced slow path] version file lies — modules MISSING, reinstalling"
+            # NEED_INSTALL stays true
+        fi
     else
         echo "[slow path] cache version $CACHED_VERSION != $BOOTSTRAP_VERSION, reinstalling"
     fi
@@ -107,15 +113,16 @@ if [[ "$NEED_INSTALL" == "true" ]]; then
         unzip -o buffalo_l.zip -d buffalo_l/
         rm -f buffalo_l.zip
     fi
+
+    echo "=== [verify] post-install probe... ==="
+    if ! run_import_probe; then
+        echo "ERROR: post-install probe still failing — refusing to write version file" >&2
+        exit 2
+    fi
+
+    echo "$BOOTSTRAP_VERSION" > "$VOLUME_VERSION_FILE"
+    echo "=== Version cached: $BOOTSTRAP_VERSION ==="
 fi
-
-# --- Import probe (ALWAYS runs, regardless of cache state) ---
-echo "=== Import probe ==="
-run_import_probe
-
-# --- Mark version as installed ---
-echo "$BOOTSTRAP_VERSION" > "$VOLUME_VERSION_FILE"
-echo "=== Version cached: $BOOTSTRAP_VERSION ==="
 
 # --- Kill any existing ComfyUI process (port 8188 conflict prevention) ---
 echo "=== Step: clean port 8188 ==="
