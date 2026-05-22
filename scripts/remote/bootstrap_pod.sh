@@ -21,6 +21,40 @@ if [[ ! -d "$COMFYUI_DIR" ]]; then
     exit 1
 fi
 
+# --- Import probe (function; called pre-gate and post-install in later tasks) ---
+run_import_probe() {
+    python << 'PYEOF'
+import sys
+modules_to_check = [
+    'insightface',
+    'segment_anything',
+    'onnxruntime',
+    'git',
+]
+missing = []
+for mod in modules_to_check:
+    try:
+        __import__(mod)
+        print(f"  OK {mod}")
+    except ImportError as e:
+        missing.append(mod)
+        print(f"  FAIL {mod}: {e}", file=sys.stderr)
+
+try:
+    from transformers import pipeline
+    print(f"  OK transformers.pipeline")
+except (ImportError, RuntimeError) as e:
+    missing.append('transformers.pipeline')
+    print(f"  FAIL transformers.pipeline: {e}", file=sys.stderr)
+
+if missing:
+    for mod in missing:
+        print(f"MISSING_MODULE={mod}", file=sys.stderr)
+    sys.exit(2)
+print("Import probe: ALL OK")
+PYEOF
+}
+
 # --- Version gate ---
 NEED_INSTALL=true
 if [[ -f "$VOLUME_VERSION_FILE" ]]; then
@@ -77,36 +111,7 @@ fi
 
 # --- Import probe (ALWAYS runs, regardless of cache state) ---
 echo "=== Import probe ==="
-python << 'PYEOF'
-import sys
-modules_to_check = [
-    'insightface',
-    'segment_anything',
-    'onnxruntime',
-    'git',
-]
-missing = []
-for mod in modules_to_check:
-    try:
-        __import__(mod)
-        print(f"  OK {mod}")
-    except ImportError as e:
-        missing.append(mod)
-        print(f"  FAIL {mod}: {e}", file=sys.stderr)
-
-try:
-    from transformers import pipeline
-    print(f"  OK transformers.pipeline")
-except (ImportError, RuntimeError) as e:
-    missing.append('transformers.pipeline')
-    print(f"  FAIL transformers.pipeline: {e}", file=sys.stderr)
-
-if missing:
-    for mod in missing:
-        print(f"MISSING_MODULE={mod}", file=sys.stderr)
-    sys.exit(2)
-print("Import probe: ALL OK")
-PYEOF
+run_import_probe
 
 # --- Mark version as installed ---
 echo "$BOOTSTRAP_VERSION" > "$VOLUME_VERSION_FILE"
