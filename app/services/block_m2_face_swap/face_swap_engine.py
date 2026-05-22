@@ -292,11 +292,17 @@ class FaceSwapEngine:
                         "FaceSwapEngine: resuming explicit pod %s (%s)",
                         explicit_id, status,
                     )
-                    resumed = await client.resume_pod(explicit_id)
-                    ready = await client.wait_for_ready(
-                        resumed.id,
-                        timeout_sec=self._pod_ready_timeout_sec,
-                    )
+                    try:
+                        resumed = await client.resume_pod(explicit_id)
+                        ready = await client.wait_for_ready(
+                            resumed.id,
+                            timeout_sec=self._pod_ready_timeout_sec,
+                        )
+                    except RunpodApiError as exc:
+                        raise FaceSwapError(
+                            f"resume of explicit pod {explicit_id} failed: "
+                            f"{exc}"
+                        ) from exc
                     return ready, ready.id, False
                 logger.warning(
                     "FaceSwapEngine: explicit pod %s in unexpected status "

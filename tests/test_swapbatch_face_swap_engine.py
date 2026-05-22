@@ -14,7 +14,7 @@ from app.services.block_m2_face_swap.face_swap_engine import (
     FaceSwapEngine,
     FaceSwapError,
 )
-from app.services.block_m2_video.runpod.runpod_client import PodInfo
+from app.services.block_m2_video.runpod.runpod_client import PodInfo, RunpodApiError
 from app.services.block_m2_video.runpod.runpod_config import RunpodConfig
 
 
@@ -488,4 +488,41 @@ async def test_find_or_start_pod_falls_back_to_prefix_when_explicit_missing(
     assert "pod_does_not_exist" in caplog.text
     assert "falling back to prefix search" in caplog.text
     client.resume_pod.assert_not_awaited()
+    client.start_pod.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_find_or_start_pod_explicit_resume_api_error_raises_face_swap_error(
+    tmp_path, monkeypatch,
+):
+    """FACE_SWAP_POD_ID set + resume_pod raises RunpodApiError → FaceSwapError.
+
+    Real RunPod API failures during resume must NOT silently fall back to
+    prefix search — they signal a real problem (quota, supply, network) that
+    should surface to the caller.
+    """
+    monkeypatch.setenv("FACE_SWAP_POD_ID", "pod_explicit")
+
+    stopped_pod = PodInfo.model_construct(
+        id="pod_explicit", name="some-arbitrary-name",
+        desired_status="STOPPED", cost_per_hr=1.59,
+    )
+    # Include a prefix pod to prove the engine does NOT fall back to it.
+    prefix_pod = PodInfo.model_construct(
+        id="pod_prefix", name="jarvis-m2-other",
+        desired_status="RUNNING", cost_per_hr=1.59,
+    )
+    client = _mock_runpod_client(pods=[stopped_pod, prefix_pod])
+    client.resume_pod = AsyncMock(side_effect=RunpodApiError("quota exceeded"))
+
+    engine = FaceSwapEngine(
+        config=_make_config(), client=client,
+        output_dir=tmp_path / "out",
+    )
+    with pytest.raises(
+        FaceSwapError,
+        match="resume of explicit pod pod_explicit failed",
+    ):
+        await engine._find_or_start_pod(client)
+
     client.start_pod.assert_not_awaited()
