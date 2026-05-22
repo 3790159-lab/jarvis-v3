@@ -526,3 +526,60 @@ async def test_find_or_start_pod_explicit_resume_api_error_raises_face_swap_erro
         await engine._find_or_start_pod(client)
 
     client.start_pod.assert_not_awaited()
+
+
+# ── #44 collision fix + keep-pod-running flag ────────────────────────────────
+
+
+@pytest.mark.anyio
+async def test_swap_batch_workflow_uses_server_returned_name_when_renamed(
+    tmp_path,
+):
+    """If ComfyUI echoes a renamed filename, the workflow must use the echo.
+
+    Locks in the existing chain: _upload_image returns payload['name'] which
+    flows through _swap_one into _build_workflow as the node-2 image input.
+    A future regression that uses image_path.name in _build_workflow would
+    break this test.
+    """
+    src = _make_image(tmp_path, "src.jpg")
+    t1 = _make_image(tmp_path, "t1.jpg")
+
+    submitted_workflow: dict = {}
+    renamed_target = "deadbeefcafebabe1234567890abcdef_t1 (2).jpg"
+
+    async def fake_post(url, *args, **kwargs):
+        if "/upload/image" in url:
+            files = kwargs.get("files") or {}
+            # Source upload echoes its own name; target upload returns the
+            # renamed name to simulate a server-side collision rename.
+            name_field = files.get("image", (None,))[0] or ""
+            if "src" in name_field:
+                return _json_response({"name": "src_echo.jpg"})
+            return _json_response({"name": renamed_target})
+        if "/prompt" in url:
+            submitted_workflow.update(
+                kwargs.get("json", {}).get("prompt", {})
+            )
+            return _json_response({"prompt_id": "p1"})
+        return _json_response({})
+
+    http = MagicMock(spec=httpx.AsyncClient)
+    http.aclose = AsyncMock()
+    http.post = AsyncMock(side_effect=fake_post)
+    http.get = AsyncMock(side_effect=[
+        _json_response({"system": "ok"}),
+        _json_response({"ReActorFaceSwap": {}}),
+        _json_response(_success_history("p1", "swap_out.png")),
+        _bytes_response(b"\x89PNG" + b"\x00" * 20_000),
+    ])
+
+    engine = FaceSwapEngine(
+        config=_make_config(), client=_mock_runpod_client(),
+        output_dir=tmp_path / "out", http_client=http,
+        poll_interval_sec=0.0,
+    )
+    results = await engine.swap_batch(src, [t1])
+    assert results[0] is not None
+    assert submitted_workflow["2"]["inputs"]["image"] == renamed_target
+    assert submitted_workflow["1"]["inputs"]["image"] == "src_echo.jpg"
