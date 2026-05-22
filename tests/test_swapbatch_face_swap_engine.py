@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -583,3 +584,58 @@ async def test_swap_batch_workflow_uses_server_returned_name_when_renamed(
     assert results[0] is not None
     assert submitted_workflow["2"]["inputs"]["image"] == renamed_target
     assert submitted_workflow["1"]["inputs"]["image"] == "src_echo.jpg"
+
+
+@pytest.mark.anyio
+async def test_upload_image_sends_uuid_prefixed_filename(tmp_path):
+    """_upload_image must send a uuid4-prefixed filename, not image_path.name.
+
+    Prevents ComfyUI from renaming on collisions in the persistent
+    /workspace/ComfyUI/input/ directory. Format: <32 hex chars>_<original>.
+    """
+    src = _make_image(tmp_path, "src.jpg")
+
+    http = MagicMock(spec=httpx.AsyncClient)
+    http.aclose = AsyncMock()
+    http.post = AsyncMock(return_value=_json_response({"name": "src.jpg"}))
+
+    engine = FaceSwapEngine(
+        config=_make_config(), client=_mock_runpod_client(),
+        output_dir=tmp_path / "out", http_client=http,
+    )
+    await engine._upload_image("http://test:8188", src)
+
+    files = http.post.call_args.kwargs["files"]
+    sent_filename = files["image"][0]
+    assert re.match(r"^[0-9a-f]{32}_src\.jpg$", sent_filename), (
+        f"expected uuid-prefixed filename, got: {sent_filename!r}"
+    )
+
+
+@pytest.mark.anyio
+async def test_upload_image_two_calls_same_path_produce_different_sent_names(
+    tmp_path,
+):
+    """Two uploads of the same source file must send different multipart
+    filenames. Ensures uniqueness is per-call, not per-path."""
+    src = _make_image(tmp_path, "src.jpg")
+
+    http = MagicMock(spec=httpx.AsyncClient)
+    http.aclose = AsyncMock()
+    http.post = AsyncMock(return_value=_json_response({"name": "src.jpg"}))
+
+    engine = FaceSwapEngine(
+        config=_make_config(), client=_mock_runpod_client(),
+        output_dir=tmp_path / "out", http_client=http,
+    )
+    await engine._upload_image("http://test:8188", src)
+    await engine._upload_image("http://test:8188", src)
+
+    sent_names = [
+        call.kwargs["files"]["image"][0]
+        for call in http.post.call_args_list
+    ]
+    assert len(sent_names) == 2
+    assert sent_names[0] != sent_names[1], (
+        f"both uploads sent identical filename: {sent_names[0]!r}"
+    )

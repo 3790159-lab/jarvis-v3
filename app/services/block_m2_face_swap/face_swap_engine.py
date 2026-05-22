@@ -26,6 +26,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -460,8 +461,9 @@ class FaceSwapEngine:
 
     async def _upload_image(self, pod_url: str, image_path: Path) -> str:
         http = self._get_http()
+        unique_name = f"{uuid.uuid4().hex}_{image_path.name}"
         with image_path.open("rb") as fh:
-            files = {"image": (image_path.name, fh, "application/octet-stream")}
+            files = {"image": (unique_name, fh, "application/octet-stream")}
             data = {"type": "input"}
             r = await http.post(
                 f"{pod_url}/upload/image",
@@ -477,8 +479,11 @@ class FaceSwapEngine:
             payload = r.json()
         except ValueError as exc:
             raise FaceSwapError(f"/upload/image non-JSON: {exc}") from exc
-        uploaded = payload.get("name") or image_path.name
-        logger.info("FaceSwapEngine: uploaded %s -> %s", image_path.name, uploaded)
+        uploaded = payload.get("name") or unique_name
+        logger.info(
+            "FaceSwapEngine: uploaded %s as %s -> %s",
+            image_path.name, unique_name, uploaded,
+        )
         return str(uploaded)
 
     def _build_workflow(
