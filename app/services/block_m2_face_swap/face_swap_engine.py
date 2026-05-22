@@ -273,7 +273,13 @@ class FaceSwapEngine:
             explicit = next(
                 (p for p in pods if p.id == explicit_id), None
             )
-            if explicit is not None:
+            if explicit is None:
+                logger.warning(
+                    "FaceSwapEngine: FACE_SWAP_POD_ID=%s not in list_pods; "
+                    "falling back to prefix search",
+                    explicit_id,
+                )
+            else:
                 status = (explicit.desired_status or "").upper()
                 if status == "RUNNING":
                     logger.info(
@@ -292,6 +298,11 @@ class FaceSwapEngine:
                         timeout_sec=self._pod_ready_timeout_sec,
                     )
                     return ready, ready.id, False
+                logger.warning(
+                    "FaceSwapEngine: explicit pod %s in unexpected status "
+                    "%s; falling back to prefix search",
+                    explicit_id, status,
+                )
 
         candidates = [
             p for p in pods if (p.name or "").startswith(_POD_NAME_PREFIX)

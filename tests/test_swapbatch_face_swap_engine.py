@@ -460,3 +460,32 @@ async def test_find_or_start_pod_resumes_explicit_pod_when_stopped(
     client.resume_pod.assert_awaited_once_with("pod_explicit")
     client.wait_for_ready.assert_awaited_once()
     client.start_pod.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_find_or_start_pod_falls_back_to_prefix_when_explicit_missing(
+    tmp_path, monkeypatch, caplog,
+):
+    """FACE_SWAP_POD_ID set but id not in list_pods → fall back, warn."""
+    monkeypatch.setenv("FACE_SWAP_POD_ID", "pod_does_not_exist")
+
+    prefix_pod = PodInfo.model_construct(
+        id="pod_prefix", name="jarvis-m2-other",
+        desired_status="RUNNING", cost_per_hr=1.59,
+    )
+    client = _mock_runpod_client(pods=[prefix_pod])
+
+    engine = FaceSwapEngine(
+        config=_make_config(), client=client,
+        output_dir=tmp_path / "out",
+    )
+    with caplog.at_level("WARNING"):
+        pod, pod_id, reused = await engine._find_or_start_pod(client)
+
+    assert pod is prefix_pod
+    assert pod_id == "pod_prefix"  # prefix-search winner
+    assert reused is True
+    assert "pod_does_not_exist" in caplog.text
+    assert "falling back to prefix search" in caplog.text
+    client.resume_pod.assert_not_awaited()
+    client.start_pod.assert_not_awaited()
