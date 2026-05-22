@@ -281,6 +281,17 @@ class FaceSwapEngine:
                         explicit_id,
                     )
                     return explicit, explicit.id, True
+                if status in {"STOPPED", "EXITED"}:
+                    logger.info(
+                        "FaceSwapEngine: resuming explicit pod %s (%s)",
+                        explicit_id, status,
+                    )
+                    resumed = await client.resume_pod(explicit_id)
+                    ready = await client.wait_for_ready(
+                        resumed.id,
+                        timeout_sec=self._pod_ready_timeout_sec,
+                    )
+                    return ready, ready.id, False
 
         candidates = [
             p for p in pods if (p.name or "").startswith(_POD_NAME_PREFIX)

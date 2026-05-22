@@ -419,3 +419,44 @@ async def test_find_or_start_pod_uses_explicit_pod_when_running(
     client.resume_pod.assert_not_awaited()
     client.start_pod.assert_not_awaited()
     client.wait_for_ready.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_find_or_start_pod_resumes_explicit_pod_when_stopped(
+    tmp_path, monkeypatch,
+):
+    """FACE_SWAP_POD_ID set + pod STOPPED → engine resumes it."""
+    monkeypatch.setenv("FACE_SWAP_POD_ID", "pod_explicit")
+
+    stopped_pod = PodInfo.model_construct(
+        id="pod_explicit", name="some-arbitrary-name",
+        desired_status="STOPPED", cost_per_hr=1.59,
+    )
+    # Distinct objects: resume_pod() returns mid_pod, wait_for_ready() returns
+    # ready_pod. Asserting `pod is ready_pod` proves the engine returns the
+    # wait_for_ready result — a future implementer who drops the wait call
+    # would return mid_pod, breaking the test.
+    mid_pod = PodInfo.model_construct(
+        id="pod_explicit", name="some-arbitrary-name",
+        desired_status="STARTING", cost_per_hr=1.59,
+    )
+    ready_pod = PodInfo.model_construct(
+        id="pod_explicit", name="some-arbitrary-name",
+        desired_status="RUNNING", cost_per_hr=1.59,
+    )
+    client = _mock_runpod_client(pods=[stopped_pod])
+    client.resume_pod = AsyncMock(return_value=mid_pod)
+    client.wait_for_ready = AsyncMock(return_value=ready_pod)
+
+    engine = FaceSwapEngine(
+        config=_make_config(), client=client,
+        output_dir=tmp_path / "out",
+    )
+    pod, pod_id, reused = await engine._find_or_start_pod(client)
+
+    assert pod is ready_pod  # engine must return wait_for_ready's result, not resume_pod's
+    assert pod_id == "pod_explicit"
+    assert reused is False
+    client.resume_pod.assert_awaited_once_with("pod_explicit")
+    client.wait_for_ready.assert_awaited_once()
+    client.start_pod.assert_not_awaited()
