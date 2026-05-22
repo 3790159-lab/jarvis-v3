@@ -133,8 +133,9 @@ class FaceSwapEngine:
                 ``"swap_done"`` (payload: ``index``, ``output_path``),
                 ``"swap_failed"`` (payload: ``index``, ``error``).
             cancel_check: Optional zero-arg callable returning ``True`` to
-                abort the batch between submissions. The pod is still stopped
-                in the ``finally`` block.
+                abort the batch between submissions. The pod lifecycle in
+                the ``finally`` block follows the ``FACE_SWAP_KEEP_POD_RUNNING``
+                env-var setting (stopped by default; left running if set).
 
         Returns:
             List the same length as ``target_images``; entry is the saved
