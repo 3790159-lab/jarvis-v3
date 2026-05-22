@@ -639,3 +639,75 @@ async def test_upload_image_two_calls_same_path_produce_different_sent_names(
     assert sent_names[0] != sent_names[1], (
         f"both uploads sent identical filename: {sent_names[0]!r}"
     )
+
+
+@pytest.mark.anyio
+async def test_swap_batch_skips_stop_pod_when_keep_running_env_set(
+    tmp_path, monkeypatch,
+):
+    """FACE_SWAP_KEEP_POD_RUNNING=1 → stop_pod is not called."""
+    monkeypatch.setenv("FACE_SWAP_KEEP_POD_RUNNING", "1")
+
+    src = _make_image(tmp_path, "src.jpg")
+    t1 = _make_image(tmp_path, "t1.jpg")
+
+    http = MagicMock(spec=httpx.AsyncClient)
+    http.aclose = AsyncMock()
+    http.get = AsyncMock(side_effect=[
+        _json_response({"system": "ok"}),
+        _json_response({"ReActorFaceSwap": {}}),
+        _json_response(_success_history("p1", "swap_out.png")),
+        _bytes_response(b"\x89PNG" + b"\x00" * 20_000),
+    ])
+    http.post = AsyncMock(side_effect=[
+        _json_response({"name": "src.jpg"}),
+        _json_response({"name": "t1.jpg"}),
+        _json_response({"prompt_id": "p1"}),
+    ])
+
+    client = _mock_runpod_client()
+    engine = FaceSwapEngine(
+        config=_make_config(), client=client,
+        output_dir=tmp_path / "out", http_client=http,
+        poll_interval_sec=0.0,
+    )
+    results = await engine.swap_batch(src, [t1])
+
+    assert results[0] is not None  # batch still succeeds
+    client.stop_pod.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_swap_batch_keep_running_accepts_true_case_insensitive(
+    tmp_path, monkeypatch,
+):
+    """FACE_SWAP_KEEP_POD_RUNNING parsing is lenient: "TRUE" with whitespace
+    must be honored just like "1"."""
+    monkeypatch.setenv("FACE_SWAP_KEEP_POD_RUNNING", "  TRUE  ")
+
+    src = _make_image(tmp_path, "src.jpg")
+    t1 = _make_image(tmp_path, "t1.jpg")
+
+    http = MagicMock(spec=httpx.AsyncClient)
+    http.aclose = AsyncMock()
+    http.get = AsyncMock(side_effect=[
+        _json_response({"system": "ok"}),
+        _json_response({"ReActorFaceSwap": {}}),
+        _json_response(_success_history("p1", "swap_out.png")),
+        _bytes_response(b"\x89PNG" + b"\x00" * 20_000),
+    ])
+    http.post = AsyncMock(side_effect=[
+        _json_response({"name": "src.jpg"}),
+        _json_response({"name": "t1.jpg"}),
+        _json_response({"prompt_id": "p1"}),
+    ])
+
+    client = _mock_runpod_client()
+    engine = FaceSwapEngine(
+        config=_make_config(), client=client,
+        output_dir=tmp_path / "out", http_client=http,
+        poll_interval_sec=0.0,
+    )
+    await engine.swap_batch(src, [t1])
+
+    client.stop_pod.assert_not_awaited()

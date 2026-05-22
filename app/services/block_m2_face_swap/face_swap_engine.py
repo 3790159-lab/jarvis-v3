@@ -54,6 +54,7 @@ _WORKFLOW_FILE = (
 )
 _POD_NAME_PREFIX = "jarvis-m2-"  # share pods with Phase B (same ComfyUI image)
 _EXPLICIT_POD_ENV = "FACE_SWAP_POD_ID"  # set in .env (NOT .env.runpod — that file is read only by pydantic-settings and never reaches os.environ)
+_KEEP_POD_RUNNING_ENV = "FACE_SWAP_KEEP_POD_RUNNING"  # truthy values: "1" or "true" (case-insensitive, stripped). Skips post-batch stop_pod. Same .env caveat as _EXPLICIT_POD_ENV.
 _POD_READY_TIMEOUT_SEC = 600
 _DEFAULT_HTTP_TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=30.0, pool=5.0)
 _UPLOAD_TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=120.0, pool=5.0)
@@ -205,15 +206,24 @@ class FaceSwapEngine:
             return results
         finally:
             if pod_id is not None:
-                try:
-                    await client.stop_pod(pod_id)
+                keep = os.environ.get(_KEEP_POD_RUNNING_ENV, "").strip().lower()
+                if keep in {"1", "true"}:
                     logger.info(
-                        "FaceSwapEngine: stopped pod %s after batch", pod_id
+                        "FaceSwapEngine: %s=%s; leaving pod %s running",
+                        _KEEP_POD_RUNNING_ENV, keep, pod_id,
                     )
-                except Exception as exc:  # noqa: BLE001 - cleanup
-                    logger.warning(
-                        "FaceSwapEngine: stop_pod(%s) failed: %s", pod_id, exc
-                    )
+                else:
+                    try:
+                        await client.stop_pod(pod_id)
+                        logger.info(
+                            "FaceSwapEngine: stopped pod %s after batch",
+                            pod_id,
+                        )
+                    except Exception as exc:  # noqa: BLE001 - cleanup
+                        logger.warning(
+                            "FaceSwapEngine: stop_pod(%s) failed: %s",
+                            pod_id, exc,
+                        )
             await self._maybe_close()
 
     # ── internals ───────────────────────────────────────────────────────────
