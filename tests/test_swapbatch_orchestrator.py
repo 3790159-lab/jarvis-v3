@@ -132,6 +132,25 @@ def test_submit_targets_empty_list_raises(tmp_path):
         orch.submit_targets(42, [])
 
 
+def test_submit_targets_dedupes_duplicate_paths(tmp_path):
+    """B-50 regression: bot wiring may pass duplicate paths from
+    Telegram media_group races. Orchestrator must dedupe defensively.
+    """
+    src = _make_photo(tmp_path, "src.jpg")
+    img_a = _make_photo(tmp_path, "a.jpg")
+    img_b = _make_photo(tmp_path, "b.jpg")
+    orch = _make_orch(tmp_path, validator=_make_validator(face_count=1))
+    orch.begin_source(42)
+    orch.submit_source(42, src)
+    orch.begin_targets(42)
+    # Simulate buffer with duplicates (2+2+3+2+1 pattern from prod evidence)
+    sess, _ = orch.submit_targets(
+        42, [img_a, img_a, img_b, img_b, img_a]
+    )
+    # Only 2 unique paths → only 2 staged targets
+    assert len(sess.targets) == 2
+
+
 # ── confirm_swap / confirm_animate ──────────────────────────────────────────
 
 

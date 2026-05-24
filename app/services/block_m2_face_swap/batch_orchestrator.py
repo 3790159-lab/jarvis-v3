@@ -212,6 +212,10 @@ class BatchOrchestrator:
         """
         if not target_paths:
             raise OrchestratorError("no target photos provided")
+        # B-50 defensive dedupe: bot wiring (Telegram media_group buffer)
+        # may pass duplicate paths due to retry/race in update delivery.
+        # Path-level dedupe preserves order and is O(n).
+        target_paths = list(dict.fromkeys(target_paths))
         with self._lock:
             sess = self._require(chat_id, {STATE_EXPECTING_TARGETS})
             sess.targets = []
