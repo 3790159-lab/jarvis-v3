@@ -31,6 +31,7 @@ from app.services.block_m2_video.runpod.runpod_client import (
     GpuType,
     PodInfo,
     RunpodApiError,
+    RunpodSupplyError,
 )
 from app.services.block_m2_video.runpod.runpod_config import RunpodConfig
 
@@ -408,53 +409,132 @@ async def test_find_or_start_pod_reuses_newest_running_pod():
 
 
 @pytest.mark.anyio
-async def test_find_or_start_pod_resumes_stopped_pod():
-    """No RUNNING pod but a STOPPED one exists -> resume it."""
-    stopped = _pod("pod_stop", "EXITED", "2026-05-15T08:00:00Z")
-    resumed = _pod("pod_stop", "RUNNING", "2026-05-16T08:00:00Z")
-    ready = _pod("pod_stop", "RUNNING", "2026-05-16T08:00:05Z")
+async def test_find_or_start_pod_skips_exited_candidates():
+    """Only RUNNING pods are reuse candidates; EXITED pods are never resumed.
+
+    RunPod runs the video-gen template's startCmd / bootstrap.sh (ffmpeg,
+    opencv, sqlalchemy, ...) only on initial creation, NOT on resume — so a
+    resumed EXITED pod never has ComfyUI alive and the engine polls until it
+    times out (the B-48 regression seen in the Day-5 E2E test). When a
+    RUNNING pod is present we reuse it; when only EXITED pods exist we skip
+    them and spawn a fresh pod (which guarantees the bootstrap runs).
+    """
+    running = _pod("pod_run", "RUNNING", "2026-05-15T10:00:00Z")
+    # An EXITED pod that is *newer* than the RUNNING one — must still be
+    # ignored, proving we filter on status, not just recency.
+    exited_newer = _pod("pod_dead", "EXITED", "2026-05-20T10:00:00Z")
 
     client = MagicMock()
-    client.list_pods = AsyncMock(return_value=[stopped])
-    client.resume_pod = AsyncMock(return_value=resumed)
-    client.wait_for_ready = AsyncMock(return_value=ready)
+    client.list_pods = AsyncMock(return_value=[exited_newer, running])
+    client.resume_pod = AsyncMock()
     client.start_pod = AsyncMock()
     client.aclose = AsyncMock()
 
     engine = RunpodComfyEngine(config=_make_config(), client=client)
-    pod, pod_id, reused = await engine._find_or_start_pod(client, "gen_xyz")
+    pod, pod_id, reused = await engine._find_or_start_pod(client, "gen_mix")
 
-    assert reused is False
-    assert pod_id == "pod_stop"
-    assert pod is ready
-    client.resume_pod.assert_awaited_once_with("pod_stop")
+    assert reused is True
+    assert pod_id == "pod_run"
+    assert pod is running
+    client.resume_pod.assert_not_awaited()
     client.start_pod.assert_not_awaited()
+
+    # With ONLY EXITED candidates, skip resume entirely and spawn fresh.
+    spawned = _pod("pod_fresh", "RUNNING", "2026-05-20T11:00:00Z")
+    ready = _pod("pod_fresh", "RUNNING", "2026-05-20T11:00:30Z")
+    client2 = MagicMock()
+    client2.list_pods = AsyncMock(return_value=[exited_newer])
+    client2.resume_pod = AsyncMock()
+    client2.start_pod = AsyncMock(return_value=spawned)
+    client2.wait_for_ready = AsyncMock(return_value=ready)
+    client2.aclose = AsyncMock()
+
+    engine2 = RunpodComfyEngine(config=_make_config(), client=client2)
+    pod2, pod_id2, reused2 = await engine2._find_or_start_pod(client2, "gen_dead")
+
+    assert reused2 is False
+    assert pod_id2 == "pod_fresh"
+    assert pod2 is ready
+    client2.resume_pod.assert_not_awaited()
+    client2.start_pod.assert_awaited_once()
+    assert client2.start_pod.await_args.kwargs.get("name") == "jarvis-m2-gen_dead"
 
 
 @pytest.mark.anyio
-async def test_find_or_start_pod_falls_through_to_spawn_when_resume_fails():
-    """resume_pod raising falls through to spawning a brand-new pod."""
-    stopped = _pod("pod_stop", "EXITED", "2026-05-15T08:00:00Z")
-    spawned = _pod("pod_new", "RUNNING", "2026-05-16T09:00:00Z")
-    ready = _pod("pod_new", "RUNNING", "2026-05-16T09:00:30Z")
+async def test_find_or_start_pod_retries_on_supply_constraint(monkeypatch):
+    """Fresh spawn hitting SUPPLY_CONSTRAINT retries instead of failing.
+
+    Day-4-task-3: when no GPU is free, start_pod raises RunpodSupplyError.
+    Sniper-style, the engine waits the nominal interval and retries, and
+    succeeds once supply appears (here on the 3rd attempt).
+    """
+    import app.services.block_m2_video.engines.runpod_comfy_engine as engine_mod
+
+    sleep_mock = AsyncMock()
+    monkeypatch.setattr(engine_mod.asyncio, "sleep", sleep_mock)
+
+    spawned = _pod("pod_fresh", "RUNNING", "2026-05-20T11:00:00Z")
+    ready = _pod("pod_fresh", "RUNNING", "2026-05-20T11:00:30Z")
 
     client = MagicMock()
-    client.list_pods = AsyncMock(return_value=[stopped])
-    client.resume_pod = AsyncMock(side_effect=RunpodApiError("resume failed"))
-    client.start_pod = AsyncMock(return_value=spawned)
+    client.list_pods = AsyncMock(return_value=[])  # nothing to reuse
+    client.resume_pod = AsyncMock()
+    client.start_pod = AsyncMock(
+        side_effect=[
+            RunpodSupplyError("SUPPLY_CONSTRAINT: no GPUs available"),
+            RunpodSupplyError("SUPPLY_CONSTRAINT: no GPUs available"),
+            spawned,
+        ]
+    )
     client.wait_for_ready = AsyncMock(return_value=ready)
     client.aclose = AsyncMock()
 
     engine = RunpodComfyEngine(config=_make_config(), client=client)
-    pod, pod_id, reused = await engine._find_or_start_pod(client, "gen_abc")
+    pod, pod_id, reused = await engine._find_or_start_pod(client, "gen_supply")
 
     assert reused is False
-    assert pod_id == "pod_new"
+    assert pod_id == "pod_fresh"
     assert pod is ready
-    client.resume_pod.assert_awaited_once_with("pod_stop")
-    client.start_pod.assert_awaited_once()
-    call_kwargs = client.start_pod.await_args.kwargs
-    assert call_kwargs.get("name") == "jarvis-m2-gen_abc"
+    assert client.start_pod.await_count == 3  # 2 failures, success on the 3rd
+    # Backoff: slept once after each failed attempt, at the 20s interval.
+    assert sleep_mock.await_count == 2
+    for call in sleep_mock.await_args_list:
+        assert call.args[0] == 20.0
+    client.resume_pod.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_find_or_start_pod_supply_timeout(monkeypatch):
+    """Persistent SUPPLY_CONSTRAINT raises RunpodSupplyError after max attempts.
+
+    The final error names the attempt count so the timeout is diagnosable
+    rather than an opaque failure.
+    """
+    import app.services.block_m2_video.engines.runpod_comfy_engine as engine_mod
+
+    sleep_mock = AsyncMock()
+    monkeypatch.setattr(engine_mod.asyncio, "sleep", sleep_mock)
+
+    client = MagicMock()
+    client.list_pods = AsyncMock(return_value=[])
+    client.resume_pod = AsyncMock()
+    client.start_pod = AsyncMock(
+        side_effect=RunpodSupplyError("SUPPLY_CONSTRAINT: no GPUs available")
+    )
+    client.wait_for_ready = AsyncMock()
+    client.aclose = AsyncMock()
+
+    engine = RunpodComfyEngine(
+        config=_make_config(), client=client, supply_max_attempts=3
+    )
+    with pytest.raises(RunpodSupplyError) as excinfo:
+        await engine._find_or_start_pod(client, "gen_nosupply")
+
+    assert "3 attempts" in str(excinfo.value)  # attempt count in message
+    assert client.start_pod.await_count == 3
+    # Slept between attempts but not after the final failure.
+    assert sleep_mock.await_count == 2
+    client.wait_for_ready.assert_not_awaited()
 
 
 # ── _ensure_comfyui_alive: health check + auto-start ─────────────────────────
