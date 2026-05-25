@@ -37,7 +37,6 @@ from app.services.block_m2_video.runpod.runpod_client import (
     PodInfo,
     RunpodApiError,
     RunpodClient,
-    RunpodExecUnavailable,
     RunpodSupplyError,
 )
 from app.services.block_m2_video.runpod.runpod_config import (
@@ -164,7 +163,7 @@ class FaceSwapEngine:
                     f"pod {pod_id} has no public URL on port 8188"
                 )
 
-            await self._ensure_comfyui_alive(client, pod_id, pod_url)
+            await self._ensure_comfyui_alive(pod_id, pod_url)
             reactor_class = await self._probe_reactor_class(pod_url)
 
             source_filename = await self._upload_image(pod_url, source_image)
@@ -374,30 +373,21 @@ class FaceSwapEngine:
             ) from exc
         return ready, ready.id, False
 
-    async def _ensure_comfyui_alive(
-        self, client: RunpodClient, pod_id: str, pod_url: str
-    ) -> None:
+    async def _ensure_comfyui_alive(self, pod_id: str, pod_url: str) -> None:
+        """Wait until ComfyUI answers on ``pod_url``, polling /system_stats.
+
+        The pod template's startup CMD is responsible for launching ComfyUI;
+        we do not shell into the pod to auto-start it (B-48 removed the
+        podExec fallback, which was unavailable on this account and only
+        delayed the same polling loop).
+        """
         if await self._comfyui_alive(pod_url):
             return
         logger.info(
-            "FaceSwapEngine: ComfyUI not responding on %s; attempting auto-start",
+            "FaceSwapEngine: ComfyUI not yet responding on %s; polling until "
+            "ready (pod template startup CMD launches it)",
             pod_url,
         )
-        try:
-            await client.execute_command(
-                pod_id,
-                "cd /workspace/ComfyUI && nohup python3 main.py "
-                "--listen 0.0.0.0 --port 8188 > /tmp/comfyui.log 2>&1 &",
-            )
-        except RunpodExecUnavailable:
-            logger.warning(
-                "FaceSwapEngine: podExec unavailable; polling and hoping"
-            )
-        except RunpodApiError as exc:
-            raise FaceSwapError(
-                f"failed to start ComfyUI on pod {pod_id}: {exc}"
-            ) from exc
-
         deadline = time.monotonic() + _COMFYUI_STARTUP_TIMEOUT_SEC
         while time.monotonic() < deadline:
             if await self._comfyui_alive(pod_url):

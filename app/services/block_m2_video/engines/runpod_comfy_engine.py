@@ -35,7 +35,6 @@ from ..runpod.runpod_client import (
     PodInfo,
     RunpodApiError,
     RunpodClient,
-    RunpodExecUnavailable,
     RunpodSupplyError,
 )
 from ..runpod.runpod_config import RunpodConfig, get_runpod_config
@@ -161,7 +160,7 @@ class RunpodComfyEngine:
                 )
             logger.info("RunpodComfyEngine: pod URL resolved -> %s", pod_url)
 
-            await self._ensure_comfyui_alive(client, pod_id, pod_url)
+            await self._ensure_comfyui_alive(pod_id, pod_url)
 
             uploaded = await self._upload_image(pod_url, request.input_image_path)
             workflow = self._build_workflow(uploaded, request)
@@ -353,39 +352,24 @@ class RunpodComfyEngine:
             ) from exc
         return ready, ready.id, False
 
-    async def _ensure_comfyui_alive(
-        self, client: RunpodClient, pod_id: str, pod_url: str
-    ) -> None:
-        """Verify ComfyUI is reachable; if not, attempt to start it on the pod."""
+    async def _ensure_comfyui_alive(self, pod_id: str, pod_url: str) -> None:
+        """Wait until ComfyUI answers on ``pod_url``, polling /system_stats.
+
+        The pod template's startup CMD is responsible for launching ComfyUI;
+        we do not shell into the pod to auto-start it (B-48 removed the
+        podExec fallback, which was unavailable on this account and only
+        delayed the same polling loop).
+        """
         if await self._comfyui_alive(pod_url):
             logger.info("ComfyUI alive at %s", pod_url)
             return
 
         logger.info(
-            "ComfyUI not responding on %s; attempting auto-start on pod %s",
+            "ComfyUI not yet responding on %s; polling until ready on pod %s "
+            "(pod template startup CMD launches it)",
             pod_url,
             pod_id,
         )
-        try:
-            await client.execute_command(
-                pod_id,
-                "cd /workspace/ComfyUI && nohup python3 main.py "
-                "--listen 0.0.0.0 --port 8188 > /tmp/comfyui.log 2>&1 &",
-            )
-            logger.info("Started ComfyUI on pod %s", pod_id)
-        except RunpodExecUnavailable:
-            # TODO: requires runpod_client.execute_command — fall back to
-            # assuming ComfyUI is pre-started and just keep polling.
-            logger.warning(
-                "podExec unavailable on this account; cannot auto-start "
-                "ComfyUI on pod %s, will poll and hope for the best",
-                pod_id,
-            )
-        except RunpodApiError as exc:
-            raise RunpodComfyError(
-                f"failed to start ComfyUI on pod {pod_id}: {exc}"
-            ) from exc
-
         deadline = time.monotonic() + _COMFYUI_STARTUP_TIMEOUT_SEC
         while time.monotonic() < deadline:
             if await self._comfyui_alive(pod_url):

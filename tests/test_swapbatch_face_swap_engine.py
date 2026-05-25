@@ -277,6 +277,53 @@ async def test_swap_batch_cancel_check_stops_loop(tmp_path):
     assert results[1] is None  # never attempted
 
 
+# ── B-48: cold-start must not shell into the pod (no podExec auto-start) ─────
+
+
+@pytest.mark.anyio
+async def test_swap_batch_cold_start_polls_without_execute_command(tmp_path):
+    """Cold start (ComfyUI not yet up) must NOT call execute_command/podExec.
+
+    The pod template's startup CMD launches ComfyUI; the engine only polls
+    /system_stats until it answers. Guard for B-48 (podExec auto-start
+    fallback removed): a down-then-up probe sequence must succeed by polling
+    alone, never shelling into the pod.
+    """
+    src = _make_image(tmp_path, "src.jpg")
+    t1 = _make_image(tmp_path, "t1.jpg")
+
+    http = MagicMock(spec=httpx.AsyncClient)
+    http.aclose = AsyncMock()
+    http.get = AsyncMock(side_effect=[
+        # /system_stats: first probe → DOWN (cold start)
+        _json_response({"detail": "not ready"}, status=503),
+        # /system_stats: second probe (poll loop) → UP
+        _json_response({"system": "ok"}),
+        # /object_info
+        _json_response({"ReActorFaceSwap": {}}),
+        # /history target 1 → success
+        _json_response(_success_history("p1", "swap_out.png")),
+        # /view target 1 → bytes
+        _bytes_response(b"\x89PNG" + b"\x00" * 20_000),
+    ])
+    http.post = AsyncMock(side_effect=[
+        _json_response({"name": "src.jpg"}),
+        _json_response({"name": "t1.jpg"}),
+        _json_response({"prompt_id": "p1"}),
+    ])
+
+    client = _mock_runpod_client()
+    engine = FaceSwapEngine(
+        config=_make_config(), client=client,
+        output_dir=tmp_path / "out", http_client=http,
+        poll_interval_sec=0.0,
+    )
+    results = await engine.swap_batch(src, [t1])
+
+    assert results[0] is not None  # cold start still succeeds via polling
+    client.execute_command.assert_not_awaited()
+
+
 # ── error paths ──────────────────────────────────────────────────────────────
 
 

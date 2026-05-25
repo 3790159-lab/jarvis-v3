@@ -28,11 +28,9 @@ from app.services.block_m2_video.engines.runpod_comfy_engine import (
 )
 from app.services.block_m2_video.litterbox_uploader import LitterboxError
 from app.services.block_m2_video.runpod.runpod_client import (
-    ExecResult,
     GpuType,
     PodInfo,
     RunpodApiError,
-    RunpodExecUnavailable,
 )
 from app.services.block_m2_video.runpod.runpod_config import RunpodConfig
 
@@ -105,6 +103,9 @@ def _mock_runpod_client(pod: PodInfo) -> MagicMock:
     client.wait_for_ready = AsyncMock(return_value=pod)
     client.get_pod_public_url = AsyncMock(return_value="http://test-pod:8188")
     client.stop_pod = AsyncMock(return_value=True)
+    # Wired so cold-start guard tests can assert it is *not* awaited; a bare
+    # MagicMock attribute would make assert_not_awaited a no-op.
+    client.execute_command = AsyncMock()
     client.aclose = AsyncMock()
     return client
 
@@ -292,6 +293,82 @@ async def test_generate_stops_pod_on_failure(tmp_path):
     client.stop_pod.assert_awaited_once_with("pod_abc")
 
 
+# ── B-48: cold-start must not shell into the pod (no podExec auto-start) ─────
+
+
+@pytest.mark.anyio
+async def test_generate_cold_start_polls_without_execute_command(tmp_path):
+    """Cold start (ComfyUI not yet up) must NOT call execute_command/podExec.
+
+    The pod template's startup CMD launches ComfyUI; the engine only polls
+    /system_stats until it answers. Guard for B-48 (podExec auto-start
+    fallback removed): a down-then-up probe sequence must succeed by polling
+    alone, never shelling into the pod.
+    """
+    image = _make_image(tmp_path)
+    pod = _mock_pod()
+    client = _mock_runpod_client(pod)
+
+    history_entry = {
+        "pid_xyz": {
+            "outputs": {
+                "30": {
+                    "videos": [
+                        {
+                            "filename": "wan_output_00001.mp4",
+                            "subfolder": "",
+                            "type": "output",
+                        }
+                    ]
+                }
+            },
+            "status": {"status_str": "success", "completed": True},
+        }
+    }
+    mp4_bytes = b"\x00\x00\x00\x18ftypisom" + b"x" * (200 * 1024)
+
+    http = MagicMock()
+    http.aclose = AsyncMock()
+    http.post = AsyncMock(
+        side_effect=[
+            _json_response({"name": "input.png", "subfolder": "", "type": "input"}),
+            _json_response({"prompt_id": "pid_xyz", "number": 0, "node_errors": {}}),
+        ]
+    )
+    http.get = AsyncMock(
+        side_effect=[
+            # /system_stats: first probe → DOWN (cold start)
+            httpx.ConnectError("conn refused"),
+            # /system_stats: second probe (poll loop) → UP
+            _json_response({"system": {"os": "linux"}}),
+            # /history poll → completed
+            _json_response(history_entry),
+            # /view
+            _bytes_response(mp4_bytes),
+        ]
+    )
+
+    engine = RunpodComfyEngine(
+        config=_make_config(),
+        client=client,
+        http_client=http,
+        output_dir=tmp_path / "out",
+        poll_interval_sec=0.0,
+    )
+    req = VideoRequest(
+        persona_id="p1",
+        persona_name="Test",
+        input_image_path=image,
+        prompt="walking",
+        seed=7,
+        seconds=5,
+    )
+    result = await engine.generate(req)
+
+    assert isinstance(result, VideoResult)  # cold start still succeeds via polling
+    client.execute_command.assert_not_awaited()
+
+
 # ── _find_or_start_pod: pod discovery branches ───────────────────────────────
 
 
@@ -399,15 +476,19 @@ async def test_ensure_comfyui_alive_returns_immediately_when_healthy():
     engine = RunpodComfyEngine(
         config=_make_config(), client=client, http_client=http
     )
-    await engine._ensure_comfyui_alive(client, "pod_abc", "http://test-pod:8188")
+    await engine._ensure_comfyui_alive("pod_abc", "http://test-pod:8188")
 
     client.execute_command.assert_not_awaited()
     http.get.assert_awaited_once()
 
 
 @pytest.mark.anyio
-async def test_ensure_comfyui_alive_starts_comfyui_when_down(monkeypatch):
-    """When the first probe fails, execute_command is called and we poll until alive."""
+async def test_ensure_comfyui_alive_polls_until_alive_without_exec(monkeypatch):
+    """First probe down, second up → returns by polling, never shells in.
+
+    Guard for B-48: the podExec auto-start fallback was removed, so a
+    not-yet-ready pod must be handled by re-polling /system_stats alone.
+    """
     # Avoid real sleeps inside the polling loop.
     async def _no_sleep(*_a, **_kw) -> None:
         return None
@@ -417,9 +498,7 @@ async def test_ensure_comfyui_alive_starts_comfyui_when_down(monkeypatch):
     monkeypatch.setattr(engine_mod.asyncio, "sleep", _no_sleep)
 
     client = MagicMock()
-    client.execute_command = AsyncMock(
-        return_value=ExecResult(output="", exit_code=0)
-    )
+    client.execute_command = AsyncMock()
     client.aclose = AsyncMock()
 
     http = MagicMock()
@@ -435,12 +514,9 @@ async def test_ensure_comfyui_alive_starts_comfyui_when_down(monkeypatch):
     engine = RunpodComfyEngine(
         config=_make_config(), client=client, http_client=http
     )
-    await engine._ensure_comfyui_alive(client, "pod_abc", "http://test-pod:8188")
+    await engine._ensure_comfyui_alive("pod_abc", "http://test-pod:8188")
 
-    client.execute_command.assert_awaited_once()
-    cmd = client.execute_command.await_args.args[1]
-    assert "main.py" in cmd
-    assert "--port 8188" in cmd
+    client.execute_command.assert_not_awaited()
     assert http.get.await_count == 2
 
 
@@ -624,37 +700,3 @@ async def test_generate_returns_result_without_public_url_on_upload_failure(
     assert any(
         "Litterbox upload failed" in rec.message for rec in caplog.records
     )
-
-
-@pytest.mark.anyio
-async def test_ensure_comfyui_alive_swallows_exec_unavailable(monkeypatch):
-    """If podExec is not in the schema, log+continue and keep polling."""
-    async def _no_sleep(*_a, **_kw) -> None:
-        return None
-
-    import app.services.block_m2_video.engines.runpod_comfy_engine as engine_mod
-
-    monkeypatch.setattr(engine_mod.asyncio, "sleep", _no_sleep)
-
-    client = MagicMock()
-    client.execute_command = AsyncMock(
-        side_effect=RunpodExecUnavailable("no podExec on schema")
-    )
-    client.aclose = AsyncMock()
-
-    http = MagicMock()
-    http.aclose = AsyncMock()
-    # First probe down, then alive on second probe (something else started it).
-    http.get = AsyncMock(
-        side_effect=[
-            httpx.ConnectError("conn refused"),
-            _json_response({"system": {"os": "linux"}}, status_code=200),
-        ]
-    )
-
-    engine = RunpodComfyEngine(
-        config=_make_config(), client=client, http_client=http
-    )
-    await engine._ensure_comfyui_alive(client, "pod_abc", "http://test-pod:8188")
-
-    client.execute_command.assert_awaited_once()

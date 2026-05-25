@@ -518,6 +518,13 @@ class RunpodClient:
         mutation, so this call may fail with
         :class:`RunpodExecUnavailable`. Callers should handle that case
         by falling back to SSH or Jupyter.
+
+        .. deprecated:: B-48
+            The generation engines (face-swap / ComfyUI) no longer use this
+            to auto-start ComfyUI — they rely on the pod template's startup
+            CMD plus /system_stats health polling. Retained only for
+            ``scripts/runpod_inventory.py``, which uses it as a best-effort
+            diagnostic probe. Do not add new auto-start callers.
         """
         query = (
             "mutation PodExec($input: PodExecInput!) {"
