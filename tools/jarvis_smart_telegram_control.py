@@ -790,6 +790,66 @@ def _swapbatch_album_intercept(chat_id: str, msgs: list) -> bool:
     return True
 
 
+def _largest_photo_unique_id(msg: Dict[str, Any]) -> Optional[str]:
+    """Return the largest PhotoSize's ``file_unique_id`` for a photo message.
+
+    ``file_unique_id`` is stable per physical media across redeliveries and
+    across a differing ``file_id``, so it is the correct dedupe key (B-51).
+    Returns ``None`` when the message carries no photo.
+    """
+    photos = msg.get("photo") or []
+    if not photos:
+        return None
+    largest = sorted(photos, key=lambda p: p.get("file_size", 0))[-1]
+    return largest.get("file_unique_id")
+
+
+def _buffer_media_group_msg(
+    media_group_buffer: Dict[str, Any], media_gid: str, msg: Dict[str, Any]
+) -> None:
+    """Append ``msg`` to the media_group buffer, deduping by file_unique_id.
+
+    B-51 §5.1 primary fix: the Telegram transport can deliver the same album
+    photo more than once (mid-flush re-flush, update redelivery, or the same
+    media under a fresh ``file_id``). Keying on the stable ``file_unique_id``
+    drops the duplicate at the source. A photo with no resolvable unique id is
+    always kept (it cannot be deduped).
+    """
+    buf = media_group_buffer.setdefault(
+        media_gid, {"msgs": [], "seen_uids": set(), "last_seen": time.time()}
+    )
+    uid = _largest_photo_unique_id(msg)
+    if uid is None or uid not in buf["seen_uids"]:
+        if uid is not None:
+            buf["seen_uids"].add(uid)
+        buf["msgs"].append(msg)
+    buf["last_seen"] = time.time()
+
+
+def _flush_media_group(media_group_buffer: Dict[str, Any], gid: str) -> None:
+    """Pop one buffered media group and route it (album → swapbatch, else
+    per-file).
+
+    B-51 §5.2 hardening: the group is **popped before** processing, so a
+    mid-flush exception (e.g. a download failure inside
+    ``_swapbatch_album_intercept``) can no longer leave it buffered for a
+    duplicate re-flush on the next poll-loop iteration.
+    """
+    msgs = media_group_buffer.pop(gid)["msgs"]
+    if not msgs:
+        return
+    chat_id = str(msgs[0].get("chat", {}).get("id", ""))
+    if chat_id != ALLOWED_CHAT_ID:
+        return
+    # Block M.2.5: route to swapbatch if session waiting.
+    if not _swapbatch_album_intercept(chat_id, msgs):
+        state = load_state()
+        caption = next((m.get("caption", "") for m in msgs if m.get("caption")), "")
+        send(chat_id, f"📦 Получено {len(msgs)} файлов{' с подписью: ' + caption if caption else ''}. Обрабатываю...")
+        for m in msgs:
+            _handle_file_message(chat_id, m, state)
+
+
 def backend_get(path: str, timeout: int = 60) -> Dict[str, Any]:
     return http_json("GET", BACKEND + path, timeout=timeout)
 
@@ -5180,23 +5240,13 @@ def _main_inner() -> None:
 
     while True:
         try:
-            # Flush stale media groups (>2 sec old — all parts arrived)
+            # Flush stale media groups (>2 sec old — all parts arrived).
+            # Pop-before-process (B-51 §5.2): a mid-flush exception cannot
+            # leave a partially-processed group buffered for a re-flush.
             now = time.time()
             for gid in list(media_group_buffer):
-                buf = media_group_buffer[gid]
-                if now - buf["last_seen"] >= 2.0:
-                    msgs = buf["msgs"]
-                    if msgs:
-                        chat_id = str(msgs[0].get("chat", {}).get("id", ""))
-                        if chat_id == ALLOWED_CHAT_ID:
-                            # Block M.2.5: route to swapbatch if session waiting.
-                            if not _swapbatch_album_intercept(chat_id, msgs):
-                                state = load_state()
-                                caption = next((m.get("caption", "") for m in msgs if m.get("caption")), "")
-                                send(chat_id, f"📦 Получено {len(msgs)} файлов{' с подписью: ' + caption if caption else ''}. Обрабатываю...")
-                                for m in msgs:
-                                    _handle_file_message(chat_id, m, state)
-                    del media_group_buffer[gid]
+                if now - media_group_buffer[gid]["last_seen"] >= 2.0:
+                    _flush_media_group(media_group_buffer, gid)
 
             _au = urllib.parse.quote(json.dumps(["message", "edited_message", "callback_query"]))
             url = f"{TG}/getUpdates?timeout=30&offset={offset}&allowed_updates={_au}"
@@ -5284,11 +5334,9 @@ def _main_inner() -> None:
                         send(ALLOWED_CHAT_ID, "🎤 Голосовое без file_id — попробуй ещё раз.")
                 elif has_file and str(chat_id) == ALLOWED_CHAT_ID:
                     if media_gid:
-                        # Buffer media group — process when all parts arrive
-                        if media_gid not in media_group_buffer:
-                            media_group_buffer[media_gid] = {"msgs": [], "last_seen": time.time()}
-                        media_group_buffer[media_gid]["msgs"].append(msg)
-                        media_group_buffer[media_gid]["last_seen"] = time.time()
+                        # Buffer media group — process when all parts arrive.
+                        # Dedupe duplicate deliveries by file_unique_id (B-51).
+                        _buffer_media_group_msg(media_group_buffer, media_gid, msg)
                     else:
                         state = load_state()
                         _handle_file_message(chat_id, msg, state)
