@@ -13,6 +13,8 @@ from app.services.block_m2_face_swap.batch_orchestrator import (
     BatchSession,
     OrchestratorError,
     STATE_ANIMATING,
+    STATE_AWAITING_CUSTOM_PROMPTS,
+    STATE_AWAITING_CUSTOM_PROMPTS_CONFIRM,
     STATE_DONE,
     STATE_EXPECTING_SOURCE,
     STATE_EXPECTING_TARGETS,
@@ -24,6 +26,7 @@ from app.services.block_m2_face_swap.batch_orchestrator import (
     STATE_TARGETS_RECEIVED,
     TargetItem,
 )
+from app.services.block_m2_face_swap.prompt_parser import PromptParseError
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -337,6 +340,192 @@ def test_reload_from_disk_marks_inflight_as_failed_resumed(tmp_path):
     assert restored == [42]
     assert orch.status(42) == STATE_FAILED_RESUMED
     assert "manual restart" in (orch.get(42).last_error or "")
+
+
+# ── custom-prompts flow (Day 6) ──────────────────────────────────────────────
+
+
+def _seed_swap_done(orch: BatchOrchestrator, tmp_path: Path, n: int = 3):
+    """Drive a fresh chat (id 42) to SWAP_DONE with ``n`` swapped photos."""
+    src = _make_photo(tmp_path, "src.jpg")
+    targets = [_make_photo(tmp_path, f"t{i}.jpg") for i in range(n)]
+    orch.begin_source(42)
+    orch.submit_source(42, src)
+    orch.begin_targets(42)
+    orch.submit_targets(42, targets)
+    sess = orch.get(42)
+    sess.status = STATE_SWAP_DONE
+    for i, t in enumerate(sess.targets):
+        sw = _make_photo(tmp_path, f"sw{i}.png")
+        t.swap_result_path = str(sw)
+    return sess
+
+
+def test_custom_prompts_state_transitions(tmp_path):
+    orch = _make_orch(tmp_path)
+    _seed_swap_done(orch, tmp_path, n=2)
+    assert orch.status(42) == STATE_SWAP_DONE
+    photos = orch.start_custom_prompts(42)
+    assert orch.status(42) == STATE_AWAITING_CUSTOM_PROMPTS
+    assert len(photos) == 2
+    orch.submit_custom_prompts(42, "1. a\n2. b")
+    assert orch.status(42) == STATE_AWAITING_CUSTOM_PROMPTS_CONFIRM
+
+
+def test_start_custom_prompts_requires_swap_done(tmp_path):
+    orch = _make_orch(tmp_path)
+    orch.begin_source(42)
+    with pytest.raises(OrchestratorError, match="expected one of"):
+        orch.start_custom_prompts(42)
+
+
+def test_submit_custom_prompts_valid_transitions_to_confirm(tmp_path):
+    orch = _make_orch(tmp_path)
+    _seed_swap_done(orch, tmp_path, n=2)
+    orch.start_custom_prompts(42)
+    result = orch.submit_custom_prompts(42, "1. walking\n2. dancing")
+    assert orch.status(42) == STATE_AWAITING_CUSTOM_PROMPTS_CONFIRM
+    sess = orch.get(42)
+    assert sess.custom_prompts == {1: "walking", 2: "dancing"}
+    assert result.mismatch_info is None
+
+
+def test_submit_custom_prompts_invalid_stays_in_awaiting(tmp_path):
+    orch = _make_orch(tmp_path)
+    _seed_swap_done(orch, tmp_path, n=2)
+    orch.start_custom_prompts(42)
+    with pytest.raises(PromptParseError):
+        orch.submit_custom_prompts(42, "no numbers here")
+    assert orch.status(42) == STATE_AWAITING_CUSTOM_PROMPTS
+    assert orch.get(42).custom_prompts is None
+
+
+def test_submit_custom_prompts_out_of_range_uses_photo_count(tmp_path):
+    orch = _make_orch(tmp_path)
+    _seed_swap_done(orch, tmp_path, n=2)
+    orch.start_custom_prompts(42)
+    # Only 2 photos, but index 3 referenced past a gap → out of range.
+    with pytest.raises(PromptParseError):
+        orch.submit_custom_prompts(42, "1. a\n3. b")
+    assert orch.status(42) == STATE_AWAITING_CUSTOM_PROMPTS
+
+
+def test_submit_custom_prompts_too_few_stores_mismatch(tmp_path):
+    orch = _make_orch(tmp_path)
+    _seed_swap_done(orch, tmp_path, n=3)
+    orch.start_custom_prompts(42)
+    result = orch.submit_custom_prompts(42, "1. a\n2. b")
+    assert result.mismatch_info["kind"] == "too_few"
+    sess = orch.get(42)
+    assert sess.prompt_mismatch_info["kind"] == "too_few"
+    assert orch.status(42) == STATE_AWAITING_CUSTOM_PROMPTS_CONFIRM
+
+
+@pytest.mark.anyio
+async def test_confirm_custom_animate_passes_per_idx_prompts(tmp_path):
+    orch = _make_orch(tmp_path)
+    _seed_swap_done(orch, tmp_path, n=3)
+    orch.start_custom_prompts(42)
+    orch.submit_custom_prompts(42, "1. walking\n2. dancing\n3. jumping")
+
+    calls = []
+    video = tmp_path / "v.mp4"
+    video.write_bytes(b"x")
+
+    async def animate_fn(swapped, idx, prompt, cc):
+        calls.append((idx, prompt))
+        return video
+
+    results = await orch.confirm_custom_animate(42, animate_fn=animate_fn)
+    assert calls == [(0, "walking"), (1, "dancing"), (2, "jumping")]
+    assert results == [video, video, video]
+    assert orch.status(42) == STATE_DONE
+
+
+@pytest.mark.anyio
+async def test_confirm_custom_animate_passes_none_for_default(tmp_path):
+    orch = _make_orch(tmp_path)
+    _seed_swap_done(orch, tmp_path, n=3)
+    orch.start_custom_prompts(42)
+    # Photo 2 explicitly skipped → default (None) prompt for that idx.
+    orch.submit_custom_prompts(42, "1. walking\n2. /skip\n3. jumping")
+
+    calls = []
+    video = tmp_path / "v.mp4"
+    video.write_bytes(b"x")
+
+    async def animate_fn(swapped, idx, prompt, cc):
+        calls.append((idx, prompt))
+        return video
+
+    await orch.confirm_custom_animate(42, animate_fn=animate_fn)
+    assert calls[1] == (1, None)
+
+
+@pytest.mark.anyio
+async def test_confirm_custom_animate_continues_after_failure(tmp_path):
+    orch = _make_orch(tmp_path)
+    _seed_swap_done(orch, tmp_path, n=3)
+    orch.start_custom_prompts(42)
+    orch.submit_custom_prompts(42, "1. a\n2. b\n3. c")
+
+    video = tmp_path / "v.mp4"
+    video.write_bytes(b"x")
+
+    async def animate_fn(swapped, idx, prompt, cc):
+        if idx == 1:
+            raise RuntimeError("timeout")
+        return video
+
+    results = await orch.confirm_custom_animate(42, animate_fn=animate_fn)
+    assert results == [video, None, video]
+    sess = orch.get(42)
+    assert sess.targets[1].animate_result_path is None
+    assert "animate failed" in (sess.targets[1].error or "")
+    assert orch.status(42) == STATE_DONE
+
+
+def test_cancel_animate_from_awaiting_returns_to_idle(tmp_path):
+    orch = _make_orch(tmp_path)
+    _seed_swap_done(orch, tmp_path, n=2)
+    orch.start_custom_prompts(42)
+    orch.cancel_animate(42)
+    assert orch.status(42) == STATE_IDLE
+    assert orch.get(42) is None
+
+
+def test_cancel_animate_from_swap_done_closes_session(tmp_path):
+    """/swapbatch_no equivalent: exit without animation, swaps already sent."""
+    orch = _make_orch(tmp_path)
+    _seed_swap_done(orch, tmp_path, n=2)
+    sess = orch.cancel_animate(42)
+    assert sess is not None
+    assert sum(1 for t in sess.targets if t.swap_result_path) == 2
+    assert orch.status(42) == STATE_IDLE
+
+
+def test_retry_custom_prompts_returns_to_awaiting(tmp_path):
+    orch = _make_orch(tmp_path)
+    _seed_swap_done(orch, tmp_path, n=2)
+    orch.start_custom_prompts(42)
+    orch.submit_custom_prompts(42, "1. a\n2. b")
+    assert orch.status(42) == STATE_AWAITING_CUSTOM_PROMPTS_CONFIRM
+    photos = orch.retry_custom_prompts(42)
+    assert orch.status(42) == STATE_AWAITING_CUSTOM_PROMPTS
+    assert len(photos) == 2
+    assert orch.get(42).custom_prompts is None
+
+
+def test_custom_prompts_persist_roundtrip_int_keys(tmp_path):
+    sess = BatchSession(
+        chat_id=7,
+        status=STATE_AWAITING_CUSTOM_PROMPTS_CONFIRM,
+        custom_prompts={1: "a", 2: None, 3: "c"},
+        prompt_mismatch_info={"kind": "too_few", "provided": 3, "expected": 5},
+    )
+    revived = BatchSession.from_dict(json.loads(json.dumps(sess.to_dict())))
+    assert revived.custom_prompts == {1: "a", 2: None, 3: "c"}
+    assert revived.prompt_mismatch_info["kind"] == "too_few"
 
 
 # ── dataclass plumbing ──────────────────────────────────────────────────────

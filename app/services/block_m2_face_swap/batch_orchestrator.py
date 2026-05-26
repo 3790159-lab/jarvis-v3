@@ -31,6 +31,7 @@ from typing import Any, Awaitable, Callable
 
 from .cost_estimator import CostEstimate, estimate as estimate_cost
 from .face_validator import FaceValidator
+from .prompt_parser import ParseResult, parse_numbered_prompts
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,9 @@ STATE_EXPECTING_TARGETS = "EXPECTING_TARGETS"
 STATE_TARGETS_RECEIVED = "TARGETS_RECEIVED"
 STATE_SWAPPING = "SWAPPING"
 STATE_SWAP_DONE = "SWAP_DONE"
+# Day 6: per-photo custom-prompt sub-flow between SWAP_DONE and ANIMATING.
+STATE_AWAITING_CUSTOM_PROMPTS = "AWAITING_CUSTOM_PROMPTS"
+STATE_AWAITING_CUSTOM_PROMPTS_CONFIRM = "AWAITING_CUSTOM_PROMPTS_CONFIRM"
 STATE_ANIMATING = "ANIMATING"
 STATE_DONE = "DONE"
 STATE_FAILED_RESUMED = "FAILED_RESUMED"
@@ -78,6 +82,12 @@ class BatchSession:
     targets: list[TargetItem] = field(default_factory=list)
     cost_estimate: dict[str, Any] | None = None
     cancel_requested: bool = False
+    # Day 6: custom-prompts sub-flow. ``custom_prompts`` maps a 1-based photo
+    # index (over the *swapped* photos shown to the user) → custom prompt, or
+    # ``None`` to use the default. ``prompt_mismatch_info`` mirrors the parser's
+    # mismatch_info so the bot can offer /apply_partial or /apply_first_N.
+    custom_prompts: dict[int, str | None] | None = None
+    prompt_mismatch_info: dict[str, Any] | None = None
     created_at_unix: float = field(default_factory=time.time)
     updated_at_unix: float = field(default_factory=time.time)
     last_error: str | None = None
@@ -88,6 +98,14 @@ class BatchSession:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "BatchSession":
         targets = [TargetItem(**t) for t in data.get("targets", [])]
+        # JSON serialises dict keys as strings; coerce custom-prompt keys back
+        # to int so the index mapping survives a persist/reload round-trip.
+        raw_prompts = data.get("custom_prompts")
+        custom_prompts = (
+            {int(k): v for k, v in raw_prompts.items()}
+            if isinstance(raw_prompts, dict)
+            else None
+        )
         return cls(
             chat_id=int(data["chat_id"]),
             status=data.get("status", STATE_IDLE),
@@ -96,6 +114,8 @@ class BatchSession:
             targets=targets,
             cost_estimate=data.get("cost_estimate"),
             cancel_requested=bool(data.get("cancel_requested", False)),
+            custom_prompts=custom_prompts,
+            prompt_mismatch_info=data.get("prompt_mismatch_info"),
             created_at_unix=float(data.get("created_at_unix", time.time())),
             updated_at_unix=float(data.get("updated_at_unix", time.time())),
             last_error=data.get("last_error"),
@@ -425,6 +445,191 @@ class BatchOrchestrator:
             self._touch(sess)
             self._persist(sess)
             return sess
+
+    # ── transitions: custom-prompts sub-flow (Day 6) ────────────────────────
+
+    @staticmethod
+    def _swapped_photos(sess: BatchSession) -> list[Path]:
+        """Swapped photo paths in display order (the 1-based list shown to the
+        user). The Nth entry corresponds to the user's prompt index N."""
+        return [
+            Path(t.swap_result_path)
+            for t in sess.targets
+            if t.swap_result_path
+        ]
+
+    def start_custom_prompts(self, chat_id: int) -> list[Path]:
+        """Enter the custom-prompts flow: SWAP_DONE → AWAITING_CUSTOM_PROMPTS.
+
+        Returns the swapped photos (display order) so the bot can re-display
+        them with explicit ``📸 N/M`` numbering before asking for prompts.
+        """
+        with self._lock:
+            sess = self._require(chat_id, {STATE_SWAP_DONE})
+            photos = self._swapped_photos(sess)
+            if not photos:
+                raise OrchestratorError("Нет swapped фото для анимации.")
+            sess.status = STATE_AWAITING_CUSTOM_PROMPTS
+            sess.custom_prompts = None
+            sess.prompt_mismatch_info = None
+            sess.cancel_requested = False
+            sess.last_error = None
+            self._touch(sess)
+            self._persist(sess)
+            return photos
+
+    def submit_custom_prompts(
+        self, chat_id: int, raw_text: str
+    ) -> ParseResult:
+        """Parse a numbered-prompt message and advance to the confirm state.
+
+        On success transitions AWAITING_CUSTOM_PROMPTS →
+        AWAITING_CUSTOM_PROMPTS_CONFIRM and stores the parsed prompts. On a
+        parse error the state is left untouched (still AWAITING) and
+        :class:`PromptParseError` propagates for the bot to surface.
+        """
+        with self._lock:
+            sess = self._require(chat_id, {STATE_AWAITING_CUSTOM_PROMPTS})
+            expected = len(self._swapped_photos(sess))
+            # PromptParseError propagates without mutating state → stays AWAITING.
+            result = parse_numbered_prompts(raw_text, expected_count=expected)
+            sess.custom_prompts = dict(result.prompts)
+            sess.prompt_mismatch_info = result.mismatch_info
+            sess.status = STATE_AWAITING_CUSTOM_PROMPTS_CONFIRM
+            self._touch(sess)
+            self._persist(sess)
+            return result
+
+    def retry_custom_prompts(self, chat_id: int) -> list[Path]:
+        """Discard parsed prompts and return to AWAITING_CUSTOM_PROMPTS.
+
+        Returns the swapped photos again so the bot can re-display them.
+        """
+        with self._lock:
+            sess = self._require(
+                chat_id,
+                {STATE_AWAITING_CUSTOM_PROMPTS_CONFIRM,
+                 STATE_AWAITING_CUSTOM_PROMPTS},
+            )
+            photos = self._swapped_photos(sess)
+            sess.status = STATE_AWAITING_CUSTOM_PROMPTS
+            sess.custom_prompts = None
+            sess.prompt_mismatch_info = None
+            self._touch(sess)
+            self._persist(sess)
+            return photos
+
+    def cancel_animate(self, chat_id: int) -> BatchSession | None:
+        """Exit the animate flow entirely (handles /swapbatch_no and /cancel).
+
+        Closes the session cleanly from any non-engine state: the swapped
+        photos have already been sent to the user, so we mark DONE and prune.
+        Returns the (pre-prune) session for tally reporting, or ``None`` if no
+        session existed.
+        """
+        with self._lock:
+            sess = self._sessions.get(chat_id)
+            if sess is None:
+                return None
+            if sess.status in _LOCKABLE_STATES:
+                # Engine running — fall back to cooperative cancellation.
+                sess.cancel_requested = True
+                self._touch(sess)
+                self._persist(sess)
+                return sess
+            sess.status = STATE_DONE
+            self._touch(sess)
+            self._prune(chat_id)
+            return sess
+
+    async def confirm_custom_animate(
+        self,
+        chat_id: int,
+        *,
+        animate_fn: Callable[
+            [Path, int, "str | None", Callable[[], bool]], Awaitable[Path]
+        ],
+        progress_cb: ProgressCb | None = None,
+    ) -> list[Path | None]:
+        """Animate every swapped photo using its stored custom prompt.
+
+        ``animate_fn(swapped_photo, target_idx, prompt, cancel_check) -> Path``
+        — invoked once per swapped photo, where ``prompt`` is the user's custom
+        prompt for that photo (or ``None`` to use the default). Per-photo errors
+        are caught so one bad animation does not halt the batch.
+
+        Transitions: AWAITING_CUSTOM_PROMPTS_CONFIRM → ANIMATING → DONE.
+        """
+        with self._lock:
+            sess = self._require(
+                chat_id, {STATE_AWAITING_CUSTOM_PROMPTS_CONFIRM}
+            )
+            custom = dict(sess.custom_prompts or {})
+            to_animate: list[tuple[int, Path]] = []
+            for idx, t in enumerate(sess.targets):
+                if t.swap_result_path:
+                    to_animate.append((idx, Path(t.swap_result_path)))
+            if not to_animate:
+                raise OrchestratorError("Нет swapped фото для анимации.")
+            sess.status = STATE_ANIMATING
+            sess.cancel_requested = False
+            sess.last_error = None
+            self._touch(sess)
+            self._persist(sess)
+
+        def _cancel_check() -> bool:
+            with self._lock:
+                cur = self._sessions.get(chat_id)
+                return bool(cur and cur.cancel_requested)
+
+        results: list[Path | None] = []
+        # display_pos is the user-facing 1-based index; idx is the position in
+        # the full targets list (for writing animate_result_path back).
+        for display_pos, (idx, swapped) in enumerate(to_animate, start=1):
+            prompt = custom.get(display_pos)
+            if _cancel_check():
+                logger.info(
+                    "BatchOrchestrator: custom animate cancelled at idx=%d", idx
+                )
+                results.append(None)
+                continue
+            try:
+                video = await animate_fn(swapped, idx, prompt, _cancel_check)
+                results.append(video)
+                with self._lock:
+                    cur = self._sessions.get(chat_id)
+                    if cur is not None and idx < len(cur.targets):
+                        cur.targets[idx].animate_result_path = str(video)
+                        self._touch(cur)
+                        self._persist(cur)
+                self._fire(progress_cb, "animate_step_done", {
+                    "index": idx, "video_path": video,
+                })
+            except Exception as exc:  # noqa: BLE001
+                logger.exception(
+                    "BatchOrchestrator: custom animate idx=%d failed", idx
+                )
+                results.append(None)
+                with self._lock:
+                    cur = self._sessions.get(chat_id)
+                    if cur is not None and idx < len(cur.targets):
+                        cur.targets[idx].error = (
+                            (cur.targets[idx].error or "")
+                            + f" | animate failed: {exc}"
+                        ).strip(" |")
+                        self._touch(cur)
+                        self._persist(cur)
+                self._fire(progress_cb, "animate_step_failed", {
+                    "index": idx, "error": str(exc),
+                })
+
+        with self._lock:
+            cur = self._sessions.get(chat_id)
+            if cur is not None:
+                cur.status = STATE_DONE
+                self._touch(cur)
+                self._persist(cur)
+        return results
 
     # ── control ─────────────────────────────────────────────────────────────
 
