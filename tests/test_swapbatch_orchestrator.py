@@ -154,6 +154,29 @@ def test_submit_targets_dedupes_duplicate_paths(tmp_path):
     assert len(sess.targets) == 2
 
 
+def test_submit_targets_accepts_20(tmp_path):
+    src = _make_photo(tmp_path, "src.jpg")
+    orch = _make_orch(tmp_path, validator=_make_validator(face_count=1))
+    orch.begin_source(42)
+    orch.submit_source(42, src)
+    orch.begin_targets(42)
+    targets = [_make_photo(tmp_path, f"t{i:02d}.jpg") for i in range(20)]
+    sess, est = orch.submit_targets(42, targets)
+    assert len(sess.targets) == 20
+    assert est.valid_count == 20
+
+
+def test_submit_targets_rejects_21(tmp_path):
+    src = _make_photo(tmp_path, "src.jpg")
+    orch = _make_orch(tmp_path, validator=_make_validator(face_count=1))
+    orch.begin_source(42)
+    orch.submit_source(42, src)
+    orch.begin_targets(42)
+    targets = [_make_photo(tmp_path, f"t{i:02d}.jpg") for i in range(21)]
+    with pytest.raises(OrchestratorError, match="20"):
+        orch.submit_targets(42, targets)
+
+
 # ── confirm_swap / confirm_animate ──────────────────────────────────────────
 
 

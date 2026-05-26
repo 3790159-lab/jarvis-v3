@@ -54,6 +54,11 @@ STATE_FAILED_RESUMED = "FAILED_RESUMED"
 _TERMINAL_STATES = {STATE_DONE, STATE_FAILED_RESUMED}
 _LOCKABLE_STATES = {STATE_SWAPPING, STATE_ANIMATING}
 
+# Max target photos per batch (post-dedupe). Raised 5→20 for larger persona
+# Instagram drops (10-15 photos/shoot). Animation is sequential, so 20 is a
+# ~4h ceiling — see the time note in the cost report.
+MAX_TARGETS = 20
+
 
 class OrchestratorError(RuntimeError):
     """Raised when a state-machine transition is invalid."""
@@ -242,6 +247,11 @@ class BatchOrchestrator:
         # may pass duplicate paths due to retry/race in update delivery.
         # Path-level dedupe preserves order and is O(n).
         target_paths = list(dict.fromkeys(target_paths))
+        if len(target_paths) > MAX_TARGETS:
+            raise OrchestratorError(
+                f"Слишком много фото: {len(target_paths)}. Максимум "
+                f"{MAX_TARGETS} за один батч — пришли меньше и запусти ещё раз."
+            )
         with self._lock:
             sess = self._require(chat_id, {STATE_EXPECTING_TARGETS})
             sess.targets = []

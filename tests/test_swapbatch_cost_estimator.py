@@ -102,3 +102,16 @@ def test_format_cost_report_pluralisation_for_multiple_source_faces():
     est = estimate(3)
     msg = format_cost_report_ru(est, source_face_count=2, total_targets=3)
     assert "Source: 2 лиц" in msg  # plural form
+
+
+def test_format_cost_report_warns_long_for_large_batch():
+    # 20 photos ≈ 4h of sequential animation — flag it as long-running.
+    est = estimate(20)
+    msg = format_cost_report_ru(est, source_face_count=1, total_targets=20)
+    assert "долго" in msg.lower()
+
+
+def test_format_cost_report_no_long_warning_for_small_batch():
+    est = estimate(2)
+    msg = format_cost_report_ru(est, source_face_count=1, total_targets=2)
+    assert "долго" not in msg.lower()

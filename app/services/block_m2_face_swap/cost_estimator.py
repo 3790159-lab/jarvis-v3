@@ -20,6 +20,11 @@ import os
 from dataclasses import dataclass
 
 
+# Batches estimated to take this long (minutes) get a "долго" warning in the
+# report — animation is sequential, so ~10+ photos run for hours.
+_LONG_BATCH_MINUTES = 120.0
+
+
 def _envf(name: str, default: float) -> float:
     raw = os.environ.get(name)
     if raw is None or not raw.strip():
@@ -115,6 +120,17 @@ def format_cost_report_ru(
             f"Animate: ${est.animate_usd:.2f} ({est.valid_count} × видео + старт)",
             f"Всего: ~${est.total_usd:.2f}",
             f"Время: ~{est.total_minutes:.0f} мин (swap ~{est.swap_minutes:.0f} мин + animate ~{est.animate_minutes:.0f} мин)",
+        ]
+    )
+    # Animation is sequential — large batches take hours. Flag it so the user
+    # isn't surprised by a multi-hour run.
+    if est.total_minutes >= _LONG_BATCH_MINUTES:
+        hours = est.total_minutes / 60.0
+        lines.append(
+            f"⏳ Это долго (~{hours:.1f} ч) — анимация идёт последовательно."
+        )
+    lines.extend(
+        [
             "",
             "/swapbatch_go — запустить swap",
             "/swapbatch_cancel — отменить",

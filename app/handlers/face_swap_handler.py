@@ -74,7 +74,7 @@ HELP_TEXT = (
     "\n"
     "Команды:\n"
     "  /swapbatch_source — следующее фото будет твоим источником лица\n"
-    "  /swapbatch_batch — начни загружать альбом target-фото (до 10 штук)\n"
+    "  /swapbatch_batch — начни загружать альбом target-фото (до 20 штук)\n"
     "  /swapbatch_go — запустить swap после отчёта по стоимости\n"
     "  /swapbatch_set_quality duration=10 fps=42 — длительность (3–15с) и fps\n"
     "  /swapbatch_animate_yes — анимировать все swapped фото (дефолтный промпт)\n"
@@ -147,7 +147,7 @@ class FaceSwapHandler:
             return HandlerReply(text=f"⚠️ {exc}")
         return HandlerReply(
             text=(
-                "📦 Жду альбом target-фото (до 10 штук). Пришли все фото "
+                "📦 Жду альбом target-фото (до 20 штук). Пришли все фото "
                 "одной отправкой (Telegram album). Я подожду 2 секунды после "
                 "последнего фото и покажу оценку."
             )
