@@ -64,6 +64,50 @@ All 6 phases done, strict TDD throughout (test → RED → implement → GREEN),
 - **Untracked file cleanup** (the `)` file, `docs/*20260520*.md`, untracked scripts).
 - **Future UX (proposed, not built):** negative-prompt UX; per-frame `/edit_N` after parse; saved custom-prompt templates/presets.
 
-## Status
-- HEAD: `f7f2346` on `phase-3.0-inventory-stop-reliability`.
-- All new work committed. Push pending (see success criteria) — Daniil to confirm origin/SSH still set from Day 5.
+## Status (Day 6 animation prompt UX)
+- HEAD after Day 6: `f7f2346` on `phase-3.0-inventory-stop-reliability`, pushed.
+
+---
+
+# Task C — Video quality (duration + fps)
+
+Same session, after Day 6. Architectural; investigated first, design approved by Daniil (Option A + gated fps).
+
+## Shipped (4 TDD sub-phases, all green, conventional commits)
+- `3ce59cf` feat(video): quality settings parser + validator (`quality_settings.py`, 15 tests)
+- `4e83f16` feat(video): variable duration and fps for animations (engine RIFE injection, 5 tests)
+- `1a58eeb` feat(face-swap): per-batch quality settings in orchestrator (5 tests)
+- `b7a56fc` feat(bot): wire /swapbatch_set_quality into swapbatch flow (7 handler tests)
+
+**Test status:** +32 new tests, all green. Full suite **2406 passed, 8 skipped, 3 failed** — the same 3 pre-existing, unrelated failures as Day 6 (restaurant mojibake + 2 engine test-isolation cases); re-confirmed unchanged.
+
+## Investigation findings (the important ones)
+- **Frame source:** `bot _animate_fn → VideoRequest(seconds) → _build_workflow → node 15 (PainterI2VAdvanced) length`. `length = clamp(seconds×21, [21,315])`. NOT hardcoded to 53.
+- **fps:** VHS_VideoCombine = node `21`, `frame_rate` was hardcoded 21, never injected. Native gen fps = length/seconds = **21**.
+- **No interpolation nodes in the workflow.** BUT `ComfyUI-Frame-Interpolation` (Fannovel16, provides RIFE/FILM/GMFSS) **IS cloned by `runpod/bootstrap.sh:47`** — best-effort, unverified, not in the bootstrap verify section.
+- **Architectural split:** duration is nearly free (already flows via `seconds`); **fps is the real new work** (RIFE node + frame_rate). 15s@42fps needs interp (630 played > 315 native ceiling).
+
+## Design (approved)
+- **UX = Option A:** `/swapbatch_set_quality duration=10 fps=42`, then `/swapbatch_animate_yes` or `_custom` use the set values. Unprovided keys keep current; no-args shows current.
+- **Ranges:** duration **3–15s**; fps restricted to **{21, 42, 63, 84}** (RIFE needs integer multiplier = fps/21).
+- **fps GATED** behind `ENABLE_FPS_INTERPOLATION` (default off). When off, `/swapbatch_set_quality` with fps>21 is rejected: *"FPS boost not yet verified on this pod — pending Day 7+ smoke test"*; duration still works; estimators never see fps (satisfied by construction — estimate runs at submit_targets before quality is set).
+- **fps code path fully implemented + unit-tested** against the **assumed** RIFE schema (class `"RIFE VFI"`, inputs `ckpt_name=rife47.pth, frames, multiplier, clear_cache_after_n_frames, fast_mode, ensemble, scale_factor`). Engine is flag-agnostic; the gate lives in validation.
+
+## ⚠️ Day 7 followup — REQUIRED before enabling fps>21
+1. SSH to a running pod, query ComfyUI `/object_info`, capture the **real** RIFE VFI node class name + input schema as ground truth.
+2. Diff against the assumed schema in `runpod_comfy_engine.py` (`_RIFE_*` constants + `_apply_fps`). If it matches → set `ENABLE_FPS_INTERPOLATION=1` and ship. If it differs → fix `_apply_fps` + re-run engine tests before flipping.
+3. First production batch with fps>21 should be **1–2 photos** to catch runtime surprises (RIFE auto-downloads `rife4x.pth` on first use — watch for download/egress failures) before scaling.
+4. Also verify `ComfyUI-VFI` actually installed (`runpod_inventory.py` can `ls custom_nodes` over SSH; the clone is best-effort).
+
+## E2E to test (duration is live now; fps after flag flip)
+- `/swapbatch_set_quality duration=10` → confirm "10 сек, 21 fps" → `/swapbatch_animate_yes` → ~10s videos.
+- `/swapbatch_set_quality fps=42` (flag off) → rejection message, fps stays 21.
+- `/swapbatch_set_quality` (no args) → shows current.
+- After flag on: `/swapbatch_set_quality duration=8 fps=42` → RIFE ×2, 42fps output.
+
+## Task C deferred / future
+- **Duration-aware cost/time estimate:** the submit_targets estimate still assumes the default 5s (quality is set after the estimate). Re-estimate after `/swapbatch_set_quality`, or scale by duration, is a future refinement.
+- fps=63 (3×) is allowed but untested on a pod; 42/84 are the natural 2×/4×.
+
+## Status (after Task C)
+- HEAD: `b7a56fc` on `phase-3.0-inventory-stop-reliability`. Push pending below.
