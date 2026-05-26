@@ -74,6 +74,23 @@ DEFAULT_FRAMES = 121
 MIN_SECONDS = 1.0   # 21 frames floor
 MAX_SECONDS = 15.0  # 315 frames ceiling — conservative for A100-80GB VRAM
 
+# -- fps interpolation (Task C) ----------------------------------------------
+# Native generation is 21 fps; higher output fps is produced by inserting a
+# RIFE frame-interpolation node (from ComfyUI-Frame-Interpolation, cloned by
+# runpod/bootstrap.sh) between VAEDecode (node 19) and VHS_VideoCombine
+# (node 21), with an integer multiplier = fps / 21.
+#
+# NOTE: the node class name and input schema below are ASSUMED from the public
+# Fannovel16/ComfyUI-Frame-Interpolation docs and are NOT yet verified against
+# a live pod's /object_info. fps > 21 is feature-gated off (see
+# quality_settings.fps_interpolation_enabled) until a Day-7+ smoke test
+# confirms the schema. If it differs, update _RIFE_* below before enabling.
+_RIFE_NODE_ID = "22"
+_RIFE_CKPT = "rife47.pth"
+_RIFE_CLASS = "RIFE VFI"
+_VAEDECODE_NODE_ID = "19"
+_VIDEOCOMBINE_NODE_ID = "21"
+
 
 class RunpodComfyError(RuntimeError):
     """Raised when the RunPod / ComfyUI generation pipeline fails."""
@@ -211,6 +228,7 @@ class RunpodComfyEngine:
                     "prompt_id": prompt_id,
                     "pod_id": pod_id,
                     "workflow_version": self.workflow_version,
+                    "fps": getattr(request, "fps", FPS) or FPS,
                 },
             )
             try:
@@ -492,7 +510,48 @@ class RunpodComfyEngine:
                 int(MIN_SECONDS * FPS), min(int(MAX_SECONDS * FPS), target)
             )
             workflow["15"]["inputs"]["length"] = frames
+
+        self._apply_fps(workflow, getattr(request, "fps", FPS) or FPS)
         return workflow
+
+    @staticmethod
+    def _apply_fps(workflow: dict[str, Any], fps: int) -> None:
+        """Set output fps on VHS_VideoCombine and, for fps > 21, splice a RIFE
+        interpolation node between VAEDecode and VHS_VideoCombine.
+
+        ``length`` (native diffusion frames) is unchanged by fps — interpolation
+        multiplies the *decoded* frames, so the VRAM/time budget stays bounded.
+        """
+        combine = workflow.get(_VIDEOCOMBINE_NODE_ID)
+        if not isinstance(combine, dict) or not isinstance(
+            combine.get("inputs"), dict
+        ):
+            raise RunpodComfyError(
+                f"workflow node {_VIDEOCOMBINE_NODE_ID!r} "
+                "(VHS_VideoCombine) missing or malformed"
+            )
+        combine["inputs"]["frame_rate"] = fps
+
+        multiplier = max(1, round(fps / FPS))
+        if multiplier <= 1:
+            return  # native fps — no interpolation needed
+
+        # Re-route: VAEDecode → RIFE → VHS_VideoCombine.
+        decoded_ref = combine["inputs"].get("images", [_VAEDECODE_NODE_ID, 0])
+        workflow[_RIFE_NODE_ID] = {
+            "inputs": {
+                "ckpt_name": _RIFE_CKPT,
+                "frames": decoded_ref,
+                "clear_cache_after_n_frames": 10,
+                "multiplier": multiplier,
+                "fast_mode": True,
+                "ensemble": True,
+                "scale_factor": 1.0,
+            },
+            "class_type": _RIFE_CLASS,
+            "_meta": {"title": "RIFE VFI (Jarvis fps boost)"},
+        }
+        combine["inputs"]["images"] = [_RIFE_NODE_ID, 0]
 
     async def _submit_prompt(
         self, pod_url: str, workflow: dict[str, Any]

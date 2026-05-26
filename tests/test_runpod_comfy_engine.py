@@ -233,6 +233,7 @@ async def test_generate_happy_path_with_mocks(tmp_path):
         "prompt_id": "pid_xyz",
         "pod_id": "pod_abc",
         "workflow_version": "v20",
+        "fps": 21,
     }
     assert result.duration_sec >= 0
     assert result.cost_usd >= 0
@@ -704,6 +705,62 @@ def test_workflow_negative_prompt_unchanged(tmp_path):
     workflow = engine._build_workflow("input.png", req)
     assert workflow["8"]["inputs"]["text"] == base["8"]["inputs"]["text"]
     assert workflow["7"]["inputs"]["text"] != base["7"]["inputs"]["text"]
+
+
+# ── _build_workflow: duration + fps (Task C) ─────────────────────────────────
+
+
+def test_build_workflow_duration_3s_floor(tmp_path):
+    engine = _make_engine_for_workflow(tmp_path)
+    req = _build_workflow_request(tmp_path, seconds=3, fps=21)
+    wf = engine._build_workflow("input.png", req)
+    assert wf["15"]["inputs"]["length"] == 63  # 3 * 21
+
+
+def test_build_workflow_fps_native_no_interpolation(tmp_path):
+    engine = _make_engine_for_workflow(tmp_path)
+    req = _build_workflow_request(tmp_path, seconds=5, fps=21)
+    wf = engine._build_workflow("input.png", req)
+    # No RIFE node; VHS plays the VAEDecode (node 19) frames directly at 21 fps.
+    assert not any(n.get("class_type") == "RIFE VFI" for n in wf.values())
+    assert wf["21"]["inputs"]["frame_rate"] == 21
+    assert wf["21"]["inputs"]["images"] == ["19", 0]
+
+
+def test_build_workflow_fps_42_injects_rife_2x(tmp_path):
+    engine = _make_engine_for_workflow(tmp_path)
+    req = _build_workflow_request(tmp_path, seconds=5, fps=42)
+    wf = engine._build_workflow("input.png", req)
+    rife_items = [
+        (k, n) for k, n in wf.items() if n.get("class_type") == "RIFE VFI"
+    ]
+    assert len(rife_items) == 1
+    rife_id, rife = rife_items[0]
+    assert rife["inputs"]["multiplier"] == 2
+    # RIFE consumes the VAEDecode output (node 19)...
+    assert rife["inputs"]["frames"] == ["19", 0]
+    # ...and VHS_VideoCombine now consumes RIFE output, at 42 fps.
+    assert wf["21"]["inputs"]["images"] == [rife_id, 0]
+    assert wf["21"]["inputs"]["frame_rate"] == 42
+
+
+def test_build_workflow_fps_84_injects_rife_4x(tmp_path):
+    engine = _make_engine_for_workflow(tmp_path)
+    req = _build_workflow_request(tmp_path, seconds=5, fps=84)
+    wf = engine._build_workflow("input.png", req)
+    rife = [n for n in wf.values() if n.get("class_type") == "RIFE VFI"]
+    assert len(rife) == 1
+    assert rife[0]["inputs"]["multiplier"] == 4
+    assert wf["21"]["inputs"]["frame_rate"] == 84
+
+
+def test_build_workflow_duration_independent_of_fps(tmp_path):
+    # fps only adds interpolation; native length stays duration * 21 (the
+    # diffusion frame budget). 15s @ 42fps = 315 native, interpolated to ~630.
+    engine = _make_engine_for_workflow(tmp_path)
+    req = _build_workflow_request(tmp_path, seconds=15, fps=42)
+    wf = engine._build_workflow("input.png", req)
+    assert wf["15"]["inputs"]["length"] == 315  # 15 * 21 native
 
 
 # ── generate: litterbox upload integration ───────────────────────────────────

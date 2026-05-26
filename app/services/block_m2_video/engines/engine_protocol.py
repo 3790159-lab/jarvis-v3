@@ -20,6 +20,9 @@ class VideoRequest:
     input_image_path: Path
     prompt: str
     seconds: int = 5
+    # Output playback fps. 21 = native (no interpolation). Higher values
+    # (42/63/84) request RIFE frame interpolation in the RunPod Wan workflow.
+    fps: int = 21
     seed: int | None = None
     mode: GenerationMode = "auto"
     # For redo: reuse an existing generation_id when overwriting is desired.
