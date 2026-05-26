@@ -7,9 +7,10 @@ on the session; the engine turns them into workflow parameters (native frame
 count from ``duration_sec`` and RIFE interpolation from ``fps``).
 
 **fps model:** the Wan 2.2 i2v workflow generates natively at 21 fps. Higher
-fps is achieved by inserting a RIFE interpolation node with an *integer*
-multiplier, so ``fps`` is restricted to multiples of 21 (21/42/63/84). The
-multiplier is ``fps / 21``.
+fps is achieved by inserting a RIFE interpolation node (ComfyUI-VFI's
+``RIFEInterpolation``) that interpolates from the native 21 fps to an *exact*
+target fps, so ``fps`` may be any integer in ``[FPS_NATIVE, FPS_MAX]`` (not
+just multiples of 21).
 
 **Feature gate:** fps > 21 needs the RIFE node, which is cloned by the pod
 bootstrap but not yet verified on a live pod. Until verified, ``fps_enabled``
@@ -24,19 +25,18 @@ __all__ = [
     "DURATION_MIN",
     "DURATION_MAX",
     "FPS_NATIVE",
-    "FPS_ALLOWED",
+    "FPS_MAX",
     "QualityError",
     "QualitySettings",
     "parse_quality_args",
     "validate_quality",
-    "interpolation_multiplier",
     "fps_interpolation_enabled",
 ]
 
 DURATION_MIN = 3
 DURATION_MAX = 15
 FPS_NATIVE = 21
-FPS_ALLOWED = (21, 42, 63, 84)  # multipliers 1×/2×/3×/4× of the native 21 fps
+FPS_MAX = 60  # exact-fps RIFE allows any integer fps in [FPS_NATIVE, FPS_MAX]
 
 _KNOWN_KEYS = {"duration", "fps"}
 
@@ -95,27 +95,23 @@ def validate_quality(
     """Range-check duration and fps, applying the fps feature gate.
 
     Raises:
-        QualityError: duration out of [DURATION_MIN, DURATION_MAX], fps not in
-            FPS_ALLOWED, or fps > native while ``fps_enabled`` is False.
+        QualityError: duration out of [DURATION_MIN, DURATION_MAX], fps out of
+            [FPS_NATIVE, FPS_MAX], or fps > native while ``fps_enabled`` is
+            False.
     """
     if not DURATION_MIN <= duration <= DURATION_MAX:
         raise QualityError(
             f"длительность должна быть {DURATION_MIN}–{DURATION_MAX} сек, "
             f"получено {duration}"
         )
-    if fps not in FPS_ALLOWED:
+    if not FPS_NATIVE <= fps <= FPS_MAX:
         raise QualityError(
-            f"fps должен быть одним из {', '.join(map(str, FPS_ALLOWED))}, "
+            f"fps должен быть целым числом {FPS_NATIVE}–{FPS_MAX}, "
             f"получено {fps}"
         )
     if fps > FPS_NATIVE and not fps_enabled:
         raise QualityError(_FPS_GATED_MSG)
     return QualitySettings(duration_sec=duration, fps=fps)
-
-
-def interpolation_multiplier(fps: int) -> int:
-    """Integer RIFE multiplier for ``fps`` relative to the native 21 fps."""
-    return max(1, round(fps / FPS_NATIVE))
 
 
 def fps_interpolation_enabled() -> bool:

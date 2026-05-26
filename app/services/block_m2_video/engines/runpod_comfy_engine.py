@@ -76,18 +76,20 @@ MAX_SECONDS = 15.0  # 315 frames ceiling — conservative for A100-80GB VRAM
 
 # -- fps interpolation (Task C) ----------------------------------------------
 # Native generation is 21 fps; higher output fps is produced by inserting a
-# RIFE frame-interpolation node (from ComfyUI-Frame-Interpolation, cloned by
-# runpod/bootstrap.sh) between VAEDecode (node 19) and VHS_VideoCombine
-# (node 21), with an integer multiplier = fps / 21.
+# RIFE frame-interpolation node between VAEDecode (node 19) and
+# VHS_VideoCombine (node 21).
 #
-# NOTE: the node class name and input schema below are ASSUMED from the public
-# Fannovel16/ComfyUI-Frame-Interpolation docs and are NOT yet verified against
-# a live pod's /object_info. fps > 21 is feature-gated off (see
-# quality_settings.fps_interpolation_enabled) until a Day-7+ smoke test
-# confirms the schema. If it differs, update _RIFE_* below before enabling.
+# Schema VERIFIED on a live pod (Day-7 smoke test, /object_info): the custom
+# node is ``custom_nodes/ComfyUI-VFI`` exposing class ``RIFEInterpolation``
+# (display "RIFE Frame Interpolation"), NOT Fannovel16's "RIFE VFI". It takes
+# an exact source/target fps (FLOAT) rather than an integer multiplier, so any
+# target fps is reachable, and the only available model is ``flownet.pkl``.
+# Required inputs: images, source_fps, target_fps, scale; model_name is
+# optional (default flownet.pkl). fps > 21 stays feature-gated off (see
+# quality_settings.fps_interpolation_enabled) until the flag is flipped.
 _RIFE_NODE_ID = "22"
-_RIFE_CKPT = "rife47.pth"
-_RIFE_CLASS = "RIFE VFI"
+_RIFE_MODEL = "flownet.pkl"
+_RIFE_CLASS = "RIFEInterpolation"
 _VAEDECODE_NODE_ID = "19"
 _VIDEOCOMBINE_NODE_ID = "21"
 
@@ -532,24 +534,23 @@ class RunpodComfyEngine:
             )
         combine["inputs"]["frame_rate"] = fps
 
-        multiplier = max(1, round(fps / FPS))
-        if multiplier <= 1:
+        if fps <= FPS:
             return  # native fps — no interpolation needed
 
-        # Re-route: VAEDecode → RIFE → VHS_VideoCombine.
+        # Re-route: VAEDecode → RIFE → VHS_VideoCombine. RIFEInterpolation
+        # (ComfyUI-VFI) interpolates from source_fps to target_fps exactly, so
+        # any fps > 21 is reachable (not just integer multiples of 21).
         decoded_ref = combine["inputs"].get("images", [_VAEDECODE_NODE_ID, 0])
         workflow[_RIFE_NODE_ID] = {
             "inputs": {
-                "ckpt_name": _RIFE_CKPT,
-                "frames": decoded_ref,
-                "clear_cache_after_n_frames": 10,
-                "multiplier": multiplier,
-                "fast_mode": True,
-                "ensemble": True,
-                "scale_factor": 1.0,
+                "images": decoded_ref,
+                "source_fps": float(FPS),
+                "target_fps": float(fps),
+                "scale": 1.0,
+                "model_name": _RIFE_MODEL,
             },
             "class_type": _RIFE_CLASS,
-            "_meta": {"title": "RIFE VFI (Jarvis fps boost)"},
+            "_meta": {"title": "RIFE Frame Interpolation (Jarvis fps boost)"},
         }
         combine["inputs"]["images"] = [_RIFE_NODE_ID, 0]
 

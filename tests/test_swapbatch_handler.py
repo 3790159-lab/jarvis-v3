@@ -397,11 +397,13 @@ def test_set_quality_fps_boost_rejected_when_flag_off(tmp_path, monkeypatch):
 
 
 def test_set_quality_fps_boost_allowed_when_flag_on(tmp_path, monkeypatch):
+    # fps=30 is a non-multiple of 21 — exercises the expanded [21,60] range
+    # backed by exact-fps RIFE interpolation.
     monkeypatch.setenv("ENABLE_FPS_INTERPOLATION", "1")
     handler, orch = _make_handler(tmp_path)
     _seed_swap_done(handler, orch, tmp_path, n=1)
-    r = handler.handle_set_quality(42, "duration=8 fps=42")
-    assert orch.get(42).fps == 42
+    r = handler.handle_set_quality(42, "duration=8 fps=30")
+    assert orch.get(42).fps == 30
     assert orch.get(42).duration_sec == 8
 
 

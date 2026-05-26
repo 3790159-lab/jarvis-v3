@@ -7,9 +7,10 @@ import pytest
 from app.services.block_m2_face_swap.quality_settings import (
     DURATION_MAX,
     DURATION_MIN,
+    FPS_MAX,
+    FPS_NATIVE,
     QualityError,
     QualitySettings,
-    interpolation_multiplier,
     parse_quality_args,
     validate_quality,
 )
@@ -74,9 +75,22 @@ def test_validate_duration_above_max_raises():
 # ── validation: fps + feature flag gating ────────────────────────────────────
 
 
-def test_validate_fps_not_a_multiple_of_21_raises():
+def test_validate_fps_arbitrary_in_range_allowed():
+    # Exact-fps RIFE (ComfyUI-VFI) supports any integer fps in
+    # [FPS_NATIVE, FPS_MAX] — not just multiples of 21.
+    for fps in (30, 45, FPS_MAX):
+        qs = validate_quality(5, fps, fps_enabled=True)
+        assert qs.fps == fps
+
+
+def test_validate_fps_above_max_raises():
     with pytest.raises(QualityError):
-        validate_quality(5, 30, fps_enabled=True)
+        validate_quality(5, FPS_MAX + 1, fps_enabled=True)
+
+
+def test_validate_fps_below_native_raises():
+    with pytest.raises(QualityError):
+        validate_quality(5, FPS_NATIVE - 1, fps_enabled=True)
 
 
 def test_validate_fps_boost_rejected_when_flag_off():
@@ -92,13 +106,3 @@ def test_validate_fps_boost_allowed_when_flag_on():
 def test_validate_fps_native_allowed_when_flag_off():
     qs = validate_quality(5, 21, fps_enabled=False)
     assert qs.fps == 21
-
-
-# ── interpolation multiplier ─────────────────────────────────────────────────
-
-
-def test_interpolation_multiplier():
-    assert interpolation_multiplier(21) == 1
-    assert interpolation_multiplier(42) == 2
-    assert interpolation_multiplier(63) == 3
-    assert interpolation_multiplier(84) == 4

@@ -32,9 +32,9 @@ from app.services.block_m2_face_swap.batch_orchestrator import (
 from app.services.block_m2_face_swap.cost_estimator import format_cost_report_ru
 from app.services.block_m2_face_swap.prompt_parser import PromptParseError
 from app.services.block_m2_face_swap.quality_settings import (
+    FPS_NATIVE,
     QualityError,
     fps_interpolation_enabled,
-    interpolation_multiplier,
     parse_quality_args,
     validate_quality,
 )
@@ -234,10 +234,9 @@ class FaceSwapHandler:
 
     @staticmethod
     def _format_quality(duration: int, fps: int, *, current: bool) -> str:
-        mult = interpolation_multiplier(fps)
         fps_desc = (
-            f"{fps} fps (RIFE ×{mult})"
-            if mult > 1
+            f"{fps} fps (RIFE интерполяция с {FPS_NATIVE})"
+            if fps > FPS_NATIVE
             else f"{fps} fps (без интерполяции)"
         )
         head = "📐 Текущее качество" if current else "✅ Качество батча обновлено"

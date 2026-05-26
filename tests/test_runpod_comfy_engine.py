@@ -722,36 +722,67 @@ def test_build_workflow_fps_native_no_interpolation(tmp_path):
     req = _build_workflow_request(tmp_path, seconds=5, fps=21)
     wf = engine._build_workflow("input.png", req)
     # No RIFE node; VHS plays the VAEDecode (node 19) frames directly at 21 fps.
-    assert not any(n.get("class_type") == "RIFE VFI" for n in wf.values())
+    assert not any(
+        n.get("class_type") == "RIFEInterpolation" for n in wf.values()
+    )
     assert wf["21"]["inputs"]["frame_rate"] == 21
     assert wf["21"]["inputs"]["images"] == ["19", 0]
 
 
-def test_build_workflow_fps_42_injects_rife_2x(tmp_path):
+def test_build_workflow_fps_42_injects_rife_interpolation(tmp_path):
     engine = _make_engine_for_workflow(tmp_path)
     req = _build_workflow_request(tmp_path, seconds=5, fps=42)
     wf = engine._build_workflow("input.png", req)
     rife_items = [
-        (k, n) for k, n in wf.items() if n.get("class_type") == "RIFE VFI"
+        (k, n)
+        for k, n in wf.items()
+        if n.get("class_type") == "RIFEInterpolation"
     ]
     assert len(rife_items) == 1
     rife_id, rife = rife_items[0]
-    assert rife["inputs"]["multiplier"] == 2
+    # ComfyUI-VFI RIFEInterpolation uses source/target fps, not a multiplier.
+    assert rife["inputs"]["source_fps"] == 21.0
+    assert rife["inputs"]["target_fps"] == 42.0
+    assert rife["inputs"]["model_name"] == "flownet.pkl"
+    assert rife["inputs"]["scale"] == 1.0
     # RIFE consumes the VAEDecode output (node 19)...
-    assert rife["inputs"]["frames"] == ["19", 0]
+    assert rife["inputs"]["images"] == ["19", 0]
     # ...and VHS_VideoCombine now consumes RIFE output, at 42 fps.
     assert wf["21"]["inputs"]["images"] == [rife_id, 0]
     assert wf["21"]["inputs"]["frame_rate"] == 42
 
 
-def test_build_workflow_fps_84_injects_rife_4x(tmp_path):
+def test_build_workflow_fps_84_injects_rife_interpolation(tmp_path):
     engine = _make_engine_for_workflow(tmp_path)
     req = _build_workflow_request(tmp_path, seconds=5, fps=84)
     wf = engine._build_workflow("input.png", req)
-    rife = [n for n in wf.values() if n.get("class_type") == "RIFE VFI"]
+    rife = [
+        n for n in wf.values() if n.get("class_type") == "RIFEInterpolation"
+    ]
     assert len(rife) == 1
-    assert rife[0]["inputs"]["multiplier"] == 4
+    assert rife[0]["inputs"]["source_fps"] == 21.0
+    assert rife[0]["inputs"]["target_fps"] == 84.0
     assert wf["21"]["inputs"]["frame_rate"] == 84
+
+
+def test_build_workflow_fps_30_uses_rife_interpolation(tmp_path):
+    # The exact-fps API (source/target) supports non-multiples of 21 — fps=30
+    # interpolates 21 -> 30, which the old integer-multiplier model could not.
+    engine = _make_engine_for_workflow(tmp_path)
+    req = _build_workflow_request(tmp_path, seconds=5, fps=30)
+    wf = engine._build_workflow("input.png", req)
+    rife_items = [
+        (k, n)
+        for k, n in wf.items()
+        if n.get("class_type") == "RIFEInterpolation"
+    ]
+    assert len(rife_items) == 1
+    rife_id, rife = rife_items[0]
+    assert rife["inputs"]["source_fps"] == 21.0
+    assert rife["inputs"]["target_fps"] == 30.0
+    assert rife["inputs"]["images"] == ["19", 0]
+    assert wf["21"]["inputs"]["images"] == [rife_id, 0]
+    assert wf["21"]["inputs"]["frame_rate"] == 30
 
 
 def test_build_workflow_duration_independent_of_fps(tmp_path):
