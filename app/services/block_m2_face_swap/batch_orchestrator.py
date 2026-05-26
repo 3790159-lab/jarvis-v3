@@ -88,6 +88,10 @@ class BatchSession:
     # mismatch_info so the bot can offer /apply_partial or /apply_first_N.
     custom_prompts: dict[int, str | None] | None = None
     prompt_mismatch_info: dict[str, Any] | None = None
+    # Task C: per-batch video quality. duration_sec drives native frame count;
+    # fps drives RIFE interpolation (21 = native, no interpolation).
+    duration_sec: int = 5
+    fps: int = 21
     created_at_unix: float = field(default_factory=time.time)
     updated_at_unix: float = field(default_factory=time.time)
     last_error: str | None = None
@@ -116,6 +120,8 @@ class BatchSession:
             cancel_requested=bool(data.get("cancel_requested", False)),
             custom_prompts=custom_prompts,
             prompt_mismatch_info=data.get("prompt_mismatch_info"),
+            duration_sec=int(data.get("duration_sec", 5)),
+            fps=int(data.get("fps", 21)),
             created_at_unix=float(data.get("created_at_unix", time.time())),
             updated_at_unix=float(data.get("updated_at_unix", time.time())),
             last_error=data.get("last_error"),
@@ -266,6 +272,27 @@ class BatchOrchestrator:
             self._touch(sess)
             self._persist(sess)
             return sess, est
+
+    def set_quality(
+        self, chat_id: int, *, duration_sec: int, fps: int
+    ) -> BatchSession:
+        """Store per-batch video quality (already validated by the caller).
+
+        Valid whenever a session exists — it is plain configuration the animate
+        phase reads later. Raises if there is no session.
+        """
+        with self._lock:
+            sess = self._sessions.get(chat_id)
+            if sess is None:
+                raise OrchestratorError(
+                    f"chat {chat_id} has no batch session; start with "
+                    "/swapbatch_source"
+                )
+            sess.duration_sec = int(duration_sec)
+            sess.fps = int(fps)
+            self._touch(sess)
+            self._persist(sess)
+            return sess
 
     # ── transitions: running phases ─────────────────────────────────────────
 

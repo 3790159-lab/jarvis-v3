@@ -528,6 +528,48 @@ def test_custom_prompts_persist_roundtrip_int_keys(tmp_path):
     assert revived.prompt_mismatch_info["kind"] == "too_few"
 
 
+# ── quality settings (Task C) ────────────────────────────────────────────────
+
+
+def test_new_session_has_default_quality(tmp_path):
+    orch = _make_orch(tmp_path)
+    orch.begin_source(42)
+    sess = orch.get(42)
+    assert sess.duration_sec == 5
+    assert sess.fps == 21
+
+
+def test_set_quality_stores_on_session(tmp_path):
+    orch = _make_orch(tmp_path)
+    _seed_swap_done(orch, tmp_path, n=1)
+    sess = orch.set_quality(42, duration_sec=10, fps=42)
+    assert sess.duration_sec == 10
+    assert sess.fps == 42
+    assert orch.get(42).duration_sec == 10
+
+
+def test_set_quality_requires_session(tmp_path):
+    orch = _make_orch(tmp_path)
+    with pytest.raises(OrchestratorError):
+        orch.set_quality(42, duration_sec=10, fps=42)
+
+
+def test_set_quality_persisted(tmp_path):
+    orch = _make_orch(tmp_path)
+    _seed_swap_done(orch, tmp_path, n=1)
+    orch.set_quality(42, duration_sec=12, fps=21)
+    data = json.loads(orch.session_file(42).read_text(encoding="utf-8"))
+    assert data["duration_sec"] == 12
+    assert data["fps"] == 21
+
+
+def test_quality_survives_dict_roundtrip(tmp_path):
+    sess = BatchSession(chat_id=7, duration_sec=15, fps=84)
+    revived = BatchSession.from_dict(json.loads(json.dumps(sess.to_dict())))
+    assert revived.duration_sec == 15
+    assert revived.fps == 84
+
+
 # ── dataclass plumbing ──────────────────────────────────────────────────────
 
 
