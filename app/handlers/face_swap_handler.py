@@ -19,6 +19,7 @@ from typing import Any, Callable
 from app.services.block_m2_face_swap.batch_orchestrator import (
     BatchOrchestrator,
     OrchestratorError,
+    STATE_AWAITING_CUSTOM_PROMPTS,
     STATE_DONE,
     STATE_EXPECTING_SOURCE,
     STATE_EXPECTING_TARGETS,
@@ -29,6 +30,7 @@ from app.services.block_m2_face_swap.batch_orchestrator import (
     get_orchestrator,
 )
 from app.services.block_m2_face_swap.cost_estimator import format_cost_report_ru
+from app.services.block_m2_face_swap.prompt_parser import PromptParseError
 from app.services.error_translator import translate_exception
 
 logger = logging.getLogger(__name__)
@@ -44,6 +46,9 @@ class HandlerReply:
     Attributes:
         text: A text message to send (None ⇒ no message).
         photos: Local photo paths to send as a media-group (after ``text``).
+        numbered_photos: Local photo paths to send *individually* with an
+            explicit ``📸 N/M`` caption per photo (used by the custom-prompts
+            re-display so the user can see which index is which).
         videos: Local video paths to send one-by-one (after photos).
         consumed: Whether the handler took ownership of the inbound event.
             For photo-ingestion methods this signals to the bot whether to
@@ -52,6 +57,7 @@ class HandlerReply:
 
     text: str | None = None
     photos: list[Path] | None = None
+    numbered_photos: list[Path] | None = None
     videos: list[Path] | None = None
     consumed: bool = True
 
@@ -63,13 +69,31 @@ HELP_TEXT = (
     "  /swapbatch_source — следующее фото будет твоим источником лица\n"
     "  /swapbatch_batch — начни загружать альбом target-фото (до 10 штук)\n"
     "  /swapbatch_go — запустить swap после отчёта по стоимости\n"
-    "  /swapbatch_animate_yes — анимировать все swapped фото\n"
-    "  /swapbatch_animate_no — оставить только swapped фото\n"
+    "  /swapbatch_animate_yes — анимировать все swapped фото (дефолтный промпт)\n"
+    "  /swapbatch_animate_custom — задать свой промпт для каждого фото\n"
+    "  /swapbatch_no — оставить только swapped фото (без анимации)\n"
+    "  /swapbatch_animate_no — то же, что /swapbatch_no\n"
     "  /swapbatch_cancel — отменить текущий батч\n"
     "  /swapbatch_status — показать состояние\n"
     "\n"
     "Поток: /swapbatch_source → пришли фото → /swapbatch_batch → пришли "
-    "альбом → /swapbatch_go → жди → /swapbatch_animate_yes (или _no)."
+    "альбом → /swapbatch_go → жди → /swapbatch_animate_yes / "
+    "/swapbatch_animate_custom / /swapbatch_no."
+)
+
+
+CUSTOM_PROMPTS_INSTRUCTIONS = (
+    "✍️ Пришли промпты для анимации одним сообщением — по строке на фото:\n"
+    "\n"
+    "1. описание движения для фото 1\n"
+    "2. описание движения для фото 2\n"
+    "…\n"
+    "\n"
+    "• Разделитель: 1.  или  1)  или  1:\n"
+    "• Пустая строка или /skip после номера → дефолтный промпт для этого фото\n"
+    "• Можно пропускать номера — пропущенные получат дефолт\n"
+    "\n"
+    "После отправки я покажу, что понял, и спрошу подтверждение."
 )
 
 
@@ -160,6 +184,98 @@ class FaceSwapHandler:
         return HandlerReply(
             text=f"✅ Готово. Сохранено {n} swapped фото без анимации."
         )
+
+    # ── custom-prompts flow (Day 6) ─────────────────────────────────────────
+
+    def handle_animate_custom(self, chat_id: int) -> HandlerReply:
+        """Enter the per-photo custom-prompts flow and re-display photos."""
+        try:
+            photos = self.orchestrator.start_custom_prompts(chat_id)
+        except OrchestratorError as exc:
+            return HandlerReply(text=f"⚠️ {exc}")
+        return HandlerReply(
+            text=CUSTOM_PROMPTS_INSTRUCTIONS, numbered_photos=photos
+        )
+
+    def handle_no(self, chat_id: int) -> HandlerReply:
+        """/swapbatch_no — exit the animate flow, keep only swapped photos."""
+        sess = self.orchestrator.cancel_animate(chat_id)
+        if sess is None:
+            return HandlerReply(text="Нет активного батча.")
+        n = sum(1 for t in sess.targets if t.swap_result_path)
+        return HandlerReply(
+            text=f"✅ Готово. Сохранено {n} swapped фото без анимации."
+        )
+
+    def consume_custom_prompts_text(
+        self, chat_id: int, text: str
+    ) -> HandlerReply:
+        """Parse a numbered-prompt message while awaiting custom prompts.
+
+        Returns ``consumed=False`` when the chat is not in the awaiting state so
+        the bot can fall through to normal text handling.
+        """
+        if self.orchestrator.status(chat_id) != STATE_AWAITING_CUSTOM_PROMPTS:
+            return HandlerReply(consumed=False)
+        try:
+            result = self.orchestrator.submit_custom_prompts(chat_id, text)
+        except PromptParseError as exc:
+            return HandlerReply(
+                text=(
+                    f"⚠️ Не смог разобрать промпты: {exc}\n\n"
+                    "Пришли список заново, по строке на фото:\n"
+                    "1. текст\n2. текст\n…"
+                )
+            )
+        return HandlerReply(text=self._build_prompts_preview(chat_id, result))
+
+    def handle_retry(self, chat_id: int) -> HandlerReply:
+        """/swapbatch_retry — discard parsed prompts, ask again."""
+        try:
+            photos = self.orchestrator.retry_custom_prompts(chat_id)
+        except OrchestratorError as exc:
+            return HandlerReply(text=f"⚠️ {exc}")
+        return HandlerReply(
+            text=CUSTOM_PROMPTS_INSTRUCTIONS, numbered_photos=photos
+        )
+
+    def _build_prompts_preview(self, chat_id: int, result) -> str:
+        """Render the parsed prompts (with default markers) + next-step menu."""
+        sess = self.orchestrator.get(chat_id)
+        photo_count = (
+            sum(1 for t in sess.targets if t.swap_result_path) if sess else 0
+        )
+        custom = result.prompts
+        lines = ["📝 Вот что я понял:"]
+        for i in range(1, photo_count + 1):
+            prompt = custom.get(i)
+            lines.append(f"  {i}. {prompt}" if prompt else f"  {i}. (по умолчанию)")
+        lines.append("")
+
+        mi = result.mismatch_info
+        if mi and mi["kind"] == "too_few":
+            lines.append(
+                f"Ты указал {mi['provided']} промптов на {mi['expected']} фото.\n"
+                f"  /swapbatch_apply_partial — первые {mi['provided']} кастомные, "
+                f"остальные по умолчанию\n"
+                "  /swapbatch_retry — ввести заново\n"
+                "  /swapbatch_cancel — без анимации"
+            )
+        elif mi and mi["kind"] == "too_many":
+            lines.append(
+                f"Ты указал {mi['provided']} промптов, но фото только "
+                f"{mi['expected']}.\n"
+                f"  /swapbatch_apply_first — взять первые {mi['expected']}\n"
+                "  /swapbatch_retry — ввести заново\n"
+                "  /swapbatch_cancel — без анимации"
+            )
+        else:
+            lines.append(
+                "  /swapbatch_confirm — запустить анимацию\n"
+                "  /swapbatch_retry — ввести заново\n"
+                "  /swapbatch_cancel — без анимации"
+            )
+        return "\n".join(lines)
 
     # ── photo ingestion ─────────────────────────────────────────────────────
 
@@ -260,6 +376,49 @@ class FaceSwapHandler:
             return HandlerReply(text=f"⚠️ {exc}")
         except Exception as exc:  # noqa: BLE001
             return HandlerReply(text=f"❌ Ошибка animate: {translate_exception(exc)}")
+
+        sess = self.orchestrator.get(chat_id)
+        if sess is None:
+            return HandlerReply(text="Сессия пропала (вероятно, отменена).")
+
+        videos = [
+            Path(t.animate_result_path)
+            for t in sess.targets
+            if t.animate_result_path
+        ]
+        succeeded = len(videos)
+        failed = sum(
+            1 for t in sess.targets
+            if t.swap_result_path and not t.animate_result_path
+        )
+        lines = [f"🎬 Animate завершён: {succeeded} видео"]
+        if failed:
+            lines.append(f"  ⚠️ {failed} не удалось")
+        self.orchestrator.prune(chat_id)
+        return HandlerReply(text="\n".join(lines), videos=videos)
+
+    async def run_custom_animate_phase(
+        self,
+        chat_id: int,
+        animate_fn,
+        progress_cb: Callable[[str, dict[str, Any]], None] | None = None,
+    ) -> HandlerReply:
+        """Run the video engine with per-photo custom prompts and report tally.
+
+        ``animate_fn(swapped, target_idx, prompt, cancel_check) -> Path`` — the
+        bot wiring substitutes the default motion prompt when ``prompt`` is
+        ``None`` so an all-default custom run matches /swapbatch_animate_yes.
+        """
+        try:
+            await self.orchestrator.confirm_custom_animate(
+                chat_id, animate_fn=animate_fn, progress_cb=progress_cb,
+            )
+        except OrchestratorError as exc:
+            return HandlerReply(text=f"⚠️ {exc}")
+        except Exception as exc:  # noqa: BLE001
+            return HandlerReply(
+                text=f"❌ Ошибка animate: {translate_exception(exc)}"
+            )
 
         sess = self.orchestrator.get(chat_id)
         if sess is None:

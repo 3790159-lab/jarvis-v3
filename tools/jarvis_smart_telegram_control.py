@@ -540,9 +540,19 @@ def _swapbatch_get_handler():
 
 
 def _swapbatch_apply_reply(chat_id_s: str, reply) -> None:
-    """Render a HandlerReply: text → photos → videos."""
+    """Render a HandlerReply: numbered photos → text → album photos → videos."""
     if reply is None:
         return
+    # Custom-prompts re-display: send each swapped photo individually with an
+    # explicit 📸 N/M caption FIRST, then the instructions that reference them.
+    numbered = getattr(reply, "numbered_photos", None)
+    if numbered:
+        total = len(numbered)
+        for i, p in enumerate(numbered, start=1):
+            try:
+                _send_local_photo(chat_id_s, str(p), caption=f"📸 {i}/{total}")
+            except Exception as exc:  # noqa: BLE001
+                send(chat_id_s, f"⚠️ Не удалось отправить фото {i}/{total}: {exc}")
     if reply.text:
         send(chat_id_s, reply.text)
     if reply.photos:
@@ -588,8 +598,19 @@ def _swapbatch_dispatch(chat_id, command: str) -> None:
     if command == "animate_no":
         _swapbatch_apply_reply(chat_id_s, handler.handle_animate_no(chat_id_int))
         return
+    if command == "no":
+        _swapbatch_apply_reply(chat_id_s, handler.handle_no(chat_id_int))
+        return
+    if command == "animate_custom":
+        _swapbatch_apply_reply(
+            chat_id_s, handler.handle_animate_custom(chat_id_int)
+        )
+        return
+    if command == "retry":
+        _swapbatch_apply_reply(chat_id_s, handler.handle_retry(chat_id_int))
+        return
 
-    if command in ("go", "animate_yes"):
+    if command in ("go", "animate_yes", "confirm", "apply_partial", "apply_first"):
         _swapbatch_run_phase(chat_id_int, chat_id_s, command, handler)
         return
 
@@ -670,7 +691,7 @@ def _swapbatch_run_phase(
                         chat_id_int, _swap_fn, progress_cb=_progress,
                     )
                 )
-            else:  # animate_yes
+            else:  # animate_yes / confirm / apply_partial / apply_first
                 from app.services.block_m2_video.engines.runpod_comfy_engine import (
                     RunpodComfyEngine,
                 )
@@ -680,26 +701,53 @@ def _swapbatch_run_phase(
                 )
 
                 video_engine = RunpodComfyEngine()
+                # Default motion prompt — shared by /swapbatch_animate_yes and by
+                # custom-flow photos that resolve to the default (None), so an
+                # all-default custom run matches /swapbatch_animate_yes exactly.
+                _DEFAULT_MOTION_PROMPT = "a cinematic portrait, soft natural light"
 
-                async def _animate_fn(swapped: _Path, idx: int, cancel_check):
-                    req = VideoRequest(
-                        persona_id=f"swapbatch_{chat_id_int}",
-                        persona_name="swapbatch",
-                        input_image_path=swapped,
-                        prompt="a cinematic portrait, soft natural light",
-                        seconds=5,
-                        seed=None,
-                        mode="hq",
-                        generation_id=new_generation_id(),
-                    )
-                    result = await video_engine.generate(req)
-                    return result.output_path
+                if command == "animate_yes":
+                    async def _animate_fn(swapped: _Path, idx: int, cancel_check):
+                        req = VideoRequest(
+                            persona_id=f"swapbatch_{chat_id_int}",
+                            persona_name="swapbatch",
+                            input_image_path=swapped,
+                            prompt=_DEFAULT_MOTION_PROMPT,
+                            seconds=5,
+                            seed=None,
+                            mode="hq",
+                            generation_id=new_generation_id(),
+                        )
+                        result = await video_engine.generate(req)
+                        return result.output_path
 
-                reply = _aio.run(
-                    handler.run_animate_phase(
-                        chat_id_int, _animate_fn, progress_cb=_progress,
+                    reply = _aio.run(
+                        handler.run_animate_phase(
+                            chat_id_int, _animate_fn, progress_cb=_progress,
+                        )
                     )
-                )
+                else:  # confirm / apply_partial / apply_first → custom prompts
+                    async def _animate_fn(
+                        swapped: _Path, idx: int, prompt, cancel_check
+                    ):
+                        req = VideoRequest(
+                            persona_id=f"swapbatch_{chat_id_int}",
+                            persona_name="swapbatch",
+                            input_image_path=swapped,
+                            prompt=prompt or _DEFAULT_MOTION_PROMPT,
+                            seconds=5,
+                            seed=None,
+                            mode="hq",
+                            generation_id=new_generation_id(),
+                        )
+                        result = await video_engine.generate(req)
+                        return result.output_path
+
+                    reply = _aio.run(
+                        handler.run_custom_animate_phase(
+                            chat_id_int, _animate_fn, progress_cb=_progress,
+                        )
+                    )
             _swapbatch_apply_reply(chat_id_s, reply)
         except Exception as exc:  # noqa: BLE001
             send(chat_id_s, f"❌ Ошибка: {translate_exception(exc)}")
@@ -709,6 +757,31 @@ def _swapbatch_run_phase(
     threading.Thread(
         target=_run, daemon=True, name=f"swapbatch_{command}_{chat_id_int}",
     ).start()
+
+
+def _swapbatch_text_intercept(chat_id: str, text: str) -> bool:
+    """Route a plain-text numbered-prompt message into the custom-prompts flow.
+
+    Fires only when the chat is awaiting custom prompts AND the message is not a
+    command (so /swapbatch_* commands still route normally). Returns True if the
+    message was consumed.
+    """
+    if not text or text.lstrip().startswith("/"):
+        return False
+    handler, orch = _swapbatch_get_handler()
+    if handler is None or orch is None:
+        return False
+    from app.services.block_m2_face_swap.batch_orchestrator import (
+        STATE_AWAITING_CUSTOM_PROMPTS,
+    )
+    chat_id_int = int(chat_id)
+    if orch.status(chat_id_int) != STATE_AWAITING_CUSTOM_PROMPTS:
+        return False
+    reply = handler.consume_custom_prompts_text(chat_id_int, text)
+    if not getattr(reply, "consumed", True):
+        return False
+    _swapbatch_apply_reply(chat_id, reply)
+    return True
 
 
 def _swapbatch_photo_intercept(chat_id: str, msg: Dict[str, Any]) -> bool:
@@ -4429,8 +4502,26 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
     if cmd == "/swapbatch_animate_yes":
         _swapbatch_dispatch(chat_id, "animate_yes")
         return
+    if cmd == "/swapbatch_animate_custom":
+        _swapbatch_dispatch(chat_id, "animate_custom")
+        return
     if cmd == "/swapbatch_animate_no":
         _swapbatch_dispatch(chat_id, "animate_no")
+        return
+    if cmd == "/swapbatch_no":
+        _swapbatch_dispatch(chat_id, "no")
+        return
+    if cmd == "/swapbatch_confirm":
+        _swapbatch_dispatch(chat_id, "confirm")
+        return
+    if cmd == "/swapbatch_retry":
+        _swapbatch_dispatch(chat_id, "retry")
+        return
+    if cmd == "/swapbatch_apply_partial":
+        _swapbatch_dispatch(chat_id, "apply_partial")
+        return
+    if cmd == "/swapbatch_apply_first":
+        _swapbatch_dispatch(chat_id, "apply_first")
         return
     if cmd == "/swapbatch_cancel":
         _swapbatch_dispatch(chat_id, "cancel")
@@ -5305,6 +5396,12 @@ def _main_inner() -> None:
                     continue
 
                 if text:
+                    # Block M.2.5: numbered-prompt message for active custom flow.
+                    if (
+                        str(chat_id) == ALLOWED_CHAT_ID
+                        and _swapbatch_text_intercept(chat_id, text)
+                    ):
+                        continue
                     handle(chat_id, text)
                 elif has_voice and str(chat_id) == ALLOWED_CHAT_ID:
                     # Phase 26: Real Whisper transcription
