@@ -706,6 +706,13 @@ def _swapbatch_run_phase(
                 # all-default custom run matches /swapbatch_animate_yes exactly.
                 _DEFAULT_MOTION_PROMPT = "a cinematic portrait, soft natural light"
 
+                # Task C: per-batch quality (duration + fps), read once from the
+                # session. Defaults to the prior behavior (5s, 21fps native).
+                _hq, _orch_q = _swapbatch_get_handler()
+                _sess_q = _orch_q.get(chat_id_int) if _orch_q else None
+                _duration = int(getattr(_sess_q, "duration_sec", 5) or 5)
+                _fps = int(getattr(_sess_q, "fps", 21) or 21)
+
                 if command == "animate_yes":
                     async def _animate_fn(swapped: _Path, idx: int, cancel_check):
                         req = VideoRequest(
@@ -713,7 +720,8 @@ def _swapbatch_run_phase(
                             persona_name="swapbatch",
                             input_image_path=swapped,
                             prompt=_DEFAULT_MOTION_PROMPT,
-                            seconds=5,
+                            seconds=_duration,
+                            fps=_fps,
                             seed=None,
                             mode="hq",
                             generation_id=new_generation_id(),
@@ -735,7 +743,8 @@ def _swapbatch_run_phase(
                             persona_name="swapbatch",
                             input_image_path=swapped,
                             prompt=prompt or _DEFAULT_MOTION_PROMPT,
-                            seconds=5,
+                            seconds=_duration,
+                            fps=_fps,
                             seed=None,
                             mode="hq",
                             generation_id=new_generation_id(),
@@ -4498,6 +4507,15 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
         return
     if cmd == "/swapbatch_go":
         _swapbatch_dispatch(chat_id, "go")
+        return
+    if cmd == "/swapbatch_set_quality":
+        _h_sq, _ = _swapbatch_get_handler()
+        if _h_sq is None:
+            send(str(chat_id), "⚠️ Модуль face-swap недоступен.")
+        else:
+            _swapbatch_apply_reply(
+                str(chat_id), _h_sq.handle_set_quality(int(chat_id), query)
+            )
         return
     if cmd == "/swapbatch_animate_yes":
         _swapbatch_dispatch(chat_id, "animate_yes")

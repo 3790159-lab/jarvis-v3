@@ -31,6 +31,13 @@ from app.services.block_m2_face_swap.batch_orchestrator import (
 )
 from app.services.block_m2_face_swap.cost_estimator import format_cost_report_ru
 from app.services.block_m2_face_swap.prompt_parser import PromptParseError
+from app.services.block_m2_face_swap.quality_settings import (
+    QualityError,
+    fps_interpolation_enabled,
+    interpolation_multiplier,
+    parse_quality_args,
+    validate_quality,
+)
 from app.services.error_translator import translate_exception
 
 logger = logging.getLogger(__name__)
@@ -69,6 +76,7 @@ HELP_TEXT = (
     "  /swapbatch_source — следующее фото будет твоим источником лица\n"
     "  /swapbatch_batch — начни загружать альбом target-фото (до 10 штук)\n"
     "  /swapbatch_go — запустить swap после отчёта по стоимости\n"
+    "  /swapbatch_set_quality duration=10 fps=42 — длительность (3–15с) и fps\n"
     "  /swapbatch_animate_yes — анимировать все swapped фото (дефолтный промпт)\n"
     "  /swapbatch_animate_custom — задать свой промпт для каждого фото\n"
     "  /swapbatch_no — оставить только swapped фото (без анимации)\n"
@@ -184,6 +192,66 @@ class FaceSwapHandler:
         return HandlerReply(
             text=f"✅ Готово. Сохранено {n} swapped фото без анимации."
         )
+
+    # ── quality settings (Task C) ───────────────────────────────────────────
+
+    def handle_set_quality(self, chat_id: int, args_text: str) -> HandlerReply:
+        """/swapbatch_set_quality duration=N fps=N — set per-batch quality.
+
+        No args → show current values. fps > 21 is gated behind the
+        ENABLE_FPS_INTERPOLATION flag (rejected with the smoke-test message
+        while off). Unprovided keys keep the session's current value.
+        """
+        sess = self.orchestrator.get(chat_id)
+        if sess is None:
+            return HandlerReply(
+                text="⚠️ Нет активного батча. Начни с /swapbatch_source."
+            )
+        try:
+            parsed = parse_quality_args(args_text or "")
+        except QualityError as exc:
+            return HandlerReply(text=f"⚠️ {exc}")
+        if not parsed:
+            return HandlerReply(
+                text=self._format_quality(
+                    sess.duration_sec, sess.fps, current=True
+                )
+            )
+        duration = parsed.get("duration", sess.duration_sec)
+        fps = parsed.get("fps", sess.fps)
+        try:
+            qs = validate_quality(
+                duration, fps, fps_enabled=fps_interpolation_enabled()
+            )
+        except QualityError as exc:
+            return HandlerReply(text=f"⚠️ {exc}")
+        self.orchestrator.set_quality(
+            chat_id, duration_sec=qs.duration_sec, fps=qs.fps
+        )
+        return HandlerReply(
+            text=self._format_quality(qs.duration_sec, qs.fps, current=False)
+        )
+
+    @staticmethod
+    def _format_quality(duration: int, fps: int, *, current: bool) -> str:
+        mult = interpolation_multiplier(fps)
+        fps_desc = (
+            f"{fps} fps (RIFE ×{mult})"
+            if mult > 1
+            else f"{fps} fps (без интерполяции)"
+        )
+        head = "📐 Текущее качество" if current else "✅ Качество батча обновлено"
+        lines = [f"{head}: {duration} сек, {fps_desc}."]
+        if duration > 10:
+            lines.append(
+                "⚠️ Видео >10 сек может потерять качество "
+                "(Wan 2.2 обучен на ~5-сек клипах)."
+            )
+        if not current:
+            lines.append(
+                "Дальше: /swapbatch_animate_yes или /swapbatch_animate_custom."
+            )
+        return "\n".join(lines)
 
     # ── custom-prompts flow (Day 6) ─────────────────────────────────────────
 

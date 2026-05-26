@@ -305,3 +305,61 @@ async def test_run_custom_animate_phase_passes_prompts(tmp_path):
     assert "Animate завершён" in r.text
     assert r.videos == [video, video]
     assert orch.get(42) is None  # pruned after success
+
+
+# ── quality settings (Task C) ────────────────────────────────────────────────
+
+
+def test_set_quality_duration_only(tmp_path):
+    handler, orch = _make_handler(tmp_path)
+    _seed_swap_done(handler, orch, tmp_path, n=1)
+    r = handler.handle_set_quality(42, "duration=10")
+    assert "10" in r.text
+    assert orch.get(42).duration_sec == 10
+    assert orch.get(42).fps == 21
+
+
+def test_set_quality_no_args_shows_current(tmp_path):
+    handler, orch = _make_handler(tmp_path)
+    _seed_swap_done(handler, orch, tmp_path, n=1)
+    r = handler.handle_set_quality(42, "")
+    assert "5" in r.text and "21" in r.text
+
+
+def test_set_quality_no_session(tmp_path):
+    handler, _ = _make_handler(tmp_path)
+    r = handler.handle_set_quality(42, "duration=10")
+    assert "⚠️" in r.text
+
+
+def test_set_quality_duration_out_of_range_unchanged(tmp_path):
+    handler, orch = _make_handler(tmp_path)
+    _seed_swap_done(handler, orch, tmp_path, n=1)
+    r = handler.handle_set_quality(42, "duration=99")
+    assert "⚠️" in r.text
+    assert orch.get(42).duration_sec == 5  # unchanged
+
+
+def test_set_quality_fps_boost_rejected_when_flag_off(tmp_path, monkeypatch):
+    monkeypatch.delenv("ENABLE_FPS_INTERPOLATION", raising=False)
+    handler, orch = _make_handler(tmp_path)
+    _seed_swap_done(handler, orch, tmp_path, n=1)
+    r = handler.handle_set_quality(42, "fps=42")
+    assert "not yet verified" in r.text
+    assert orch.get(42).fps == 21  # unchanged
+
+
+def test_set_quality_fps_boost_allowed_when_flag_on(tmp_path, monkeypatch):
+    monkeypatch.setenv("ENABLE_FPS_INTERPOLATION", "1")
+    handler, orch = _make_handler(tmp_path)
+    _seed_swap_done(handler, orch, tmp_path, n=1)
+    r = handler.handle_set_quality(42, "duration=8 fps=42")
+    assert orch.get(42).fps == 42
+    assert orch.get(42).duration_sec == 8
+
+
+def test_set_quality_long_duration_warning(tmp_path):
+    handler, orch = _make_handler(tmp_path)
+    _seed_swap_done(handler, orch, tmp_path, n=1)
+    r = handler.handle_set_quality(42, "duration=15")
+    assert "Wan 2.2" in r.text
