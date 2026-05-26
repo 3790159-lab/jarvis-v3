@@ -25,6 +25,7 @@ from app.services.block_m2_video.engines.runpod_comfy_engine import (
     MIN_SECONDS,
     RunpodComfyEngine,
     RunpodComfyError,
+    _WORKFLOW_FILE,
 )
 from app.services.block_m2_video.litterbox_uploader import LitterboxError
 from app.services.block_m2_video.runpod.runpod_client import (
@@ -674,6 +675,35 @@ def test_build_workflow_rounds_fractional(tmp_path):
     req = _build_workflow_request(tmp_path, seconds=2.5)
     workflow = engine._build_workflow("input.png", req)
     assert workflow["15"]["inputs"]["length"] == 53
+
+
+# ── _build_workflow: positive-prompt injection (node 7) ──────────────────────
+
+
+def test_workflow_injection_with_custom_prompt(tmp_path):
+    # request.prompt must be injected into the positive CLIPTextEncode (node 7).
+    engine = _make_engine_for_workflow(tmp_path)
+    req = _build_workflow_request(tmp_path, prompt="a fox runs through snow")
+    workflow = engine._build_workflow("input.png", req)
+    assert workflow["7"]["inputs"]["text"] == "a fox runs through snow"
+
+
+def test_workflow_injection_falls_back_to_default(tmp_path):
+    # With no prompt (None), node 7 keeps the workflow's built-in default text.
+    engine = _make_engine_for_workflow(tmp_path)
+    req = _build_workflow_request(tmp_path, prompt=None)
+    workflow = engine._build_workflow("input.png", req)
+    assert workflow["7"]["inputs"]["text"] == "A cinematic video clip"
+
+
+def test_workflow_negative_prompt_unchanged(tmp_path):
+    # Injecting a positive prompt must never touch the negative node (8).
+    engine = _make_engine_for_workflow(tmp_path)
+    base = json.loads(_WORKFLOW_FILE.read_text(encoding="utf-8"))
+    req = _build_workflow_request(tmp_path, prompt="a fox runs through snow")
+    workflow = engine._build_workflow("input.png", req)
+    assert workflow["8"]["inputs"]["text"] == base["8"]["inputs"]["text"]
+    assert workflow["7"]["inputs"]["text"] != base["7"]["inputs"]["text"]
 
 
 # ── generate: litterbox upload integration ───────────────────────────────────
