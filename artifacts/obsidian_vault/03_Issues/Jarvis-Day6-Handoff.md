@@ -89,25 +89,32 @@ Same session, after Day 6. Architectural; investigated first, design approved by
 
 ## Design (approved)
 - **UX = Option A:** `/swapbatch_set_quality duration=10 fps=42`, then `/swapbatch_animate_yes` or `_custom` use the set values. Unprovided keys keep current; no-args shows current.
-- **Ranges:** duration **3–15s**; fps restricted to **{21, 42, 63, 84}** (RIFE needs integer multiplier = fps/21).
+- **Ranges:** duration **3–15s**; fps **any integer 21–60** (exact-fps RIFE; see Day-7 update below — was {21,42,63,84} under the assumed integer-multiplier model).
 - **fps GATED** behind `ENABLE_FPS_INTERPOLATION` (default off). When off, `/swapbatch_set_quality` with fps>21 is rejected: *"FPS boost not yet verified on this pod — pending Day 7+ smoke test"*; duration still works; estimators never see fps (satisfied by construction — estimate runs at submit_targets before quality is set).
-- **fps code path fully implemented + unit-tested** against the **assumed** RIFE schema (class `"RIFE VFI"`, inputs `ckpt_name=rife47.pth, frames, multiplier, clear_cache_after_n_frames, fast_mode, ensemble, scale_factor`). Engine is flag-agnostic; the gate lives in validation.
+- **fps code path fully implemented + unit-tested.** Originally written against an **assumed** RIFE schema; **corrected Day-7** to the verified live schema (see below).
 
-## ⚠️ Day 7 followup — REQUIRED before enabling fps>21
-1. SSH to a running pod, query ComfyUI `/object_info`, capture the **real** RIFE VFI node class name + input schema as ground truth.
-2. Diff against the assumed schema in `runpod_comfy_engine.py` (`_RIFE_*` constants + `_apply_fps`). If it matches → set `ENABLE_FPS_INTERPOLATION=1` and ship. If it differs → fix `_apply_fps` + re-run engine tests before flipping.
-3. First production batch with fps>21 should be **1–2 photos** to catch runtime surprises (RIFE auto-downloads `rife4x.pth` on first use — watch for download/egress failures) before scaling.
-4. Also verify `ComfyUI-VFI` actually installed (`runpod_inventory.py` can `ls custom_nodes` over SSH; the clone is best-effort).
+## ✅ Day 7 followup — DONE (schema verified on live pod `vi1f6j83bxbkxu`)
+Queried ComfyUI `/object_info` on the running pod (no SSH needed). **The assumed schema did not match** — and it's a different node pack than assumed:
+- **Class:** `RIFEInterpolation` (display "RIFE Frame Interpolation"), from `custom_nodes/ComfyUI-VFI`. **No `"RIFE VFI"` class exists** (Fannovel16 was never what ran).
+- **Inputs (required):** `images`, `source_fps` (FLOAT), `target_fps` (FLOAT), `scale` (FLOAT). **Optional:** `model_name` (default+only option `flownet.pkl`), `batch_size`, `use_fp16`.
+- **No** `multiplier`/`frames`/`ckpt_name`/`clear_cache_after_n_frames`/`fast_mode`/`ensemble`/`scale_factor`.
+
+**Fixes applied (this session):**
+1. `runpod_comfy_engine.py` `_apply_fps` + `_RIFE_*`: class `RIFEInterpolation`; inputs `images=[19,0]`, `source_fps=21.0`, `target_fps=float(fps)`, `model_name="flownet.pkl"`, `scale=1.0`; no-op when `fps<=21`. Engine fps tests rewritten + `fps=30` test added.
+2. `quality_settings.py`: fps range **{21,42,63,84} → any int [21,60]** (exact-fps means no integer-multiplier constraint); `interpolation_multiplier()` removed; handler display updated.
+3. `ENABLE_FPS_INTERPOLATION=1` set in `.env` (gitignored; documented in `.env.example`). Bootstrap comment at `bootstrap.sh:47` corrected.
+
+**Still required before scaling:** first production batch with fps>21 should be **1–2 photos** — RIFE downloads `flownet.pkl` on first use; watch pod logs for download/egress failures. **Why the installed node differs from `bootstrap.sh:47`'s Fannovel16 URL is unresolved → separate bootstrap-drift task.**
 
 ## E2E to test (duration is live now; fps after flag flip)
 - `/swapbatch_set_quality duration=10` → confirm "10 сек, 21 fps" → `/swapbatch_animate_yes` → ~10s videos.
 - `/swapbatch_set_quality fps=42` (flag off) → rejection message, fps stays 21.
 - `/swapbatch_set_quality` (no args) → shows current.
-- After flag on: `/swapbatch_set_quality duration=8 fps=42` → RIFE ×2, 42fps output.
+- After flag on: `/swapbatch_set_quality duration=8 fps=30` → RIFE interpolation 21→30, 30fps output.
 
 ## Task C deferred / future
 - **Duration-aware cost/time estimate:** the submit_targets estimate still assumes the default 5s (quality is set after the estimate). Re-estimate after `/swapbatch_set_quality`, or scale by duration, is a future refinement.
-- fps=63 (3×) is allowed but untested on a pod; 42/84 are the natural 2×/4×.
+- Any fps in 21–60 is allowed but untested on a pod; 30 is the natural first target (Daniil's default UX).
 
 ## Status (after Task C)
 - HEAD: `b7a56fc` on `phase-3.0-inventory-stop-reliability`. Push pending below.

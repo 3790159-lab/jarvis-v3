@@ -44,6 +44,13 @@ _clone_node ComfyUI-KJNodes               "https://github.com/kijai/ComfyUI-KJNo
 # TODO: confirm canonical URL for ComfyUI-PainterI2Vadvanced via web search
 _clone_node ComfyUI-PainterI2Vadvanced    "https://github.com/painter-research/ComfyUI-PainterI2Vadvanced"
 _clone_node ComfyUI_essentials            "https://github.com/cubiq/ComfyUI_essentials"
+# Day-7 verify: live pods serve class "RIFEInterpolation" (model flownet.pkl)
+# from custom_nodes/ComfyUI-VFI — NOT Fannovel16's "RIFE VFI" (rife47.pth) that
+# this URL would install. The engine's _apply_fps targets the verified live
+# schema. Why the installed node differs from this clone URL is unresolved
+# (clone may be skipped because the dir pre-exists on the network volume) —
+# tracked as a separate bootstrap-drift task; do NOT change this URL without
+# re-verifying /object_info on a fresh pod.
 _clone_node ComfyUI-VFI                   "https://github.com/Fannovel16/ComfyUI-Frame-Interpolation"
 # TODO: canonical URL for ComfyUI-wanBlockswap unknown - skipped
 _clone_node ComfyUI-wanBlockswap          ""
