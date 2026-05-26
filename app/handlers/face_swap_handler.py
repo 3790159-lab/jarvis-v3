@@ -425,8 +425,11 @@ class FaceSwapHandler:
         if succeeded:
             lines.append("")
             lines.append(
-                "/swapbatch_animate_yes — анимировать все swapped фото\n"
-                "/swapbatch_animate_no — оставить только фото"
+                "/swapbatch_animate_yes — анимировать все swapped фото "
+                "(дефолтный промпт)\n"
+                "/swapbatch_animate_custom — задать свой промпт для каждого фото\n"
+                "/swapbatch_set_quality duration=10 — изменить длительность (3-15с)\n"
+                "/swapbatch_no — оставить только swapped фото (без анимации)"
             )
         return HandlerReply(text="\n".join(lines), photos=photos)
 

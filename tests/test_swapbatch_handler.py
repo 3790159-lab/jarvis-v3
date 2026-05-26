@@ -144,6 +144,53 @@ async def test_run_swap_phase_delivers_photos_when_done(tmp_path):
     assert r.photos == [swapped]
 
 
+# ── post-swap menu (Task A) ──────────────────────────────────────────────────
+
+
+async def _swap_reply(handler, orch, tmp_path, n=1):
+    """Drive a chat through swap and return the run_swap_phase reply."""
+    src = _make_photo(tmp_path, "src.jpg")
+    targets = [_make_photo(tmp_path, f"t{i}.jpg") for i in range(n)]
+    handler.handle_source_intent(42)
+    handler.consume_source(42, src)
+    handler.handle_batch_intent(42)
+    handler.consume_targets_album(42, targets)
+    swapped = [_make_photo(tmp_path, f"sw{i}.png") for i in range(n)]
+
+    async def swap_fn(source, tgts, cc):
+        return swapped
+
+    return await handler.run_swap_phase(42, swap_fn)
+
+
+@pytest.mark.anyio
+async def test_post_swap_menu_lists_animate_custom(tmp_path):
+    handler, orch = _make_handler(tmp_path)
+    r = await _swap_reply(handler, orch, tmp_path)
+    assert "/swapbatch_animate_custom" in r.text
+
+
+@pytest.mark.anyio
+async def test_post_swap_menu_lists_set_quality(tmp_path):
+    handler, orch = _make_handler(tmp_path)
+    r = await _swap_reply(handler, orch, tmp_path)
+    assert "/swapbatch_set_quality" in r.text
+
+
+@pytest.mark.anyio
+async def test_post_swap_menu_lists_no(tmp_path):
+    handler, orch = _make_handler(tmp_path)
+    r = await _swap_reply(handler, orch, tmp_path)
+    assert "/swapbatch_no" in r.text
+
+
+@pytest.mark.anyio
+async def test_post_swap_menu_still_lists_animate_yes(tmp_path):
+    handler, orch = _make_handler(tmp_path)
+    r = await _swap_reply(handler, orch, tmp_path)
+    assert "/swapbatch_animate_yes" in r.text
+
+
 def test_handle_animate_no_terminates(tmp_path):
     handler, orch = _make_handler(tmp_path)
     src = _make_photo(tmp_path, "src.jpg")
