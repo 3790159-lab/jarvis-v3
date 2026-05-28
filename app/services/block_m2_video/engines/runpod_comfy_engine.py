@@ -65,6 +65,11 @@ _COMFYUI_HEALTH_POLL_INTERVAL_SEC = 5.0
 # pollers to desync, and a fixed interval keeps the budget arithmetic exact.
 _SUPPLY_RETRY_INTERVAL_SEC = 20.0
 _SUPPLY_MAX_ATTEMPTS = 30
+# Cold-start retry: a pod can spawn cleanly yet ComfyUI never come up (bad
+# image cache, container init race, transient network). Terminate the bad
+# pod and spawn a fresh one rather than failing the whole animation. Three
+# attempts caps the worst-case at ~3 * (spawn + 120s startup) ≈ 9 minutes.
+_COLD_START_MAX_ATTEMPTS = 3
 
 # -- workflow contract (wan22_i2v_v20) ---------------------------------------
 # VHS_VideoCombine (node 21) emits at FPS; PainterI2VAdvanced (node 15)
@@ -174,23 +179,66 @@ class RunpodComfyEngine:
         pod: PodInfo | None = None
 
         try:
-            pod, pod_id, reused = await self._find_or_start_pod(
-                client, generation_id
-            )
-            if not reused:
-                # TODO: Phase B.2 — actively run bootstrap.sh via execute_command
-                # and verify before proceeding (currently we trust the pod
-                # template's startup CMD to have run it).
-                pass
-
-            pod_url = await client.get_pod_public_url(pod_id, port=8188)
-            if not pod_url:
-                raise RunpodComfyError(
-                    f"pod {pod_id} has no public URL on port 8188"
+            # Cold-start retry: if ComfyUI never comes up on a spawned pod,
+            # terminate it and try again on a fresh pod. Workflow errors
+            # downstream (upload/submit/poll) are NOT retried — they bubble
+            # up unchanged.
+            pod_url: str | None = None
+            for cold_attempt in range(1, _COLD_START_MAX_ATTEMPTS + 1):
+                pod, pod_id, reused = await self._find_or_start_pod(
+                    client, generation_id
                 )
-            logger.info("RunpodComfyEngine: pod URL resolved -> %s", pod_url)
+                if not reused:
+                    # TODO: Phase B.2 — actively run bootstrap.sh via execute_command
+                    # and verify before proceeding (currently we trust the pod
+                    # template's startup CMD to have run it).
+                    pass
 
-            await self._ensure_comfyui_alive(pod_id, pod_url)
+                pod_url = await client.get_pod_public_url(pod_id, port=8188)
+                if not pod_url:
+                    raise RunpodComfyError(
+                        f"pod {pod_id} has no public URL on port 8188"
+                    )
+                logger.info("RunpodComfyEngine: pod URL resolved -> %s", pod_url)
+
+                try:
+                    await self._ensure_comfyui_alive(pod_id, pod_url)
+                    break  # cold-start succeeded
+                except RunpodComfyError as exc:
+                    logger.warning(
+                        "RunpodComfyEngine: ComfyUI cold-start failed on pod %s "
+                        "(attempt %d/%d): %s",
+                        pod_id,
+                        cold_attempt,
+                        _COLD_START_MAX_ATTEMPTS,
+                        exc,
+                    )
+                    # Bad pod — terminate it (no resume; the pod is broken).
+                    try:
+                        await client.stop_pod(pod_id)
+                        logger.info(
+                            "RunpodComfyEngine: stopped bad pod %s after "
+                            "cold-start failure",
+                            pod_id,
+                        )
+                    except Exception as stop_exc:  # noqa: BLE001 - cleanup
+                        logger.warning(
+                            "RunpodComfyEngine: stop_pod(%s) failed: %s",
+                            pod_id,
+                            stop_exc,
+                        )
+                    # Prevent the outer finally from re-stopping the same id.
+                    pod_id = None
+                    pod = None
+                    pod_url = None
+                    if cold_attempt >= _COLD_START_MAX_ATTEMPTS:
+                        raise
+                    logger.info(
+                        "RunpodComfyEngine: spawning fresh pod for cold-start "
+                        "retry (attempt %d/%d)",
+                        cold_attempt + 1,
+                        _COLD_START_MAX_ATTEMPTS,
+                    )
 
             uploaded = await self._upload_image(pod_url, request.input_image_path)
             workflow = self._build_workflow(uploaded, request)

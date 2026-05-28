@@ -898,3 +898,215 @@ async def test_generate_returns_result_without_public_url_on_upload_failure(
     assert any(
         "Litterbox upload failed" in rec.message for rec in caplog.records
     )
+
+
+# ── generate: cold-start retry on broken pod ─────────────────────────────────
+
+
+def _history_entry() -> dict:
+    return {
+        "pid_xyz": {
+            "outputs": {
+                "30": {
+                    "videos": [
+                        {
+                            "filename": "wan_output_00001.mp4",
+                            "subfolder": "",
+                            "type": "output",
+                        }
+                    ]
+                }
+            },
+            "status": {"status_str": "success", "completed": True},
+        }
+    }
+
+
+@pytest.mark.anyio
+async def test_generate_no_cold_start_retry_when_first_pod_healthy(tmp_path):
+    """When ComfyUI is up on the first pod, exactly one pod is spawned and
+    stopped (no retry loop overhead).
+
+    Guards against a buggy retry loop that would re-enter even on the happy
+    path — start_pod must be awaited exactly once and stop_pod exactly once.
+    """
+    image = _make_image(tmp_path)
+    pod = _mock_pod()
+    client = _mock_runpod_client(pod)
+
+    mp4_bytes = b"\x00\x00\x00\x18ftypisom" + b"x" * (200 * 1024)
+    http = MagicMock()
+    http.aclose = AsyncMock()
+    http.post = AsyncMock(
+        side_effect=[
+            _json_response({"name": "input.png"}),
+            _json_response({"prompt_id": "pid_xyz", "node_errors": {}}),
+        ]
+    )
+    http.get = AsyncMock(
+        side_effect=[
+            _json_response({"system": {"os": "linux"}}),
+            _json_response(_history_entry()),
+            _bytes_response(mp4_bytes),
+        ]
+    )
+
+    engine = RunpodComfyEngine(
+        config=_make_config(),
+        client=client,
+        http_client=http,
+        output_dir=tmp_path / "out",
+        poll_interval_sec=0.0,
+    )
+    req = VideoRequest(
+        persona_id="p1",
+        persona_name="Test",
+        input_image_path=image,
+        prompt="walking",
+        seed=1,
+        seconds=5,
+    )
+    result = await engine.generate(req)
+
+    assert isinstance(result, VideoResult)
+    assert client.start_pod.await_count == 1
+    assert client.stop_pod.await_count == 1
+
+
+@pytest.mark.anyio
+async def test_generate_retries_cold_start_and_succeeds_on_second_pod(
+    tmp_path, monkeypatch
+):
+    """First fresh pod's ComfyUI never answers; engine terminates it, spawns a
+    fresh pod, and succeeds on the second attempt.
+
+    This is the core cold-start-retry guarantee: when _ensure_comfyui_alive
+    raises RunpodComfyError, the bad pod is stopped (no resume — it's broken)
+    and a fresh pod is spawned, up to _COLD_START_MAX_ATTEMPTS.
+    """
+    import app.services.block_m2_video.engines.runpod_comfy_engine as engine_mod
+
+    # Make cold-start fail fast: zero-timeout loop runs one probe then raises.
+    monkeypatch.setattr(engine_mod, "_COMFYUI_STARTUP_TIMEOUT_SEC", 0)
+
+    async def _no_sleep(*_a, **_kw) -> None:
+        return None
+
+    monkeypatch.setattr(engine_mod.asyncio, "sleep", _no_sleep)
+
+    image = _make_image(tmp_path)
+    pod_bad = _mock_pod(pod_id="pod_bad", name="jarvis-m2-bad")
+    pod_good = _mock_pod(pod_id="pod_good", name="jarvis-m2-good")
+
+    client = MagicMock()
+    client.list_pods = AsyncMock(return_value=[])
+    client.start_pod = AsyncMock(side_effect=[pod_bad, pod_good])
+    client.wait_for_ready = AsyncMock(side_effect=[pod_bad, pod_good])
+    client.get_pod_public_url = AsyncMock(return_value="http://test-pod:8188")
+    client.stop_pod = AsyncMock(return_value=True)
+    client.execute_command = AsyncMock()
+    client.aclose = AsyncMock()
+
+    mp4_bytes = b"\x00\x00\x00\x18ftypisom" + b"x" * (200 * 1024)
+    http = MagicMock()
+    http.aclose = AsyncMock()
+    http.post = AsyncMock(
+        side_effect=[
+            _json_response({"name": "input.png"}),
+            _json_response({"prompt_id": "pid_xyz", "node_errors": {}}),
+        ]
+    )
+    http.get = AsyncMock(
+        side_effect=[
+            # pod_bad: /system_stats probe never answers → RunpodComfyError
+            httpx.ConnectError("conn refused"),
+            # pod_good: /system_stats probe healthy
+            _json_response({"system": {"os": "linux"}}),
+            # rest of pipeline on pod_good
+            _json_response(_history_entry()),
+            _bytes_response(mp4_bytes),
+        ]
+    )
+
+    engine = RunpodComfyEngine(
+        config=_make_config(),
+        client=client,
+        http_client=http,
+        output_dir=tmp_path / "out",
+        poll_interval_sec=0.0,
+    )
+    req = VideoRequest(
+        persona_id="p1",
+        persona_name="Test",
+        input_image_path=image,
+        prompt="walking",
+        seed=7,
+        seconds=5,
+    )
+    result = await engine.generate(req)
+
+    assert isinstance(result, VideoResult)
+    assert result.extra["pod_id"] == "pod_good"
+    # Two spawns: pod_bad failed cold-start, pod_good succeeded.
+    assert client.start_pod.await_count == 2
+    # Both pods stopped: pod_bad after cold-start failure; pod_good in finally.
+    stop_targets = [call.args[0] for call in client.stop_pod.await_args_list]
+    assert stop_targets == ["pod_bad", "pod_good"]
+
+
+@pytest.mark.anyio
+async def test_generate_raises_after_max_cold_start_attempts(
+    tmp_path, monkeypatch
+):
+    """When every fresh pod fails the cold-start probe, the engine gives up
+    after _COLD_START_MAX_ATTEMPTS and raises RunpodComfyError.
+
+    Each failed pod must be stopped along the way — no leaked pods.
+    """
+    import app.services.block_m2_video.engines.runpod_comfy_engine as engine_mod
+
+    monkeypatch.setattr(engine_mod, "_COMFYUI_STARTUP_TIMEOUT_SEC", 0)
+
+    async def _no_sleep(*_a, **_kw) -> None:
+        return None
+
+    monkeypatch.setattr(engine_mod.asyncio, "sleep", _no_sleep)
+
+    image = _make_image(tmp_path)
+    pods = [_mock_pod(pod_id=f"pod_{i}") for i in range(engine_mod._COLD_START_MAX_ATTEMPTS)]
+
+    client = MagicMock()
+    client.list_pods = AsyncMock(return_value=[])
+    client.start_pod = AsyncMock(side_effect=pods)
+    client.wait_for_ready = AsyncMock(side_effect=pods)
+    client.get_pod_public_url = AsyncMock(return_value="http://test-pod:8188")
+    client.stop_pod = AsyncMock(return_value=True)
+    client.execute_command = AsyncMock()
+    client.aclose = AsyncMock()
+
+    http = MagicMock()
+    http.aclose = AsyncMock()
+    # Every /system_stats probe fails → every cold-start attempt fails.
+    http.get = AsyncMock(side_effect=httpx.ConnectError("conn refused"))
+    http.post = AsyncMock()  # never reached — workflow steps don't run
+
+    engine = RunpodComfyEngine(
+        config=_make_config(),
+        client=client,
+        http_client=http,
+        output_dir=tmp_path / "out",
+    )
+    req = VideoRequest(
+        persona_id="p1",
+        persona_name="Test",
+        input_image_path=image,
+        prompt="walking",
+    )
+    with pytest.raises(RunpodComfyError, match="ComfyUI failed to start"):
+        await engine.generate(req)
+
+    assert client.start_pod.await_count == engine_mod._COLD_START_MAX_ATTEMPTS
+    # Every failed pod stopped — no leaks.
+    assert client.stop_pod.await_count == engine_mod._COLD_START_MAX_ATTEMPTS
+    # Workflow steps never ran.
+    http.post.assert_not_awaited()
