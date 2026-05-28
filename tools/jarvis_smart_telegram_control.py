@@ -25,6 +25,7 @@ except Exception as _logging_exc:
     print(f"[bot] logging setup failed: {_logging_exc}", flush=True)
 
 from app.services.error_translator import translate_exception
+from app.services.auth import whitelist as _whitelist
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 ALLOWED_CHAT_ID = str(os.getenv("TELEGRAM_ALLOWED_CHAT_ID", "")).strip()
@@ -5173,8 +5174,72 @@ def _check_backend_startup() -> None:
         print(f"✅ Backend at {BACKEND} is UP.", flush=True)
 
 
+def _extract_user_id(upd: Dict[str, Any]) -> Optional[int]:
+    """Return ``from.id`` for a Telegram update, or ``None`` if absent."""
+    cq = upd.get("callback_query") or {}
+    if cq:
+        raw = (cq.get("from") or {}).get("id")
+    else:
+        msg = upd.get("message") or upd.get("edited_message") or {}
+        raw = (msg.get("from") or {}).get("id")
+    try:
+        return int(raw) if raw is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _extract_reply_chat_id(upd: Dict[str, Any]) -> Optional[str]:
+    """Return the chat_id to address a reply back to the sender."""
+    cq = upd.get("callback_query") or {}
+    if cq:
+        chat = (cq.get("message") or {}).get("chat") or {}
+        cid = chat.get("id") or (cq.get("from") or {}).get("id")
+    else:
+        msg = upd.get("message") or upd.get("edited_message") or {}
+        chat = msg.get("chat") or {}
+        cid = chat.get("id") or (msg.get("from") or {}).get("id")
+    return str(cid) if cid is not None else None
+
+
+def _whitelist_gate(upd: Dict[str, Any]) -> bool:
+    """Return True if the update may proceed; False if it was rejected.
+
+    Rejected updates get a single polite reply (REJECT_MESSAGE) and an INFO
+    log line so ops can audit access attempts. Updates without an extractable
+    user_id pass through unchanged — they're system / edge-case updates that
+    pre-existing dispatch already handles.
+    """
+    user_id = _extract_user_id(upd)
+    if user_id is None:
+        return True
+    if _whitelist.is_allowed(user_id):
+        return True
+    cq = upd.get("callback_query") or {}
+    msg = upd.get("message") or upd.get("edited_message") or {}
+    username = (
+        (cq.get("from") or {}).get("username") if cq
+        else (msg.get("from") or {}).get("username")
+    )
+    logger.info(
+        "whitelist: rejected user_id=%s username=%s", user_id, username
+    )
+    print(
+        f"[whitelist] rejected user_id={user_id} username={username!r}",
+        flush=True,
+    )
+    chat_id = _extract_reply_chat_id(upd)
+    if chat_id:
+        try:
+            send(chat_id, _whitelist.REJECT_MESSAGE)
+        except Exception as _e:
+            print(f"[whitelist] reject reply failed: {_e}", flush=True)
+    return False
+
+
 def process_update(upd: Dict[str, Any], media_group_buffer: Optional[Dict[str, Any]] = None) -> None:
     """Process a single Telegram update (shared by polling loop and webhook reader)."""
+    if not _whitelist_gate(upd):
+        return
     if media_group_buffer is None:
         media_group_buffer = {}
 
@@ -5362,6 +5427,11 @@ def _main_inner() -> None:
             updates = http_json("GET", url, timeout=45).get("result", [])
             for upd in updates:
                 offset = max(offset, int(upd.get("update_id", 0)) + 1)
+
+                # Access control: non-whitelisted users get the polite reject
+                # message and are dropped before any handler runs.
+                if not _whitelist_gate(upd):
+                    continue
 
                 # Handle inline keyboard button presses
                 cq = upd.get("callback_query")
