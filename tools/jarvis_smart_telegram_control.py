@@ -26,6 +26,7 @@ except Exception as _logging_exc:
 
 from app.services.error_translator import translate_exception
 from app.services.auth import whitelist as _whitelist
+from app.services.audit import audit_logger as _audit
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 ALLOWED_CHAT_ID = str(os.getenv("TELEGRAM_ALLOWED_CHAT_ID", "")).strip()
@@ -5233,13 +5234,76 @@ def _whitelist_gate(upd: Dict[str, Any]) -> bool:
             send(chat_id, _whitelist.REJECT_MESSAGE)
         except Exception as _e:
             print(f"[whitelist] reject reply failed: {_e}", flush=True)
+    try:
+        _audit.audit_event(
+            user_id=user_id,
+            username=username,
+            chat_id=str(chat_id) if chat_id else str(user_id),
+            event="whitelist_rejected",
+            details={"username": username},
+        )
+    except Exception as _e:
+        print(f"[audit] whitelist_rejected event failed: {_e}", flush=True)
     return False
+
+
+def _extract_audit_ctx(upd: Dict[str, Any]) -> tuple[Optional[int], Optional[str], str]:
+    """Return (user_id, username, chat_id) for audit logging."""
+    cq = upd.get("callback_query") or {}
+    if cq:
+        frm = cq.get("from") or {}
+        chat = (cq.get("message") or {}).get("chat") or {}
+    else:
+        msg = upd.get("message") or upd.get("edited_message") or {}
+        frm = msg.get("from") or {}
+        chat = msg.get("chat") or {}
+    try:
+        uid: Optional[int] = int(frm.get("id")) if frm.get("id") is not None else None
+    except (TypeError, ValueError):
+        uid = None
+    uname = frm.get("username")
+    cid = str(chat.get("id") or frm.get("id") or "")
+    return uid, uname, cid
+
+
+# Specific commands that map to dedicated audit events (so the admin forward
+# template can show context). Everything else logs as the generic "command".
+_AUDIT_COMMAND_EVENT: Dict[str, tuple[str, Dict[str, Any]]] = {
+    "/swapbatch_go": ("swapbatch_go", {}),
+    "/swapbatch_animate_yes": ("animate_started", {"mode": "yes"}),
+    "/swapbatch_animate_custom": ("animate_started", {"mode": "custom"}),
+    "/swapbatch_no": ("animate_started", {"mode": "no"}),
+}
+
+
+def _audit_message(upd: Dict[str, Any]) -> None:
+    """Emit an audit event for a message update if it carries a command."""
+    msg = upd.get("message") or upd.get("edited_message") or {}
+    text = (msg.get("text") or "").strip()
+    if not text.startswith("/"):
+        return
+    uid, uname, cid = _extract_audit_ctx(upd)
+    if uid is None:
+        return
+    parts = text.split(maxsplit=1)
+    cmd = parts[0].split("@", 1)[0]  # strip /cmd@botname → /cmd
+    args = parts[1] if len(parts) > 1 else ""
+    event, extra = _AUDIT_COMMAND_EVENT.get(cmd, ("command", {}))
+    details: Dict[str, Any] = {"command": cmd}
+    if args:
+        details["args"] = args[:500]
+    details.update(extra)
+    try:
+        _audit.audit_event(uid, uname, cid, event, details)
+    except Exception as _e:
+        print(f"[audit] command event failed: {_e}", flush=True)
 
 
 def process_update(upd: Dict[str, Any], media_group_buffer: Optional[Dict[str, Any]] = None) -> None:
     """Process a single Telegram update (shared by polling loop and webhook reader)."""
     if not _whitelist_gate(upd):
         return
+    _audit_message(upd)
     if media_group_buffer is None:
         media_group_buffer = {}
 
@@ -5432,6 +5496,8 @@ def _main_inner() -> None:
                 # message and are dropped before any handler runs.
                 if not _whitelist_gate(upd):
                     continue
+
+                _audit_message(upd)
 
                 # Handle inline keyboard button presses
                 cq = upd.get("callback_query")
