@@ -11,6 +11,7 @@ no HTTP, no pods.
 from __future__ import annotations
 
 import importlib.util
+import logging
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -183,3 +184,74 @@ def test_flush_pops_group_before_processing():
             mod._flush_media_group(buffer, "mg1")
 
     assert "mg1" not in buffer  # popped before the raise → no re-flush
+
+
+# ── B-51 diagnostic logging (Task 5, Day 8) ─────────────────────────────────
+#
+# Pure observability: every transport-level transition emits a greppable INFO
+# line so the next "sent N, received <N" album loss can be root-caused. These
+# assert on the log text only — dedupe/flush behaviour is unchanged and is
+# covered by the §7.x tests above.
+
+
+def test_dedupe_logs_accepted_for_new_photo(caplog):
+    mod = _get_mod()
+    buffer: dict = {}
+    with caplog.at_level(logging.INFO):
+        mod._buffer_media_group_msg(buffer, "mg1", _photo_msg("U_A", "fid_a"))
+    assert "media_group: accepted photo" in caplog.text
+    assert "file_unique_id=U_A" in caplog.text
+
+
+def test_dedupe_logs_skipped_for_duplicate(caplog):
+    mod = _get_mod()
+    buffer: dict = {}
+    mod._buffer_media_group_msg(buffer, "mg1", _photo_msg("U_A", "fid_a1"))
+    with caplog.at_level(logging.INFO):
+        mod._buffer_media_group_msg(buffer, "mg1", _photo_msg("U_A", "fid_a2"))
+    assert "media_group: SKIPPED duplicate photo" in caplog.text
+    # The duplicate must NOT have grown the buffer (behaviour unchanged).
+    assert len(buffer["mg1"]["msgs"]) == 1
+
+
+def test_flush_logs_with_timing_info(caplog):
+    mod = _get_mod()
+    buffer: dict = {}
+    mod._buffer_media_group_msg(buffer, "mg1", _photo_msg("U_A", "fid_a"))
+    mod._buffer_media_group_msg(buffer, "mg1", _photo_msg("U_B", "fid_b"))
+    with caplog.at_level(logging.INFO), \
+         patch.object(mod, "_swapbatch_album_intercept", return_value=True):
+        mod._flush_media_group(buffer, "mg1")
+    assert "media_group: flushing" in caplog.text
+    assert "photo_count=2" in caplog.text
+    assert "elapsed_since_first=" in caplog.text
+    assert "elapsed_since_last=" in caplog.text
+
+
+def test_new_media_group_id_logged(caplog):
+    """A second album arriving before the first flushes is flagged — this is
+    the Telegram-split-album hypothesis from the B-51 investigation."""
+    mod = _get_mod()
+    buffer: dict = {}
+    mod._buffer_media_group_msg(buffer, "mg1", _photo_msg("U_A", "fid_a", media_group_id="mg1"))
+    with caplog.at_level(logging.INFO):
+        mod._buffer_media_group_msg(buffer, "mg2", _photo_msg("U_B", "fid_b", media_group_id="mg2"))
+    assert "media_group: NEW media_group_id" in caplog.text
+    assert "previous=mg1" in caplog.text
+    assert "new=mg2" in caplog.text
+
+
+def test_missing_file_unique_id_does_not_crash(caplog):
+    """A PhotoSize with no file_unique_id must log '(no file_unique_id)' and
+    still be buffered (can't dedupe an unkeyable photo)."""
+    mod = _get_mod()
+    buffer: dict = {}
+    msg = {
+        "chat": {"id": 12345},
+        "media_group_id": "mg1",
+        "photo": [{"file_id": "fid_x", "file_size": 1000}],  # no file_unique_id
+    }
+    with caplog.at_level(logging.INFO):
+        mod._buffer_media_group_msg(buffer, "mg1", msg)  # must not raise
+    assert "(no file_unique_id)" in caplog.text
+    assert len(buffer["mg1"]["msgs"]) == 1

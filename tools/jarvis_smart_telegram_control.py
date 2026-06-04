@@ -904,15 +904,61 @@ def _buffer_media_group_msg(
     drops the duplicate at the source. A photo with no resolvable unique id is
     always kept (it cannot be deduped).
     """
-    buf = media_group_buffer.setdefault(
-        media_gid, {"msgs": [], "seen_uids": set(), "last_seen": time.time()}
-    )
+    now = time.time()
     uid = _largest_photo_unique_id(msg)
+    uid_str = uid if uid is not None else "(no file_unique_id)"
+    chat_id = msg.get("chat", {}).get("id", "")
+
+    # B-51 diagnostics. Capture transport-level transitions BEFORE mutating the
+    # buffer so timing/gap reflect the pre-arrival state.
+    if media_gid in media_group_buffer:
+        # Point 4: inter-photo gap within the same album.
+        gap = now - media_group_buffer[media_gid].get("last_seen", now)
+        logger.info(
+            "media_group: photo arrived chat=%s gap_since_last=%.2fs",
+            chat_id, gap,
+        )
+    else:
+        # Point 5: a new media_group_id while a previous group is still
+        # buffered → Telegram may have split one album into multiple groups.
+        others = [g for g in media_group_buffer if g != media_gid]
+        if others:
+            prev_size = sum(
+                len(media_group_buffer[g].get("msgs", [])) for g in others
+            )
+            logger.info(
+                "media_group: NEW media_group_id chat=%s previous=%s new=%s "
+                "previous_size=%s",
+                chat_id, ",".join(others), media_gid, prev_size,
+            )
+
+    buf = media_group_buffer.setdefault(
+        media_gid,
+        {"msgs": [], "seen_uids": set(), "first_seen": now, "last_seen": now},
+    )
     if uid is None or uid not in buf["seen_uids"]:
         if uid is not None:
             buf["seen_uids"].add(uid)
         buf["msgs"].append(msg)
-    buf["last_seen"] = time.time()
+        # Point 2 (accepted).
+        logger.info(
+            "media_group: accepted photo chat=%s file_unique_id=%s (new)",
+            chat_id, uid_str,
+        )
+    else:
+        # Point 2 (rejected as duplicate).
+        logger.info(
+            "media_group: SKIPPED duplicate photo chat=%s file_unique_id=%s "
+            "(already in buffer)",
+            chat_id, uid_str,
+        )
+    buf["last_seen"] = now
+    # Point 1: post-dedupe arrival summary.
+    logger.info(
+        "media_group: received photo chat=%s media_group_id=%s "
+        "file_unique_id=%s buffer_size_after=%s",
+        chat_id, media_gid, uid_str, len(buf["msgs"]),
+    )
 
 
 def _flush_media_group(media_group_buffer: Dict[str, Any], gid: str) -> None:
@@ -924,7 +970,21 @@ def _flush_media_group(media_group_buffer: Dict[str, Any], gid: str) -> None:
     ``_swapbatch_album_intercept``) can no longer leave it buffered for a
     duplicate re-flush on the next poll-loop iteration.
     """
-    msgs = media_group_buffer.pop(gid)["msgs"]
+    entry = media_group_buffer.pop(gid)
+    msgs = entry["msgs"]
+    # Point 3: flush trigger. Timing fields are read defensively (.get) so a
+    # hand-built buffer without first_seen/last_seen still logs cleanly.
+    now = time.time()
+    first_seen = entry.get("first_seen")
+    last_seen = entry.get("last_seen")
+    flush_chat = str(msgs[0].get("chat", {}).get("id", "")) if msgs else ""
+    logger.info(
+        "media_group: flushing chat=%s media_group_id=%s photo_count=%s "
+        "elapsed_since_first=%.2fs elapsed_since_last=%.2fs",
+        flush_chat, gid, len(msgs),
+        (now - first_seen) if first_seen is not None else 0.0,
+        (now - last_seen) if last_seen is not None else 0.0,
+    )
     if not msgs:
         return
     chat_id = str(msgs[0].get("chat", {}).get("id", ""))
