@@ -27,6 +27,7 @@ except Exception as _logging_exc:
 from app.services.error_translator import translate_exception
 from app.services.auth import whitelist as _whitelist
 from app.services.audit import audit_logger as _audit
+from app.services.audit import cost_tracker as _cost
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 ALLOWED_CHAT_ID = str(os.getenv("TELEGRAM_ALLOWED_CHAT_ID", "")).strip()
@@ -734,6 +735,8 @@ def _swapbatch_run_phase(
                     reply = _aio.run(
                         handler.run_animate_phase(
                             chat_id_int, _animate_fn, progress_cb=_progress,
+                            user_id=chat_id_int,
+                            username=_USERNAME_BY_CHAT.get(chat_id_s),
                         )
                     )
                 else:  # confirm / apply_partial / apply_first → custom prompts
@@ -757,6 +760,8 @@ def _swapbatch_run_phase(
                     reply = _aio.run(
                         handler.run_custom_animate_phase(
                             chat_id_int, _animate_fn, progress_cb=_progress,
+                            user_id=chat_id_int,
+                            username=_USERNAME_BY_CHAT.get(chat_id_s),
                         )
                     )
             _swapbatch_apply_reply(chat_id_s, reply)
@@ -5299,11 +5304,65 @@ def _audit_message(upd: Dict[str, Any]) -> None:
         print(f"[audit] command event failed: {_e}", flush=True)
 
 
+# Latest @username seen per chat_id, captured at the dispatch layer (the only
+# place the Telegram identity is available) so the async batch-completion hook
+# in _swapbatch_run_phase can attribute cost to a readable name.
+_USERNAME_BY_CHAT: Dict[str, Optional[str]] = {}
+
+
+def _remember_identity(upd: Dict[str, Any]) -> None:
+    """Cache the inbound user's @username keyed by chat_id (best-effort)."""
+    uid, uname, cid = _extract_audit_ctx(upd)
+    if cid:
+        _USERNAME_BY_CHAT[str(cid)] = uname
+
+
+def _cost_command_intercept(upd: Dict[str, Any]) -> bool:
+    """Handle /my_stats and /admin_costs before normal dispatch.
+
+    Runs after the whitelist gate, so any whitelisted user reaches /my_stats
+    (it must work for non-admins, who are blocked by the ALLOWED_CHAT_ID guard
+    in ``handle``). Returns True if the update was a cost command and consumed.
+    """
+    msg = upd.get("message") or upd.get("edited_message") or {}
+    text = (msg.get("text") or "").strip()
+    if not text.startswith("/"):
+        return False
+    cmd = text.split(maxsplit=1)[0].split("@", 1)[0]
+    if cmd not in ("/my_stats", "/admin_costs"):
+        return False
+    uid, uname, cid = _extract_audit_ctx(upd)
+    reply_to = cid or (str(uid) if uid is not None else "")
+    if not reply_to:
+        return True
+
+    if cmd == "/my_stats":
+        try:
+            send(reply_to, _cost.format_my_stats_message(uid, uname))
+        except Exception as _e:  # noqa: BLE001
+            print(f"[cost] /my_stats failed: {_e}", flush=True)
+        return True
+
+    # /admin_costs — admin only.
+    admin = _whitelist.load_admin_user_id()
+    if admin is None or uid != admin:
+        send(reply_to, "🚫 /admin_costs доступен только администратору.")
+        return True
+    try:
+        send(reply_to, _cost.format_admin_costs_message())
+    except Exception as _e:  # noqa: BLE001
+        print(f"[cost] /admin_costs failed: {_e}", flush=True)
+    return True
+
+
 def process_update(upd: Dict[str, Any], media_group_buffer: Optional[Dict[str, Any]] = None) -> None:
     """Process a single Telegram update (shared by polling loop and webhook reader)."""
     if not _whitelist_gate(upd):
         return
     _audit_message(upd)
+    _remember_identity(upd)
+    if _cost_command_intercept(upd):
+        return
     if media_group_buffer is None:
         media_group_buffer = {}
 

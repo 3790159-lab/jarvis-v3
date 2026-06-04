@@ -12,6 +12,7 @@ All user-visible strings are in Russian to match the Phase C UX style.
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -29,6 +30,7 @@ from app.services.block_m2_face_swap.batch_orchestrator import (
     STATE_TARGETS_RECEIVED,
     get_orchestrator,
 )
+from app.services.audit import cost_tracker as _cost
 from app.services.block_m2_face_swap.cost_estimator import format_cost_report_ru
 from app.services.block_m2_face_swap.prompt_parser import PromptParseError
 from app.services.block_m2_face_swap.quality_settings import (
@@ -432,11 +434,43 @@ class FaceSwapHandler:
             )
         return HandlerReply(text="\n".join(lines), photos=photos)
 
+    @staticmethod
+    def _envf(name: str, default: float) -> float:
+        raw = os.getenv(name)
+        if raw is None or not raw.strip():
+            return default
+        try:
+            return float(raw)
+        except ValueError:
+            return default
+
+    def _bill_completed_videos(
+        self, succeeded: int, user_id: int | None, username: str | None
+    ) -> None:
+        """Record cost for SUCCESSFUL videos only (swap + animate per video).
+
+        Best-effort: a failure in cost tracking must never break a batch, so
+        all exceptions are swallowed (mirrors the audit-logger contract).
+        Failed animations are not billed.
+        """
+        if user_id is None or succeeded <= 0:
+            return
+        swap_rate = self._envf("SWAPBATCH_SWAP_USD_PER_PHOTO", 0.02)
+        animate_rate = self._envf("SWAPBATCH_ANIMATE_USD_PER_VIDEO", 0.27)
+        amount = succeeded * (swap_rate + animate_rate)
+        try:
+            _cost.record_cost(user_id, username, amount)
+        except Exception as exc:  # noqa: BLE001 - cost tracking must not raise
+            logger.warning("cost: record_cost failed: %s", exc)
+
     async def run_animate_phase(
         self,
         chat_id: int,
         animate_fn,
         progress_cb: Callable[[str, dict[str, Any]], None] | None = None,
+        *,
+        user_id: int | None = None,
+        username: str | None = None,
     ) -> HandlerReply:
         try:
             await self.orchestrator.confirm_animate(
@@ -464,6 +498,7 @@ class FaceSwapHandler:
         lines = [f"🎬 Animate завершён: {succeeded} видео"]
         if failed:
             lines.append(f"  ⚠️ {failed} не удалось")
+        self._bill_completed_videos(succeeded, user_id, username)
         self.orchestrator.prune(chat_id)
         return HandlerReply(text="\n".join(lines), videos=videos)
 
@@ -472,6 +507,9 @@ class FaceSwapHandler:
         chat_id: int,
         animate_fn,
         progress_cb: Callable[[str, dict[str, Any]], None] | None = None,
+        *,
+        user_id: int | None = None,
+        username: str | None = None,
     ) -> HandlerReply:
         """Run the video engine with per-photo custom prompts and report tally.
 
@@ -507,5 +545,6 @@ class FaceSwapHandler:
         lines = [f"🎬 Animate завершён: {succeeded} видео"]
         if failed:
             lines.append(f"  ⚠️ {failed} не удалось")
+        self._bill_completed_videos(succeeded, user_id, username)
         self.orchestrator.prune(chat_id)
         return HandlerReply(text="\n".join(lines), videos=videos)

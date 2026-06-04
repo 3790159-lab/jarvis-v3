@@ -233,6 +233,50 @@ async def test_run_animate_phase_collects_videos(tmp_path):
     assert orch.get(42) is None  # pruned after success
 
 
+@pytest.mark.anyio
+async def test_run_animate_phase_records_cost_for_successful_videos(
+    tmp_path, monkeypatch
+):
+    """Completing animation bills the user once per successful video (swap +
+    animate), and not at all for failures."""
+    from app.handlers import face_swap_handler as fsh
+
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        fsh._cost, "record_cost",
+        lambda uid, uname, amount, **kw: calls.append((uid, uname, amount)),
+    )
+
+    handler, orch = _make_handler(tmp_path)
+    src = _make_photo(tmp_path, "src.jpg")
+    targets = [_make_photo(tmp_path, f"t{i}.jpg") for i in range(2)]
+    handler.handle_source_intent(42)
+    handler.consume_source(42, src)
+    handler.handle_batch_intent(42)
+    handler.consume_targets_album(42, targets)
+    sess = orch.get(42)
+    sess.status = "SWAP_DONE"
+    for i, t in enumerate(sess.targets):
+        t.swap_result_path = str(_make_photo(tmp_path, f"sw{i}.png"))
+
+    video = _make_photo(tmp_path, "v.mp4")
+
+    async def animate_fn(swapped_path, idx, cc):
+        # Second photo "fails" → only one successful video billed.
+        if idx == 1:
+            raise RuntimeError("animate boom")
+        return video
+
+    await handler.run_animate_phase(42, animate_fn, user_id=42, username="vasya")
+
+    assert len(calls) == 1
+    uid, uname, amount = calls[0]
+    assert uid == 42
+    assert uname == "vasya"
+    # 1 successful video × (swap 0.02 + animate 0.27) = 0.29
+    assert amount == pytest.approx(0.29)
+
+
 # ── custom-prompts flow (Day 6) ──────────────────────────────────────────────
 
 
