@@ -1,7 +1,7 @@
 # Jarvis V3 — Day 8 Handoff Brief
 
 **For:** Next Claude chat picking up partnership with Daniil
-**Last updated:** 2026-05-28 (Day 8 in progress)
+**Last updated:** 2026-06-05 — ✅ **Day 8 COMPLETE** (all 5 tasks shipped + pushed)
 **Save location:** `C:\jarvis\artifacts\obsidian_vault\03_Issues\Jarvis-Day8-Handoff.md`
 
 ---
@@ -22,7 +22,7 @@
 
 ---
 
-## 📊 Current state (Day 8 in progress)
+## 📊 Current state — ✅ Day 8 COMPLETE (HEAD `8ceecc2`)
 
 ### Commits ahead since Day 7 (HEAD `e5666cf`)
 
@@ -30,15 +30,15 @@
 |---|--------|-------------|--------|
 | Task 1 | `a8843d4` | fix(video): retry ComfyUI cold start on fresh pod (max 3 attempts) | ✅ shipped |
 | Task 2 | `77f346f` | feat(auth): add user whitelist for bot access control | ✅ shipped |
-| Task 3 | TBD | feat(audit): structured user activity logging + admin Telegram forwarding | 🟡 in progress (CC session ongoing when chat resumed) |
-| Task 4 | — | feat(audit): per-user cost tracking (Option B-lite, no cap) | ⬜ pending |
-| Task 5 | — | feat(bot): B-51 dedupe diagnostic logging | ⬜ pending |
+| Task 3 | `fd2fa17` | feat(audit): per-day jsonl audit log + admin Telegram forwards | ✅ shipped |
+| Task 4 | `fd1b269` | feat(cost): per-user cost tracking with /my_stats and /admin_costs | ✅ shipped |
+| Task 5 | `8ceecc2` | feat(bot): B-51 media_group dedupe diagnostic logging (no behavior change) | ✅ shipped |
 
-**Action for next chat:** Ask Daniil "Task 3 (audit logging) уже shipped или still in progress? Кидай commit hash или CC status."
+**All 5 Day 8 tasks shipped and pushed to `origin/phase-3.0-inventory-stop-reliability`.** Plus handoff `f09417c`.
 
-### Day 8 plan (Path C, hybrid reliability + sharing)
+### Day 8 plan (Path C, hybrid reliability + sharing) — DONE
 
-5 tasks total, ~4-5h CC work. Goal: ship reliability fixes + enable safe sharing of bot with friends.
+5 tasks total. Goal: ship reliability fixes + enable safe sharing of bot with friends. ✅ All achieved: cold-start retry, whitelist access control, audit logging + admin forwards, per-user cost visibility, and B-51 diagnostic instrumentation.
 
 ### Verified production state (as of Day 7 / overnight test)
 
@@ -51,7 +51,7 @@
 ✅ First 30 fps production video shipped (validated)
 ✅ First 24 fps "cinema feel" overnight test (Daniil's preference confirmed — 30fps was "too smooth", 24fps "вроде нормально")
 ✅ Continue-on-failure animation logic working in production
-✅ Day 8 Task 1 + 2 shipped
+✅ Day 8 ALL 5 tasks shipped (cold-start retry, whitelist, audit, cost tracking, B-51 diagnostics)
 
 ---
 
@@ -118,7 +118,16 @@ Pod region:  EU-RO-1 (A100 PCIe 80GB / SXM4-80GB only; L40S not available)
 
 ### 🔴 Known bugs (in Day 8 backlog)
 
-1. **B-51 media_group dedupe / buffer flush** — Daniil sends N photos, bot receives <N. Pattern observed: 5→2, 5→3 losses. Root cause unknown (could be file_unique_id dedupe being too aggressive, or buffer flush timing >2s gap). **Task 5** (dedupe diagnostic logging) is the planned investigation.
+1. **B-51 media_group dedupe / buffer flush** — Daniil sends N photos, bot receives <N. Pattern observed: 5→2, 5→3 losses. Root cause still unconfirmed, but **Task 5 (`8ceecc2`) shipped diagnostic logging** — next album loss will be greppable. Grep `media_group:` in `logs/jarvis_bot.log`. Decision tree once a loss reproduces:
+   - `NEW media_group_id` lines during ONE album → Telegram split the album across group ids → re-key buffer on chat_id + time window.
+   - `gap_since_last` >2s between photos → flush timer split the album → raise the `2.0`s threshold (hardcoded at `_main_inner` ~line 5560).
+   - `SKIPPED duplicate` for photos meant to be distinct → Telegram reused `file_unique_id` (cached/forwarded media) → dedupe too aggressive.
+
+   **🔴 NEW CRITICAL FINDING #1 — latent webhook-path total-loss bug (separate from B-51 dedupe).** There are TWO media_group code paths:
+   - **Polling loop** (`_main_inner`, getUpdates — the ACTIVE production path): uses B-51 dedupe via `_buffer_media_group_msg` + `_flush_media_group` with a shared buffer and a 2s flush timer. ✅ instrumented by Task 5.
+   - **Webhook path** (`process_update`, used only when `WEBHOOK_URL` set): has its OWN inline buffer (`{"msgs","last_seen"}`, NO dedupe) AND `webhook_reader_thread` calls `process_update(update)` **without passing a shared buffer** → the `media_group_buffer` param defaults to a **fresh `{}` every call** → each album photo lands in a throwaway dict and **is never flushed → total album loss in webhook mode.** Not the cause of the observed 5→2/5→3 (prod runs polling), but a real correctness gap. NOT fixed (out of Task 5 scope = behavior change). See Day 9 backlog P1.
+
+   **🟡 NEW CRITICAL FINDING #2 — dedupe is append-time, not flush-time.** `_buffer_media_group_msg` drops duplicates *as they arrive* (keyed on `seen_uids`), so they never enter `msgs`. Implication: `buffer_size_after` in the logs already reflects the deduped count, and a too-aggressive `file_unique_id` collision silently discards a genuine photo at arrival — there is no flush-time reconciliation to recover it. If loss is dedupe-driven, the `SKIPPED duplicate` log line is the smoking gun (look for distinct intended photos sharing one `file_unique_id`).
 
 2. **InsightFace face validator fallback** — InsightFace fails to load (ONNX Runtime / Python 3.14 issue), falls back to OpenCV Haar cascade with ~60% detection rate. Many photos rejected as "без лиц" even with faces. Need investigation.
 
@@ -161,15 +170,18 @@ C:\jarvis\app\services\auth\        # Day 8 Task 2 NEW
   ├── __init__.py
   └── whitelist.py                  # load_admin_user_id, is_allowed, REJECT_MESSAGE
 
-C:\jarvis\app\services\audit\       # Day 8 Task 3 (in progress)
-  ├── __init__.py                   # to be created
-  └── audit_logger.py               # to be created
+C:\jarvis\app\services\audit\       # Day 8 Tasks 3 + 4 ✅
+  ├── __init__.py
+  ├── audit_logger.py               # Task 3: per-day JSONL log + admin forwards
+  └── cost_tracker.py               # Task 4: per-user spend, /my_stats + /admin_costs
 
 C:\jarvis\app\handlers\
   └── face_swap_handler.py         # bot wiring, /swapbatch_*, set_quality
 
 C:\jarvis\tools\
-  └── jarvis_smart_telegram_control.py  # bot main, _whitelist_gate (Day 8 Task 2)
+  └── jarvis_smart_telegram_control.py  # bot main; _whitelist_gate (T2), _audit_message (T3),
+                                        #   _cost_command_intercept /my_stats /admin_costs (T4),
+                                        #   _buffer_media_group_msg + _flush_media_group B-51 logs (T5)
 
 C:\jarvis\runpod\
   └── bootstrap.sh                  # pod init, line 47 Fannovel16 URL but ComfyUI-VFI installed
@@ -185,8 +197,11 @@ C:\jarvis\tests\
   ├── test_quality_settings.py               # Day 7 Task C
   ├── test_whitelist.py                       # Day 8 Task 2 (11 tests)
   ├── test_bot_whitelist_integration.py       # Day 8 Task 2 (4 tests)
-  ├── test_audit_logger.py                    # Day 8 Task 3 (in progress)
-  └── test_bot_audit_integration.py           # Day 8 Task 3 (in progress)
+  ├── test_audit_logger.py                    # Day 8 Task 3 ✅
+  ├── test_bot_audit_integration.py           # Day 8 Task 3 ✅
+  ├── test_cost_tracker.py                    # Day 8 Task 4 ✅ (15 tests)
+  ├── test_bot_cost_commands_integration.py   # Day 8 Task 4 ✅ (4 tests)
+  └── test_b51_media_group_dedupe.py          # Day 8 Task 5 ✅ (+5 diagnostic-log tests)
 ```
 
 ### State / Config (gitignored)
@@ -232,10 +247,13 @@ Day 7 Task A (post-swap menu):
 Day 6 (custom prompts):
   ef2fdab f7f2346 041f43d 1c1fd79 bd5aee5 4ea9272
 
-Day 8:
+Day 8 (COMPLETE):
   a8843d4 fix(video): retry ComfyUI cold start on fresh pod (max 3 attempts)
   77f346f feat(auth): add user whitelist for bot access control
-  [Task 3 commit hash TBD]
+  fd2fa17 feat(audit): per-day jsonl audit log + admin Telegram forwards
+  f09417c docs(handoff): Day 8 brief for next Claude chat
+  fd1b269 feat(cost): per-user cost tracking with /my_stats and /admin_costs
+  8ceecc2 feat(bot): B-51 media_group dedupe diagnostic logging (no behavior change)
 ```
 
 ---
@@ -294,31 +312,25 @@ Watchdog has bug — spams "Bot heartbeat stale" every minute when backend up. B
 
 ---
 
-## 🎯 Next actions when resuming
+## 🎯 Next actions when resuming (Day 9 kickoff)
 
-1. **Check Task 3 status with Daniil** — он мог ship'нуть пока был away. Ask for commit hash.
-2. **If Task 3 done:** prepare Task 4 (cost tracking) CC prompt
-3. **If Task 3 in-progress:** wait for CC to finish, then Task 4
-4. **Continue Day 8 plan** through Task 5
-5. **Don't run parallel CC sessions** (see lesson learned above)
+Day 8 is closed — all 5 tasks shipped. Start Day 9 by deciding whether to keep
+hardening reliability (B-51 family) or pivot to new features. **Don't run
+parallel CC sessions** (see lesson learned above). Open with a greeting to
+Daniil as напарник and confirm the Day 9 priority order below.
 
-### Task 4 quick spec (cost tracking — Option B-lite)
+### Day 9 backlog (prioritized by what Task 5 logging revealed)
 
-- New: `app/services/audit/cost_tracker.py`
-- State: `state/cost_tracking.json` with per-user daily/monthly/all-time spend
-- Update after batch completion (call from face_swap_handler animate completion)
-- Commands: `/my_stats` (user-facing), `/admin_costs` (admin only, all users table)
-- **No hard cap** — Daniil wants visibility without blocks
-- Integrates with audit logger from Task 3
+| P | Item | Why now | Effort |
+|---|------|---------|--------|
+| **P0** | **Reproduce a B-51 loss with the new logs** | Task 5 instrumentation is live but unproven. Have Daniil send a known-count album (e.g. 5 photos); grep `media_group:` in `logs/jarvis_bot.log`; read off which branch fired (`NEW media_group_id` / `gap_since_last>2s` / `SKIPPED duplicate`). This DECIDES every fix below — don't guess, let the log say. | 15 min + 1 album |
+| **P1** | **Fix webhook-path total-loss bug (Finding #1)** | If the bot ever runs in webhook mode (`WEBHOOK_URL` set), albums are silently 100% lost — `webhook_reader_thread` passes no shared buffer to `process_update` and that path never flushes. Fix: thread a persistent buffer + flush loop into the webhook reader, OR route webhook media groups through the same `_buffer_media_group_msg`/`_flush_media_group` as polling. **TDD; this is a behavior change so it was out of Task 5 scope.** | ~1-2h |
+| **P2** | **B-51 root-cause fix — branch chosen by P0 evidence** | • Split-album (`NEW media_group_id`) → re-key buffer on `chat_id`+time-window, merge groups within the flush window. • Flush-too-early (`gap_since_last`>2s) → raise/make-adaptive the hardcoded `2.0`s threshold (`_main_inner` ~line 5560). • Over-aggressive dedupe (`SKIPPED duplicate` of distinct photos, Finding #2) → add a secondary discriminator (file_size/dims) before skipping, since dedupe is append-time with no flush-time recovery. | ~1-3h depending on branch |
+| **P3** | **InsightFace validator fallback** (~60% Haar detection) | Pre-existing; rejects real faces as "без лиц". Independent of B-51 but high user-facing pain. ONNX Runtime / Python 3.14 load failure. | investigation-first |
+| **P4** | **Watchdog/heartbeat false-positive** | Spams "Bot heartbeat stale"; forces backend-DOWN-at-night workaround. Quality-of-life. | ~1h |
+| **P5** | **Promote B-51 logs to structured JSON** (optional) | If grep-by-eye proves clumsy during P0, mirror the `audit_logger` one-JSON-line-per-event format for machine-parseable post-mortems. Only if P0 shows the need. | ~30 min |
 
-### Task 5 quick spec (B-51 dedupe diagnostic)
-
-- Goal: explicit logging in `tools/jarvis_smart_telegram_control.py` media_group buffer
-- Log entries needed:
-  - Album received with N photos, with file_unique_ids
-  - Dedupe decisions (which photos skipped and why)
-  - Buffer flush timing (when, why, with how many)
-- No behavior change — purely diagnostic so we can debug 5→3 photo loss
+**Suggested Day 9 opener:** P0 first (cheap, unblocks everything), then P1 (clear-cut correctness bug, no waiting on Daniil), then P2 once P0 evidence is in hand.
 
 ---
 
@@ -338,4 +350,4 @@ Watchdog has bug — spams "Bot heartbeat stale" every minute when backend up. B
 
 **End of Brief**
 
-If you're a new Claude reading this — you should now have enough context to pick up where Day 8 left off. Greet Daniil as напарник, ask про Task 3 status, and continue execution. Welcome to the project. 🤝
+If you're a new Claude reading this — Day 8 is ✅ COMPLETE (all 5 tasks shipped, HEAD `8ceecc2`). Greet Daniil as напарник, confirm the Day 9 priority order (P0: reproduce a B-51 loss with the new logs → P1: webhook-path total-loss fix → P2: B-51 root-cause fix), and continue execution. Welcome to the project. 🤝
