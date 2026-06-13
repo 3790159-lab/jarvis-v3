@@ -5495,23 +5495,21 @@ def _render_router_response(chat_id: str, response) -> None:
         send(chat_id_s, "Готово.")
 
 
-def _route_plain_text(chat_id: str, text: str, msg: Dict[str, Any]) -> bool:
-    """Route plain (non-command) text through the LLM router.
+def _run_router(chat_id: str, text: str, msg: Dict[str, Any]):
+    """Run the LLM router for ``text`` and return the RouterResponse, or None.
 
-    Returns True if the router consumed the message; False to fall back to the
-    legacy ``handle`` dispatcher (a command, router disabled/unavailable, or any
-    runtime error). The router is OFF by default (opt-in): set
-    ``JARVIS_ROUTER_ENABLED=1`` to route plain text through the LLM. Default-off
-    keeps this change additive — existing plain-text behaviour (legacy
-    ``handle``) is unchanged until an operator explicitly enables the router.
+    Returns None when the router should not handle the message (disabled, a
+    ``/command``, unavailable) or when routing raised — in every such case the
+    caller falls back to the legacy ``handle`` dispatcher. The router is OFF by
+    default (opt-in): set ``JARVIS_ROUTER_ENABLED=1`` to enable it.
     """
     if os.getenv("JARVIS_ROUTER_ENABLED", "0").strip() != "1":
-        return False
+        return None
     if not text or text.lstrip().startswith("/"):
-        return False
+        return None
     router = _build_router()
     if router is None:
-        return False
+        return None
 
     import asyncio as _asyncio
 
@@ -5526,14 +5524,153 @@ def _route_plain_text(chat_id: str, text: str, msg: Dict[str, Any]) -> bool:
         user_id=uid, username=frm.get("username"), chat_id=str(chat_id)
     )
     try:
-        response = _asyncio.run(router.route_message(text, context))
+        return _asyncio.run(router.route_message(text, context))
     except Exception as e:  # noqa: BLE001 - any failure → legacy fallback
         print(f"[router] route_message failed, falling back: {e}", flush=True)
+        return None
+
+
+def _route_plain_text(chat_id: str, text: str, msg: Dict[str, Any]) -> bool:
+    """Route plain (non-command) text through the LLM router.
+
+    Returns True if the router consumed the message; False to fall back to the
+    legacy ``handle`` dispatcher. Default-off keeps this additive — existing
+    plain-text behaviour is unchanged until an operator enables the router.
+    """
+    response = _run_router(chat_id, text, msg)
+    if response is None:
         return False
     try:
         _render_router_response(chat_id, response)
     except Exception as e:  # noqa: BLE001 - render must not crash the loop
         print(f"[router] render failed: {e}", flush=True)
+    return True
+
+
+# ── Phase 4 Step 2: voice in/out (Whisper transcription + optional TTS) ───────
+# Voice notes are transcribed and fed into the same text flow as typed messages
+# (router if enabled, else legacy ``handle``). A spoken reply is sent back only
+# when JARVIS_VOICE_REPLY_ENABLED=1. Everything degrades to text on any failure.
+
+
+def _uid_from_msg(msg: Dict[str, Any]):
+    frm = msg.get("from") or {}
+    try:
+        return int(frm.get("id")) if frm.get("id") is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _voice_transcribe(audio_path: str, *, duration_sec=None):
+    """Bridge to the unified Whisper transcriber (kept as a seam for tests)."""
+    from app.services.unified.voice.transcribe import transcribe_audio
+
+    return transcribe_audio(audio_path, duration_sec=duration_sec)
+
+
+def _voice_synthesize(text: str):
+    """Bridge to the unified TTS synthesiser (kept as a seam for tests)."""
+    from app.services.unified.voice.synthesize import synthesize_speech
+
+    return synthesize_speech(text)
+
+
+def _send_voice_note(chat_id: str, audio: bytes, audio_format: str = "ogg") -> None:
+    """Upload ``audio`` bytes to Telegram as a voice note (or audio file)."""
+    import requests
+
+    if audio_format in ("ogg", "opus"):
+        method, field, fname = "sendVoice", "voice", "reply.ogg"
+    else:
+        method, field, fname = "sendAudio", "audio", f"reply.{audio_format}"
+    requests.post(
+        f"{TG}/{method}",
+        data={"chat_id": str(chat_id)},
+        files={field: (fname, audio)},
+        timeout=60,
+    )
+
+
+def _record_voice_event(chat_id: str, msg: Dict[str, Any], event: str, cost_usd: float, details: Dict[str, Any]) -> None:
+    """Best-effort cost + audit recording for a voice transcription/synthesis."""
+    uid = _uid_from_msg(msg)
+    uname = (msg.get("from") or {}).get("username")
+    if cost_usd:
+        try:
+            _cost.record_cost(uid, uname, cost_usd)
+        except Exception:  # noqa: BLE001 - accounting must not break the flow
+            pass
+    try:
+        _audit.audit_event(uid, uname, str(chat_id), event, {**details, "cost_usd": round(cost_usd, 6)})
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _maybe_voice_reply(chat_id: str, text: str, msg: Dict[str, Any]) -> None:
+    """Speak ``text`` back as a voice note when the feature flag is enabled."""
+    from app.services.unified.voice.synthesize import voice_reply_enabled
+
+    if not voice_reply_enabled() or not text:
+        return
+    result = _voice_synthesize(text)
+    if getattr(result, "is_error", False) or not getattr(result, "audio", b""):
+        return
+    try:
+        _send_voice_note(str(chat_id), result.audio, getattr(result, "audio_format", "ogg"))
+    except Exception as e:  # noqa: BLE001 - a failed voice reply must not crash the loop
+        print(f"[voice] send voice note failed: {e}", flush=True)
+        return
+    _record_voice_event(
+        chat_id, msg, "voice_synthesize",
+        getattr(result, "cost_usd", 0.0),
+        {"chars": len(text), "provider": getattr(result, "provider", "")},
+    )
+
+
+def _route_voice(chat_id: str, msg: Dict[str, Any]) -> bool:
+    """Transcribe a voice note and feed the text into the normal flow.
+
+    Returns True when a voice payload was handled (so the caller does nothing
+    further); False when there was no usable voice payload.
+    """
+    voice = msg.get("voice") or msg.get("audio")
+    file_id = voice.get("file_id") if voice else None
+    if not file_id:
+        return False
+
+    audio_path = _download_telegram_file(file_id, f"voice_{int(time.time())}.oga")
+    if not audio_path:
+        send(str(chat_id), "❌ Не удалось скачать голосовое.")
+        return True
+
+    send(str(chat_id), "🎤 Транскрибирую голосовое...")
+    try:
+        result = _voice_transcribe(audio_path, duration_sec=(voice or {}).get("duration"))
+    except Exception as e:  # noqa: BLE001 - transcription must not crash the loop
+        send(str(chat_id), f"❌ Ошибка транскрипции: {translate_exception(e)}")
+        return True
+
+    if getattr(result, "is_error", False) or not getattr(result, "text", ""):
+        send(str(chat_id), f"❌ {getattr(result, 'error', '') or 'Не удалось распознать речь.'}")
+        return True
+
+    text = result.text
+    _record_voice_event(
+        chat_id, msg, "voice_transcribe",
+        getattr(result, "cost_usd", 0.0),
+        {"chars": len(text), "duration_sec": getattr(result, "duration_sec", 0)},
+    )
+    send(str(chat_id), f"📝 Распознал: {text}")
+
+    response = _run_router(chat_id, text, msg)
+    if response is not None:
+        try:
+            _render_router_response(chat_id, response)
+        except Exception as e:  # noqa: BLE001
+            print(f"[router] render failed: {e}", flush=True)
+        _maybe_voice_reply(chat_id, getattr(response, "text", ""), msg)
+    else:
+        handle(chat_id, text)
     return True
 
 
@@ -5578,24 +5715,12 @@ def process_update(upd: Dict[str, Any], media_group_buffer: Optional[Dict[str, A
     if text:
         if not _route_plain_text(chat_id, text, msg):
             handle(chat_id, text)
-    elif has_voice and chat_id == ALLOWED_CHAT_ID:
-        voice = msg.get("voice") or msg.get("audio")
-        file_id = voice.get("file_id") if voice else None
-        if file_id:
-            audio_path = _download_telegram_file(file_id, "voice.ogg")
-            if audio_path:
-                send(ALLOWED_CHAT_ID, "🎤 Транскрибирую голосовое...")
-                try:
-                    from app.services.voice_input import transcribe_voice, transcribe_voice_placeholder
-                    text_transcribed = transcribe_voice(audio_path)
-                    if text_transcribed:
-                        send(ALLOWED_CHAT_ID, f"📝 Распознал: {text_transcribed}")
-                        if not _route_plain_text(ALLOWED_CHAT_ID, text_transcribed, msg):
-                            handle(ALLOWED_CHAT_ID, text_transcribed)
-                    else:
-                        send(ALLOWED_CHAT_ID, transcribe_voice_placeholder(audio_path))
-                except Exception as ve:
-                    send(ALLOWED_CHAT_ID, f"❌ Ошибка транскрипции: {translate_exception(ve)}")
+    elif has_voice:
+        # Phase 4 Step 2: voice notes route through the unified Whisper +
+        # (optional) TTS layer, then into the same flow as typed text. Aligned
+        # with the text branch — available to any whitelisted user, not just
+        # the legacy single chat.
+        _route_voice(chat_id, msg)
     elif has_file and chat_id == ALLOWED_CHAT_ID:
         if media_gid:
             if media_gid not in media_group_buffer:
