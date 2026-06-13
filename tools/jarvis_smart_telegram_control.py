@@ -5415,6 +5415,128 @@ def _cost_command_intercept(upd: Dict[str, Any]) -> bool:
     return True
 
 
+# ── Phase 4: unified LLM router (natural-language → tools) ───────────────────
+# Plain (non-command) text is routed through the Claude tool_use router. This
+# is purely additive: commands and a disabled/unavailable router fall back to
+# the legacy ``handle`` dispatcher, so all existing behaviour is preserved.
+
+_ROUTER_SINGLETON: Any = None
+_ROUTER_BUILD_FAILED = False
+
+
+def _swapbatch_set_quality_call(chat_id_int: int, args: str) -> None:
+    """Adapter so the router's set_quality tool reuses the legacy handler."""
+    handler, _ = _swapbatch_get_handler()
+    if handler is None:
+        send(str(chat_id_int), "⚠️ Модуль face-swap недоступен.")
+        return
+    _swapbatch_apply_reply(
+        str(chat_id_int), handler.handle_set_quality(chat_id_int, args)
+    )
+
+
+def _build_router():
+    """Lazily build the singleton :class:`LLMRouter`, or None if unavailable.
+
+    Returns None when the anthropic SDK or ``ANTHROPIC_API_KEY`` is missing so
+    the caller transparently falls back to the legacy dispatcher. The result is
+    cached; a failed build is remembered so we don't retry on every message.
+    """
+    global _ROUTER_SINGLETON, _ROUTER_BUILD_FAILED
+    if _ROUTER_SINGLETON is not None:
+        return _ROUTER_SINGLETON
+    if _ROUTER_BUILD_FAILED:
+        return None
+    try:
+        from app.services.unified.llm_router.llm_client import (
+            build_anthropic_client,
+            resolve_model,
+        )
+        from app.services.unified.llm_router.router import LLMRouter
+        from app.services.unified.llm_router.tool_registry import ToolRegistry
+        from app.services.unified.llm_router.tools import register_default_tools
+
+        client = build_anthropic_client()
+        if client is None:
+            _ROUTER_BUILD_FAILED = True
+            return None
+        registry = ToolRegistry()
+        register_default_tools(
+            registry,
+            dispatch_fn=_swapbatch_dispatch,
+            set_quality_fn=_swapbatch_set_quality_call,
+        )
+        _ROUTER_SINGLETON = LLMRouter(
+            client,
+            registry,
+            model=resolve_model(),
+            record_cost=_cost.record_cost,
+            audit=_audit.audit_event,
+        )
+        return _ROUTER_SINGLETON
+    except Exception as e:  # noqa: BLE001 - any failure → legacy fallback
+        print(f"[router] build failed, using legacy dispatcher: {e}", flush=True)
+        _ROUTER_BUILD_FAILED = True
+        return None
+
+
+def _render_router_response(chat_id: str, response) -> None:
+    """Render a RouterResponse back to Telegram (text + any media)."""
+    chat_id_s = str(chat_id)
+    media = getattr(response, "media", None) or []
+    if response.text:
+        send(chat_id_s, response.text)
+    for item in media:
+        if item.kind == "photo" and item.media:
+            _send_photo_url(chat_id_s, item.media, item.text or "")
+        elif item.kind == "video" and item.media:
+            send(chat_id_s, f"🎬 Видео: {item.media}")
+    if not response.text and not media:
+        send(chat_id_s, "Готово.")
+
+
+def _route_plain_text(chat_id: str, text: str, msg: Dict[str, Any]) -> bool:
+    """Route plain (non-command) text through the LLM router.
+
+    Returns True if the router consumed the message; False to fall back to the
+    legacy ``handle`` dispatcher (a command, router disabled/unavailable, or any
+    runtime error). The router is OFF by default (opt-in): set
+    ``JARVIS_ROUTER_ENABLED=1`` to route plain text through the LLM. Default-off
+    keeps this change additive — existing plain-text behaviour (legacy
+    ``handle``) is unchanged until an operator explicitly enables the router.
+    """
+    if os.getenv("JARVIS_ROUTER_ENABLED", "0").strip() != "1":
+        return False
+    if not text or text.lstrip().startswith("/"):
+        return False
+    router = _build_router()
+    if router is None:
+        return False
+
+    import asyncio as _asyncio
+
+    from app.services.unified.llm_router.tool_registry import ToolContext
+
+    frm = msg.get("from") or {}
+    try:
+        uid = int(frm.get("id")) if frm.get("id") is not None else None
+    except (TypeError, ValueError):
+        uid = None
+    context = ToolContext(
+        user_id=uid, username=frm.get("username"), chat_id=str(chat_id)
+    )
+    try:
+        response = _asyncio.run(router.route_message(text, context))
+    except Exception as e:  # noqa: BLE001 - any failure → legacy fallback
+        print(f"[router] route_message failed, falling back: {e}", flush=True)
+        return False
+    try:
+        _render_router_response(chat_id, response)
+    except Exception as e:  # noqa: BLE001 - render must not crash the loop
+        print(f"[router] render failed: {e}", flush=True)
+    return True
+
+
 def process_update(upd: Dict[str, Any], media_group_buffer: Optional[Dict[str, Any]] = None) -> None:
     """Process a single Telegram update (shared by polling loop and webhook reader)."""
     if not _whitelist_gate(upd):
@@ -5454,7 +5576,8 @@ def process_update(upd: Dict[str, Any], media_group_buffer: Optional[Dict[str, A
         return
 
     if text:
-        handle(chat_id, text)
+        if not _route_plain_text(chat_id, text, msg):
+            handle(chat_id, text)
     elif has_voice and chat_id == ALLOWED_CHAT_ID:
         voice = msg.get("voice") or msg.get("audio")
         file_id = voice.get("file_id") if voice else None
@@ -5467,7 +5590,8 @@ def process_update(upd: Dict[str, Any], media_group_buffer: Optional[Dict[str, A
                     text_transcribed = transcribe_voice(audio_path)
                     if text_transcribed:
                         send(ALLOWED_CHAT_ID, f"📝 Распознал: {text_transcribed}")
-                        handle(ALLOWED_CHAT_ID, text_transcribed)
+                        if not _route_plain_text(ALLOWED_CHAT_ID, text_transcribed, msg):
+                            handle(ALLOWED_CHAT_ID, text_transcribed)
                     else:
                         send(ALLOWED_CHAT_ID, transcribe_voice_placeholder(audio_path))
                 except Exception as ve:

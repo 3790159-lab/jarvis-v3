@@ -1,0 +1,52 @@
+# -*- coding: utf-8 -*-
+"""Tool implementations for the unified LLM router.
+
+Each module exposes a ``build_*_tool(...)`` factory returning a
+:class:`~app.services.unified.llm_router.tool_registry.Tool`. Backends
+(generation, dispatch, stats) are injected so the tools are unit-testable
+without touching FLUX, Telegram, or the cost ledger.
+
+:func:`register_default_tools` wires the Step-1 tool set into a registry; the
+bot bridge calls it during startup.
+"""
+from __future__ import annotations
+
+from typing import Any, Callable, Optional
+
+from app.services.unified.llm_router.tool_registry import ToolRegistry
+from app.services.unified.llm_router.tools.cost_stats import build_cost_stats_tool
+from app.services.unified.llm_router.tools.persona_photo import (
+    build_persona_photo_tool,
+)
+from app.services.unified.llm_router.tools.swap_batch import build_swap_batch_tools
+
+
+def register_default_tools(
+    registry: ToolRegistry,
+    *,
+    dispatch_fn: Optional[Callable[..., Any]] = None,
+    set_quality_fn: Optional[Callable[..., Any]] = None,
+    persona_generate_fn: Optional[Callable[..., Any]] = None,
+    persona_exists_fn: Optional[Callable[..., Any]] = None,
+    stats_fn: Optional[Callable[..., Any]] = None,
+) -> ToolRegistry:
+    """Register the Step-1 tool set (persona photo, swap batch, stats)."""
+    registry.register(
+        build_persona_photo_tool(
+            generate_fn=persona_generate_fn, persona_exists_fn=persona_exists_fn
+        )
+    )
+    for tool in build_swap_batch_tools(
+        dispatch_fn=dispatch_fn, set_quality_fn=set_quality_fn
+    ):
+        registry.register(tool)
+    registry.register(build_cost_stats_tool(stats_fn=stats_fn))
+    return registry
+
+
+__all__ = [
+    "register_default_tools",
+    "build_persona_photo_tool",
+    "build_swap_batch_tools",
+    "build_cost_stats_tool",
+]
