@@ -5712,7 +5712,20 @@ def process_update(upd: Dict[str, Any], media_group_buffer: Optional[Dict[str, A
     if chat_id == ALLOWED_CHAT_ID and _persona_video_intercept(chat_id, msg):
         return
 
+    # Block M.2.5: single photo for an active swapbatch session (albums go
+    # through the media_group buffer below, not here).
+    if (
+        chat_id == ALLOWED_CHAT_ID
+        and msg.get("photo")
+        and not media_gid
+        and _swapbatch_photo_intercept(chat_id, msg)
+    ):
+        return
+
     if text:
+        # Block M.2.5: numbered-prompt message for an active custom-prompts flow.
+        if chat_id == ALLOWED_CHAT_ID and _swapbatch_text_intercept(chat_id, text):
+            return
         if not _route_plain_text(chat_id, text, msg):
             handle(chat_id, text)
     elif has_voice:
@@ -5723,10 +5736,11 @@ def process_update(upd: Dict[str, Any], media_group_buffer: Optional[Dict[str, A
         _route_voice(chat_id, msg)
     elif has_file and chat_id == ALLOWED_CHAT_ID:
         if media_gid:
-            if media_gid not in media_group_buffer:
-                media_group_buffer[media_gid] = {"msgs": [], "last_seen": time.time()}
-            media_group_buffer[media_gid]["msgs"].append(msg)
-            media_group_buffer[media_gid]["last_seen"] = time.time()
+            # Buffer media group — process when all parts arrive. Dedupe
+            # duplicate deliveries by file_unique_id (B-51) instead of a naive
+            # append; sharing this with the poll loop also closes the webhook
+            # media_group duplication gap found in Day 8.
+            _buffer_media_group_msg(media_group_buffer, media_gid, msg)
         else:
             state = load_state()
             _handle_file_message(chat_id, msg, state)
@@ -5860,105 +5874,13 @@ def _main_inner() -> None:
             for upd in updates:
                 offset = max(offset, int(upd.get("update_id", 0)) + 1)
 
-                # Access control: non-whitelisted users get the polite reject
-                # message and are dropped before any handler runs.
-                if not _whitelist_gate(upd):
-                    continue
-
-                _audit_message(upd)
-
-                # Handle inline keyboard button presses
-                cq = upd.get("callback_query")
-                if cq:
-                    cq_chat_id = str((cq.get("from") or {}).get("id", ""))
-                    msg_chat_id = str((cq.get("message", {}).get("chat") or {}).get("id", ""))
-                    print(f"[CQ] Received: data={cq.get('data')!r}, from={cq_chat_id}, msg_chat={msg_chat_id}", flush=True)
-
-                    if cq_chat_id == ALLOWED_CHAT_ID or msg_chat_id == ALLOWED_CHAT_ID:
-                        state = load_state()
-                        try:
-                            handle_callback_query(cq, state)
-                            print(f"[CQ] Handled OK", flush=True)
-                        except Exception as cq_err:
-                            import traceback
-                            print(f"[CQ ERR] {type(cq_err).__name__}: {cq_err}", flush=True)
-                            traceback.print_exc()
-                            try:
-                                answer_callback_query(cq.get("id", ""), "❌ Ошибка")
-                            except Exception:
-                                pass
-                    else:
-                        print(f"[CQ] Skipped — chat_id mismatch (from={cq_chat_id}, msg={msg_chat_id}, allowed={ALLOWED_CHAT_ID})", flush=True)
-                    continue
-
-                msg = upd.get("message") or upd.get("edited_message") or {}
-                chat = msg.get("chat") or {}
-                chat_id = str(chat.get("id", ""))
-                text = msg.get("text", "")
-
-                has_file = bool(msg.get("document") or msg.get("photo") or msg.get("video"))
-                has_voice = bool(msg.get("voice") or msg.get("audio"))
-                media_gid = msg.get("media_group_id")
-
-                # Block M.2 Phase C: /persona_video with attached/replied photo.
-                if (
-                    str(chat_id) == ALLOWED_CHAT_ID
-                    and _persona_video_intercept(chat_id, msg)
-                ):
-                    continue
-
-                # Block M.2.5: single photo for active swapbatch session
-                # (only when not part of an album — those go through buffer).
-                if (
-                    str(chat_id) == ALLOWED_CHAT_ID
-                    and msg.get("photo")
-                    and not msg.get("media_group_id")
-                    and _swapbatch_photo_intercept(chat_id, msg)
-                ):
-                    continue
-
-                if text:
-                    # Block M.2.5: numbered-prompt message for active custom flow.
-                    if (
-                        str(chat_id) == ALLOWED_CHAT_ID
-                        and _swapbatch_text_intercept(chat_id, text)
-                    ):
-                        continue
-                    handle(chat_id, text)
-                elif has_voice and str(chat_id) == ALLOWED_CHAT_ID:
-                    # Phase 26: Real Whisper transcription
-                    voice = msg.get("voice") or msg.get("audio")
-                    file_id = voice.get("file_id") if voice else None
-                    if file_id:
-                        audio_path = _download_telegram_file(file_id, "voice.ogg")
-                        if audio_path:
-                            send(ALLOWED_CHAT_ID, "🎤 Транскрибирую голосовое...")
-                            try:
-                                _root_vi = str(Path(__file__).parent.parent)
-                                import sys as _sys_vi
-                                if _root_vi not in _sys_vi.path:
-                                    _sys_vi.path.insert(0, _root_vi)
-                                from app.services.voice_input import transcribe_voice, transcribe_voice_placeholder
-                                text_transcribed = transcribe_voice(audio_path)
-                                if text_transcribed:
-                                    send(ALLOWED_CHAT_ID, f"📝 Распознал: {text_transcribed}")
-                                    handle(ALLOWED_CHAT_ID, text_transcribed)
-                                else:
-                                    send(ALLOWED_CHAT_ID, transcribe_voice_placeholder(audio_path))
-                            except Exception as ve:
-                                send(ALLOWED_CHAT_ID, f"❌ Ошибка транскрипции: {translate_exception(ve)}")
-                        else:
-                            send(ALLOWED_CHAT_ID, "❌ Не удалось скачать голосовое. Попробуй ещё раз.")
-                    else:
-                        send(ALLOWED_CHAT_ID, "🎤 Голосовое без file_id — попробуй ещё раз.")
-                elif has_file and str(chat_id) == ALLOWED_CHAT_ID:
-                    if media_gid:
-                        # Buffer media group — process when all parts arrive.
-                        # Dedupe duplicate deliveries by file_unique_id (B-51).
-                        _buffer_media_group_msg(media_group_buffer, media_gid, msg)
-                    else:
-                        state = load_state()
-                        _handle_file_message(chat_id, msg, state)
+                # Phase-4 unification: the poll loop and the webhook reader now
+                # share one dispatch path. process_update applies the whitelist
+                # gate, audit, identity capture, cost-command + persona-video +
+                # swap photo/text intercepts, B-51 media_group dedupe, unified
+                # voice (_route_voice), and file handling. The persistent buffer
+                # is threaded through so the stale-group flush above drains it.
+                process_update(upd, media_group_buffer)
         except Exception as e:
             print("ERR:", repr(e), flush=True)
             time.sleep(3)
