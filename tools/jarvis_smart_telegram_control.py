@@ -5746,31 +5746,69 @@ def process_update(upd: Dict[str, Any], media_group_buffer: Optional[Dict[str, A
             _handle_file_message(chat_id, msg, state)
 
 
+def _webhook_flush_stale_groups(
+    media_group_buffer: Dict[str, Any], now: Optional[float] = None
+) -> None:
+    """Flush media groups whose last part arrived >= 2s ago.
+
+    Mirrors the poll loop's stale-group sweep so the webhook path drains albums
+    the same way. Pop-before-process lives in ``_flush_media_group`` (B-51 §5.2),
+    so a mid-flush exception cannot leave a group buffered for a re-flush.
+    """
+    if now is None:
+        now = time.time()
+    for gid in list(media_group_buffer):
+        if now - media_group_buffer[gid].get("last_seen", now) >= 2.0:
+            _flush_media_group(media_group_buffer, gid)
+
+
+def _webhook_drain_new_updates(
+    f, seen_offset: int, media_group_buffer: Dict[str, Any]
+) -> int:
+    """Dispatch every new line in ``f`` (from ``seen_offset``) via process_update.
+
+    The persistent ``media_group_buffer`` is threaded through so album photos
+    accumulate across drains instead of each landing in a throwaway per-call
+    buffer. Returns the new file offset to resume from on the next pass.
+    """
+    f.seek(seen_offset)
+    for line in f:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            update = json.loads(line)
+            process_update(update, media_group_buffer)
+        except Exception as e:
+            print(f"[Webhook] process error: {e}", flush=True)
+    return f.tell()
+
+
 def webhook_reader_thread() -> None:
     """Read webhook_queue.jsonl every 1s, process new Telegram updates.
 
     Activated automatically when WEBHOOK_URL env var is set.
     The backend writes incoming updates to state/webhook_queue.jsonl.
+
+    A persistent media_group buffer is owned here (not recreated per update) and
+    stale groups are flushed on the 2s timeout — matching the poll loop — so an
+    album delivered over the webhook accumulates across drains and flushes
+    exactly once instead of each photo being lost in a throwaway buffer.
     """
-    import threading as _threading
     queue_path = Path(__file__).parent.parent / "state" / "webhook_queue.jsonl"
     seen_offset = 0
+    media_group_buffer: Dict[str, Any] = {}
     print("[Webhook] Reader thread started.", flush=True)
     while True:
         try:
+            # Flush stale media groups (>2s old — all parts arrived) before
+            # draining new updates, same cadence as the poll loop.
+            _webhook_flush_stale_groups(media_group_buffer)
             if queue_path.exists():
                 with queue_path.open("r", encoding="utf-8") as f:
-                    f.seek(seen_offset)
-                    for line in f:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        try:
-                            update = json.loads(line)
-                            process_update(update)
-                        except Exception as e:
-                            print(f"[Webhook] process error: {e}", flush=True)
-                    seen_offset = f.tell()
+                    seen_offset = _webhook_drain_new_updates(
+                        f, seen_offset, media_group_buffer
+                    )
         except Exception as e:
             print(f"[Webhook] reader error: {e}", flush=True)
         time.sleep(1)
