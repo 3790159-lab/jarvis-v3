@@ -517,6 +517,140 @@ def _persona_video_intercept(chat_id: str, msg: Dict[str, Any]) -> bool:
     return False
 
 
+# ── Block M.2.6 video face swap (готовое видео → замена лица → новое видео) ──
+
+_VIDEO_SWAP_CMD = "/video_face_swap"
+
+
+def _video_face_swap_dispatch(chat_id) -> None:
+    """Router-tool entry point: explain how to send the video + face photo.
+
+    The actual media arrive as a Telegram message handled by
+    :func:`_video_face_swap_intercept`; this only nudges the user.
+    """
+    send(
+        str(chat_id),
+        "🎭 Замена лица в видео.\n"
+        "Пришли видео, затем ответь на него фото с лицом и подписью "
+        f"{_VIDEO_SWAP_CMD} (или наоборот: видео с подписью в ответ на фото).\n"
+        "Лимиты: видео до 60 сек, до 1080p.",
+    )
+
+
+def _video_face_swap_run(chat_id, face_path, video_path) -> None:
+    """Run the video swap in a worker thread, holding the shared video lock.
+
+    Uses the same :func:`_get_video_lock` as animation / swapbatch so only one
+    pod job runs at a time (один под — одна задача). The pod-side work is the
+    untested boundary (verified manually on a live pod).
+    """
+    import asyncio as _aio
+    import threading
+    from pathlib import Path as _Path
+
+    from app.services.block_m2_video.generation_lock import GenerationLockBusy
+    from app.services.block_m2_face_swap.video_face_swap_engine import (
+        VideoFaceSwapEngine,
+        VideoTooLongError,
+    )
+
+    chat_id_int = int(chat_id)
+    chat_id_s = str(chat_id)
+    lock = _get_video_lock()
+    try:
+        token = lock.acquire(chat_id_int)
+    except GenerationLockBusy:
+        send(chat_id_s, "⏳ Уже идёт другая генерация. Дождитесь завершения.")
+        return
+
+    send(
+        chat_id_s,
+        "🎬 Принял видео и лицо. Заменяю лицо во всём видео "
+        "(это займёт несколько минут)…",
+    )
+
+    def _progress(stage: str, payload: dict) -> None:
+        if stage == "planned":
+            send(
+                chat_id_s,
+                f"📊 Кадров: {payload.get('frames')} • оценка "
+                f"~${payload.get('est_usd')} • ~{payload.get('est_minutes')} мин",
+            )
+        elif stage == "pod_ready":
+            send(
+                chat_id_s,
+                f"✅ Pod готов ({'reused' if payload.get('reused') else 'fresh'}).",
+            )
+
+    def _run() -> None:
+        try:
+            engine = VideoFaceSwapEngine()
+            out = _aio.run(
+                engine.swap_video(
+                    _Path(face_path), _Path(video_path), progress_cb=_progress,
+                )
+            )
+            send(chat_id_s, "✅ Готово.")
+            _send_local_video(chat_id_s, str(out))
+        except VideoTooLongError as exc:
+            send(chat_id_s, f"⚠️ Видео слишком длинное: {exc}")
+        except Exception as exc:  # noqa: BLE001
+            send(chat_id_s, f"❌ Ошибка: {translate_exception(exc)}")
+        finally:
+            lock.release(token)
+
+    threading.Thread(
+        target=_run, daemon=True, name=f"video_face_swap_{chat_id_int}",
+    ).start()
+
+
+def _video_face_swap_intercept(chat_id: str, msg: Dict[str, Any]) -> bool:
+    """Route a ``/video_face_swap`` message (photo+video pair) into the flow.
+
+    Two accepted shapes (both carry the caption ``/video_face_swap``):
+      A) a photo replying to a video message, or
+      B) a video replying to a photo message.
+    Returns True if the message was consumed (caller must skip default
+    handling); False for any non-trigger message (backward compat).
+    """
+    caption = msg.get("caption") or ""
+    text = msg.get("text") or ""
+    if not (caption.startswith(_VIDEO_SWAP_CMD) or text.startswith(_VIDEO_SWAP_CMD)):
+        return False
+
+    reply = msg.get("reply_to_message") or {}
+    face_file_id: Optional[str] = None
+    video_file_id: Optional[str] = None
+
+    if msg.get("photo") and reply.get("video"):
+        face_file_id = msg["photo"][-1].get("file_id")
+        video_file_id = reply["video"].get("file_id")
+    elif msg.get("video") and reply.get("photo"):
+        video_file_id = msg["video"].get("file_id")
+        face_file_id = reply["photo"][-1].get("file_id")
+    else:
+        send(
+            chat_id,
+            "Чтобы заменить лицо в видео: пришли фото-лицо в ответ на видео "
+            f"с подписью {_VIDEO_SWAP_CMD} (или видео в ответ на фото).",
+        )
+        return True
+
+    if not face_file_id or not video_file_id:
+        send(chat_id, "Не удалось получить и видео, и фото-лицо.")
+        return True
+
+    ts = int(time.time())
+    face_local = _download_telegram_file(face_file_id, f"vswap_face_{ts}.jpg")
+    video_local = _download_telegram_file(video_file_id, f"vswap_vid_{ts}.mp4")
+    if not face_local or not video_local:
+        send(chat_id, "❌ Не удалось скачать видео или фото.")
+        return True
+
+    _video_face_swap_run(chat_id, face_local, video_local)
+    return True
+
+
 # ── Block M.2.5 /swapbatch dispatch ─────────────────────────────────────────
 
 
@@ -5519,6 +5653,7 @@ def _build_router():
             # is an explicit graceful stub until its FLUX adapter lands.
             stats_fn=_router_stats_backend,
             persona_generate_fn=_persona_generate_backend,
+            video_swap_dispatch_fn=_video_face_swap_dispatch,
         )
         _ROUTER_SINGLETON = LLMRouter(
             client,
@@ -5774,6 +5909,10 @@ def process_update(upd: Dict[str, Any], media_group_buffer: Optional[Dict[str, A
 
     # Block M.2 Phase C: /persona_video with attached or replied-to photo.
     if chat_id == ALLOWED_CHAT_ID and _persona_video_intercept(chat_id, msg):
+        return
+
+    # Block M.2.6: /video_face_swap — face photo + video pair (either order).
+    if chat_id == ALLOWED_CHAT_ID and _video_face_swap_intercept(chat_id, msg):
         return
 
     # Block M.2.5: single photo for an active swapbatch session (albums go

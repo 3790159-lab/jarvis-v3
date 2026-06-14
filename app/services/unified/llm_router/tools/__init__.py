@@ -19,6 +19,9 @@ from app.services.unified.llm_router.tools.persona_photo import (
     build_persona_photo_tool,
 )
 from app.services.unified.llm_router.tools.swap_batch import build_swap_batch_tools
+from app.services.unified.llm_router.tools.video_face_swap import (
+    build_video_face_swap_tool,
+)
 
 
 def register_default_tools(
@@ -29,8 +32,9 @@ def register_default_tools(
     persona_generate_fn: Optional[Callable[..., Any]] = None,
     persona_exists_fn: Optional[Callable[..., Any]] = None,
     stats_fn: Optional[Callable[..., Any]] = None,
+    video_swap_dispatch_fn: Optional[Callable[..., Any]] = None,
 ) -> ToolRegistry:
-    """Register the Step-1 tool set (persona photo, swap batch, stats)."""
+    """Register the default tool set (persona photo, swap batch, video swap, stats)."""
     registry.register(
         build_persona_photo_tool(
             generate_fn=persona_generate_fn, persona_exists_fn=persona_exists_fn
@@ -40,6 +44,9 @@ def register_default_tools(
         dispatch_fn=dispatch_fn, set_quality_fn=set_quality_fn
     ):
         registry.register(tool)
+    registry.register(
+        build_video_face_swap_tool(dispatch_fn=video_swap_dispatch_fn)
+    )
     registry.register(build_cost_stats_tool(stats_fn=stats_fn))
     return registry
 
@@ -48,5 +55,6 @@ __all__ = [
     "register_default_tools",
     "build_persona_photo_tool",
     "build_swap_batch_tools",
+    "build_video_face_swap_tool",
     "build_cost_stats_tool",
 ]
