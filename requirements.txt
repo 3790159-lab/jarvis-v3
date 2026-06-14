@@ -85,3 +85,10 @@ websockets==16.0
 wheel==0.46.3
 yarl==1.23.0
 replicate==1.0.7
+# Face detection for Block M.2.5 face-swap validator (Phase-4 fix).
+# insightface 1.0.1 is the first pure-Python wheel (installs on Py3.14 without a
+# C++ toolchain) and auto-downloads the buffalo_l model; the old ad-hoc 0.2.1
+# install lacked auto-download and silently fell back to weak OpenCV Haar.
+insightface==1.0.1
+onnxruntime==1.26.0
+opencv-python==4.13.0.92

@@ -6,9 +6,9 @@ photos with no detectable face before spending any pod money.
 
 Backend selection at first call:
 
-1. **InsightFace** (preferred) — ``buffalo_l`` model, downloads ~500MB to
-   ``~/.insightface/models`` on first use. Robust, returns face boxes and
-   landmarks.
+1. **InsightFace** (preferred) — ``buffalo_l`` model (insightface>=1.0.1),
+   auto-downloads ~290MB to ``~/.insightface/models`` on first use. Robust,
+   returns face boxes and landmarks. Runs on CPU (``ctx_id=-1``).
 2. **OpenCV Haar cascade** (fallback) — ships with ``opencv-python``; weaker
    (higher false-positive rate) but no extra deps. Logged when used so we
    know quality is reduced.
@@ -104,17 +104,16 @@ class FaceValidator:
                 try:
                     import insightface  # type: ignore[import-not-found]
 
-                    # Construct without ``allowed_modules`` for compatibility
-                    # with older insightface releases (0.2.x, only Py3.14
-                    # wheel available) that lack that kwarg. Modern releases
-                    # ignore the extra loaded modules cheaply.
-                    try:
-                        app = insightface.app.FaceAnalysis(
-                            name="buffalo_l",
-                            allowed_modules=["detection"],
-                        )
-                    except TypeError:
-                        app = insightface.app.FaceAnalysis(name="buffalo_l")
+                    # insightface>=1.0.1 supports ``allowed_modules`` natively
+                    # and auto-downloads the buffalo_l pack on first prepare().
+                    # We load only the detection model (the validator never needs
+                    # recognition/landmarks) to keep memory and latency down. The
+                    # old 0.2.x pin lacked this kwarg AND model auto-download,
+                    # which is why the validator silently fell back to Haar.
+                    app = insightface.app.FaceAnalysis(
+                        name="buffalo_l",
+                        allowed_modules=["detection"],
+                    )
                     app.prepare(ctx_id=-1, det_size=(640, 640))  # ctx_id=-1 → CPU
                     self._insightface_app = app
                     VALIDATOR_BACKEND = BACKEND_INSIGHTFACE
