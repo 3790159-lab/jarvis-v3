@@ -16,6 +16,7 @@ touching real ledgers.
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
@@ -55,6 +56,36 @@ class RouterResponse:
 CostRecorder = Callable[[Optional[int], Optional[str], float], None]
 AuditRecorder = Callable[..., None]
 
+# HTTP statuses that are safe to retry (rate limit, request-timeout/conflict,
+# and every 5xx). Anthropic's RateLimitError carries 429; InternalServerError /
+# OverloadedError carry 5xx.
+_TRANSIENT_STATUS_CODES = frozenset({408, 409, 429, 500, 502, 503, 504, 529})
+# Network-level anthropic errors that carry no status_code — classified by the
+# exception class name so the retry policy works without importing the SDK
+# (and so tests can exercise it with lightweight doubles).
+_TRANSIENT_ERROR_NAMES = frozenset(
+    {
+        "RateLimitError",
+        "APITimeoutError",
+        "APIConnectionError",
+        "InternalServerError",
+        "OverloadedError",
+        "ServiceUnavailableError",
+    }
+)
+
+
+def _is_transient_error(exc: BaseException) -> bool:
+    """True if ``exc`` is worth retrying (rate limit / timeout / 5xx).
+
+    4xx client errors (bad request, auth, not-found) and unrecognised
+    exceptions are treated as permanent — retrying them only wastes calls.
+    """
+    status = getattr(exc, "status_code", None)
+    if isinstance(status, int):
+        return status in _TRANSIENT_STATUS_CODES or status >= 500
+    return type(exc).__name__ in _TRANSIENT_ERROR_NAMES
+
 
 class LLMRouter:
     """Routes a natural-language message through Claude + the tool registry."""
@@ -69,6 +100,9 @@ class LLMRouter:
         system_prompt: Optional[str] = None,
         max_iterations: int = 6,
         max_tokens: int = 1024,
+        max_retries: int = 3,
+        retry_backoff: float = 0.5,
+        sleep_fn: Optional[Callable[[float], None]] = None,
         record_cost: Optional[CostRecorder] = None,
         audit: Optional[AuditRecorder] = None,
     ) -> None:
@@ -79,6 +113,9 @@ class LLMRouter:
         self._system_prompt = system_prompt or _DEFAULT_SYSTEM_PROMPT
         self._max_iterations = max_iterations
         self._max_tokens = max_tokens
+        self._max_retries = max(1, int(max_retries))
+        self._retry_backoff = retry_backoff
+        self._sleep = sleep_fn or time.sleep
         self._record_cost = record_cost
         self._audit = audit
 
@@ -102,55 +139,69 @@ class LLMRouter:
         output_tokens = 0
         final_text = ""
 
-        for _ in range(self._max_iterations):
-            kwargs: Dict[str, Any] = {
-                "model": self._model,
-                "max_tokens": self._max_tokens,
-                "system": self._system_prompt,
-                "messages": messages,
-            }
-            if tools_payload:
-                kwargs["tools"] = tools_payload
+        try:
+            for _ in range(self._max_iterations):
+                kwargs: Dict[str, Any] = {
+                    "model": self._model,
+                    "max_tokens": self._max_tokens,
+                    "system": self._system_prompt,
+                    "messages": messages,
+                }
+                if tools_payload:
+                    kwargs["tools"] = tools_payload
 
-            resp = await asyncio.to_thread(self._client.messages.create, **kwargs)
+                resp = await asyncio.to_thread(self._create_message, **kwargs)
 
-            usage = getattr(resp, "usage", None)
-            if usage is not None:
-                input_tokens += int(getattr(usage, "input_tokens", 0) or 0)
-                output_tokens += int(getattr(usage, "output_tokens", 0) or 0)
+                usage = getattr(resp, "usage", None)
+                if usage is not None:
+                    input_tokens += int(getattr(usage, "input_tokens", 0) or 0)
+                    output_tokens += int(getattr(usage, "output_tokens", 0) or 0)
 
-            content = getattr(resp, "content", []) or []
-            tool_uses = [b for b in content if getattr(b, "type", None) == "tool_use"]
+                content = getattr(resp, "content", []) or []
+                tool_uses = [b for b in content if getattr(b, "type", None) == "tool_use"]
 
-            if not tool_uses:
-                final_text = "".join(
-                    getattr(b, "text", "")
-                    for b in content
-                    if getattr(b, "type", None) == "text"
-                )
-                break
+                if not tool_uses:
+                    final_text = "".join(
+                        getattr(b, "text", "")
+                        for b in content
+                        if getattr(b, "type", None) == "text"
+                    )
+                    break
 
-            # Echo the assistant turn (with its tool_use blocks) back verbatim.
-            messages.append({"role": "assistant", "content": content})
+                # Echo the assistant turn (with its tool_use blocks) back verbatim.
+                messages.append({"role": "assistant", "content": content})
 
-            results: List[Dict[str, Any]] = []
-            for tu in tool_uses:
-                tools_used.append(tu.name)
-                result = await self._execute_tool(tu.name, tu.input or {}, context)
-                if result.is_media:
-                    media.append(result)
-                results.append(
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": tu.id,
-                        "content": result.to_tool_content(),
-                        "is_error": result.is_error,
-                    }
-                )
-            messages.append({"role": "user", "content": results})
-        else:
-            # Loop exhausted without a plain-text turn.
-            final_text = "Не удалось завершить запрос за отведённое число шагов."
+                results: List[Dict[str, Any]] = []
+                for tu in tool_uses:
+                    tools_used.append(tu.name)
+                    result = await self._execute_tool(tu.name, tu.input or {}, context)
+                    if result.is_media:
+                        media.append(result)
+                    results.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": tu.id,
+                            "content": result.to_tool_content(),
+                            "is_error": result.is_error,
+                        }
+                    )
+                messages.append({"role": "user", "content": results})
+            else:
+                # Loop exhausted without a plain-text turn.
+                final_text = "Не удалось завершить запрос за отведённое число шагов."
+        except Exception as exc:  # noqa: BLE001 - API failure must degrade, not crash
+            # Retries are exhausted (transient) or the error is permanent (4xx).
+            # Return a graceful error result so the caller can fall back to the
+            # legacy dispatcher instead of the message crashing the bot loop.
+            cost = compute_cost(self._model, input_tokens, output_tokens)
+            self._record(context, tools_used, input_tokens + output_tokens, cost)
+            return RouterResponse(
+                error=f"{type(exc).__name__}: {exc}",
+                tools_used=tools_used,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cost_usd=cost,
+            )
 
         cost = compute_cost(self._model, input_tokens, output_tokens)
         self._record(context, tools_used, input_tokens + output_tokens, cost)
@@ -165,6 +216,28 @@ class LLMRouter:
         )
 
     # ── internals ──────────────────────────────────────────────────────────
+    def _create_message(self, **kwargs: Any) -> Any:
+        """Call ``messages.create`` with bounded exponential-backoff retry.
+
+        Transient errors (rate limit / timeout / 5xx) are retried up to
+        ``max_retries`` total attempts; permanent errors (4xx/auth) raise on the
+        first failure. The last transient error is re-raised once attempts are
+        exhausted so the caller can degrade gracefully.
+        """
+        last_exc: Optional[BaseException] = None
+        for attempt in range(self._max_retries):
+            try:
+                return self._client.messages.create(**kwargs)
+            except Exception as exc:  # noqa: BLE001 - classified below
+                if not _is_transient_error(exc):
+                    raise
+                last_exc = exc
+                if attempt + 1 >= self._max_retries:
+                    break
+                self._sleep(self._retry_backoff * (2 ** attempt))
+        assert last_exc is not None  # only reached after a transient failure
+        raise last_exc
+
     async def _execute_tool(
         self, name: str, params: Dict[str, Any], context: ToolContext
     ) -> ToolResult:

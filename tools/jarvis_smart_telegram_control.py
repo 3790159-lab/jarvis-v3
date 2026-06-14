@@ -5423,6 +5423,56 @@ def _cost_command_intercept(upd: Dict[str, Any]) -> bool:
 _ROUTER_SINGLETON: Any = None
 _ROUTER_BUILD_FAILED = False
 
+# Phase-4 Step 2.7: per-chat conversation history for the router. Kept in
+# process memory (no DB yet) and capped to the last N messages so token cost
+# stays bounded. Each turn is stored as a (user, assistant) pair so the list is
+# always a valid alternating prefix starting with a user turn.
+_ROUTER_HISTORY: Dict[str, List[Dict[str, Any]]] = {}
+_ROUTER_HISTORY_MAX = 10  # last N messages (≈5 user/assistant exchanges)
+
+
+def _router_history_get(chat_id: str) -> List[Dict[str, Any]]:
+    """Return a copy of the stored history for ``chat_id`` (oldest-first)."""
+    return list(_ROUTER_HISTORY.get(str(chat_id), []))
+
+
+def _router_history_append(chat_id: str, user_text: str, assistant_text: str) -> None:
+    """Append one (user, assistant) exchange, trimming to the last N messages.
+
+    Only recorded when ``assistant_text`` is non-empty, so the stored history
+    stays an even-length, user-first, alternating sequence — exactly what the
+    Anthropic Messages API requires when it is replayed as ``conversation_history``.
+    """
+    if not assistant_text:
+        return
+    hist = _ROUTER_HISTORY.setdefault(str(chat_id), [])
+    hist.append({"role": "user", "content": user_text})
+    hist.append({"role": "assistant", "content": assistant_text})
+    # Drop whole exchanges from the front so the list stays user-first.
+    while len(hist) > _ROUTER_HISTORY_MAX:
+        del hist[:2]
+
+
+def _router_stats_backend(user_id: Optional[int], username: Optional[str]) -> str:
+    """REAL ``get_user_stats`` backend — the same per-user cost table as /my_stats."""
+    return _cost.format_my_stats_message(user_id, username)
+
+
+def _persona_generate_backend(persona_id: str, prompt: str, count: int) -> List[str]:
+    """Explicit stub for ``generate_persona_photo`` (graceful, never silent).
+
+    A real backend exists — ``app.services.block_m1_persona.photo_generator
+    .PhotoGenerator.generate_photo`` — but wiring it needs a ReplicateVideoClient
+    + PersonaStorage + CostTracker and a count→loop adapter (it returns one
+    image per call) and makes billable Replicate calls. Until that adapter
+    lands, this stub raises a clear message the tool surfaces to the user
+    instead of pretending success. See docs/PHASE_4_ROADMAP.md.
+    """
+    raise RuntimeError(
+        "Генерация фото персон ещё не подключена к роутеру "
+        "(нужен адаптер к block_m1_persona.PhotoGenerator). Это явная заглушка."
+    )
+
 
 def _swapbatch_set_quality_call(chat_id_int: int, args: str) -> None:
     """Adapter so the router's set_quality tool reuses the legacy handler."""
@@ -5465,6 +5515,10 @@ def _build_router():
             registry,
             dispatch_fn=_swapbatch_dispatch,
             set_quality_fn=_swapbatch_set_quality_call,
+            # Step 2.7: stats is wired to the real cost formatter; persona photo
+            # is an explicit graceful stub until its FLUX adapter lands.
+            stats_fn=_router_stats_backend,
+            persona_generate_fn=_persona_generate_backend,
         )
         _ROUTER_SINGLETON = LLMRouter(
             client,
@@ -5523,11 +5577,21 @@ def _run_router(chat_id: str, text: str, msg: Dict[str, Any]):
     context = ToolContext(
         user_id=uid, username=frm.get("username"), chat_id=str(chat_id)
     )
+    history = _router_history_get(str(chat_id))
     try:
-        return _asyncio.run(router.route_message(text, context))
+        response = _asyncio.run(
+            router.route_message(text, context, conversation_history=history)
+        )
     except Exception as e:  # noqa: BLE001 - any failure → legacy fallback
         print(f"[router] route_message failed, falling back: {e}", flush=True)
         return None
+    # A graceful error result (disabled / API failure after retries) means the
+    # router did not handle the message — fall back to the legacy dispatcher and
+    # do not poison the conversation history with a failed turn.
+    if getattr(response, "error", ""):
+        return None
+    _router_history_append(str(chat_id), text, getattr(response, "text", "") or "")
+    return response
 
 
 def _route_plain_text(chat_id: str, text: str, msg: Dict[str, Any]) -> bool:
