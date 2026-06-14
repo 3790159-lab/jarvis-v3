@@ -2,19 +2,19 @@
 
 | | |
 |---|---|
-| **Date** | 2026-06-14 |
+| **Date** | 2026-06-14 (updated after Step 2.7) |
 | **Branch** | `phase-4.0-unified-jarvis` |
-| **HEAD** | `55aa683` (fix(webhook): persistent media_group buffer + stale-group flush) |
-| **Status** | 🟡 **Foundation built but "dark"** — the unified LLM router is REAL and unit-tested, but `JARVIS_ROUTER_ENABLED=0` in prod, so it has never routed a real user message. |
+| **HEAD** | `f9e52e6` (feat(unified): Phase-4 Step 2.7 — harden LLM router for prod dogfooding) |
+| **Status** | 🟡 **Foundation built + hardened, still "dark"** — the unified LLM router is REAL, unit-tested, and now production-hardened (history + retry + backends), but `JARVIS_ROUTER_ENABLED` is still unset in prod. **Next gate is Daniil flipping the flag and dogfooding** (see §11). |
 
-> Audience: a fresh Claude Code session (or Daniil) should be able to read this top-to-bottom and immediately know where the project stands and what to do next. Statuses below reflect the **current code** (post-`55aa683`), not the stale Day-8 handoff docs.
+> Audience: a fresh Claude Code session (or Daniil) should be able to read this top-to-bottom and immediately know where the project stands and what to do next. Statuses below reflect the **current code** (post-`f9e52e6`), not the stale Day-8 handoff docs.
 
 ---
 
 ## 1. TL;DR verdict
 
-- ✅ The Phase-4 foundation (unified router, tool registry, voice in/out) is **real working code** that makes genuine Anthropic/OpenAI calls and is **well covered by unit tests**.
-- 🔴 **But it is not switched on.** In production the bot runs polling + `JARVIS_ROUTER_ENABLED=0`, so all text still flows through the legacy `handle()` dispatcher. The "LLM router dispatches to tools" centerpiece has effectively **never run in prod**.
+- ✅ The Phase-4 foundation (unified router, tool registry, voice in/out) is **real working code** that makes genuine Anthropic/OpenAI calls and is **well covered by unit tests**. As of Step 2.7 (`f9e52e6`) it is also **production-hardened** — per-chat history, retry/backoff with graceful degradation, and wired backends.
+- 🔴 **But it is still not switched on.** In production the bot runs polling with `JARVIS_ROUTER_ENABLED` unset, so all text still flows through the legacy `handle()` dispatcher. The "LLM router dispatches to tools" centerpiece has effectively **never run in prod** — the code is ready; the flag is off.
 - ⚠️ **The biggest risk is building Steps 3–8 (all "new tools under the router") on top of a router that has never been battle-tested in production.**
 - 👍 The **architecture is sound** (capabilities register as tools in a single registry; extensions plug in without rewrites). The **ordering** needs one inserted prerequisite (activate + harden the router) and two reorderings (do the easy, low-risk steps first).
 
@@ -30,6 +30,7 @@
 | ✅ Step 2 — Voice in/out (Whisper + TTS) | `e5cec95` | **REAL, opt-in** | OpenAI `whisper-1` transcription; `tts-1` reply gated by `JARVIS_VOICE_REPLY_ENABLED=0`. |
 | ✅ Step 2.5 — Collapse poll loop → `process_update` | `599ced8` | **DONE** | Poll loop + webhook reader now share one dispatch chokepoint. |
 | ✅ Step 2.6 — Webhook reader fix | `55aa683` | **DONE** | Persistent media_group buffer + 2 s stale-flush. |
+| ✅ Step 2.7 — Harden router (P0) | `f9e52e6` | **CODE DONE — awaiting prod dogfood** | Conversation-history persistence, retry/backoff + graceful degradation, backends wired (stats real / persona stub), pricing verified. Router still OFF by default; Daniil flips `JARVIS_ROUTER_ENABLED=1` to dogfood (§11). |
 
 **Stubs (shape only, not implemented)** — `app/services/unified/llm_router/tools/stubs.py`, **not registered** so Claude is never offered them:
 
@@ -43,13 +44,13 @@
 
 ## 3. Known gaps in the foundation (implemented-code, not features)
 
-These are gaps **inside code that exists today** — they must be closed before the dependent steps:
+Status after Step 2.7 (`f9e52e6`) — three of five closed:
 
-- 🔴 **Router is stateless.** `route_message` accepts `conversation_history` but the bridge (`_run_router`) never passes or persists it — every message starts fresh. *(Blocks multi-turn: Steps 3, 7.)*
-- 🔴 **No retry/backoff** around `messages.create` in `router.py`. A transient API error propagates out of `route_message` (only per-*tool* execution is guarded).
-- 🔴 **Tool results are text-only** (`tool_registry.to_tool_content`). No image-in-tool-result path → **directly blocks Computer Use** (screenshots must return as images).
-- 🟡 **Bridge wires only 2 of 4 injectable backends** — `register_default_tools(..., dispatch_fn, set_quality_fn)`; `persona_generate_fn` and `stats_fn` are **not** passed. `get_user_stats` has a real default backend, but `generate_persona_photo` would **raise** (`_default_generate`) if the router ever called it. *(требует уточнения: intentional?)*
-- 🟡 **Router limits are modest** — `max_iterations=6`, `max_tokens=1024`; long/agentic answers may truncate.
+- ✅ **Router history persistence** — *closed in 2.7.* `_run_router` now threads a per-chat in-memory history (last 10 messages, user-first pairs) into `route_message` and records each successful turn.
+- ✅ **Retry/backoff** — *closed in 2.7.* `_create_message` retries transient errors (429/408/409/5xx/timeout) with bounded exponential backoff (3 attempts); 4xx/auth raise immediately; on exhaustion `route_message` returns a graceful `RouterResponse(error=…)` and the bridge falls back to legacy `handle()`.
+- ✅ **Backends wired** — *closed in 2.7.* `register_default_tools` now receives `stats_fn` (REAL — the `/my_stats` formatter) and `persona_generate_fn` (explicit graceful stub). Real `block_m1_persona.PhotoGenerator` wiring is a documented follow-up (needs Replicate client/storage/tracker + count→loop adapter).
+- 🔴 **Tool results are text-only** (`tool_registry.to_tool_content`). No image-in-tool-result path → **directly blocks Computer Use** (screenshots must return as images). *(Still open — gates Step 3.)*
+- 🟡 **Router limits are modest** — `max_iterations=6`, `max_tokens=1024`. Step 2.7 made these tunable but **did not raise the defaults** (out of its 4-item scope); long/agentic answers may still truncate. Revisit when dogfooding shows truncation, or before Step 3.
 
 ---
 
@@ -61,7 +62,7 @@ These are gaps **inside code that exists today** — they must be closed before 
 | **Config drift** | 🟡 Med | ~654 scattered `os.getenv()` across 94 files; `app/settings.py` covers ~15. No single source of truth. |
 | **Model-id drift** | 🟡 Med | `claude-sonnet-4-6`, `claude-sonnet-4-20250514`, `claude-sonnet-4-5`, `gpt-5.2` (dead), `gpt-4.1` hardcoded in different files. Consolidate + verify vs current catalog. |
 | **Port inconsistency** | 🟢 Low | `settings.py` default `8015` vs `.env`/bot `8010`. |
-| **Router pricing entry** | ⚠️ Decision | `claude-opus-4-8` priced $5/$25 per 1M (`unified/llm_router/llm_client.py:25`) — **below published Opus list pricing**. Only affects the router's own cost estimate, and only if model is overridden off Sonnet. See §9. |
+| **Router pricing entry** | ✅ Resolved (2.7) | **Verified correct against the current catalog — no change.** `claude-opus-4-8` is genuinely $5/$25, `claude-sonnet-4-6` $3/$15, `claude-haiku-4-5` $1/$5; `MODEL_PRICING` already matches. The earlier "$15/$75" concern was stale (older Opus generations). |
 | **Legacy dispatch adapter** | 🟢 Low | ~200-line router↔`handle()` bridge in the bot; transitional, fine for now. |
 | **Legacy `voice_input.py`** | 🟢 Low | Superseded by `unified/voice/`; poll-loop usage removed in `599ced8` → now effectively dead. |
 
@@ -85,10 +86,10 @@ Effort key: **S** = hours–1 day · **M** = days · **L** = week+ · **L+** = m
 
 ### 🔴 P0 — close before ANY new feature (the foundation is dark)
 
-| Item | Effort | Why |
+| Item | Effort | Status / Why |
 |---|---|---|
-| **Step 2.7 — Activate + harden the router in prod** | **M** | Turn on behind the flag and dogfood. Add conversation-history persistence + retry/backoff; raise `max_tokens`; wire (or deliberately stub) `persona_generate_fn`/`stats_fn`. **This is the inserted prerequisite the original plan lacked.** |
-| **Polling-loop resilience tests** | **S–M** | `_main_inner` `while True` is the one production path with **0 coverage** (getUpdates errors, offset recovery, retry). `process_update` is well tested; the I/O loop is not. |
+| ✅ **Step 2.7 — Harden the router** | **M** | **CODE DONE (`f9e52e6`).** History persistence + retry/backoff + graceful degradation + backends wired + pricing verified. **Remaining:** (a) Daniil **flips `JARVIS_ROUTER_ENABLED=1` and dogfoods** (§11) — the real "prove it in prod" gate; (b) raise `max_tokens` default if dogfooding shows truncation (deferred from 2.7's scope). |
+| ⬜ **Polling-loop resilience tests** | **S–M** | Still open. `_main_inner` `while True` is the one production path with **0 coverage** (getUpdates errors, offset recovery, retry). `process_update` is well tested; the I/O loop is not. |
 
 ### 🟡 P1 — cheap, high-leverage cleanup (run in parallel with P0)
 
@@ -114,17 +115,17 @@ Effort key: **S** = hours–1 day · **M** = days · **L** = week+ · **L+** = m
 
 ## 7. Dependencies the original plan missed
 
-- **Router activation/hardening gates Steps 3, 4, 8** — all are "tools under the router," which is currently off and unproven.
-- **Image tool_results** are needed for Step 3 (Computer Use screenshots; also useful for vision).
+- **Router *activation* gates Steps 3, 4, 8** — hardening is done (2.7); the remaining gate is flipping the flag and proving it in prod.
+- **Image tool_results** are needed for Step 3 (Computer Use screenshots; also useful for vision). *(Still open.)*
 - **InsightFace fix gates Step 6** (and improves today's batch quality).
-- **Conversation-history persistence is needed for Steps 3 and 7** (multi-turn / long-running).
+- ✅ **Conversation-history persistence** — done in 2.7; no longer blocks Steps 3 / 7.
 - **The missions-stack decision blocks Step 7** — two parallel autonomy systems is the real trap.
 
 ```
-Step 2.7 (router on + hardened) ──┬─> Step 4 Office
-                                  ├─> Step 8 MCP
-                                  ├─> [+ image tool_results] ─> Step 3 Computer Use
-                                  └─> [+ history persistence] ─> Step 3, Step 7
+Step 2.7 hardened ✅ ──(flip flag + dogfood, §11)──┬─> Step 4 Office
+                                                   ├─> Step 8 MCP
+                                                   ├─> [+ image tool_results ⬜] ─> Step 3 Computer Use
+                                                   └─> [history persistence ✅]  ─> Step 3, Step 7
 
 InsightFace/ONNX fix ─> Step 6 Deep-Live-Cam
 Missions-vs-router decision ─> Step 7 Long autonomous
@@ -136,7 +137,7 @@ Missions-vs-router decision ─> Step 7 Long autonomous
 
 | # | Decision | Context |
 |---|---|---|
-| ⚠️ **D1** | **Router pricing entry** — `claude-opus-4-8` at $5/$25 per 1M vs the real catalog rate. | Verify against the current Anthropic pricing catalog and correct `unified/llm_router/llm_client.py:25`. Low blast radius (router cost estimate only, Sonnet is the default), but wrong numbers corrupt cost tracking if Opus is ever used. |
+| ✅ **D1** | ~~Router pricing entry~~ — **RESOLVED in 2.7.** | Verified against the current catalog: `claude-opus-4-8` $5/$25, `claude-sonnet-4-6` $3/$15, `claude-haiku-4-5` $1/$5 — `MODEL_PRICING` already correct, no change made. |
 | ⚠️ **D2** | **Missions-stack vs unified-router** — integrate or replace? | The repo already has a large autonomy stack (`goals_router` / `missions` / `night_workflows` / `agent_control_plane` / `resume_recovery`). The unified-router vision re-approaches "autonomous tasks" from a different angle. **Decide before Step 7** — building a second autonomy system without reconciling the first is the plan's biggest architectural risk. |
 
 ---
@@ -168,7 +169,36 @@ Missions-vs-router decision ─> Step 7 Long autonomous
 | Existing dashboard (Step 5 reuse) | `app/routers/jarvis_dashboard_router.py`, `app/static/dashboard.html`, `app/services/dashboard_service.py` |
 | Existing autonomy (Step 7 / D2) | `app/api/goals_router.py`, `app/api/missions.py`, `app/services/night_workflows.py`, `app/routers/agent_control_plane.py`, `app/services/resume_recovery.py` |
 | Router enable flags | `JARVIS_ROUTER_ENABLED` (default 0), `JARVIS_VOICE_REPLY_ENABLED` (default 0), `JARVIS_ROUTER_MODEL` |
+| Step 2.7 tests | `tests/test_router_hardening.py` (retry · history · backends) |
 
 ---
 
-*Generated from the 2026-06-14 read-only architecture audit + plan validation. Code facts cited; items marked "требует уточнения" / "⚠️ HUMAN DECISION" need confirmation before acting.*
+## 11. ⚠️ Daniil — turn the router on & dogfood it
+
+Step 2.7 hardened the router but left it **OFF**. To run the "prove it in prod" gate:
+
+**1. Env (startup):**
+```
+JARVIS_ROUTER_ENABLED=1          # ON
+ANTHROPIC_API_KEY=sk-ant-...     # required, else silent fallback to legacy
+JARVIS_ROUTER_MODEL=claude-opus-4-8   # optional; default claude-sonnet-4-6
+```
+Restart the bot. Missing key/SDK → `[router] build failed, using legacy dispatcher` and everything still works via `handle()`.
+
+**2. Telegram test phrases** (plain text — `/commands` always bypass the router):
+
+| Test | Send | Expect |
+|---|---|---|
+| Stats tool (REAL) | `сколько я потратил?` | Same table as `/my_stats` |
+| Persona stub | `сгенерируй фото персоны X на пляже` | Graceful "ещё не подключена…" — not a crash |
+| Plain chat | `привет, как дела?` | Short text reply, no tool |
+| **History** | `запомни число 7` → `какое число я просил запомнить?` | Second reply references **7** |
+| Resilience | rapid-fire several messages | No crash on transient API error; hard failure → silent legacy fallback |
+
+**3. Watch logs:** `[router] route_message failed, falling back` (clean degradation) + per-call cost/audit entries.
+
+**4. If dogfooding shows truncation/verbosity:** raise `max_tokens` / tune `effort` and the system prompt in `router.py` (the deferred 2.7 sub-item).
+
+---
+
+*Generated from the 2026-06-14 read-only architecture audit + plan validation; updated after Step 2.7 (`f9e52e6`). Code facts cited; items marked "требует уточнения" / "⚠️ HUMAN DECISION" need confirmation before acting.*
