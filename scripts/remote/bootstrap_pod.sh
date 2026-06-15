@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-BOOTSTRAP_VERSION="2026.05.22-003"
+BOOTSTRAP_VERSION="2026.06.15-001"
 VOLUME_VERSION_FILE="/workspace/.bootstrap_version"
 LOG_FILE="/workspace/.bootstrap_log"
 COMFYUI_DIR="/workspace/ComfyUI"
@@ -46,6 +46,29 @@ try:
 except (ImportError, RuntimeError) as e:
     missing.append('transformers.pipeline')
     print(f"  FAIL transformers.pipeline: {e}", file=sys.stderr)
+
+# When both onnxruntime (CPU) and onnxruntime-gpu are installed, the CPU build
+# shadows CUDA and get_available_providers() drops CUDAExecutionProvider — so
+# ReActor (inswapper/GFPGAN/retinaface) silently runs on CPU (hours per video).
+# A bare `import onnxruntime` can't catch this, so probe the provider list:
+# treating a missing CUDA provider as "unhealthy" makes the version-gate force a
+# reinstall on existing volumes AND makes the post-install probe fail loud
+# instead of leaving the pod to grind on CPU.
+try:
+    import onnxruntime as _ort
+    _providers = _ort.get_available_providers()
+    if 'CUDAExecutionProvider' in _providers:
+        print(f"  OK onnxruntime CUDAExecutionProvider ({_providers})")
+    else:
+        missing.append('onnxruntime:CUDAExecutionProvider')
+        print(
+            f"  FAIL onnxruntime CUDAExecutionProvider absent; "
+            f"providers={_providers}",
+            file=sys.stderr,
+        )
+except Exception as e:
+    missing.append('onnxruntime:CUDAExecutionProvider')
+    print(f"  FAIL onnxruntime provider check: {e}", file=sys.stderr)
 
 if missing:
     for mod in missing:
@@ -93,6 +116,18 @@ if [[ "$NEED_INSTALL" == "true" ]]; then
 
     echo "=== Step: re-pin transformers (ComfyUI installs newer; reactor needs <4.45 with PyTorch 2.4) ==="
     pip install --force-reinstall --quiet "transformers<4.45"
+
+    echo "=== Step: enforce onnxruntime-gpu (drop conflicting CPU build) ==="
+    # insightface (and ComfyUI/ReActor) pull the CPU 'onnxruntime' wheel in as a
+    # transitive dep, so the earlier `pip install onnxruntime-gpu insightface ...`
+    # leaves BOTH installed. The CPU build then wins and CUDAExecutionProvider
+    # disappears → ReActor runs on CPU. Remove both, then reinstall ONLY the GPU
+    # build, and do it LAST (after every other dep) so nothing re-pulls the CPU
+    # wheel. Idempotent: `uninstall -y` is a no-op when a package is absent
+    # (guarded with `|| true` so it can't trip `set -e`). CUDA 12.4 / cuDNN 9.1
+    # libs are already on the volume, so no extra runtime install is needed.
+    pip uninstall -y onnxruntime onnxruntime-gpu || true
+    pip install --quiet onnxruntime-gpu
 
     echo "=== Step: verify model files on volume ==="
     INSWAPPER="$COMFYUI_DIR/models/insightface/inswapper_128.onnx"
