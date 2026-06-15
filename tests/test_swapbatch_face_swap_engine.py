@@ -15,7 +15,11 @@ from app.services.block_m2_face_swap.face_swap_engine import (
     FaceSwapEngine,
     FaceSwapError,
 )
-from app.services.block_m2_video.runpod.runpod_client import PodInfo, RunpodApiError
+from app.services.block_m2_video.runpod.runpod_client import (
+    PodInfo,
+    RunpodApiError,
+    RunpodSupplyError,
+)
 from app.services.block_m2_video.runpod.runpod_config import RunpodConfig
 
 
@@ -574,6 +578,120 @@ async def test_find_or_start_pod_explicit_resume_api_error_raises_face_swap_erro
         await engine._find_or_start_pod(client)
 
     client.start_pod.assert_not_awaited()
+
+
+# ── sniper-style supply retry on fresh spawn ─────────────────────────────────
+
+
+@pytest.mark.anyio
+async def test_find_or_start_pod_reuses_running_prefix_candidate(
+    tmp_path, monkeypatch,
+):
+    """No FACE_SWAP_POD_ID + a RUNNING jarvis-m2-* pod → reuse, no spawn."""
+    monkeypatch.delenv("FACE_SWAP_POD_ID", raising=False)
+
+    running = PodInfo.model_construct(
+        id="pod_running", name="jarvis-m2-existing",
+        desired_status="RUNNING", cost_per_hr=1.59,
+    )
+    client = _mock_runpod_client(pods=[running])
+
+    engine = FaceSwapEngine(
+        config=_make_config(), client=client, output_dir=tmp_path / "out",
+    )
+    pod, pod_id, reused = await engine._find_or_start_pod(client)
+
+    assert pod is running
+    assert pod_id == "pod_running"
+    assert reused is True
+    client.start_pod.assert_not_awaited()
+    client.resume_pod.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_find_or_start_pod_retries_on_supply_constraint(
+    tmp_path, monkeypatch,
+):
+    """Fresh spawn hitting SUPPLY_CONSTRAINT retries instead of failing.
+
+    Sniper-style (mirrors RunpodComfyEngine): when no GPU is free, start_pod
+    raises RunpodSupplyError; the engine waits the nominal interval and
+    retries, succeeding once supply appears (here on the 3rd attempt).
+    """
+    monkeypatch.delenv("FACE_SWAP_POD_ID", raising=False)
+
+    import app.services.block_m2_face_swap.face_swap_engine as engine_mod
+
+    sleep_mock = AsyncMock()
+    monkeypatch.setattr(engine_mod.asyncio, "sleep", sleep_mock)
+
+    spawned = PodInfo.model_construct(
+        id="pod_fresh", name="jarvis-m2-swap_1", desired_status="RUNNING",
+        cost_per_hr=1.59,
+    )
+    ready = PodInfo.model_construct(
+        id="pod_fresh", name="jarvis-m2-swap_1", desired_status="RUNNING",
+        cost_per_hr=1.59,
+    )
+    client = _mock_runpod_client(pods=[])  # nothing to reuse → fresh spawn
+    client.start_pod = AsyncMock(
+        side_effect=[
+            RunpodSupplyError("SUPPLY_CONSTRAINT: no GPUs available"),
+            RunpodSupplyError("SUPPLY_CONSTRAINT: no GPUs available"),
+            spawned,
+        ]
+    )
+    client.wait_for_ready = AsyncMock(return_value=ready)
+
+    engine = FaceSwapEngine(
+        config=_make_config(), client=client, output_dir=tmp_path / "out",
+        supply_retry_interval_sec=20.0,
+    )
+    pod, pod_id, reused = await engine._find_or_start_pod(client)
+
+    assert reused is False
+    assert pod_id == "pod_fresh"
+    assert pod is ready
+    assert client.start_pod.await_count == 3  # 2 failures, success on the 3rd
+    # Slept once after each failed attempt, at the configured interval.
+    assert sleep_mock.await_count == 2
+    for call in sleep_mock.await_args_list:
+        assert call.args[0] == 20.0
+    client.resume_pod.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_find_or_start_pod_supply_timeout_raises_clear_error(
+    tmp_path, monkeypatch,
+):
+    """Persistent SUPPLY_CONSTRAINT → FaceSwapError naming the attempt count.
+
+    After exhausting the retry budget the engine must fail with a diagnosable
+    error (attempt count in the message), not an opaque crash.
+    """
+    monkeypatch.delenv("FACE_SWAP_POD_ID", raising=False)
+
+    import app.services.block_m2_face_swap.face_swap_engine as engine_mod
+
+    sleep_mock = AsyncMock()
+    monkeypatch.setattr(engine_mod.asyncio, "sleep", sleep_mock)
+
+    client = _mock_runpod_client(pods=[])
+    client.start_pod = AsyncMock(
+        side_effect=RunpodSupplyError("SUPPLY_CONSTRAINT: no GPUs available")
+    )
+
+    engine = FaceSwapEngine(
+        config=_make_config(), client=client, output_dir=tmp_path / "out",
+        supply_max_attempts=3,
+    )
+    with pytest.raises(FaceSwapError, match="3 attempts"):
+        await engine._find_or_start_pod(client)
+
+    assert client.start_pod.await_count == 3
+    # Slept between attempts but not after the final failure.
+    assert sleep_mock.await_count == 2
+    client.wait_for_ready.assert_not_awaited()
 
 
 # ── #44 collision fix + keep-pod-running flag ────────────────────────────────

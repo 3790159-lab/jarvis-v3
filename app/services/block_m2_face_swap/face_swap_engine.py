@@ -63,6 +63,14 @@ _MIN_OUTPUT_BYTES = 5 * 1024  # smallest plausible jpg
 _COMFYUI_STARTUP_TIMEOUT_SEC = 120
 _COMFYUI_HEALTH_TIMEOUT = httpx.Timeout(5.0)
 _COMFYUI_HEALTH_POLL_INTERVAL_SEC = 5.0
+# Fresh-spawn supply retry. Sniper-style fixed interval — 30 attempts * 20s
+# ≈ a 10-minute budget waiting for a free GPU on any host. Mirrors
+# RunpodComfyEngine._spawn_with_supply_retry (block_m2_video, which itself
+# models scripts/runpod_gpu_sniper.py). Without this a fresh spawn fails the
+# instant RunPod reports SUPPLY_CONSTRAINT; with it the engine rides out a
+# transient capacity crunch instead of bailing on the user.
+_SUPPLY_RETRY_INTERVAL_SEC = 20.0
+_SUPPLY_MAX_ATTEMPTS = 30
 
 _PRIMARY_REACTOR_CLASS = "ReActorFaceSwap"
 _FALLBACK_REACTOR_CLASS = "ReActorFaceSwapOpt"
@@ -88,6 +96,8 @@ class FaceSwapEngine:
         poll_interval_sec: float = _POLL_INTERVAL_SEC,
         poll_timeout_sec: int = _POLL_TIMEOUT_SEC,
         pod_ready_timeout_sec: int = _POD_READY_TIMEOUT_SEC,
+        supply_retry_interval_sec: float = _SUPPLY_RETRY_INTERVAL_SEC,
+        supply_max_attempts: int = _SUPPLY_MAX_ATTEMPTS,
     ) -> None:
         self._config = config
         self._client = client
@@ -100,6 +110,8 @@ class FaceSwapEngine:
         self._poll_interval_sec = poll_interval_sec
         self._poll_timeout_sec = poll_timeout_sec
         self._pod_ready_timeout_sec = pod_ready_timeout_sec
+        self._supply_retry_interval_sec = supply_retry_interval_sec
+        self._supply_max_attempts = supply_max_attempts
 
     # ── public API ──────────────────────────────────────────────────────────
 
@@ -354,14 +366,7 @@ class FaceSwapEngine:
 
         new_name = f"{_POD_NAME_PREFIX}swap_{int(time.time())}"
         logger.info("FaceSwapEngine: spawning fresh pod %s", new_name)
-        try:
-            pod = await client.start_pod(name=new_name)
-        except RunpodSupplyError as exc:
-            raise FaceSwapError(
-                f"no GPU supply for pod {new_name}: {exc}"
-            ) from exc
-        except RunpodApiError as exc:
-            raise FaceSwapError(f"start_pod failed: {exc}") from exc
+        pod = await self._spawn_with_supply_retry(client, new_name)
 
         try:
             ready = await client.wait_for_ready(
@@ -372,6 +377,52 @@ class FaceSwapEngine:
                 f"pod {pod.id} did not reach RUNNING: {exc}"
             ) from exc
         return ready, ready.id, False
+
+    async def _spawn_with_supply_retry(
+        self, client: RunpodClient, name: str
+    ) -> PodInfo:
+        """Spawn a fresh pod, retrying while RunPod reports no GPU supply.
+
+        Sniper-style (see scripts/runpod_gpu_sniper.py and
+        RunpodComfyEngine._spawn_with_supply_retry): when ``start_pod`` raises
+        :class:`RunpodSupplyError` (SUPPLY_CONSTRAINT — no free GPUs on any
+        host), wait ``_supply_retry_interval_sec`` and try again, up to
+        ``_supply_max_attempts`` (≈10 min budget at 20s). The GPU primary →
+        fallback cascade lives inside ``start_pod`` and is untouched here. A
+        non-supply :class:`RunpodApiError` is not transient, so it fails fast.
+        When the budget is exhausted, raise :class:`FaceSwapError` naming the
+        attempt count and elapsed time so the timeout is diagnosable.
+        """
+        start = time.monotonic()
+        last_exc: RunpodSupplyError | None = None
+        for attempt in range(1, self._supply_max_attempts + 1):
+            try:
+                return await client.start_pod(name=name)
+            except RunpodSupplyError as exc:
+                last_exc = exc
+                elapsed = time.monotonic() - start
+                if attempt >= self._supply_max_attempts:
+                    break
+                logger.info(
+                    "FaceSwapEngine: start_pod %s hit SUPPLY_CONSTRAINT "
+                    "(attempt %d/%d, %.0fs elapsed): %s | retrying in %.0fs",
+                    name,
+                    attempt,
+                    self._supply_max_attempts,
+                    elapsed,
+                    exc,
+                    self._supply_retry_interval_sec,
+                )
+                await asyncio.sleep(self._supply_retry_interval_sec)
+            except RunpodApiError as exc:
+                raise FaceSwapError(f"start_pod failed: {exc}") from exc
+
+        elapsed = time.monotonic() - start
+        raise FaceSwapError(
+            f"no GPU supply for pod {name} after "
+            f"{self._supply_max_attempts} attempts ({elapsed:.0f}s elapsed): "
+            f"{last_exc}"
+        ) from last_exc
 
     async def _ensure_comfyui_alive(self, pod_id: str, pod_url: str) -> None:
         """Wait until ComfyUI answers on ``pod_url``, polling /system_stats.
