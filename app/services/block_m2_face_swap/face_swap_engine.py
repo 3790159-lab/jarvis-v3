@@ -63,14 +63,44 @@ _MIN_OUTPUT_BYTES = 5 * 1024  # smallest plausible jpg
 _COMFYUI_STARTUP_TIMEOUT_SEC = 120
 _COMFYUI_HEALTH_TIMEOUT = httpx.Timeout(5.0)
 _COMFYUI_HEALTH_POLL_INTERVAL_SEC = 5.0
-# Fresh-spawn supply retry. Sniper-style fixed interval — 30 attempts * 20s
-# ≈ a 10-minute budget waiting for a free GPU on any host. Mirrors
-# RunpodComfyEngine._spawn_with_supply_retry (block_m2_video, which itself
-# models scripts/runpod_gpu_sniper.py). Without this a fresh spawn fails the
-# instant RunPod reports SUPPLY_CONSTRAINT; with it the engine rides out a
-# transient capacity crunch instead of bailing on the user.
+# Fresh-spawn supply retry. Sniper-style fixed interval — 180 attempts * 20s
+# ≈ a 60-minute budget waiting for a free GPU on any host (a compromise between
+# RunpodComfyEngine's 10-min in-engine retry and runpod_gpu_sniper.py's 120-min
+# standalone hunt). Mirrors RunpodComfyEngine._spawn_with_supply_retry. Without
+# this a fresh spawn fails the instant RunPod reports SUPPLY_CONSTRAINT; with it
+# the engine rides out a transient capacity crunch instead of bailing on the
+# user. Tune the budget at runtime via FACE_SWAP_SUPPLY_MAX_ATTEMPTS in .env.
 _SUPPLY_RETRY_INTERVAL_SEC = 20.0
-_SUPPLY_MAX_ATTEMPTS = 30
+_SUPPLY_MAX_ATTEMPTS = 180
+_SUPPLY_MAX_ATTEMPTS_ENV = "FACE_SWAP_SUPPLY_MAX_ATTEMPTS"  # .env override; same os.environ caveat as _EXPLICIT_POD_ENV
+
+
+def _resolve_supply_max_attempts() -> int:
+    """Read FACE_SWAP_SUPPLY_MAX_ATTEMPTS from the env, else the default.
+
+    A missing, non-integer, or non-positive value falls back to
+    ``_SUPPLY_MAX_ATTEMPTS`` (logged) so a typo in .env never crashes pod
+    startup or silently disables the retry budget.
+    """
+    raw = os.environ.get(_SUPPLY_MAX_ATTEMPTS_ENV)
+    if raw is None or not raw.strip():
+        return _SUPPLY_MAX_ATTEMPTS
+    try:
+        value = int(raw.strip())
+    except ValueError:
+        logger.warning(
+            "FaceSwapEngine: %s=%r is not an integer; using default %d",
+            _SUPPLY_MAX_ATTEMPTS_ENV, raw, _SUPPLY_MAX_ATTEMPTS,
+        )
+        return _SUPPLY_MAX_ATTEMPTS
+    if value < 1:
+        logger.warning(
+            "FaceSwapEngine: %s=%d must be >= 1; using default %d",
+            _SUPPLY_MAX_ATTEMPTS_ENV, value, _SUPPLY_MAX_ATTEMPTS,
+        )
+        return _SUPPLY_MAX_ATTEMPTS
+    return value
+
 
 _PRIMARY_REACTOR_CLASS = "ReActorFaceSwap"
 _FALLBACK_REACTOR_CLASS = "ReActorFaceSwapOpt"
@@ -97,7 +127,7 @@ class FaceSwapEngine:
         poll_timeout_sec: int = _POLL_TIMEOUT_SEC,
         pod_ready_timeout_sec: int = _POD_READY_TIMEOUT_SEC,
         supply_retry_interval_sec: float = _SUPPLY_RETRY_INTERVAL_SEC,
-        supply_max_attempts: int = _SUPPLY_MAX_ATTEMPTS,
+        supply_max_attempts: int | None = None,
     ) -> None:
         self._config = config
         self._client = client
@@ -111,7 +141,11 @@ class FaceSwapEngine:
         self._poll_timeout_sec = poll_timeout_sec
         self._pod_ready_timeout_sec = pod_ready_timeout_sec
         self._supply_retry_interval_sec = supply_retry_interval_sec
-        self._supply_max_attempts = supply_max_attempts
+        self._supply_max_attempts = (
+            supply_max_attempts
+            if supply_max_attempts is not None
+            else _resolve_supply_max_attempts()
+        )
 
     # ── public API ──────────────────────────────────────────────────────────
 

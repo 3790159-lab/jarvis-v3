@@ -694,6 +694,41 @@ async def test_find_or_start_pod_supply_timeout_raises_clear_error(
     client.wait_for_ready.assert_not_awaited()
 
 
+# ── supply_max_attempts: default + env override ──────────────────────────────
+
+
+@pytest.mark.anyio
+async def test_supply_max_attempts_defaults_to_180(monkeypatch):
+    """No env, no arg → 180 attempts (≈60 min at 20s)."""
+    monkeypatch.delenv("FACE_SWAP_SUPPLY_MAX_ATTEMPTS", raising=False)
+    engine = FaceSwapEngine()
+    assert engine._supply_max_attempts == 180
+
+
+@pytest.mark.anyio
+async def test_supply_max_attempts_read_from_env(monkeypatch):
+    """FACE_SWAP_SUPPLY_MAX_ATTEMPTS overrides the default without code change."""
+    monkeypatch.setenv("FACE_SWAP_SUPPLY_MAX_ATTEMPTS", "360")
+    engine = FaceSwapEngine()
+    assert engine._supply_max_attempts == 360
+
+
+@pytest.mark.anyio
+async def test_supply_max_attempts_explicit_arg_overrides_env(monkeypatch):
+    """Explicit constructor arg wins over the env var (tests stay deterministic)."""
+    monkeypatch.setenv("FACE_SWAP_SUPPLY_MAX_ATTEMPTS", "360")
+    engine = FaceSwapEngine(supply_max_attempts=3)
+    assert engine._supply_max_attempts == 3
+
+
+@pytest.mark.anyio
+async def test_supply_max_attempts_invalid_env_falls_back_to_default(monkeypatch):
+    """A non-integer env value is ignored (fall back to 180), not a crash."""
+    monkeypatch.setenv("FACE_SWAP_SUPPLY_MAX_ATTEMPTS", "not-a-number")
+    engine = FaceSwapEngine()
+    assert engine._supply_max_attempts == 180
+
+
 # ── #44 collision fix + keep-pod-running flag ────────────────────────────────
 
 
