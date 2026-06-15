@@ -60,9 +60,41 @@ _UPLOAD_TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=120.0, pool=5.0)
 _POLL_INTERVAL_SEC = 3.0  # swap is ~10-30s, poll faster than video engine
 _POLL_TIMEOUT_SEC = 300  # 5 min per swap is plenty
 _MIN_OUTPUT_BYTES = 5 * 1024  # smallest plausible jpg
-_COMFYUI_STARTUP_TIMEOUT_SEC = 120
+# A fresh pod runs bootstrap.sh + ComfyUI cold-start (~3-5 min) before
+# /system_stats answers; 120s was too short and timed out before the workflow
+# could load. 600s (10 min) covers a cold spawn. Tune via
+# COMFYUI_STARTUP_TIMEOUT_SEC in .env.
+_COMFYUI_STARTUP_TIMEOUT_SEC = 600
+_COMFYUI_STARTUP_TIMEOUT_ENV = "COMFYUI_STARTUP_TIMEOUT_SEC"  # .env override; same os.environ caveat as _EXPLICIT_POD_ENV
 _COMFYUI_HEALTH_TIMEOUT = httpx.Timeout(5.0)
 _COMFYUI_HEALTH_POLL_INTERVAL_SEC = 5.0
+
+
+def _resolve_comfyui_startup_timeout() -> int:
+    """Read COMFYUI_STARTUP_TIMEOUT_SEC from the env, else the default.
+
+    A missing, non-integer, or non-positive value falls back to
+    ``_COMFYUI_STARTUP_TIMEOUT_SEC`` (logged) so a typo in .env never crashes
+    pod startup or silently disables the wait.
+    """
+    raw = os.environ.get(_COMFYUI_STARTUP_TIMEOUT_ENV)
+    if raw is None or not raw.strip():
+        return _COMFYUI_STARTUP_TIMEOUT_SEC
+    try:
+        value = int(raw.strip())
+    except ValueError:
+        logger.warning(
+            "FaceSwapEngine: %s=%r is not an integer; using default %d",
+            _COMFYUI_STARTUP_TIMEOUT_ENV, raw, _COMFYUI_STARTUP_TIMEOUT_SEC,
+        )
+        return _COMFYUI_STARTUP_TIMEOUT_SEC
+    if value < 1:
+        logger.warning(
+            "FaceSwapEngine: %s=%d must be >= 1; using default %d",
+            _COMFYUI_STARTUP_TIMEOUT_ENV, value, _COMFYUI_STARTUP_TIMEOUT_SEC,
+        )
+        return _COMFYUI_STARTUP_TIMEOUT_SEC
+    return value
 # Fresh-spawn supply retry. Sniper-style fixed interval — 180 attempts * 20s
 # ≈ a 60-minute budget waiting for a free GPU on any host (a compromise between
 # RunpodComfyEngine's 10-min in-engine retry and runpod_gpu_sniper.py's 120-min
@@ -128,6 +160,7 @@ class FaceSwapEngine:
         pod_ready_timeout_sec: int = _POD_READY_TIMEOUT_SEC,
         supply_retry_interval_sec: float = _SUPPLY_RETRY_INTERVAL_SEC,
         supply_max_attempts: int | None = None,
+        comfyui_startup_timeout_sec: int | None = None,
     ) -> None:
         self._config = config
         self._client = client
@@ -145,6 +178,11 @@ class FaceSwapEngine:
             supply_max_attempts
             if supply_max_attempts is not None
             else _resolve_supply_max_attempts()
+        )
+        self._comfyui_startup_timeout_sec = (
+            comfyui_startup_timeout_sec
+            if comfyui_startup_timeout_sec is not None
+            else _resolve_comfyui_startup_timeout()
         )
 
     # ── public API ──────────────────────────────────────────────────────────
@@ -473,7 +511,7 @@ class FaceSwapEngine:
             "ready (pod template startup CMD launches it)",
             pod_url,
         )
-        deadline = time.monotonic() + _COMFYUI_STARTUP_TIMEOUT_SEC
+        deadline = time.monotonic() + self._comfyui_startup_timeout_sec
         while time.monotonic() < deadline:
             if await self._comfyui_alive(pod_url):
                 return

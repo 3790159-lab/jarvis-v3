@@ -729,6 +729,41 @@ async def test_supply_max_attempts_invalid_env_falls_back_to_default(monkeypatch
     assert engine._supply_max_attempts == 180
 
 
+# ── comfyui_startup_timeout_sec: default + env override ──────────────────────
+
+
+@pytest.mark.anyio
+async def test_comfyui_startup_timeout_defaults_to_600(monkeypatch):
+    """No env, no arg → 600s (fresh-pod bootstrap + ComfyUI takes ~3-5 min)."""
+    monkeypatch.delenv("COMFYUI_STARTUP_TIMEOUT_SEC", raising=False)
+    engine = FaceSwapEngine()
+    assert engine._comfyui_startup_timeout_sec == 600
+
+
+@pytest.mark.anyio
+async def test_comfyui_startup_timeout_read_from_env(monkeypatch):
+    """COMFYUI_STARTUP_TIMEOUT_SEC overrides the default without a code change."""
+    monkeypatch.setenv("COMFYUI_STARTUP_TIMEOUT_SEC", "900")
+    engine = FaceSwapEngine()
+    assert engine._comfyui_startup_timeout_sec == 900
+
+
+@pytest.mark.anyio
+async def test_comfyui_startup_timeout_explicit_arg_overrides_env(monkeypatch):
+    """Explicit constructor arg wins over the env var (deterministic tests)."""
+    monkeypatch.setenv("COMFYUI_STARTUP_TIMEOUT_SEC", "900")
+    engine = FaceSwapEngine(comfyui_startup_timeout_sec=30)
+    assert engine._comfyui_startup_timeout_sec == 30
+
+
+@pytest.mark.anyio
+async def test_comfyui_startup_timeout_invalid_env_falls_back_to_default(monkeypatch):
+    """A non-integer env value is ignored (fall back to 600), not a crash."""
+    monkeypatch.setenv("COMFYUI_STARTUP_TIMEOUT_SEC", "not-a-number")
+    engine = FaceSwapEngine()
+    assert engine._comfyui_startup_timeout_sec == 600
+
+
 # ── #44 collision fix + keep-pod-running flag ────────────────────────────────
 
 
