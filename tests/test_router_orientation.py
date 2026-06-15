@@ -89,6 +89,24 @@ def test_system_prompt_substantially_richer_than_stub():
     assert len(_DEFAULT_SYSTEM_PROMPT) > 600
 
 
+def test_system_prompt_mentions_video_face_swap():
+    # The live-verified "replace a face in a whole video" capability is named
+    # as a real tool...
+    low = _DEFAULT_SYSTEM_PROMPT.lower()
+    assert "video_face_swap" in low
+    # ...and distinguished from photo→video animation: it needs a READY video
+    # file as the source ("готовое видео").
+    assert "готов" in low
+
+
+def test_system_prompt_is_honest_about_voice():
+    # Voice notes are transcribed/spoken outside the router; the prompt mentions
+    # the capability honestly so Claude neither ignores it nor invents a tool.
+    low = _DEFAULT_SYSTEM_PROMPT.lower()
+    assert "голос" in low
+    assert "whisper" in low or "распозна" in low
+
+
 # ── tool descriptions: informative + with usage cues ─────────────────────────
 
 
