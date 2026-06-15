@@ -51,6 +51,10 @@ _DEFAULT_VIDEO_OUTPUT_DIR = Path(r"C:\jarvis\data\block_m2_face_swap\video_outpu
 
 DEFAULT_MAX_SECONDS = 60.0
 DEFAULT_MAX_HEIGHT = 1080
+# GFPGAN at full visibility (1.0) re-renders the face independently per frame,
+# which reads as shimmer/"redrawing" on video. 0.7 blends the raw swap back in
+# for steadier temporal output; override with VIDEO_SWAP_FACE_RESTORE_VISIBILITY.
+DEFAULT_FACE_RESTORE_VISIBILITY = 0.7
 
 
 def _envf(name: str, default: float) -> float:
@@ -59,6 +63,16 @@ def _envf(name: str, default: float) -> float:
         return default
     try:
         return float(raw)
+    except ValueError:
+        return default
+
+
+def _envi(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return int(raw)
     except ValueError:
         return default
 
@@ -181,14 +195,20 @@ class VideoFaceSwapEngine(FaceSwapEngine):
         *,
         progress_cb=None,
         max_seconds: float = DEFAULT_MAX_SECONDS,
-        max_height: int = DEFAULT_MAX_HEIGHT,
+        max_height: int | None = None,
     ) -> Path:
         """Swap ``source_image``'s face into every frame of ``target_video``.
 
         Returns the path to the downloaded mp4. Rejects over-long videos before
         touching a pod. Pod lifecycle mirrors the still-image engine
         (``FACE_SWAP_KEEP_POD_RUNNING`` honoured).
+
+        ``max_height`` defaults to ``VIDEO_SWAP_MAX_HEIGHT`` (else 1080): taller
+        videos are downscaled in-graph to bound VRAM; raise it for a sharper
+        background at the cost of more decode/encode time per frame.
         """
+        if max_height is None:
+            max_height = _envi("VIDEO_SWAP_MAX_HEIGHT", DEFAULT_MAX_HEIGHT)
         self._validate_image(source_image)
         self._validate_video(target_video)
         meta = self._probe_video(target_video)
@@ -317,9 +337,15 @@ class VideoFaceSwapEngine(FaceSwapEngine):
         load_image["inputs"]["image"] = source_filename
 
         reactor = workflow.get("3")
-        if not isinstance(reactor, dict):
-            raise FaceSwapError("workflow node '3' (ReActor) missing")
+        if not isinstance(reactor, dict) or "inputs" not in reactor:
+            raise FaceSwapError("workflow node '3' (ReActor) malformed")
         reactor["class_type"] = reactor_class
+        # Quality knob: lower GFPGAN restore blend to cut per-frame shimmer.
+        # NB: codeformer_weight in the graph is inert while face_restore_model
+        # is GFPGANv1.4.pth — it only applies to CodeFormer restore models.
+        reactor["inputs"]["face_restore_visibility"] = _envf(
+            "VIDEO_SWAP_FACE_RESTORE_VISIBILITY", DEFAULT_FACE_RESTORE_VISIBILITY
+        )
 
         combine = workflow.get("4")
         if not isinstance(combine, dict) or "inputs" not in combine:

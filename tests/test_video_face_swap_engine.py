@@ -81,6 +81,31 @@ def _mock_client() -> MagicMock:
     return c
 
 
+def _happy_http() -> MagicMock:
+    """An httpx mock that drives swap_video down its happy path once."""
+    http = MagicMock(spec=httpx.AsyncClient)
+    http.aclose = AsyncMock()
+    http.get = AsyncMock(side_effect=[
+        _json_response({"system": "ok"}),            # system_stats
+        _json_response({"ReActorFaceSwap": {}}),     # object_info
+        _json_response(_video_history("p1", "v.mp4")),
+        _bytes_response(b"\x00" * 200_000),          # /view mp4
+    ])
+    http.post = AsyncMock(side_effect=[
+        _json_response({"name": "face.jpg"}),        # upload source
+        _json_response({"name": "clip.mp4"}),        # upload video
+        _json_response({"prompt_id": "p1"}),         # /prompt
+    ])
+    return http
+
+
+def _submitted_workflow(http: MagicMock) -> dict:
+    """Extract the workflow graph POSTed to /prompt from an http mock."""
+    calls = [c for c in http.post.call_args_list if c.args[0].endswith("/prompt")]
+    assert calls, "no /prompt POST was made"
+    return calls[0].kwargs["json"]["prompt"]
+
+
 def _video_history(prompt_id: str, filename: str) -> dict:
     # VHS_VideoCombine emits under "gifs" even for mp4; extractor scans by ext.
     return {
@@ -168,6 +193,61 @@ def test_build_workflow_sets_downscale_dims_when_planned(tmp_path):
     )
     assert wf["1"]["inputs"]["custom_width"] == 1920
     assert wf["1"]["inputs"]["custom_height"] == 1080
+
+
+# ── tunable ReActor / resolution knobs (env-overridable) ─────────────────────
+
+
+def test_build_workflow_sets_default_face_restore_visibility(tmp_path, monkeypatch):
+    monkeypatch.delenv("VIDEO_SWAP_FACE_RESTORE_VISIBILITY", raising=False)
+    engine = VideoFaceSwapEngine(config=_make_config(), client=_mock_client(),
+                                 output_dir=tmp_path / "out")
+    meta = VideoMeta(fps=24.0, frame_count=240, width=640, height=480)
+    plan = plan_video_swap(meta, max_seconds=60.0, max_height=1080)
+    wf = engine._build_video_workflow(
+        source_filename="f.jpg", video_filename="c.mp4",
+        plan=plan, reactor_class="ReActorFaceSwap",
+    )
+    assert wf["3"]["inputs"]["face_restore_visibility"] == 0.7
+
+
+def test_build_workflow_honors_face_restore_visibility_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_SWAP_FACE_RESTORE_VISIBILITY", "0.85")
+    engine = VideoFaceSwapEngine(config=_make_config(), client=_mock_client(),
+                                 output_dir=tmp_path / "out")
+    meta = VideoMeta(fps=24.0, frame_count=240, width=640, height=480)
+    plan = plan_video_swap(meta, max_seconds=60.0, max_height=1080)
+    wf = engine._build_video_workflow(
+        source_filename="f.jpg", video_filename="c.mp4",
+        plan=plan, reactor_class="ReActorFaceSwap",
+    )
+    assert wf["3"]["inputs"]["face_restore_visibility"] == 0.85
+
+
+@pytest.mark.anyio
+async def test_swap_video_defaults_max_height_to_1080(tmp_path, monkeypatch):
+    monkeypatch.delenv("VIDEO_SWAP_MAX_HEIGHT", raising=False)
+    face = _make_file(tmp_path, "face.jpg")
+    clip = _make_file(tmp_path, "clip.mp4")
+    http = _happy_http()
+    engine = _engine_with_http(http, tmp_path)
+    monkeypatch.setattr(engine, "_probe_video", lambda p: VideoMeta(
+        fps=24.0, frame_count=240, width=1000, height=1500))
+    await engine.swap_video(face, clip)
+    assert _submitted_workflow(http)["1"]["inputs"]["custom_height"] == 1080
+
+
+@pytest.mark.anyio
+async def test_swap_video_max_height_env_controls_downscale(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_SWAP_MAX_HEIGHT", "720")
+    face = _make_file(tmp_path, "face.jpg")
+    clip = _make_file(tmp_path, "clip.mp4")
+    http = _happy_http()
+    engine = _engine_with_http(http, tmp_path)
+    monkeypatch.setattr(engine, "_probe_video", lambda p: VideoMeta(
+        fps=24.0, frame_count=240, width=1000, height=1500))
+    await engine.swap_video(face, clip)
+    assert _submitted_workflow(http)["1"]["inputs"]["custom_height"] == 720
 
 
 # ── swap_video orchestration (mocked pod + comfy) ────────────────────────────
