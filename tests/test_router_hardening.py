@@ -268,13 +268,16 @@ def test_backends_wired_into_register_default_tools(monkeypatch):
 
     def _spy(registry, *, dispatch_fn=None, set_quality_fn=None,
              persona_generate_fn=None, persona_exists_fn=None, stats_fn=None,
-             video_swap_dispatch_fn=None):
+             video_swap_dispatch_fn=None, voice_synthesize_fn=None,
+             voice_send_fn=None):
         captured.update(
             dispatch_fn=dispatch_fn,
             set_quality_fn=set_quality_fn,
             persona_generate_fn=persona_generate_fn,
             stats_fn=stats_fn,
             video_swap_dispatch_fn=video_swap_dispatch_fn,
+            voice_synthesize_fn=voice_synthesize_fn,
+            voice_send_fn=voice_send_fn,
         )
         return registry
 
@@ -295,3 +298,5 @@ def test_backends_wired_into_register_default_tools(monkeypatch):
     assert captured["stats_fn"] is mod._router_stats_backend
     assert captured["dispatch_fn"] is mod._swapbatch_dispatch
     assert captured["video_swap_dispatch_fn"] is mod._video_face_swap_dispatch
+    assert captured["voice_synthesize_fn"] is mod._voice_synthesize
+    assert captured["voice_send_fn"] is mod._router_voice_send

@@ -107,6 +107,15 @@ def test_system_prompt_is_honest_about_voice():
     assert "whisper" in low or "распозна" in low
 
 
+def test_system_prompt_mentions_voice_reply_tool():
+    # Jarvis can voice a specific reply on request via reply_with_voice — named
+    # so Claude knows the tool exists, and tied to an explicit user request
+    # rather than the global flag.
+    low = _DEFAULT_SYSTEM_PROMPT.lower()
+    assert "reply_with_voice" in low
+    assert "озвуч" in low or "ответь голос" in low
+
+
 # ── tool descriptions: informative + with usage cues ─────────────────────────
 
 

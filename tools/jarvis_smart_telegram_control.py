@@ -5654,6 +5654,10 @@ def _build_router():
             stats_fn=_router_stats_backend,
             persona_generate_fn=_persona_generate_backend,
             video_swap_dispatch_fn=_video_face_swap_dispatch,
+            # On-request spoken replies: reuse the existing TTS pipeline,
+            # independent of the global JARVIS_VOICE_REPLY_ENABLED flag.
+            voice_synthesize_fn=_voice_synthesize,
+            voice_send_fn=_router_voice_send,
         )
         _ROUTER_SINGLETON = LLMRouter(
             client,
@@ -5801,6 +5805,38 @@ def _record_voice_event(chat_id: str, msg: Dict[str, Any], event: str, cost_usd:
             pass
     try:
         _audit.audit_event(uid, uname, str(chat_id), event, {**details, "cost_usd": round(cost_usd, 6)})
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _router_voice_send(context, result) -> None:
+    """Deliver an on-request router voice reply + record its TTS cost.
+
+    Used by the ``reply_with_voice`` tool. Unlike :func:`_maybe_voice_reply`
+    this does NOT consult ``JARVIS_VOICE_REPLY_ENABLED`` — the user explicitly
+    asked for a spoken answer, so we always send it. ``result`` is the
+    ``SynthesisResult`` produced by :func:`_voice_synthesize`.
+    """
+    chat_id_s = str(context.chat_id)
+    _send_voice_note(chat_id_s, result.audio, getattr(result, "audio_format", "ogg"))
+    cost = getattr(result, "cost_usd", 0.0)
+    if cost:
+        try:
+            _cost.record_cost(context.user_id, context.username, cost)
+        except Exception:  # noqa: BLE001 - accounting must not break the flow
+            pass
+    try:
+        _audit.audit_event(
+            context.user_id,
+            context.username,
+            chat_id_s,
+            "voice_synthesize",
+            {
+                "provider": getattr(result, "provider", ""),
+                "cost_usd": round(cost, 6),
+                "via": "reply_with_voice",
+            },
+        )
     except Exception:  # noqa: BLE001
         pass
 
