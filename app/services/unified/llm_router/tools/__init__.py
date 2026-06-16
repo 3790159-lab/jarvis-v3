@@ -23,6 +23,7 @@ from app.services.unified.llm_router.tools.video_face_swap import (
     build_video_face_swap_tool,
 )
 from app.services.unified.llm_router.tools.voice_reply import build_voice_reply_tool
+from app.services.unified.llm_router.tools.web_research import build_web_research_tool
 
 
 def register_default_tools(
@@ -33,6 +34,7 @@ def register_default_tools(
     persona_generate_fn: Optional[Callable[..., Any]] = None,
     persona_exists_fn: Optional[Callable[..., Any]] = None,
     stats_fn: Optional[Callable[..., Any]] = None,
+    research_fn: Optional[Callable[..., Any]] = None,
     video_swap_dispatch_fn: Optional[Callable[..., Any]] = None,
     voice_synthesize_fn: Optional[Callable[..., Any]] = None,
     voice_send_fn: Optional[Callable[..., Any]] = None,
@@ -56,6 +58,7 @@ def register_default_tools(
         )
     )
     registry.register(build_cost_stats_tool(stats_fn=stats_fn))
+    registry.register(build_web_research_tool(research_fn=research_fn))
     return registry
 
 
@@ -66,4 +69,5 @@ __all__ = [
     "build_video_face_swap_tool",
     "build_voice_reply_tool",
     "build_cost_stats_tool",
+    "build_web_research_tool",
 ]

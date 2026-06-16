@@ -5603,6 +5603,11 @@ def _router_stats_backend(user_id: Optional[int], username: Optional[str]) -> st
     return _cost.format_my_stats_message(user_id, username)
 
 
+def _router_research_backend(query: str) -> dict:
+    """Adapter for the web_research tool — same endpoint as /research."""
+    return backend_post("/api/jarvis/tools/internet/research", {"query": query}, timeout=240)
+
+
 def _persona_generate_backend(persona_id: str, prompt: str, count: int) -> List[str]:
     """Explicit stub for ``generate_persona_photo`` (graceful, never silent).
 
@@ -5663,6 +5668,7 @@ def _build_router():
             # Step 2.7: stats is wired to the real cost formatter; persona photo
             # is an explicit graceful stub until its FLUX adapter lands.
             stats_fn=_router_stats_backend,
+            research_fn=_router_research_backend,
             persona_generate_fn=_persona_generate_backend,
             video_swap_dispatch_fn=_video_face_swap_dispatch,
             # On-request spoken replies: reuse the existing TTS pipeline,
