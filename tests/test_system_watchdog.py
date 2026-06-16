@@ -19,6 +19,8 @@ from app.services.system_watchdog import (
     send_telegram_alert,
     restart_service,
     restart_bot_if_dead,
+    check_bot_alive,
+    heartbeat_check_interval_sec,
 )
 
 
@@ -336,6 +338,48 @@ class TestRestartBotBusyAware:
                             wdog.restart_bot_if_dead()
         # back-to-back restarts within the throttle window → one alert only
         assert mock_alert.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# STEP 3: env-configurable heartbeat staleness + check interval
+# ---------------------------------------------------------------------------
+
+class TestHeartbeatStaleThreshold:
+    def test_default_threshold_is_300(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("WATCHDOG_HEARTBEAT_STALE_SEC", raising=False)
+        hb = tmp_path / "bot_heartbeat.txt"
+        hb.write_text(str(int(time.time()) - 200), encoding="utf-8")  # 200s ago
+        # 200s would be stale under the old hardcoded 90s; fresh under the new 300s default
+        assert check_bot_alive(heartbeat_file=hb) is True
+
+    def test_fresh_within_env_threshold(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("WATCHDOG_HEARTBEAT_STALE_SEC", "600")
+        hb = tmp_path / "bot_heartbeat.txt"
+        hb.write_text(str(int(time.time()) - 400), encoding="utf-8")  # 400s ago
+        assert check_bot_alive(heartbeat_file=hb) is True
+
+    def test_stale_beyond_env_threshold(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("WATCHDOG_HEARTBEAT_STALE_SEC", "300")
+        hb = tmp_path / "bot_heartbeat.txt"
+        hb.write_text(str(int(time.time()) - 400), encoding="utf-8")  # 400s ago
+        assert check_bot_alive(heartbeat_file=hb) is False
+
+    def test_missing_file_is_not_alive(self, tmp_path):
+        assert check_bot_alive(heartbeat_file=tmp_path / "nope.txt") is False
+
+
+class TestCheckIntervalConfig:
+    def test_default_interval_is_60(self, monkeypatch):
+        monkeypatch.delenv("WATCHDOG_CHECK_INTERVAL_SEC", raising=False)
+        assert heartbeat_check_interval_sec() == 60
+
+    def test_env_override(self, monkeypatch):
+        monkeypatch.setenv("WATCHDOG_CHECK_INTERVAL_SEC", "120")
+        assert heartbeat_check_interval_sec() == 120
+
+    def test_invalid_falls_back_to_default(self, monkeypatch):
+        monkeypatch.setenv("WATCHDOG_CHECK_INTERVAL_SEC", "not-a-number")
+        assert heartbeat_check_interval_sec() == 60
 
 
 # Need pytest for approx

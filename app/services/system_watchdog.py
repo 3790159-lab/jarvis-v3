@@ -169,14 +169,31 @@ def cleanup_old_logs(state_dir: Optional[Path] = None, max_log_mb: int = 50) -> 
 # Main watchdog loop
 # ---------------------------------------------------------------------------
 
-def check_bot_alive() -> bool:
-    """Check if bot heartbeat file is fresh (< 90s)."""
-    heartbeat_file = Path(__file__).parent.parent.parent / "state" / "bot_heartbeat.txt"
+def heartbeat_stale_sec() -> int:
+    """Heartbeat staleness threshold (default 300s — headroom for long swaps)."""
+    try:
+        return int(os.getenv("WATCHDOG_HEARTBEAT_STALE_SEC", "300"))
+    except ValueError:
+        return 300
+
+
+def heartbeat_check_interval_sec() -> int:
+    """How often the backend watchdog loop checks the bot heartbeat (default 60s)."""
+    try:
+        return int(os.getenv("WATCHDOG_CHECK_INTERVAL_SEC", "60"))
+    except ValueError:
+        return 60
+
+
+def check_bot_alive(heartbeat_file: Optional[Path] = None) -> bool:
+    """Check if the bot heartbeat file is fresh within WATCHDOG_HEARTBEAT_STALE_SEC."""
+    if heartbeat_file is None:
+        heartbeat_file = Path(__file__).parent.parent.parent / "state" / "bot_heartbeat.txt"
     if not heartbeat_file.exists():
         return False
     try:
         last_beat = int(heartbeat_file.read_text(encoding="utf-8").strip())
-        return (time.time() - last_beat) < 90
+        return (time.time() - last_beat) < heartbeat_stale_sec()
     except Exception:
         return False
 

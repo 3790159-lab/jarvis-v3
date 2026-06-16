@@ -278,15 +278,23 @@ async def startup_event() -> None:
 
 
 async def _watchdog_loop() -> None:
-    """Background task: check bot heartbeat every 60s, restart if dead."""
+    """Background task: check bot heartbeat periodically, restart if dead.
+
+    Interval is configurable via WATCHDOG_CHECK_INTERVAL_SEC (default 60s).
+    """
     import asyncio as _asyncio
     while True:
         try:
-            from app.services.system_watchdog import restart_bot_if_dead
+            from app.services.system_watchdog import (
+                restart_bot_if_dead,
+                heartbeat_check_interval_sec,
+            )
             restart_bot_if_dead()
+            interval = heartbeat_check_interval_sec()
         except Exception as _exc:
             print(f"[WARN] watchdog_loop error: {_exc}")
-        await _asyncio.sleep(60)
+            interval = 60
+        await _asyncio.sleep(interval)
 
 
 async def _periodic_cleanup() -> None:
