@@ -127,14 +127,23 @@ class VideoSwapPlan:
     est_minutes: float
 
 
-def estimate_video_swap(frame_count: int, fps: float) -> tuple[float, float]:
+def estimate_video_swap(
+    frame_count: int, fps: float, *, occlusion: bool = False
+) -> tuple[float, float]:
     """Return ``(usd, minutes)`` for per-frame ReActor swap of ``frame_count``.
 
     Grounded in the existing cost model (A100 ≈ $1.35/hr; the animate rate of
     720s = $0.27 implies the same). All knobs are env-overridable so the first
     real run can recalibrate without code changes.
+
+    When ``occlusion`` is set, the per-frame time is multiplied by
+    ``VIDEO_SWAP_OCCLUSION_SLOWDOWN`` (default 1.8) because the mask helper runs
+    SAM segmentation on every frame on top of the swap — so the quote stays an
+    over-estimate, not an under-estimate, if occlusion is enabled.
     """
     sec_per_frame = _envf("VIDEO_SWAP_SEC_PER_FRAME", 0.5)
+    if occlusion:
+        sec_per_frame *= _envf("VIDEO_SWAP_OCCLUSION_SLOWDOWN", 1.8)
     usd_per_hr = _envf("VIDEO_SWAP_USD_PER_HR", 1.35)
     cold_start_usd = _envf("VIDEO_SWAP_COLD_START_USD", 0.05)
     minutes = frame_count * sec_per_frame / 60.0
@@ -147,10 +156,12 @@ def plan_video_swap(
     *,
     max_seconds: float = DEFAULT_MAX_SECONDS,
     max_height: int = DEFAULT_MAX_HEIGHT,
+    occlusion: bool = False,
 ) -> VideoSwapPlan:
     """Validate ``meta`` against the safety rails and return a swap plan.
 
     Raises :class:`VideoTooLongError` if the clip is longer than ``max_seconds``.
+    ``occlusion`` is threaded into the cost estimate (SAM-per-frame slowdown).
     """
     if meta.fps <= 0 or meta.frame_count <= 0:
         raise FaceSwapError(f"unusable video metadata: {meta}")
@@ -169,7 +180,9 @@ def plan_video_swap(
         downscale_to = (new_w, new_h)
 
     frame_load_cap = math.ceil(max_seconds * meta.fps)
-    est_usd, est_minutes = estimate_video_swap(meta.frame_count, meta.fps)
+    est_usd, est_minutes = estimate_video_swap(
+        meta.frame_count, meta.fps, occlusion=occlusion
+    )
     return VideoSwapPlan(
         fps=meta.fps,
         frame_count=meta.frame_count,
@@ -233,7 +246,10 @@ class VideoFaceSwapEngine(FaceSwapEngine):
         self._validate_video(target_video)
         meta = self._probe_video(target_video)
         plan = plan_video_swap(
-            meta, max_seconds=max_seconds, max_height=max_height
+            meta,
+            max_seconds=max_seconds,
+            max_height=max_height,
+            occlusion=_occlusion_enabled(),
         )
         self._fire(progress_cb, "planned", {
             "frames": plan.frame_count,

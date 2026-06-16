@@ -162,6 +162,42 @@ def test_estimate_is_positive_and_scales_with_frames():
     assert usd_b > usd_a and min_b > min_a
 
 
+# ── occlusion cost slowdown (Stage 4) ────────────────────────────────────────
+# Occlusion runs SAM (segmentation) per frame on top of the swap, so the
+# per-frame time grows ~1.5-2x. The estimate must reflect that when occlusion
+# is requested, so the budget guard / user quote isn't an under-estimate.
+
+
+def test_estimate_occlusion_raises_time_by_default_factor(monkeypatch):
+    monkeypatch.delenv("VIDEO_SWAP_SEC_PER_FRAME", raising=False)
+    monkeypatch.delenv("VIDEO_SWAP_OCCLUSION_SLOWDOWN", raising=False)
+    _, min_base = estimate_video_swap(1440, 24.0)
+    _, min_occ = estimate_video_swap(1440, 24.0, occlusion=True)
+    assert min_occ == round(min_base * 1.8, 1)  # default slowdown 1.8x
+
+
+def test_estimate_occlusion_slowdown_env_override(monkeypatch):
+    monkeypatch.delenv("VIDEO_SWAP_SEC_PER_FRAME", raising=False)
+    monkeypatch.setenv("VIDEO_SWAP_OCCLUSION_SLOWDOWN", "2.5")
+    _, min_base = estimate_video_swap(1440, 24.0)
+    _, min_occ = estimate_video_swap(1440, 24.0, occlusion=True)
+    assert min_occ == round(min_base * 2.5, 1)
+
+
+def test_estimate_no_slowdown_when_occlusion_false(monkeypatch):
+    monkeypatch.setenv("VIDEO_SWAP_OCCLUSION_SLOWDOWN", "2.5")
+    base = estimate_video_swap(1440, 24.0)
+    assert estimate_video_swap(1440, 24.0, occlusion=False) == base
+
+
+def test_plan_passes_occlusion_to_estimate():
+    meta = VideoMeta(fps=24.0, frame_count=1440, width=640, height=480)
+    plan_off = plan_video_swap(meta, max_seconds=60.0, max_height=1080)
+    plan_on = plan_video_swap(meta, max_seconds=60.0, max_height=1080, occlusion=True)
+    assert plan_on.est_minutes > plan_off.est_minutes
+    assert plan_on.est_usd > plan_off.est_usd
+
+
 # ── _build_video_workflow ────────────────────────────────────────────────────
 
 
@@ -505,3 +541,34 @@ async def test_swap_video_wires_mask_helper_when_enabled(tmp_path, monkeypatch):
     wf = _submitted_workflow(http)
     assert wf["5"]["class_type"] == "ReActorMaskHelper"
     assert wf["4"]["inputs"]["images"] == ["5", 0]
+
+
+@pytest.mark.anyio
+async def test_swap_video_plan_estimate_reflects_occlusion_flag(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_SWAP_OCCLUSION_MASK", "1")
+    monkeypatch.delenv("VIDEO_SWAP_SEC_PER_FRAME", raising=False)
+    monkeypatch.delenv("VIDEO_SWAP_OCCLUSION_SLOWDOWN", raising=False)
+    face = _make_file(tmp_path, "face.jpg")
+    clip = _make_file(tmp_path, "clip.mp4")
+    http = MagicMock(spec=httpx.AsyncClient)
+    http.aclose = AsyncMock()
+    http.get = AsyncMock(side_effect=[
+        _json_response({"system": "ok"}),                                  # system_stats
+        _json_response({"ReActorFaceSwap": {}, "ReActorMaskHelper": {}}),  # reactor probe
+        _json_response({"ReActorFaceSwap": {}, "ReActorMaskHelper": {}}),  # mask probe
+        _json_response(_video_history("p1", "v.mp4")),
+        _bytes_response(b"\x00" * 200_000),
+    ])
+    http.post = AsyncMock(side_effect=[
+        _json_response({"name": "face.jpg"}),
+        _json_response({"name": "clip.mp4"}),
+        _json_response({"prompt_id": "p1"}),
+    ])
+    engine = _engine_with_http(http, tmp_path)
+    monkeypatch.setattr(engine, "_probe_video", lambda p: VideoMeta(
+        fps=24.0, frame_count=240, width=640, height=480))
+    events: list = []
+    await engine.swap_video(face, clip, progress_cb=lambda s, p: events.append((s, p)))
+    planned = next(p for s, p in events if s == "planned")
+    # 240 frames * 0.5s * 1.8 / 60 = 3.6 min (vs 2.0 without occlusion)
+    assert planned["est_minutes"] == 3.6
