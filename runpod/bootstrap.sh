@@ -64,36 +64,6 @@ pip install --break-system-packages insightface onnxruntime-gpu 2>/dev/null || \
   pip install --break-system-packages insightface onnxruntime || \
   echo "WARN: insightface install failed - ReActor will not work until fixed"
 
-# Block M.2.6 occlusion: ReActorMaskHelper needs a face-detector (bbox) + SAM so
-# objects in front of the face (a hand/food) are restored instead of painted
-# over. Filenames MUST match the engine's mask node defaults
-# (VideoFaceSwapEngine._build_mask_helper_node): face_yolov8m.pt in
-# models/ultralytics/bbox, sam_vit_b_01ec64.pth in models/sams. The node's
-# dropdowns read exactly those dirs. URLs are env-overridable with defaults at
-# the canonical public sources (face-YOLO from Bingsu/adetailer; SAM from Meta).
-# NB: face_yolov8m.pt is a FACE-trained YOLO — NOT the generic COCO yolov8m.
-FACE_YOLO_MODEL_URL="${FACE_YOLO_MODEL_URL:-https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8m.pt}"
-SAM_VIT_B_MODEL_URL="${SAM_VIT_B_MODEL_URL:-https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth}"
-
-_fetch_model() {
-  local url="$1" dest="$2"
-  if [ -f "$dest" ]; then
-    echo "$(basename "$dest") already present, skipping download"
-    return 0
-  fi
-  mkdir -p "$(dirname "$dest")"
-  echo "Downloading $(basename "$dest") from $url"
-  if command -v wget >/dev/null 2>&1; then
-    wget -q -O "$dest" "$url" || { echo "WARN: failed to download $dest"; rm -f "$dest"; return 0; }
-  else
-    curl -fsSL -o "$dest" "$url" || { echo "WARN: failed to download $dest"; rm -f "$dest"; return 0; }
-  fi
-}
-
-echo "Provisioning Block M.2.6 occlusion models (face bbox + SAM)..."
-_fetch_model "$FACE_YOLO_MODEL_URL" "$COMFY_DIR/models/ultralytics/bbox/face_yolov8m.pt"
-_fetch_model "$SAM_VIT_B_MODEL_URL" "$COMFY_DIR/models/sams/sam_vit_b_01ec64.pth"
-
 # 3. Custom node (idempotent) - kept for backward compatibility with prior bootstrap
 cd "$COMFY_DIR/custom_nodes"
 if [ ! -d ComfyUI-PainterI2Vadvanced ]; then
@@ -130,13 +100,6 @@ if ls -d "$COMFY_DIR/custom_nodes/comfyui-reactor-node" > /dev/null 2>&1; then
 else
   echo "WARN: comfyui-reactor-node missing - ReActorFaceSwap node will fail"
 fi
-for _m in "models/ultralytics/bbox/face_yolov8m.pt" "models/sams/sam_vit_b_01ec64.pth"; do
-  if [ -s "$COMFY_DIR/$_m" ]; then
-    echo "OK: occlusion model present ($_m, $(du -h "$COMFY_DIR/$_m" | cut -f1))"
-  else
-    echo "WARN: occlusion model missing ($_m) - ReActorMaskHelper dropdown will be empty"
-  fi
-done
 python -c "import insightface; print('insightface', insightface.__version__)" 2>/dev/null \
   || echo "WARN: insightface not importable - face-swap pipeline will fail"
 

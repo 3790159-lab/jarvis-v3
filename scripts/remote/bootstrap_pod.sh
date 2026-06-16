@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-BOOTSTRAP_VERSION="2026.06.15-001"
+BOOTSTRAP_VERSION="2026.06.16-001"  # bump forces reinstall: pulls occlusion models (face_yolov8m + sam_vit_b)
 VOLUME_VERSION_FILE="/workspace/.bootstrap_version"
 LOG_FILE="/workspace/.bootstrap_log"
 COMFYUI_DIR="/workspace/ComfyUI"
@@ -147,6 +147,31 @@ if [[ "$NEED_INSTALL" == "true" ]]; then
         wget -q https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip
         unzip -o buffalo_l.zip -d buffalo_l/
         rm -f buffalo_l.zip
+    fi
+
+    echo "=== Step: occlusion models for ReActorMaskHelper (Block M.2.6) ==="
+    # Filenames MUST match the engine's mask node defaults
+    # (VideoFaceSwapEngine._build_mask_helper_node): face_yolov8m.pt in
+    # models/ultralytics/bbox, sam_vit_b_01ec64.pth in models/sams — the node's
+    # bbox/sam dropdowns read exactly those dirs. URLs are env-overridable with
+    # canonical public defaults (face-YOLO from Bingsu/adetailer; SAM from Meta).
+    # NB: face_yolov8m.pt is a FACE-trained YOLO — NOT generic COCO yolov8m.
+    FACE_YOLO_MODEL_URL="${FACE_YOLO_MODEL_URL:-https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8m.pt}"
+    SAM_VIT_B_MODEL_URL="${SAM_VIT_B_MODEL_URL:-https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth}"
+    FACE_YOLO_DEST="$COMFYUI_DIR/models/ultralytics/bbox/face_yolov8m.pt"
+    SAM_VIT_B_DEST="$COMFYUI_DIR/models/sams/sam_vit_b_01ec64.pth"
+
+    if [[ ! -s "$FACE_YOLO_DEST" ]]; then
+        echo "Downloading face_yolov8m.pt -> $FACE_YOLO_DEST"
+        mkdir -p "$(dirname "$FACE_YOLO_DEST")"
+        wget -q -O "$FACE_YOLO_DEST" "$FACE_YOLO_MODEL_URL" \
+            || { echo "WARN: face_yolov8m.pt download failed"; rm -f "$FACE_YOLO_DEST"; }
+    fi
+    if [[ ! -s "$SAM_VIT_B_DEST" ]]; then
+        echo "Downloading sam_vit_b_01ec64.pth -> $SAM_VIT_B_DEST"
+        mkdir -p "$(dirname "$SAM_VIT_B_DEST")"
+        wget -q -O "$SAM_VIT_B_DEST" "$SAM_VIT_B_MODEL_URL" \
+            || { echo "WARN: sam_vit_b_01ec64.pth download failed"; rm -f "$SAM_VIT_B_DEST"; }
     fi
 
     echo "=== [verify] post-install probe... ==="

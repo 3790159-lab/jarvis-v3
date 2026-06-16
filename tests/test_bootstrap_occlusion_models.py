@@ -7,6 +7,11 @@ video engine's mask node references specific default filenames; if the bootstrap
 downloads different names (or different dirs), the dropdowns won't match and the
 graph submit fails on a live pod. This test pins the engine defaults to the
 bootstrap so the two can't drift. No pod required — pure text/static check.
+
+The bootstrap of record is ``scripts/remote/bootstrap_pod.sh`` — the script the
+RunPod template runs as ``/workspace/bootstrap.sh`` from the network volume (see
+docs/runpod_template_config.md). ``runpod/bootstrap.sh`` is an orphan duplicate
+and is NOT what the pod executes, so this guard targets the real one.
 """
 from __future__ import annotations
 
@@ -16,7 +21,7 @@ from app.services.block_m2_face_swap.video_face_swap_engine import (
     VideoFaceSwapEngine,
 )
 
-_BOOTSTRAP = Path("runpod/bootstrap.sh")
+_BOOTSTRAP = Path("scripts/remote/bootstrap_pod.sh")
 
 
 def _engine_default_model_names(monkeypatch) -> tuple[str, str]:

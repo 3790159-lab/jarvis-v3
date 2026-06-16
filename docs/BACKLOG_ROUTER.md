@@ -50,3 +50,15 @@ Scope: external dependency / secrets, NOT the router (routing logic for voice wa
 reached). Action (later): obtain and set a valid `OPENAI_API_KEY`, then re-run smoke
 test 7 (7a voice-in → e.g. `web_research`; 7b "ответь голосом" → `reply_with_voice`).
 Smoke test 7 is recorded as BLOCKED, not a router failure.
+
+## Orphan bootstrap duplicate: runpod/bootstrap.sh (NOT a router item)
+Found 2026-06-16 during the video-swap occlusion work. There are TWO bootstrap scripts:
+- `scripts/remote/bootstrap_pod.sh` — the REAL one. The RunPod template's startCmd runs
+  it as `/workspace/bootstrap.sh` from the network volume (see
+  docs/runpod_template_config.md); deployed via `scripts/deploy_patch_pod.py` + manual SSH.
+- `runpod/bootstrap.sh` — referenced nowhere in code/docs; uses different conventions
+  (`COMFY_DIR`, `_clone_node`, no version gate, no ComfyUI launch). Effectively dead.
+
+Action (later): confirm `runpod/bootstrap.sh` is truly unused, then delete it (or fold its
+unique custom-node clones into the real script if any are actually needed). It is a trap —
+editing it has no effect on real pods. Out of scope for the occlusion feature.
