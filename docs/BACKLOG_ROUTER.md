@@ -28,3 +28,14 @@ named legacy module. Out of scope for router-hybrid work.
 
 Until added as tools, they remain command-only and are described honestly in the
 router system prompt (see plan Stage 5).
+
+## Media-group photo loss in swapbatch (NOT a router bug)
+Found during the router enable-smoke (2026-06-16), test 6a. Sent 20 target photos as a
+Telegram album; the bot reported "Получено 10 файлов" and only 5 reached the batch
+estimate. Album messages arrive as a `media_group` of separate updates and some are
+being dropped — looks like the media-group dedupe path (cf. backlog item **B-51**).
+
+Scope: this is the legacy file/photo intake path, independent of the LLM router
+(routing to `swap_batch_start_source` worked correctly). Action (later): trace the
+media-group collection in the photo handler, confirm against B-51, add a test that an
+N-photo album yields N targets. Out of scope for router-hybrid work.
