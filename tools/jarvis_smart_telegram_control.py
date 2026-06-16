@@ -5617,6 +5617,15 @@ def _router_table_backend(query: str) -> dict:
     )
 
 
+def _router_image_backend(prompt: str, num_images: int) -> dict:
+    """Adapter for the generate_image tool — same endpoint as /gen."""
+    return backend_post(
+        "/api/jarvis/image/generate",
+        {"prompt": prompt, "num_images": num_images, "aspect_ratio": "9:16", "style": "realistic"},
+        timeout=180,
+    )
+
+
 def _persona_generate_backend(persona_id: str, prompt: str, count: int) -> List[str]:
     """Explicit stub for ``generate_persona_photo`` (graceful, never silent).
 
@@ -5679,6 +5688,7 @@ def _build_router():
             stats_fn=_router_stats_backend,
             research_fn=_router_research_backend,
             table_fn=_router_table_backend,
+            image_fn=_router_image_backend,
             persona_generate_fn=_persona_generate_backend,
             video_swap_dispatch_fn=_video_face_swap_dispatch,
             # On-request spoken replies: reuse the existing TTS pipeline,
