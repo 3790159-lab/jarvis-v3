@@ -5652,6 +5652,27 @@ def _router_file_backend(chat_id: str, question: str) -> dict:
     return data
 
 
+def _router_file_context_hint(state: Dict[str, Any]) -> Optional[str]:
+    """Per-message hint telling the router a file is in context, or None.
+
+    The legacy classifier biases on ``state["last_uploaded_file"]`` (see
+    ``classify_message``); the LLM router has no such signal otherwise — it only
+    sees the user text + plain-text history. Without this, Claude assumes "no
+    file" and answers in plain text instead of calling ``answer_about_file``.
+    Returned string is appended to the router's system prompt for this turn.
+    """
+    file_info = (state or {}).get("last_uploaded_file")
+    if not file_info:
+        return None
+    filename = file_info.get("filename", "файл")
+    mime = file_info.get("mime_type", "")
+    suffix = f" ({mime})" if mime else ""
+    return (
+        f"📎 КОНТЕКСТ: пользователь уже загрузил файл «{filename}»{suffix}. "
+        "Для вопросов об этом файле вызывай инструмент answer_about_file."
+    )
+
+
 def _persona_generate_backend(persona_id: str, prompt: str, count: int) -> List[str]:
     """Explicit stub for ``generate_persona_photo`` (graceful, never silent).
 
@@ -5781,9 +5802,12 @@ def _run_router(chat_id: str, text: str, msg: Dict[str, Any]):
         user_id=uid, username=frm.get("username"), chat_id=str(chat_id)
     )
     history = _router_history_get(str(chat_id))
+    extra_context = _router_file_context_hint(load_state())
     try:
         response = _asyncio.run(
-            router.route_message(text, context, conversation_history=history)
+            router.route_message(
+                text, context, conversation_history=history, extra_context=extra_context
+            )
         )
     except Exception as e:  # noqa: BLE001 - any failure → legacy fallback
         print(f"[router] route_message failed, falling back: {e}", flush=True)

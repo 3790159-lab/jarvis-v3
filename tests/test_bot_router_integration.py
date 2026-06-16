@@ -47,7 +47,7 @@ class _FakeRouter:
         self.response = response
         self.calls: list = []
 
-    async def route_message(self, text, context, conversation_history=None):
+    async def route_message(self, text, context, conversation_history=None, extra_context=None):
         self.calls.append((text, context))
         return self.response
 

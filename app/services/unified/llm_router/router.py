@@ -66,8 +66,13 @@ _DEFAULT_SYSTEM_PROMPT = (
     "описанию. Используй на «сгенери картинку», «нарисуй …». По умолчанию одна "
     "картинка.\n"
     "8. Вопросы по загруженному файлу (answer_about_file): суммировать/извлечь "
-    "данные/ответить по последнему присланному файлу (PDF/DOCX/XLSX). Если "
-    "файла ещё нет — попроси прислать.\n"
+    "данные/ответить по последнему присланному файлу (PDF/DOCX/XLSX). О наличии "
+    "файла ты узнаёшь из системного контекста (если файл загружен, там будет "
+    "пометка с его именем). Если по контексту файл есть — на вопросы о нём "
+    "(«что в файле», «суммируй документ», «какая сумма в договоре», «этот "
+    "файл/документ») ВЫЗЫВАЙ answer_about_file и не утверждай сам, что файла "
+    "нет. Если же файла действительно нет — это сообщит сам инструмент, тогда и "
+    "попроси прислать.\n"
     "\n"
     "ГОЛОСОВЫЕ СООБЩЕНИЯ: входящие голосовые автоматически распознаются "
     "(Whisper) и приходят к тебе уже как обычный текст — это происходит ДО "
@@ -195,10 +200,21 @@ class LLMRouter:
         text: str,
         context: ToolContext,
         conversation_history: Optional[List[Dict[str, Any]]] = None,
+        extra_context: Optional[str] = None,
     ) -> RouterResponse:
-        """Route ``text``: call Claude, run tools, loop to a plain-text answer."""
+        """Route ``text``: call Claude, run tools, loop to a plain-text answer.
+
+        ``extra_context`` is a per-message hint (e.g. "a file is uploaded")
+        appended to the system prompt for THIS call only — it is not persisted
+        into the system prompt nor the conversation history, so it always
+        reflects the current turn's state.
+        """
         if not self._enabled:
             return RouterResponse(error="router_disabled")
+
+        system_prompt = self._system_prompt
+        if extra_context:
+            system_prompt = f"{system_prompt}\n\n{extra_context}"
 
         messages: List[Dict[str, Any]] = list(conversation_history or [])
         messages.append({"role": "user", "content": text})
@@ -215,7 +231,7 @@ class LLMRouter:
                 kwargs: Dict[str, Any] = {
                     "model": self._model,
                     "max_tokens": self._max_tokens,
-                    "system": self._system_prompt,
+                    "system": system_prompt,
                     "messages": messages,
                 }
                 if tools_payload:

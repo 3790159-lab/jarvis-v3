@@ -32,3 +32,15 @@ def test_prompt_keeps_persona_photo_as_stub():
     assert "generate_persona_photo" in P
     stub_header = P.index("ЧТО ПОКА НЕ ПОДКЛЮЧЕНО")
     assert P.index("generate_persona_photo") > stub_header
+
+
+def test_prompt_defers_file_presence_to_context_and_tool():
+    # Bugfix: the prompt must NOT make Claude assert "no file" on its own — file
+    # presence comes from the injected context, and absence is reported by the
+    # answer_about_file tool's no_file branch. The old wording ("если файла ещё
+    # нет — попроси прислать") caused Claude to short-circuit without calling it.
+    assert "answer_about_file" in P
+    # the prompt mentions reading file presence from context
+    assert "контекст" in P.lower()
+    # and tells the model not to claim a file is absent by itself
+    assert "не утверждай" in P.lower() or "не говори" in P.lower()

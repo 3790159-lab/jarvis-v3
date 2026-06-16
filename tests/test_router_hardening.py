@@ -175,7 +175,7 @@ class _RecordingRouter:
         self.histories: list = []
         self._response = response
 
-    async def route_message(self, text, context, conversation_history=None):
+    async def route_message(self, text, context, conversation_history=None, extra_context=None):
         self.histories.append(list(conversation_history or []))
         return self._response or RouterResponse(text=f"ответ:{text}")
 
@@ -269,7 +269,8 @@ def test_backends_wired_into_register_default_tools(monkeypatch):
     def _spy(registry, *, dispatch_fn=None, set_quality_fn=None,
              persona_generate_fn=None, persona_exists_fn=None, stats_fn=None,
              video_swap_dispatch_fn=None, voice_synthesize_fn=None,
-             voice_send_fn=None):
+             voice_send_fn=None, research_fn=None, table_fn=None,
+             image_fn=None, file_qa_fn=None):
         captured.update(
             dispatch_fn=dispatch_fn,
             set_quality_fn=set_quality_fn,
@@ -278,6 +279,10 @@ def test_backends_wired_into_register_default_tools(monkeypatch):
             video_swap_dispatch_fn=video_swap_dispatch_fn,
             voice_synthesize_fn=voice_synthesize_fn,
             voice_send_fn=voice_send_fn,
+            research_fn=research_fn,
+            table_fn=table_fn,
+            image_fn=image_fn,
+            file_qa_fn=file_qa_fn,
         )
         return registry
 
@@ -300,3 +305,7 @@ def test_backends_wired_into_register_default_tools(monkeypatch):
     assert captured["video_swap_dispatch_fn"] is mod._video_face_swap_dispatch
     assert captured["voice_synthesize_fn"] is mod._voice_synthesize
     assert captured["voice_send_fn"] is mod._router_voice_send
+    assert captured["research_fn"] is mod._router_research_backend
+    assert captured["table_fn"] is mod._router_table_backend
+    assert captured["image_fn"] is mod._router_image_backend
+    assert captured["file_qa_fn"] is mod._router_file_backend
