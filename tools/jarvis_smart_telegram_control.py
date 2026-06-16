@@ -5792,8 +5792,14 @@ def _run_router(chat_id: str, text: str, msg: Dict[str, Any]):
     # router did not handle the message — fall back to the legacy dispatcher and
     # do not poison the conversation history with a failed turn.
     if getattr(response, "error", ""):
+        print(
+            f"[router] graceful error, falling back to legacy: {response.error}",
+            flush=True,
+        )
         return None
     _router_history_append(str(chat_id), text, getattr(response, "text", "") or "")
+    tools = getattr(response, "tools_used", None) or []
+    print(f"[router] handled chat={chat_id} via tools={tools}", flush=True)
     return response
 
 

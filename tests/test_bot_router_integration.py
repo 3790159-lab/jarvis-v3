@@ -145,3 +145,43 @@ def test_router_response_renders_correctly_in_telegram(monkeypatch):
 
     assert any("Вот фото" in t for _, t in sent)
     assert photos == [("222", "https://img.example/1.png", "персона alice")]
+
+
+def test_router_logs_tools_used(monkeypatch, capsys):
+    # Observability: a successful router turn must log which tool(s) it used so
+    # operators can see routing decisions (there is no separate bot log file).
+    mod = _get_mod()
+    fake = _FakeRouter(RouterResponse(text="Готово!", tools_used=["web_research"]))
+
+    monkeypatch.setattr(mod, "handle", lambda cid, txt: None)
+    monkeypatch.setattr(mod, "_build_router", lambda: fake)
+
+    upd = _text_update(222, "сделай ресёрч по ценам на GPU")
+    with patch.object(mod, "send", lambda *a, **k: None):
+        mod.process_update(upd)
+
+    out = capsys.readouterr().out
+    assert "[router]" in out
+    assert "web_research" in out
+
+
+def test_router_graceful_error_logs_fallback(monkeypatch, capsys):
+    # A graceful router error (e.g. API failure after retries) silently fell
+    # back to legacy before — now it must be visible in the log, otherwise a
+    # smoke test cannot distinguish "router handled it" from "router gave up".
+    mod = _get_mod()
+    handle_calls: list = []
+    fake = _FakeRouter(RouterResponse(error="API down after retries"))
+
+    monkeypatch.setattr(mod, "handle", lambda cid, txt: handle_calls.append((str(cid), txt)))
+    monkeypatch.setattr(mod, "_build_router", lambda: fake)
+
+    upd = _text_update(222, "сделай ресёрч по ценам на GPU")
+    with patch.object(mod, "send", lambda *a, **k: None):
+        mod.process_update(upd)
+
+    out = capsys.readouterr().out
+    assert "[router]" in out
+    assert "fallback" in out.lower() or "legacy" in out.lower()
+    # the legacy dispatcher actually handled the message
+    assert handle_calls == [("222", "сделай ресёрч по ценам на GPU")]
