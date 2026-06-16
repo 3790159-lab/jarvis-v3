@@ -39,3 +39,14 @@ Scope: this is the legacy file/photo intake path, independent of the LLM router
 (routing to `swap_batch_start_source` worked correctly). Action (later): trace the
 media-group collection in the photo handler, confirm against B-51, add a test that an
 N-photo album yields N targets. Out of scope for router-hybrid work.
+
+## OpenAI API key invalid (401) — voice in/out blocked (NOT a router bug)
+Found during router enable-smoke (2026-06-16), test 7 (voice). Voice-in failed with
+`❌ Ошибка Whisper: 401 - Incorrect API key provided sk-svcac...KpMA`. Both Whisper
+(speech-to-text, voice-in) and TTS (voice-out, `reply_with_voice`) run on OpenAI, so a
+dead `OPENAI_API_KEY` blocks both. Suspected invalid in prior sessions — now confirmed.
+
+Scope: external dependency / secrets, NOT the router (routing logic for voice was never
+reached). Action (later): obtain and set a valid `OPENAI_API_KEY`, then re-run smoke
+test 7 (7a voice-in → e.g. `web_research`; 7b "ответь голосом" → `reply_with_voice`).
+Smoke test 7 is recorded as BLOCKED, not a router failure.
