@@ -5626,6 +5626,32 @@ def _router_image_backend(prompt: str, num_images: int) -> dict:
     )
 
 
+def _router_file_backend(chat_id: str, question: str) -> dict:
+    """Adapter for answer_about_file — read-only reuse of last_uploaded_file Q&A.
+
+    Additive: does NOT touch legacy _handle_file_intent. Returns:
+      {"no_file": True}  if no file in state
+      {"_error": ...}    on backend/parse failure
+      {"answer": ...}    on success
+    """
+    state = load_state()
+    file_info = state.get("last_uploaded_file")
+    if not file_info:
+        return {"no_file": True}
+    filename = file_info.get("filename", "файл")
+    parse_result = file_info.get("parse_result") or {}
+    file_text = parse_result.get("text", "")
+    if not file_text:
+        return {"_error": f"Файл {filename} не содержит извлечённого текста."}
+    system_instruction = f"Ответь на вопрос по содержимому файла '{filename}': {question}"
+    data = backend_post(
+        "/api/jarvis/tools/internet/research",
+        {"query": f"{system_instruction}\n\nСодержимое файла:\n{file_text[:3000]}"},
+        timeout=120,
+    )
+    return data
+
+
 def _persona_generate_backend(persona_id: str, prompt: str, count: int) -> List[str]:
     """Explicit stub for ``generate_persona_photo`` (graceful, never silent).
 
@@ -5689,6 +5715,7 @@ def _build_router():
             research_fn=_router_research_backend,
             table_fn=_router_table_backend,
             image_fn=_router_image_backend,
+            file_qa_fn=_router_file_backend,
             persona_generate_fn=_persona_generate_backend,
             video_swap_dispatch_fn=_video_face_swap_dispatch,
             # On-request spoken replies: reuse the existing TTS pipeline,

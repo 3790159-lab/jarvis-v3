@@ -14,6 +14,9 @@ from __future__ import annotations
 from typing import Any, Callable, Optional
 
 from app.services.unified.llm_router.tool_registry import ToolRegistry
+from app.services.unified.llm_router.tools.answer_about_file import (
+    build_answer_about_file_tool,
+)
 from app.services.unified.llm_router.tools.build_table import build_table_tool
 from app.services.unified.llm_router.tools.cost_stats import build_cost_stats_tool
 from app.services.unified.llm_router.tools.generate_image import (
@@ -44,6 +47,7 @@ def register_default_tools(
     video_swap_dispatch_fn: Optional[Callable[..., Any]] = None,
     voice_synthesize_fn: Optional[Callable[..., Any]] = None,
     voice_send_fn: Optional[Callable[..., Any]] = None,
+    file_qa_fn: Optional[Callable[..., Any]] = None,
 ) -> ToolRegistry:
     """Register the default tool set (persona photo, swap batch, video swap, voice, stats)."""
     registry.register(
@@ -67,6 +71,7 @@ def register_default_tools(
     registry.register(build_web_research_tool(research_fn=research_fn))
     registry.register(build_table_tool(table_fn=table_fn))
     registry.register(build_generate_image_tool(image_fn=image_fn))
+    registry.register(build_answer_about_file_tool(file_qa_fn=file_qa_fn))
     return registry
 
 
@@ -80,4 +85,5 @@ __all__ = [
     "build_web_research_tool",
     "build_table_tool",
     "build_generate_image_tool",
+    "build_answer_about_file_tool",
 ]
