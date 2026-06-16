@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Any, Callable, Optional
 
 from app.services.unified.llm_router.tool_registry import ToolRegistry
+from app.services.unified.llm_router.tools.build_table import build_table_tool
 from app.services.unified.llm_router.tools.cost_stats import build_cost_stats_tool
 from app.services.unified.llm_router.tools.persona_photo import (
     build_persona_photo_tool,
@@ -35,6 +36,7 @@ def register_default_tools(
     persona_exists_fn: Optional[Callable[..., Any]] = None,
     stats_fn: Optional[Callable[..., Any]] = None,
     research_fn: Optional[Callable[..., Any]] = None,
+    table_fn: Optional[Callable[..., Any]] = None,
     video_swap_dispatch_fn: Optional[Callable[..., Any]] = None,
     voice_synthesize_fn: Optional[Callable[..., Any]] = None,
     voice_send_fn: Optional[Callable[..., Any]] = None,
@@ -59,6 +61,7 @@ def register_default_tools(
     )
     registry.register(build_cost_stats_tool(stats_fn=stats_fn))
     registry.register(build_web_research_tool(research_fn=research_fn))
+    registry.register(build_table_tool(table_fn=table_fn))
     return registry
 
 
@@ -70,4 +73,5 @@ __all__ = [
     "build_voice_reply_tool",
     "build_cost_stats_tool",
     "build_web_research_tool",
+    "build_table_tool",
 ]

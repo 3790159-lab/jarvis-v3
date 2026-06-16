@@ -5608,6 +5608,15 @@ def _router_research_backend(query: str) -> dict:
     return backend_post("/api/jarvis/tools/internet/research", {"query": query}, timeout=240)
 
 
+def _router_table_backend(query: str) -> dict:
+    """Adapter for the build_table tool — same endpoint as /table."""
+    return backend_post(
+        "/api/jarvis/telegram-tools/internet-table",
+        {"query": query, "max_results": 10, "send_to_telegram": True},
+        timeout=300,
+    )
+
+
 def _persona_generate_backend(persona_id: str, prompt: str, count: int) -> List[str]:
     """Explicit stub for ``generate_persona_photo`` (graceful, never silent).
 
@@ -5669,6 +5678,7 @@ def _build_router():
             # is an explicit graceful stub until its FLUX adapter lands.
             stats_fn=_router_stats_backend,
             research_fn=_router_research_backend,
+            table_fn=_router_table_backend,
             persona_generate_fn=_persona_generate_backend,
             video_swap_dispatch_fn=_video_face_swap_dispatch,
             # On-request spoken replies: reuse the existing TTS pipeline,
