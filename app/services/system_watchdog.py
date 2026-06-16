@@ -164,6 +164,11 @@ def check_bot_alive() -> bool:
 
 def restart_bot_if_dead() -> bool:
     """If bot heartbeat is stale, restart bot via start_jarvis.ps1. Returns True if restart attempted."""
+    # Stop-gap: allow operators to fully disable auto-restart via env (kill-switch
+    # for the runaway restart loop during long video swaps).
+    if os.getenv("WATCHDOG_DISABLE_BOT_RESTART", "").strip() == "1":
+        logger.info("bot restart disabled via env")
+        return False
     # Grace period: don't panic in the first N seconds after watchdog start
     elapsed = time.time() - _module_started_at
     if elapsed < GRACE_PERIOD_SEC:

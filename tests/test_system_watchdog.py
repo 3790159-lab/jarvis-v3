@@ -18,6 +18,7 @@ from app.services.system_watchdog import (
     run_watchdog_cycle,
     send_telegram_alert,
     restart_service,
+    restart_bot_if_dead,
 )
 
 
@@ -269,6 +270,27 @@ class TestRestartService:
             with patch("subprocess.run", side_effect=Exception("access denied")):
                 result = restart_service("JarvisBot")
         assert result is False
+
+
+# ---------------------------------------------------------------------------
+# restart_bot_if_dead — STEP 1: env stop-gap flag
+# ---------------------------------------------------------------------------
+
+class TestRestartBotDisabledViaEnv:
+    def test_returns_false_when_disabled_via_env(self):
+        """WATCHDOG_DISABLE_BOT_RESTART=1 → no restart attempted, returns False.
+
+        Set up conditions that would otherwise trigger a restart (past grace
+        period + stale heartbeat) to prove the flag is what short-circuits.
+        """
+        import app.services.system_watchdog as wdog
+        with patch.dict("os.environ", {"WATCHDOG_DISABLE_BOT_RESTART": "1"}):
+            with patch.object(wdog, "_module_started_at", 0.0):  # far past grace
+                with patch.object(wdog, "check_bot_alive", return_value=False):  # stale
+                    with patch("subprocess.Popen") as mock_popen:
+                        result = wdog.restart_bot_if_dead()
+        assert result is False
+        mock_popen.assert_not_called()
 
 
 # Need pytest for approx
