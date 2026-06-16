@@ -398,3 +398,110 @@ async def test_probe_mask_helper_false_on_bad_json(tmp_path):
     http.get = AsyncMock(return_value=_bytes_response(b"not json", status=200))
     engine = _engine_with_http(http, tmp_path)
     assert await engine._probe_mask_helper_available("http://t:8188") is False
+
+
+# ── occlusion graph wiring under VIDEO_SWAP_OCCLUSION_MASK (Stage 3) ──────────
+# When the flag is on AND the node is available, a ReActorMaskHelper node (id
+# "5") is spliced between ReActorFaceSwap (3) and VHS_VideoCombine (4): it takes
+# the original frames (1,0) + the swapped frames (3,0) and its corrected output
+# (5,0) feeds the combiner. Default OFF → graph is byte-for-byte the old one.
+
+
+def _plan(tmp_unused=None):
+    meta = VideoMeta(fps=24.0, frame_count=240, width=640, height=480)
+    return plan_video_swap(meta, max_seconds=60.0, max_height=1080)
+
+
+def _build(engine, *, mask_helper_available):
+    return engine._build_video_workflow(
+        source_filename="face.jpg", video_filename="clip.mp4",
+        plan=_plan(), reactor_class="ReActorFaceSwap",
+        mask_helper_available=mask_helper_available,
+    )
+
+
+def test_build_workflow_no_mask_node_when_flag_off(tmp_path, monkeypatch):
+    monkeypatch.delenv("VIDEO_SWAP_OCCLUSION_MASK", raising=False)
+    engine = VideoFaceSwapEngine(config=_make_config(), client=_mock_client(),
+                                 output_dir=tmp_path / "out")
+    wf = _build(engine, mask_helper_available=True)  # available but flag OFF
+    assert "5" not in wf
+    assert wf["4"]["inputs"]["images"] == ["3", 0]
+
+
+def test_build_workflow_no_mask_node_when_helper_unavailable(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_SWAP_OCCLUSION_MASK", "1")
+    engine = VideoFaceSwapEngine(config=_make_config(), client=_mock_client(),
+                                 output_dir=tmp_path / "out")
+    wf = _build(engine, mask_helper_available=False)  # flag ON but node missing
+    assert "5" not in wf
+    assert wf["4"]["inputs"]["images"] == ["3", 0]
+
+
+def test_build_workflow_inserts_mask_node_when_enabled_and_available(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_SWAP_OCCLUSION_MASK", "1")
+    engine = VideoFaceSwapEngine(config=_make_config(), client=_mock_client(),
+                                 output_dir=tmp_path / "out")
+    wf = _build(engine, mask_helper_available=True)
+    assert wf["5"]["class_type"] == "ReActorMaskHelper"
+    # original frames + swapped frames feed the mask helper
+    assert wf["5"]["inputs"]["image"] == ["1", 0]
+    assert wf["5"]["inputs"]["swapped_image"] == ["3", 0]
+    # the combiner now consumes the corrected output, not the raw swap
+    assert wf["4"]["inputs"]["images"] == ["5", 0]
+
+
+def test_build_workflow_mask_node_has_face_bbox_and_sam_defaults(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_SWAP_OCCLUSION_MASK", "1")
+    monkeypatch.delenv("VIDEO_SWAP_OCCLUSION_BBOX_MODEL", raising=False)
+    monkeypatch.delenv("VIDEO_SWAP_OCCLUSION_SAM_MODEL", raising=False)
+    engine = VideoFaceSwapEngine(config=_make_config(), client=_mock_client(),
+                                 output_dir=tmp_path / "out")
+    ins = _build(engine, mask_helper_available=True)["5"]["inputs"]
+    # face-trained YOLO (NOT generic yolov8m) + lightest SAM
+    assert ins["bbox_model_name"] == "face_yolov8m.pt"
+    assert ins["sam_model_name"] == "sam_vit_b_01ec64.pth"
+    # required inputs present with schema defaults
+    assert ins["sam_threshold"] == 0.93
+    assert ins["bbox_threshold"] == 0.5
+
+
+def test_build_workflow_mask_node_honors_env_overrides(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_SWAP_OCCLUSION_MASK", "true")
+    monkeypatch.setenv("VIDEO_SWAP_OCCLUSION_BBOX_MODEL", "face_yolov8n.pt")
+    monkeypatch.setenv("VIDEO_SWAP_OCCLUSION_SAM_MODEL", "sam_vit_h_4b8939.pth")
+    monkeypatch.setenv("VIDEO_SWAP_OCCLUSION_SAM_THRESHOLD", "0.8")
+    engine = VideoFaceSwapEngine(config=_make_config(), client=_mock_client(),
+                                 output_dir=tmp_path / "out")
+    ins = _build(engine, mask_helper_available=True)["5"]["inputs"]
+    assert ins["bbox_model_name"] == "face_yolov8n.pt"
+    assert ins["sam_model_name"] == "sam_vit_h_4b8939.pth"
+    assert ins["sam_threshold"] == 0.8
+
+
+@pytest.mark.anyio
+async def test_swap_video_wires_mask_helper_when_enabled(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_SWAP_OCCLUSION_MASK", "1")
+    face = _make_file(tmp_path, "face.jpg")
+    clip = _make_file(tmp_path, "clip.mp4")
+    http = MagicMock(spec=httpx.AsyncClient)
+    http.aclose = AsyncMock()
+    http.get = AsyncMock(side_effect=[
+        _json_response({"system": "ok"}),                                  # system_stats
+        _json_response({"ReActorFaceSwap": {}, "ReActorMaskHelper": {}}),  # reactor probe
+        _json_response({"ReActorFaceSwap": {}, "ReActorMaskHelper": {}}),  # mask probe
+        _json_response(_video_history("p1", "v.mp4")),
+        _bytes_response(b"\x00" * 200_000),
+    ])
+    http.post = AsyncMock(side_effect=[
+        _json_response({"name": "face.jpg"}),
+        _json_response({"name": "clip.mp4"}),
+        _json_response({"prompt_id": "p1"}),
+    ])
+    engine = _engine_with_http(http, tmp_path)
+    monkeypatch.setattr(engine, "_probe_video", lambda p: VideoMeta(
+        fps=24.0, frame_count=240, width=640, height=480))
+    await engine.swap_video(face, clip)
+    wf = _submitted_workflow(http)
+    assert wf["5"]["class_type"] == "ReActorMaskHelper"
+    assert wf["4"]["inputs"]["images"] == ["5", 0]

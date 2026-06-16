@@ -83,6 +83,20 @@ def _envi(name: str, default: int) -> int:
         return default
 
 
+def _envs(name: str, default: str) -> str:
+    raw = os.environ.get(name)
+    return raw.strip() if raw and raw.strip() else default
+
+
+def _occlusion_enabled() -> bool:
+    """True when the occlusion mask (ReActorMaskHelper) is opt-in via env.
+
+    OFF by default: without the flag the video graph is unchanged, so the
+    feature is dark until both the flag is set and the node+models are present.
+    """
+    return os.environ.get("VIDEO_SWAP_OCCLUSION_MASK", "").strip().lower() in {"1", "true"}
+
+
 class VideoTooLongError(ValueError):
     """Raised when a target video exceeds the allowed length (budget guard)."""
 
@@ -242,6 +256,13 @@ class VideoFaceSwapEngine(FaceSwapEngine):
                 )
             await self._ensure_comfyui_alive(pod_id, pod_url)
             reactor_class = await self._probe_reactor_class(pod_url)
+            # Only probe for the occlusion node when the feature is enabled, so
+            # the default path keeps its single /object_info round-trip.
+            mask_helper_available = False
+            if _occlusion_enabled():
+                mask_helper_available = await self._probe_mask_helper_available(
+                    pod_url
+                )
 
             source_filename = await self._upload_image(pod_url, source_image)
             video_filename = await self._upload_image(pod_url, target_video)
@@ -251,6 +272,7 @@ class VideoFaceSwapEngine(FaceSwapEngine):
                 video_filename=video_filename,
                 plan=plan,
                 reactor_class=reactor_class,
+                mask_helper_available=mask_helper_available,
             )
             prompt_id = await self._submit_prompt(pod_url, workflow)
             entry = await self._poll_until_done(pod_url, prompt_id)
@@ -340,6 +362,45 @@ class VideoFaceSwapEngine(FaceSwapEngine):
             return False
         return _MASK_HELPER_CLASS in info
 
+    @staticmethod
+    def _build_mask_helper_node() -> dict[str, Any]:
+        """The ReActorMaskHelper node (id "5"), occlusion-corrected output.
+
+        Inputs ``image`` (original frames) and ``swapped_image`` (the raw swap)
+        are wired by the caller. The required params come from the node's live
+        ``/object_info`` schema; the two model names and the SAM threshold are
+        env-tunable. ``bbox_model_name`` MUST be a face-trained YOLO
+        (``face_yolov8m.pt``) — a generic COCO ``yolov8m.pt`` detects "person",
+        not the face region, and the mask would be wrong.
+        """
+        return {
+            "inputs": {
+                "image": ["1", 0],
+                "swapped_image": ["3", 0],
+                "bbox_model_name": _envs(
+                    "VIDEO_SWAP_OCCLUSION_BBOX_MODEL", "face_yolov8m.pt"
+                ),
+                "bbox_threshold": _envf("VIDEO_SWAP_OCCLUSION_BBOX_THRESHOLD", 0.5),
+                "bbox_dilation": 10,
+                "bbox_crop_factor": 3.0,
+                "bbox_drop_size": 10,
+                "sam_model_name": _envs(
+                    "VIDEO_SWAP_OCCLUSION_SAM_MODEL", "sam_vit_b_01ec64.pth"
+                ),
+                "sam_dilation": 0,
+                "sam_threshold": _envf("VIDEO_SWAP_OCCLUSION_SAM_THRESHOLD", 0.93),
+                "bbox_expansion": 0,
+                "mask_hint_threshold": 0.7,
+                "mask_hint_use_negative": "False",
+                "morphology_operation": "dilate",
+                "morphology_distance": 0,
+                "blur_radius": 9,
+                "sigma_factor": 1.0,
+            },
+            "class_type": "ReActorMaskHelper",
+            "_meta": {"title": "ReActorMaskHelper (occlusion)"},
+        }
+
     def _build_video_workflow(
         self,
         *,
@@ -347,6 +408,7 @@ class VideoFaceSwapEngine(FaceSwapEngine):
         video_filename: str,
         plan: VideoSwapPlan,
         reactor_class: str,
+        mask_helper_available: bool = False,
     ) -> dict[str, Any]:
         try:
             with _VIDEO_WORKFLOW_FILE.open("r", encoding="utf-8") as fh:
@@ -388,6 +450,14 @@ class VideoFaceSwapEngine(FaceSwapEngine):
         if not isinstance(combine, dict) or "inputs" not in combine:
             raise FaceSwapError("workflow node '4' (VHS_VideoCombine) malformed")
         combine["inputs"]["frame_rate"] = int(round(plan.fps))
+
+        # Occlusion: splice ReActorMaskHelper (node "5") between the swap (3)
+        # and the combiner (4) so foreground objects in front of the face are
+        # restored. Only when explicitly enabled AND the node exists on the pod;
+        # otherwise the graph is byte-for-byte the original (safe default).
+        if _occlusion_enabled() and mask_helper_available:
+            workflow["5"] = self._build_mask_helper_node()
+            combine["inputs"]["images"] = ["5", 0]
 
         return workflow
 
