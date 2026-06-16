@@ -32,6 +32,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 from app.services.block_m2_face_swap.face_swap_engine import (
     _KEEP_POD_RUNNING_ENV,
     FaceSwapEngine,
@@ -51,6 +53,10 @@ _DEFAULT_VIDEO_OUTPUT_DIR = Path(r"C:\jarvis\data\block_m2_face_swap\video_outpu
 
 DEFAULT_MAX_SECONDS = 60.0
 DEFAULT_MAX_HEIGHT = 1080
+# ReActor's occlusion node: detects the face (bbox) + segments occluders (SAM)
+# and restores foreground objects (a hand/food in front of the face) that the
+# raw swap would paint over. Optional — only wired when present on the pod.
+_MASK_HELPER_CLASS = "ReActorMaskHelper"
 # GFPGAN at full visibility (1.0) re-renders the face independently per frame,
 # which reads as shimmer/"redrawing" on video. 0.7 blends the raw swap back in
 # for steadier temporal output; override with VIDEO_SWAP_FACE_RESTORE_VISIBILITY.
@@ -302,6 +308,37 @@ class VideoFaceSwapEngine(FaceSwapEngine):
                 f"could not probe video (fps={fps}, frames={frames}): {path}"
             )
         return VideoMeta(fps=fps, frame_count=frames, width=width, height=height)
+
+    async def _probe_mask_helper_available(self, pod_url: str) -> bool:
+        """True if this ComfyUI registers the ReActorMaskHelper occlusion node.
+
+        Best-effort: any probe failure (network error, non-200, bad JSON, or
+        the class simply being absent) returns ``False`` so the engine falls
+        back to the plain swap instead of submitting a graph that references a
+        node this pod's ReActor pack doesn't ship.
+        """
+        http = self._get_http()
+        try:
+            r = await http.get(f"{pod_url}/object_info")
+        except httpx.HTTPError as exc:
+            logger.warning(
+                "VideoFaceSwapEngine: /object_info probe failed (%s); "
+                "occlusion mask disabled",
+                exc,
+            )
+            return False
+        if r.status_code != 200:
+            logger.warning(
+                "VideoFaceSwapEngine: /object_info HTTP %d; "
+                "occlusion mask disabled",
+                r.status_code,
+            )
+            return False
+        try:
+            info = r.json()
+        except ValueError:
+            return False
+        return _MASK_HELPER_CLASS in info
 
     def _build_video_workflow(
         self,

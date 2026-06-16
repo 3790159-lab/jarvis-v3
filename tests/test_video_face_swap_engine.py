@@ -342,3 +342,59 @@ async def test_swap_video_stops_pod_when_keep_flag_unset(tmp_path, monkeypatch):
         fps=24.0, frame_count=240, width=640, height=480))
     await engine.swap_video(face, clip)
     client.stop_pod.assert_awaited_once_with("pod_abc")
+
+
+# ── occlusion mask helper probe (Stage 2) ────────────────────────────────────
+# The ReActorMaskHelper node restores occluders (a hand/food in front of the
+# face) that the raw swap would paint over. It is optional: the engine probes
+# /object_info for the class and only wires it when present, so a pod whose
+# ReActor pack lacks the node degrades to the plain swap instead of submitting
+# a graph that references a missing class.
+
+
+@pytest.mark.anyio
+async def test_probe_mask_helper_true_when_node_present(tmp_path):
+    http = MagicMock(spec=httpx.AsyncClient)
+    http.aclose = AsyncMock()
+    http.get = AsyncMock(return_value=_json_response(
+        {"ReActorFaceSwap": {}, "ReActorMaskHelper": {}}))
+    engine = _engine_with_http(http, tmp_path)
+    assert await engine._probe_mask_helper_available("http://t:8188") is True
+    http.get.assert_awaited_once_with("http://t:8188/object_info")
+
+
+@pytest.mark.anyio
+async def test_probe_mask_helper_false_when_node_absent(tmp_path):
+    http = MagicMock(spec=httpx.AsyncClient)
+    http.aclose = AsyncMock()
+    http.get = AsyncMock(return_value=_json_response({"ReActorFaceSwap": {}}))
+    engine = _engine_with_http(http, tmp_path)
+    assert await engine._probe_mask_helper_available("http://t:8188") is False
+
+
+@pytest.mark.anyio
+async def test_probe_mask_helper_false_on_http_error(tmp_path):
+    http = MagicMock(spec=httpx.AsyncClient)
+    http.aclose = AsyncMock()
+    http.get = AsyncMock(side_effect=httpx.ConnectError("boom"))
+    engine = _engine_with_http(http, tmp_path)
+    # a probe failure must NOT raise — it degrades to "no mask helper"
+    assert await engine._probe_mask_helper_available("http://t:8188") is False
+
+
+@pytest.mark.anyio
+async def test_probe_mask_helper_false_on_non_200(tmp_path):
+    http = MagicMock(spec=httpx.AsyncClient)
+    http.aclose = AsyncMock()
+    http.get = AsyncMock(return_value=_json_response({}, status=500))
+    engine = _engine_with_http(http, tmp_path)
+    assert await engine._probe_mask_helper_available("http://t:8188") is False
+
+
+@pytest.mark.anyio
+async def test_probe_mask_helper_false_on_bad_json(tmp_path):
+    http = MagicMock(spec=httpx.AsyncClient)
+    http.aclose = AsyncMock()
+    http.get = AsyncMock(return_value=_bytes_response(b"not json", status=200))
+    engine = _engine_with_http(http, tmp_path)
+    assert await engine._probe_mask_helper_available("http://t:8188") is False
