@@ -27,8 +27,27 @@ MIN_DISK_GB = float(os.getenv("WATCHDOG_MIN_DISK_GB", "1.0"))
 MAX_MEMORY_PCT = float(os.getenv("WATCHDOG_MAX_MEMORY_PCT", "90.0"))
 GRACE_PERIOD_SEC = int(os.getenv("WATCHDOG_GRACE_PERIOD_SEC", "300"))
 
+# Cross-process "video swap in progress" signal written by the bot. Imported at
+# module scope so tests can patch app.services.system_watchdog.is_swap_active.
+try:
+    from app.services.block_m2_video.swap_sentinel import is_swap_active
+except Exception:  # pragma: no cover — keep the watchdog importable in isolation
+    def is_swap_active() -> bool:  # type: ignore[misc]
+        return False
+
 # Module-load time — used by restart_bot_if_dead to skip false-positives at startup
 _module_started_at = time.time()
+
+# Throttle for the "heartbeat stale" Telegram alert so a restart that keeps
+# failing does not spam the admin once per check cycle.
+_last_restart_alert_at = 0.0
+
+
+def _alert_throttle_sec() -> int:
+    try:
+        return int(os.getenv("WATCHDOG_ALERT_THROTTLE_SEC", "300"))
+    except ValueError:
+        return 300
 
 
 # ---------------------------------------------------------------------------
@@ -176,24 +195,46 @@ def restart_bot_if_dead() -> bool:
         return False
     if check_bot_alive():
         return False
+    # Busy-aware: a long video swap legitimately starves the heartbeat. Don't
+    # kill a bot that is actively generating — that is the runaway restart loop.
+    if is_swap_active():
+        logger.info("Video swap in progress (sentinel active) — skipping bot restart")
+        return False
     logger.warning("Bot heartbeat stale — attempting restart via start_jarvis.ps1")
     try:
         project_root = Path(__file__).parent.parent.parent
         script = project_root / "start_jarvis.ps1"
         if script.exists():
+            # -BotOnly: restart only the bot (the backend is running this very
+            # watchdog, so it is alive — relaunching it would be wrong). The
+            # script kills the stale bot first so single-instance lets us in.
             subprocess.Popen(
-                ["powershell", "-File", str(script)],
+                [
+                    "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                    "-File", str(script), "-BotOnly",
+                ],
                 cwd=str(project_root),
             )
-            send_telegram_alert("Bot heartbeat stale — перезапущен через start_jarvis.ps1")
+            _maybe_alert("Bot heartbeat stale — перезапущен через start_jarvis.ps1 -BotOnly")
             return True
         else:
             logger.warning("start_jarvis.ps1 not found at %s", script)
-            send_telegram_alert("Bot heartbeat stale — start_jarvis.ps1 не найден, ручной перезапуск!")
+            _maybe_alert("Bot heartbeat stale — start_jarvis.ps1 не найден, ручной перезапуск!")
             return False
     except Exception as exc:
         logger.error("restart_bot_if_dead failed: %s", exc)
         return False
+
+
+def _maybe_alert(text: str) -> None:
+    """Send a watchdog Telegram alert at most once per throttle window."""
+    global _last_restart_alert_at
+    now = time.time()
+    if now - _last_restart_alert_at < _alert_throttle_sec():
+        logger.info("Watchdog alert throttled (%s)", text)
+        return
+    _last_restart_alert_at = now
+    send_telegram_alert(text)
 
 
 def run_watchdog_cycle() -> Dict[str, Any]:

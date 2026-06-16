@@ -293,5 +293,50 @@ class TestRestartBotDisabledViaEnv:
         mock_popen.assert_not_called()
 
 
+# ---------------------------------------------------------------------------
+# restart_bot_if_dead — STEP 2: busy-aware + -BotOnly + alert throttle
+# ---------------------------------------------------------------------------
+
+class TestRestartBotBusyAware:
+    def test_skips_restart_while_swap_active(self):
+        import app.services.system_watchdog as wdog
+        wdog._last_restart_alert_at = 0.0
+        with patch.object(wdog, "_module_started_at", 0.0):
+            with patch.object(wdog, "check_bot_alive", return_value=False):
+                with patch.object(wdog, "is_swap_active", return_value=True):
+                    with patch("subprocess.Popen") as mock_popen:
+                        result = wdog.restart_bot_if_dead()
+        assert result is False
+        mock_popen.assert_not_called()
+
+    def test_restarts_with_bot_only_flag_when_idle_and_stale(self):
+        import app.services.system_watchdog as wdog
+        wdog._last_restart_alert_at = 0.0
+        with patch.object(wdog, "_module_started_at", 0.0):
+            with patch.object(wdog, "check_bot_alive", return_value=False):
+                with patch.object(wdog, "is_swap_active", return_value=False):
+                    with patch.object(wdog, "send_telegram_alert"):
+                        with patch("subprocess.Popen") as mock_popen:
+                            result = wdog.restart_bot_if_dead()
+        assert result is True
+        mock_popen.assert_called_once()
+        args = mock_popen.call_args[0][0]
+        assert "-BotOnly" in args
+
+    def test_alert_is_throttled_across_consecutive_restarts(self):
+        import app.services.system_watchdog as wdog
+        wdog._last_restart_alert_at = 0.0
+        with patch.object(wdog, "_module_started_at", 0.0):
+            with patch.object(wdog, "check_bot_alive", return_value=False):
+                with patch.object(wdog, "is_swap_active", return_value=False):
+                    with patch("subprocess.Popen"):
+                        with patch.object(wdog, "send_telegram_alert") as mock_alert:
+                            wdog.restart_bot_if_dead()
+                            wdog.restart_bot_if_dead()
+                            wdog.restart_bot_if_dead()
+        # back-to-back restarts within the throttle window → one alert only
+        assert mock_alert.call_count == 1
+
+
 # Need pytest for approx
 import pytest

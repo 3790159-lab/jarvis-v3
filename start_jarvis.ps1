@@ -68,6 +68,40 @@ function Write-TempScript {
     return $tmp
 }
 
+function Stop-OldBot {
+    # Kill any existing Telegram bot before starting a new one. The bot enforces
+    # single-instance via state\bot.pid, so a stale bot (e.g. one stuck on a long
+    # swap that the watchdog wants to restart) would make the new instance exit
+    # immediately. Killing it first is what makes -BotOnly restart actually work.
+    Write-Host "[INFO] Stopping any existing Telegram bot..."
+    $pidFile = Join-Path $ProjectRoot "state\bot.pid"
+
+    # 1) By recorded PID.
+    if (Test-Path $pidFile) {
+        try {
+            $oldPid = [int]((Get-Content $pidFile -ErrorAction Stop) -join "").Trim()
+            if (Get-Process -Id $oldPid -ErrorAction SilentlyContinue) {
+                Stop-Process -Id $oldPid -Force -ErrorAction SilentlyContinue
+                Write-Host "[INFO] Stopped bot PID $oldPid (from pid file)"
+            }
+        } catch { }
+    }
+
+    # 2) By command line — covers a stale/missing pid file.
+    try {
+        $procs = Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" -ErrorAction SilentlyContinue |
+            Where-Object { $_.CommandLine -and $_.CommandLine -match 'jarvis_smart_telegram_control' }
+        foreach ($p in $procs) {
+            Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+            Write-Host "[INFO] Stopped bot process $($p.ProcessId) (by command line)"
+        }
+    } catch { }
+
+    # Clear the stale pid file so the fresh instance starts clean.
+    if (Test-Path $pidFile) { Remove-Item $pidFile -Force -ErrorAction SilentlyContinue }
+    Start-Sleep -Milliseconds 500
+}
+
 # ---- backend ----------------------------------------------------------------
 if (-not $BotOnly) {
     $MainFile = Join-Path $ProjectRoot "app\main.py"
@@ -116,6 +150,8 @@ if (-not $BotOnly) {
 
 # ---- telegram bot -----------------------------------------------------------
 if (-not $BackendOnly) {
+    Stop-OldBot
+
     $BotFile = Join-Path $ProjectRoot "tools\jarvis_smart_telegram_control.py"
     & $PythonExe -m py_compile $BotFile
     if ($LASTEXITCODE -ne 0) { throw "Syntax error in tools\jarvis_smart_telegram_control.py" }

@@ -374,7 +374,18 @@ def _get_video_lock():
         if _r not in _sys.path:
             _sys.path.insert(0, _r)
         from app.services.block_m2_video.generation_lock import GenerationLock
-        _video_lock = GenerationLock()
+        from app.services.block_m2_video.swap_sentinel import (
+            mark_swap_start,
+            mark_swap_end,
+        )
+        # Mark state/swap_active for the duration of any video generation so the
+        # backend watchdog does not mistake a long (3-12 min) swap for a hung
+        # bot and kill it. Ref-counted by the lock: created on first acquire,
+        # removed only when the last chat releases.
+        _video_lock = GenerationLock(
+            on_first_acquire=mark_swap_start,
+            on_last_release=mark_swap_end,
+        )
     return _video_lock
 
 

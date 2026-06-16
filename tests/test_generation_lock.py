@@ -94,3 +94,49 @@ def test_session_double_entry_raises_busy():
             with lock.session(20):
                 pass
     assert not lock.is_busy(20)
+
+
+# ── Sentinel callbacks (ref-counted busy signal for the watchdog) ────────────
+
+def test_first_acquire_fires_on_first_acquire():
+    events = []
+    lock = GenerationLock(
+        on_first_acquire=lambda: events.append("start"),
+        on_last_release=lambda: events.append("end"),
+    )
+    lock.acquire(1)
+    assert events == ["start"]
+
+
+def test_last_release_fires_only_when_all_released():
+    events = []
+    lock = GenerationLock(
+        on_first_acquire=lambda: events.append("start"),
+        on_last_release=lambda: events.append("end"),
+    )
+    t1 = lock.acquire(1)
+    t2 = lock.acquire(2)  # second chat: no extra "start"
+    lock.release(t1)      # still one holder: no "end" yet
+    assert events == ["start"]
+    lock.release(t2)      # last holder gone: "end"
+    assert events == ["start", "end"]
+
+
+def test_callbacks_are_optional():
+    # default construction (no callbacks) must behave exactly as before
+    lock = GenerationLock()
+    token = lock.acquire(1)
+    lock.release(token)
+    assert not lock.is_busy(1)
+
+
+def test_callback_exception_does_not_break_locking():
+    def boom():
+        raise RuntimeError("sentinel io failed")
+
+    lock = GenerationLock(on_first_acquire=boom, on_last_release=boom)
+    # a failing sentinel hook must never break the in-memory lock contract
+    token = lock.acquire(1)
+    assert lock.is_busy(1)
+    lock.release(token)
+    assert not lock.is_busy(1)
