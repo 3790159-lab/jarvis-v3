@@ -49,3 +49,23 @@ def test_bootstrap_model_urls_are_env_overridable_with_defaults():
     # overridable URLs (env with default), so a source change needs no code edit
     assert "FACE_YOLO_MODEL_URL" in txt
     assert "SAM_VIT_B_MODEL_URL" in txt
+
+
+def test_bootstrap_pip_installs_pinned_ultralytics():
+    # ReActorMaskHelper.load_yolo does `from ultralytics import YOLO`; ultralytics
+    # is NOT a transitive dep of the other installed packages, so without an
+    # explicit install the occlusion mask dies with NameError: YOLO not defined
+    # before ComfyUI launches. Pin the version observed installed in B-53 (8.4.69).
+    txt = _BOOTSTRAP.read_text(encoding="utf-8")
+    assert "ultralytics==8.4.69" in txt, (
+        "bootstrap must pip install pinned ultralytics==8.4.69 (B-53)"
+    )
+
+
+def test_bootstrap_import_probe_verifies_ultralytics():
+    # The probe's modules_to_check drives both the version-gate reinstall and the
+    # post-install fail-loud check; ultralytics must be verified like the others.
+    txt = _BOOTSTRAP.read_text(encoding="utf-8")
+    assert "'ultralytics'" in txt, (
+        "import probe must verify 'ultralytics' so a volume missing it reinstalls"
+    )

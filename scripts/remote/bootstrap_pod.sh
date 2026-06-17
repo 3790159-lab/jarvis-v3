@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-BOOTSTRAP_VERSION="2026.06.16-001"  # bump forces reinstall: pulls occlusion models (face_yolov8m + sam_vit_b)
+BOOTSTRAP_VERSION="2026.06.17-001"  # bump forces reinstall: pulls occlusion models (face_yolov8m + sam_vit_b) + pins ultralytics==8.4.69 for ReActorMaskHelper YOLO
 VOLUME_VERSION_FILE="/workspace/.bootstrap_version"
 LOG_FILE="/workspace/.bootstrap_log"
 COMFYUI_DIR="/workspace/ComfyUI"
@@ -30,6 +30,7 @@ modules_to_check = [
     'segment_anything',
     'onnxruntime',
     'git',
+    'ultralytics',
 ]
 missing = []
 for mod in modules_to_check:
@@ -113,6 +114,13 @@ if [[ "$NEED_INSTALL" == "true" ]]; then
         insightface \
         segment_anything \
         gitpython
+
+    echo "=== Step: ultralytics (YOLO for ReActorMaskHelper occlusion) ==="
+    # Pin the version observed working in B-53; fall back to latest if that exact
+    # version is unavailable on PyPI so a yanked pin can't brick provisioning
+    # (this step runs under set -e). ultralytics' torch/torchvision deps are
+    # lower-bound (>=), so an already-present torch 2.4 is not upgraded.
+    pip install --quiet "ultralytics==8.4.69" || pip install --quiet ultralytics
 
     echo "=== Step: re-pin transformers (ComfyUI installs newer; reactor needs <4.45 with PyTorch 2.4) ==="
     pip install --force-reinstall --quiet "transformers<4.45"
