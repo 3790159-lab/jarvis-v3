@@ -386,15 +386,18 @@ class VideoFaceSwapEngine(FaceSwapEngine):
         are wired by the caller. The required params come from the node's live
         ``/object_info`` schema; the two model names and the SAM threshold are
         env-tunable. ``bbox_model_name`` MUST be a face-trained YOLO
-        (``face_yolov8m.pt``) — a generic COCO ``yolov8m.pt`` detects "person",
-        not the face region, and the mask would be wrong.
+        (``bbox/face_yolov8m.pt``) — a generic COCO ``yolov8m.pt`` detects
+        "person", not the face region, and the mask would be wrong. The
+        ``bbox/`` prefix is the Impact-Pack subfolder convention and is the
+        exact value ComfyUI's dropdown expects; without it ``/prompt`` rejects
+        the node with ``value_not_in_list`` (HTTP 400).
         """
         return {
             "inputs": {
                 "image": ["1", 0],
                 "swapped_image": ["3", 0],
                 "bbox_model_name": _envs(
-                    "VIDEO_SWAP_OCCLUSION_BBOX_MODEL", "face_yolov8m.pt"
+                    "VIDEO_SWAP_OCCLUSION_BBOX_MODEL", "bbox/face_yolov8m.pt"
                 ),
                 "bbox_threshold": _envf("VIDEO_SWAP_OCCLUSION_BBOX_THRESHOLD", 0.5),
                 "bbox_dilation": 10,

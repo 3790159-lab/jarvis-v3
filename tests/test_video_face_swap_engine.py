@@ -494,8 +494,10 @@ def test_build_workflow_mask_node_has_face_bbox_and_sam_defaults(tmp_path, monke
     engine = VideoFaceSwapEngine(config=_make_config(), client=_mock_client(),
                                  output_dir=tmp_path / "out")
     ins = _build(engine, mask_helper_available=True)["5"]["inputs"]
-    # face-trained YOLO (NOT generic yolov8m) + lightest SAM
-    assert ins["bbox_model_name"] == "face_yolov8m.pt"
+    # face-trained YOLO (NOT generic yolov8m) + lightest SAM; the bbox value
+    # carries the Impact-Pack ``bbox/`` subfolder prefix ComfyUI's dropdown
+    # requires (a bare ``face_yolov8m.pt`` fails /prompt with value_not_in_list)
+    assert ins["bbox_model_name"] == "bbox/face_yolov8m.pt"
     assert ins["sam_model_name"] == "sam_vit_b_01ec64.pth"
     # required inputs present with schema defaults
     assert ins["sam_threshold"] == 0.93
