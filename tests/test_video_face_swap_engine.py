@@ -462,6 +462,9 @@ def test_build_workflow_no_mask_node_when_flag_off(tmp_path, monkeypatch):
                                  output_dir=tmp_path / "out")
     wf = _build(engine, mask_helper_available=True)  # available but flag OFF
     assert "5" not in wf
+    # byte-for-byte original: no normalizer node, swap reads raw frames
+    assert "6" not in wf
+    assert wf["3"]["inputs"]["input_image"] == ["1", 0]
     assert wf["4"]["inputs"]["images"] == ["3", 0]
 
 
@@ -471,6 +474,9 @@ def test_build_workflow_no_mask_node_when_helper_unavailable(tmp_path, monkeypat
                                  output_dir=tmp_path / "out")
     wf = _build(engine, mask_helper_available=False)  # flag ON but node missing
     assert "5" not in wf
+    # byte-for-byte original: no normalizer node, swap reads raw frames
+    assert "6" not in wf
+    assert wf["3"]["inputs"]["input_image"] == ["1", 0]
     assert wf["4"]["inputs"]["images"] == ["3", 0]
 
 
@@ -480,11 +486,24 @@ def test_build_workflow_inserts_mask_node_when_enabled_and_available(tmp_path, m
                                  output_dir=tmp_path / "out")
     wf = _build(engine, mask_helper_available=True)
     assert wf["5"]["class_type"] == "ReActorMaskHelper"
-    # original frames + swapped frames feed the mask helper
-    assert wf["5"]["inputs"]["image"] == ["1", 0]
+    # node "6" normalizes RGBA->RGB (B-53) off the raw frames (1,0)
+    assert wf["6"]["class_type"] == "SplitImageWithAlpha"
+    assert wf["6"]["inputs"]["image"] == ["1", 0]
+    # both consumers read the normalized RGB source (node 6), not raw frames
+    assert wf["3"]["inputs"]["input_image"] == ["6", 0]
+    assert wf["5"]["inputs"]["image"] == ["6", 0]
+    # the mask helper still consumes the (now-RGB) swap output
     assert wf["5"]["inputs"]["swapped_image"] == ["3", 0]
     # the combiner now consumes the corrected output, not the raw swap
     assert wf["4"]["inputs"]["images"] == ["5", 0]
+    # audio still comes straight from the VHS loader (no regression)
+    assert wf["4"]["inputs"]["audio"] == ["1", 2]
+
+
+def test_build_mask_helper_node_defaults_image_to_loader():
+    # Guards the fallback branch (no image_src) that production no longer
+    # exercises: it must preserve the original VHS loader wiring ["1", 0].
+    assert VideoFaceSwapEngine._build_mask_helper_node()["inputs"]["image"] == ["1", 0]
 
 
 def test_build_workflow_mask_node_has_face_bbox_and_sam_defaults(tmp_path, monkeypatch):

@@ -379,22 +379,45 @@ class VideoFaceSwapEngine(FaceSwapEngine):
         return _MASK_HELPER_CLASS in info
 
     @staticmethod
-    def _build_mask_helper_node() -> dict[str, Any]:
+    def _build_rgb_normalize_node(image_src: list) -> dict[str, Any]:
+        """RGB-normalize an IMAGE link via the stock SplitImageWithAlpha node.
+
+        SplitImageWithAlpha is a ComfyUI core node; its IMAGE output (index 0)
+        drops any alpha channel, yielding RGB(3), and is idempotent on
+        already-RGB input. Used to give ReActorMaskHelper channel-consistent
+        operands (B-53: the mask blend crashes on a 3-vs-4 channel mismatch when
+        frames carry alpha). Stock core node, so no extra pod dependency.
+        """
+        return {
+            "inputs": {"image": image_src},
+            "class_type": "SplitImageWithAlpha",
+            "_meta": {"title": "SplitImageWithAlpha (RGB normalize)"},
+        }
+
+    @staticmethod
+    def _build_mask_helper_node(image_src: list | None = None) -> dict[str, Any]:
         """The ReActorMaskHelper node (id "5"), occlusion-corrected output.
 
-        Inputs ``image`` (original frames) and ``swapped_image`` (the raw swap)
-        are wired by the caller. The required params come from the node's live
-        ``/object_info`` schema; the two model names and the SAM threshold are
-        env-tunable. ``bbox_model_name`` MUST be a face-trained YOLO
+        Inputs ``image`` (original frames, ``image_src``) and ``swapped_image``
+        (the raw swap) are wired by the caller. The required params come from the
+        node's live ``/object_info`` schema; the two model names and the SAM
+        threshold are env-tunable. ``bbox_model_name`` MUST be a face-trained YOLO
         (``bbox/face_yolov8m.pt``) — a generic COCO ``yolov8m.pt`` detects
         "person", not the face region, and the mask would be wrong. The
         ``bbox/`` prefix is the Impact-Pack subfolder convention and is the
         exact value ComfyUI's dropdown expects; without it ``/prompt`` rejects
         the node with ``value_not_in_list`` (HTTP 400).
         """
+        if image_src is None:
+            image_src = ["1", 0]
         return {
             "inputs": {
-                "image": ["1", 0],
+                "image": image_src,
+                # swapped_image is intentionally NOT routed through the RGB
+                # normalizer: ReActor's output is assumed RGB, so only the
+                # upstream frames (the `image` operand) are normalized. If a
+                # future pod's ReActor emits RGBA, the B-53 mismatch could recur
+                # here and a second normalizer on ["3",0] would be the fix.
                 "swapped_image": ["3", 0],
                 "bbox_model_name": _envs(
                     "VIDEO_SWAP_OCCLUSION_BBOX_MODEL", "bbox/face_yolov8m.pt"
@@ -475,7 +498,13 @@ class VideoFaceSwapEngine(FaceSwapEngine):
         # restored. Only when explicitly enabled AND the node exists on the pod;
         # otherwise the graph is byte-for-byte the original (safe default).
         if _occlusion_enabled() and mask_helper_available:
-            workflow["5"] = self._build_mask_helper_node()
+            # B-53: normalize frames to RGB(3) via a stock SplitImageWithAlpha
+            # node so the swap and the mask helper get channel-consistent
+            # operands (the mask blend crashes on a 3-vs-4 mismatch if frames
+            # carry alpha). Route both consumers off the normalized source.
+            workflow["6"] = self._build_rgb_normalize_node(image_src=["1", 0])
+            reactor["inputs"]["input_image"] = ["6", 0]
+            workflow["5"] = self._build_mask_helper_node(image_src=["6", 0])
             combine["inputs"]["images"] = ["5", 0]
 
         return workflow
