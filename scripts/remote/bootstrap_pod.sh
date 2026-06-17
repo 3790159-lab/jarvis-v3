@@ -5,10 +5,17 @@
 
 set -euo pipefail
 
-BOOTSTRAP_VERSION="2026.06.17-001"  # bump forces reinstall: pulls occlusion models (face_yolov8m + sam_vit_b) + pins ultralytics==8.4.69 for ReActorMaskHelper YOLO
+BOOTSTRAP_VERSION="2026.06.17-001"  # bump forces reinstall: pulls occlusion models (face_yolov8m + sam_vit_b) + pins ultralytics==8.4.69 for ReActorMaskHelper YOLO. NB: probe now also gates on torch.cuda + occlusion-file presence (runs on every boot, so no bump needed to enforce)
 VOLUME_VERSION_FILE="/workspace/.bootstrap_version"
 LOG_FILE="/workspace/.bootstrap_log"
 COMFYUI_DIR="/workspace/ComfyUI"
+
+# Occlusion model destinations — defined here (not just in the install path) and
+# exported so the import probe, which runs BOTH pre-gate and post-install, can
+# assert the files actually landed. Their filenames/dirs must match the engine's
+# ReActorMaskHelper defaults (see test_bootstrap_occlusion_models.py).
+export FACE_YOLO_DEST="$COMFYUI_DIR/models/ultralytics/bbox/face_yolov8m.pt"
+export SAM_VIT_B_DEST="$COMFYUI_DIR/models/sams/sam_vit_b_01ec64.pth"
 
 # --- Logging ---
 exec > >(tee -a "$LOG_FILE") 2>&1
@@ -70,6 +77,46 @@ try:
 except Exception as e:
     missing.append('onnxruntime:CUDAExecutionProvider')
     print(f"  FAIL onnxruntime provider check: {e}", file=sys.stderr)
+
+# torch CUDA gate: SAM (occlusion segmentation) and the YOLO face detector run on
+# torch via ComfyUI's model_management.get_torch_device(); the ReActorMaskHelper
+# node exposes NO device input, so if torch can't see CUDA the whole occlusion
+# path silently runs on CPU (seconds per frame → a short clip times out). A bare
+# `import onnxruntime` CUDA check does NOT cover torch, so probe it explicitly and
+# fail loud at boot instead of grinding on CPU at swap time on the Nth node.
+try:
+    import torch
+    if torch.cuda.is_available():
+        print(f"  OK torch.cuda ({torch.cuda.get_device_name(0)})")
+    else:
+        missing.append('torch:cuda')
+        print(
+            "  FAIL torch.cuda.is_available()==False — SAM/YOLO would run on CPU",
+            file=sys.stderr,
+        )
+except Exception as e:
+    missing.append('torch:cuda')
+    print(f"  FAIL torch import/cuda check: {e}", file=sys.stderr)
+
+# Occlusion model FILES must physically exist. The download steps below are
+# WARN-only (a failed wget removes the partial and continues), so without this
+# check a silent download miss would cache a "healthy" version and the node would
+# only die at swap time. Verifying here makes the version-gate force a reinstall
+# on a volume that's missing them, and makes the post-install probe refuse to
+# write the version file — fail loud, immediately.
+import os
+for _label, _path in (
+    ("face_yolov8m.pt", os.environ.get("FACE_YOLO_DEST", "")),
+    ("sam_vit_b_01ec64.pth", os.environ.get("SAM_VIT_B_DEST", "")),
+):
+    if _path and os.path.isfile(_path) and os.path.getsize(_path) > 0:
+        print(f"  OK occlusion model {_label}")
+    else:
+        missing.append(f"occlusion_model:{_label}")
+        print(
+            f"  FAIL occlusion model {_label} missing/empty at {_path!r}",
+            file=sys.stderr,
+        )
 
 if missing:
     for mod in missing:
@@ -166,8 +213,8 @@ if [[ "$NEED_INSTALL" == "true" ]]; then
     # NB: face_yolov8m.pt is a FACE-trained YOLO — NOT generic COCO yolov8m.
     FACE_YOLO_MODEL_URL="${FACE_YOLO_MODEL_URL:-https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8m.pt}"
     SAM_VIT_B_MODEL_URL="${SAM_VIT_B_MODEL_URL:-https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth}"
-    FACE_YOLO_DEST="$COMFYUI_DIR/models/ultralytics/bbox/face_yolov8m.pt"
-    SAM_VIT_B_DEST="$COMFYUI_DIR/models/sams/sam_vit_b_01ec64.pth"
+    # FACE_YOLO_DEST / SAM_VIT_B_DEST are exported at the top of the script so the
+    # import probe can verify the files; the download targets reuse them here.
 
     if [[ ! -s "$FACE_YOLO_DEST" ]]; then
         echo "Downloading face_yolov8m.pt -> $FACE_YOLO_DEST"

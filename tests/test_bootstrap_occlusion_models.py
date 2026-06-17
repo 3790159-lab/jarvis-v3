@@ -69,3 +69,31 @@ def test_bootstrap_import_probe_verifies_ultralytics():
     assert "'ultralytics'" in txt, (
         "import probe must verify 'ultralytics' so a volume missing it reinstalls"
     )
+
+
+def test_bootstrap_import_probe_gates_on_torch_cuda():
+    # SAM + the YOLO detector run on torch via ComfyUI's get_torch_device(); the
+    # onnxruntime CUDA probe does NOT cover torch, so the probe must fail loud when
+    # torch can't see CUDA — otherwise the occlusion path silently runs on CPU.
+    txt = _BOOTSTRAP.read_text(encoding="utf-8")
+    assert "torch.cuda.is_available" in txt, (
+        "import probe must check torch.cuda.is_available()"
+    )
+    assert "torch:cuda" in txt, (
+        "a torch-CUDA failure must be appended to `missing` so the gate trips"
+    )
+
+
+def test_bootstrap_import_probe_verifies_occlusion_model_files_exist():
+    # The occlusion model downloads are WARN-only (a failed wget removes the partial
+    # and continues); without a file-existence check the version file could cache a
+    # 'healthy' state while a download silently failed, and the node would only die
+    # at swap time. The probe must assert the files physically exist, and the DEST
+    # paths must be exported so the (quoted) probe heredoc can read them via env.
+    txt = _BOOTSTRAP.read_text(encoding="utf-8")
+    assert "export FACE_YOLO_DEST=" in txt and "export SAM_VIT_B_DEST=" in txt, (
+        "occlusion model DEST paths must be exported for the probe heredoc"
+    )
+    assert "occlusion_model:" in txt, (
+        "a missing occlusion-model file must be appended to `missing` so the gate trips"
+    )

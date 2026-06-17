@@ -47,7 +47,8 @@ _VIDEO_WORKFLOW_FILE = (
 )
 _VALID_VIDEO_SUFFIXES = {".mp4", ".mov", ".webm", ".mkv", ".m4v"}
 _VIDEO_POLL_INTERVAL_SEC = 15.0
-_VIDEO_POLL_TIMEOUT_SEC = 1800  # 30 min — per-frame swap of a clip takes minutes
+# _VIDEO_POLL_TIMEOUT_SEC is env-derived; defined just after the env helpers below
+# (it needs _envi, which is declared further down).
 _MIN_VIDEO_OUTPUT_BYTES = 100 * 1024
 _DEFAULT_VIDEO_OUTPUT_DIR = Path(r"C:\jarvis\data\block_m2_face_swap\video_outputs")
 
@@ -86,6 +87,13 @@ def _envi(name: str, default: int) -> int:
 def _envs(name: str, default: str) -> str:
     raw = os.environ.get(name)
     return raw.strip() if raw and raw.strip() else default
+
+
+# Per-frame ReActor swap is minutes-long; with occlusion the mask helper runs SAM
+# + YOLO on EVERY frame (and, if torch/SAM land on CPU, seconds/frame), so even a
+# short clip can blow past the old 30-min ceiling. Default to 60 min and make it
+# env-tunable so a long clip / cold pod can't false-timeout mid-render.
+_VIDEO_POLL_TIMEOUT_SEC = _envi("VIDEO_SWAP_POLL_TIMEOUT_SEC", 3600)
 
 
 def _occlusion_enabled() -> bool:
