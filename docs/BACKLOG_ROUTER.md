@@ -59,6 +59,6 @@ Found 2026-06-16 during the video-swap occlusion work. There are TWO bootstrap s
 - `runpod/bootstrap.sh` — referenced nowhere in code/docs; uses different conventions
   (`COMFY_DIR`, `_clone_node`, no version gate, no ComfyUI launch). Effectively dead.
 
-Action (later): confirm `runpod/bootstrap.sh` is truly unused, then delete it (or fold its
-unique custom-node clones into the real script if any are actually needed). It is a trap —
-editing it has no effect on real pods. Out of scope for the occlusion feature.
+RESOLVED 2026-06-17 (commit 828b2c3): confirmed `runpod/bootstrap.sh` was truly unused and
+deleted it. It had no unique custom-node clones worth folding into the real script. It was a
+trap — editing it had no effect on real pods. Was out of scope for the occlusion feature.

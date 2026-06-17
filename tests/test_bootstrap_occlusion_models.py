@@ -10,8 +10,8 @@ bootstrap so the two can't drift. No pod required — pure text/static check.
 
 The bootstrap of record is ``scripts/remote/bootstrap_pod.sh`` — the script the
 RunPod template runs as ``/workspace/bootstrap.sh`` from the network volume (see
-docs/runpod_template_config.md). ``runpod/bootstrap.sh`` is an orphan duplicate
-and is NOT what the pod executes, so this guard targets the real one.
+docs/runpod_template_config.md). An orphan duplicate (``runpod/bootstrap.sh``)
+once existed but was removed, so ``scripts/remote/`` is the only target here.
 """
 from __future__ import annotations
 
