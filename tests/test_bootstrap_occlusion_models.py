@@ -97,3 +97,93 @@ def test_bootstrap_import_probe_verifies_occlusion_model_files_exist():
     assert "occlusion_model:" in txt, (
         "a missing occlusion-model file must be appended to `missing` so the gate trips"
     )
+
+
+# ── ReActorMaskHelper batch-bug patch (extract the embedded patch & run it) ───
+# The bootstrap runs a python patch (a `<< 'PATCHEOF'` heredoc) that moves the
+# reactor node's `result = rgba2rgb_tensor(result)` + `.cpu()` OUT of the
+# per-mask loop (in-loop they corrupt `result` to RGB(3)/CPU and the next frame's
+# 4-channel blend crashes — video breaks on the 2nd frame). These tests run the
+# REAL embedded patch against a fixture mirroring the on-volume nodes.py.
+import os
+import re
+import subprocess
+import sys
+
+
+def _extract_patch_heredoc() -> str:
+    txt = _BOOTSTRAP.read_text(encoding="utf-8")
+    m = re.search(r"<< 'PATCHEOF'\n(.*?)\nPATCHEOF", txt, re.DOTALL)
+    assert m, "PATCHEOF heredoc not found in bootstrap"
+    return m.group(1)
+
+
+_BUGGY_NODE = (
+    "        result = image_base.detach().clone()\n"
+    "        for i in range(0, MB):\n"
+    "            if is_empty[i]:\n"
+    "                pbar.update(1)\n"
+    "                continue\n"
+    "            else:\n"
+    "                result[image_index] = pasting * paste_mask + result[image_index] * (1. - paste_mask)\n"
+    "\n"
+    "                face_segment = result\n"
+    "\n"
+    "                face_segment[...,3] = mask[i]\n"
+    "\n"
+    "                result = rgba2rgb_tensor(result)\n"
+    "                result = result.cpu()  # Перемещаем\n"
+    "\n"
+    "                pbar.update(1)\n"
+    "\n"
+    "        return (result, combined_mask, mask_blurred, face_segment)\n"
+)
+
+
+def _run_patch(target: Path) -> str:
+    code = _extract_patch_heredoc()
+    env = {**os.environ, "REACTOR_NODES": str(target)}
+    r = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, env=env
+    )
+    assert r.returncode == 0, f"patch exited {r.returncode}: {r.stderr}"
+    return r.stdout
+
+
+def test_reactor_patch_moves_rgba2rgb_out_of_loop(tmp_path):
+    f = tmp_path / "nodes.py"
+    f.write_text(_BUGGY_NODE, encoding="utf-8")
+    out = _run_patch(f)
+    assert "APPLIED" in out
+    patched = f.read_text(encoding="utf-8")
+    # the in-loop conversion pair is gone
+    assert (
+        "                result = rgba2rgb_tensor(result)\n"
+        "                result = result.cpu()"
+    ) not in patched
+    # a single post-loop conversion is inserted right before the return, marked
+    assert (
+        "        result = rgba2rgb_tensor(result).cpu()  "
+        "# JARVIS-PATCH rgba2rgb-out-of-loop\n        return (result,"
+    ) in patched
+
+
+def test_reactor_patch_is_idempotent(tmp_path):
+    f = tmp_path / "nodes.py"
+    f.write_text(_BUGGY_NODE, encoding="utf-8")
+    _run_patch(f)
+    once = f.read_text(encoding="utf-8")
+    out2 = _run_patch(f)
+    assert "already applied" in out2
+    assert f.read_text(encoding="utf-8") == once  # second run is a no-op
+
+
+def test_reactor_patch_noop_when_pattern_absent(tmp_path):
+    # A future node version without the in-loop pattern must WARN and leave the
+    # file untouched — never brick provisioning.
+    f = tmp_path / "nodes.py"
+    f.write_text("def execute(self):\n    return (result,)\n", encoding="utf-8")
+    before = f.read_text(encoding="utf-8")
+    out = _run_patch(f)
+    assert "WARN" in out
+    assert f.read_text(encoding="utf-8") == before

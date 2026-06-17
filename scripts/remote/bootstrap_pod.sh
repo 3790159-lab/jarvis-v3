@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-BOOTSTRAP_VERSION="2026.06.17-001"  # bump forces reinstall: pulls occlusion models (face_yolov8m + sam_vit_b) + pins ultralytics==8.4.69 for ReActorMaskHelper YOLO. NB: probe now also gates on torch.cuda + occlusion-file presence (runs on every boot, so no bump needed to enforce)
+BOOTSTRAP_VERSION="2026.06.18-001"  # 06-18: + patch ReActorMaskHelper batch bug (move rgba2rgb_tensor+.cpu() OUT of the per-mask loop; crashed video on 2nd frame). 06-17: occlusion models + ultralytics==8.4.69 + probe gates on torch.cuda/onnxruntime-CUDA/occlusion-files
 VOLUME_VERSION_FILE="/workspace/.bootstrap_version"
 LOG_FILE="/workspace/.bootstrap_log"
 COMFYUI_DIR="/workspace/ComfyUI"
@@ -237,6 +237,53 @@ if [[ "$NEED_INSTALL" == "true" ]]; then
 
     echo "$BOOTSTRAP_VERSION" > "$VOLUME_VERSION_FILE"
     echo "=== Version cached: $BOOTSTRAP_VERSION ==="
+fi
+
+# --- Patch ReActorMaskHelper batch bug (runs EVERY boot, not just install) ---
+# Gourieff/ComfyUI-ReActor @6ad6b35 does `result = rgba2rgb_tensor(result)` +
+# `result = result.cpu()` INSIDE the per-mask paste loop, so after the first
+# frame `result` is RGB(3)/CPU and the next frame's 4-channel blend crashes with
+# "tensor a (3) must match b (4)". Fine for a single image (loop runs once),
+# broken for video (MB>1). Move both conversions to AFTER the loop. Idempotent
+# (marker-guarded) and non-fatal (a node-structure change just warns) so a future
+# upstream fix can't brick provisioning. Runs outside the install gate because the
+# node lives on the volume and must be patched even on the fast path.
+echo "=== Step: patch ReActorMaskHelper batch bug (rgba2rgb out of loop) ==="
+REACTOR_NODES="$COMFYUI_DIR/custom_nodes/comfyui-reactor-node/nodes.py"
+if [[ -f "$REACTOR_NODES" ]]; then
+    REACTOR_NODES="$REACTOR_NODES" python << 'PATCHEOF'
+import os, re, sys
+p = os.environ["REACTOR_NODES"]
+src = open(p, encoding="utf-8").read()
+MARK = "# JARVIS-PATCH rgba2rgb-out-of-loop"
+if MARK in src:
+    print("  reactor batch patch already applied")
+    sys.exit(0)
+# Remove the two in-loop conversion lines (16-space indent, inside the per-mask
+# loop). The .cpu() line carries a trailing comment, so match to end-of-line.
+pat = re.compile(
+    r"\n[ ]{16}result = rgba2rgb_tensor\(result\)\n"
+    r"[ ]{16}result = result\.cpu\(\)[^\n]*\n"
+)
+new, n = pat.subn("\n", src)
+if n != 1:
+    print(f"  WARN reactor batch patch: in-loop pattern not found (n={n}) — "
+          f"node changed? leaving unpatched")
+    sys.exit(0)
+ret = "        return (result, combined_mask, mask_blurred, face_segment)"
+if ret not in new:
+    print("  WARN reactor batch patch: return anchor missing; leaving unpatched")
+    sys.exit(0)
+new = new.replace(
+    ret,
+    f"        result = rgba2rgb_tensor(result).cpu()  {MARK}\n{ret}",
+    1,
+)
+open(p, "w", encoding="utf-8").write(new)
+print("  reactor batch patch APPLIED")
+PATCHEOF
+else
+    echo "  (reactor node not present yet — skipping patch)"
 fi
 
 # --- Kill any existing ComfyUI process (port 8188 conflict prevention) ---
