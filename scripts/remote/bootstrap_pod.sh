@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-BOOTSTRAP_VERSION="2026.06.18-001"  # 06-18: + patch ReActorMaskHelper batch bug (move rgba2rgb_tensor+.cpu() OUT of the per-mask loop; crashed video on 2nd frame). 06-17: occlusion models + ultralytics==8.4.69 + probe gates on torch.cuda/onnxruntime-CUDA/occlusion-files
+BOOTSTRAP_VERSION="2026.06.18-002"  # 06-18-002: + provision GPEN-BFR-1024.onnx in models/facerestore_models/ (sharper restore than GFPGAN; strict probe-gate). 06-18-001: + patch ReActorMaskHelper batch bug (move rgba2rgb_tensor+.cpu() OUT of the per-mask loop; crashed video on 2nd frame). 06-17: occlusion models + ultralytics==8.4.69 + probe gates on torch.cuda/onnxruntime-CUDA/occlusion-files
 VOLUME_VERSION_FILE="/workspace/.bootstrap_version"
 LOG_FILE="/workspace/.bootstrap_log"
 COMFYUI_DIR="/workspace/ComfyUI"
@@ -16,6 +16,11 @@ COMFYUI_DIR="/workspace/ComfyUI"
 # ReActorMaskHelper defaults (see test_bootstrap_occlusion_models.py).
 export FACE_YOLO_DEST="$COMFYUI_DIR/models/ultralytics/bbox/face_yolov8m.pt"
 export SAM_VIT_B_DEST="$COMFYUI_DIR/models/sams/sam_vit_b_01ec64.pth"
+# GPEN-1024 face-restore model. ReActor's face_restore_model dropdown scans
+# models/facerestore_models/; the engine emits this name when
+# VIDEO_SWAP_FACE_RESTORE_MODEL=GPEN-BFR-1024.onnx (see
+# test_bootstrap_facerestore_models.py). Exported so the probe can verify it.
+export GPEN_1024_DEST="$COMFYUI_DIR/models/facerestore_models/GPEN-BFR-1024.onnx"
 
 # --- Logging ---
 exec > >(tee -a "$LOG_FILE") 2>&1
@@ -117,6 +122,21 @@ for _label, _path in (
             f"  FAIL occlusion model {_label} missing/empty at {_path!r}",
             file=sys.stderr,
         )
+
+# GPEN-1024 restore model FILE must physically exist (strict gate, same rationale
+# as the occlusion files: the download below is WARN-only, so without this check a
+# silent miss would cache a 'healthy' version and the node would die at swap time
+# with value_not_in_list). Separate from the occlusion loop so it tags `missing`
+# with a restore_model: prefix.
+_gpen = os.environ.get("GPEN_1024_DEST", "")
+if _gpen and os.path.isfile(_gpen) and os.path.getsize(_gpen) > 0:
+    print("  OK restore model GPEN-BFR-1024.onnx")
+else:
+    missing.append("restore_model:GPEN-BFR-1024.onnx")
+    print(
+        f"  FAIL restore model GPEN-BFR-1024.onnx missing/empty at {_gpen!r}",
+        file=sys.stderr,
+    )
 
 if missing:
     for mod in missing:
@@ -227,6 +247,21 @@ if [[ "$NEED_INSTALL" == "true" ]]; then
         mkdir -p "$(dirname "$SAM_VIT_B_DEST")"
         wget -q -O "$SAM_VIT_B_DEST" "$SAM_VIT_B_MODEL_URL" \
             || { echo "WARN: sam_vit_b_01ec64.pth download failed"; rm -f "$SAM_VIT_B_DEST"; }
+    fi
+
+    echo "=== Step: GPEN-1024 face-restore model (sharper restore than GFPGAN) ==="
+    # GPEN-BFR-1024.onnx into models/facerestore_models/ — the dir ReActor scans
+    # for the face_restore_model dropdown. Engine emits this name when
+    # VIDEO_SWAP_FACE_RESTORE_MODEL=GPEN-BFR-1024.onnx. URL env-overridable with the
+    # canonical Gourieff/ReActor dataset default (HEAD-verified live, 200). Same
+    # WARN-on-fail + rm-partial pattern as the occlusion models; GPEN_1024_DEST is
+    # exported at the top so the probe can verify the file landed.
+    GPEN_1024_MODEL_URL="${GPEN_1024_MODEL_URL:-https://huggingface.co/datasets/Gourieff/ReActor/resolve/main/models/facerestore_models/GPEN-BFR-1024.onnx}"
+    if [[ ! -s "$GPEN_1024_DEST" ]]; then
+        echo "Downloading GPEN-BFR-1024.onnx -> $GPEN_1024_DEST"
+        mkdir -p "$(dirname "$GPEN_1024_DEST")"
+        wget -q -O "$GPEN_1024_DEST" "$GPEN_1024_MODEL_URL" \
+            || { echo "WARN: GPEN-BFR-1024.onnx download failed"; rm -f "$GPEN_1024_DEST"; }
     fi
 
     echo "=== [verify] post-install probe... ==="

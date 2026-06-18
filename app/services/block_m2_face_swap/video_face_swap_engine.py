@@ -495,6 +495,15 @@ class VideoFaceSwapEngine(FaceSwapEngine):
         reactor["inputs"]["face_restore_visibility"] = _envf(
             "VIDEO_SWAP_FACE_RESTORE_VISIBILITY", DEFAULT_FACE_RESTORE_VISIBILITY
         )
+        # Restore-model is opt-in via env (default = the JSON value, GFPGANv1.4.pth)
+        # so GPEN-BFR-1024 can be A/B'd against GFPGAN with a one-line .env flip and
+        # no graph edit. The chosen name must exist in the pod's
+        # models/facerestore_models/ (the node's dropdown reads that dir) — the
+        # bootstrap provisions GPEN-BFR-1024.onnx there.
+        reactor["inputs"]["face_restore_model"] = _envs(
+            "VIDEO_SWAP_FACE_RESTORE_MODEL",
+            reactor["inputs"]["face_restore_model"],
+        )
 
         combine = workflow.get("4")
         if not isinstance(combine, dict) or "inputs" not in combine:

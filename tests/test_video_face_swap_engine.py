@@ -260,6 +260,37 @@ def test_build_workflow_honors_face_restore_visibility_env(tmp_path, monkeypatch
     assert wf["3"]["inputs"]["face_restore_visibility"] == 0.85
 
 
+def test_build_workflow_face_restore_model_honors_env_override(tmp_path, monkeypatch):
+    # GPEN-1024 is opt-in via VIDEO_SWAP_FACE_RESTORE_MODEL (env), mirroring
+    # visibility — so a restore-model swap needs no graph/code edit, just an env
+    # flip (easy rollback). The JSON value is the default when the env is unset.
+    monkeypatch.setenv("VIDEO_SWAP_FACE_RESTORE_MODEL", "GPEN-BFR-1024.onnx")
+    engine = VideoFaceSwapEngine(config=_make_config(), client=_mock_client(),
+                                 output_dir=tmp_path / "out")
+    meta = VideoMeta(fps=24.0, frame_count=240, width=640, height=480)
+    plan = plan_video_swap(meta, max_seconds=60.0, max_height=1080)
+    wf = engine._build_video_workflow(
+        source_filename="f.jpg", video_filename="c.mp4",
+        plan=plan, reactor_class="ReActorFaceSwap",
+    )
+    assert wf["3"]["inputs"]["face_restore_model"] == "GPEN-BFR-1024.onnx"
+
+
+def test_build_workflow_face_restore_model_defaults_to_gfpgan_when_env_unset(tmp_path, monkeypatch):
+    # Unset → preserve the JSON default (GFPGANv1.4.pth); no behavior change for
+    # anyone not opting into GPEN.
+    monkeypatch.delenv("VIDEO_SWAP_FACE_RESTORE_MODEL", raising=False)
+    engine = VideoFaceSwapEngine(config=_make_config(), client=_mock_client(),
+                                 output_dir=tmp_path / "out")
+    meta = VideoMeta(fps=24.0, frame_count=240, width=640, height=480)
+    plan = plan_video_swap(meta, max_seconds=60.0, max_height=1080)
+    wf = engine._build_video_workflow(
+        source_filename="f.jpg", video_filename="c.mp4",
+        plan=plan, reactor_class="ReActorFaceSwap",
+    )
+    assert wf["3"]["inputs"]["face_restore_model"] == "GFPGANv1.4.pth"
+
+
 @pytest.mark.anyio
 async def test_swap_video_defaults_max_height_to_1080(tmp_path, monkeypatch):
     monkeypatch.delenv("VIDEO_SWAP_MAX_HEIGHT", raising=False)
