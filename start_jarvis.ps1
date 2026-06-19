@@ -57,10 +57,12 @@ if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir -Forc
 
 # ---- register autostart task and exit --------------------------------------
 # Mirrors scripts\daily_backup.ps1 -RegisterTask. At Log On of the current user
-# (+30s settle delay) runs THIS script with -Detached, which brings up
-# backend->bot headless with logs. Registration does NOT launch anything.
+# (+30s settle delay) runs THIS script with -Detached -BotOnly, launching the
+# Telegram bot headless with logs. The backend is NOT started here: it is owned
+# by the JarvisBackendGuardian task (S4U/Highest, session-independent, with
+# crash-restart). Registration does NOT launch anything.
 if ($RegisterAutostart) {
-    $psArgs = "-NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ProjectRoot\start_jarvis.ps1`" -Detached"
+    $psArgs = "-NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ProjectRoot\start_jarvis.ps1`" -Detached -BotOnly"
     $Action  = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $psArgs -WorkingDirectory $ProjectRoot
     $Trigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERNAME"
     $Trigger.Delay = "PT30S"
@@ -71,7 +73,7 @@ if ($RegisterAutostart) {
     $Settings.StopIfGoingOnBatteries     = $false
     Register-ScheduledTask -TaskName "JarvisAutostart" -Action $Action -Trigger $Trigger `
         -Settings $Settings -RunLevel Limited -Force | Out-Null
-    Write-Host "[OK] Registered Scheduled Task 'JarvisAutostart' (At Log On of $env:USERNAME, +30s, runs: start_jarvis.ps1 -Detached)"
+    Write-Host "[OK] Registered Scheduled Task 'JarvisAutostart' (At Log On of $env:USERNAME, +30s, runs: start_jarvis.ps1 -Detached -BotOnly; backend owned by JarvisBackendGuardian)"
     return
 }
 
