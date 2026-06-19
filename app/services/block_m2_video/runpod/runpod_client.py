@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shlex
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -23,6 +25,34 @@ logger = logging.getLogger(__name__)
 
 
 _DEFAULT_TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=5.0)
+
+# Log files the pod bootstrap writes to the persistent volume. get_pod_logs()
+# tails whichever of these exist (see scripts/remote/bootstrap_pod.sh:
+# COMFY_LOG and LOG_FILE).
+_DEFAULT_LOG_PATHS = (
+    "/workspace/logs/comfyui.log",
+    "/workspace/.bootstrap_log",
+)
+
+# Default SSH private key registered with RunPod (see scripts/deploy_bootstrap_ssh.py).
+_DEFAULT_SSH_KEY = Path.home() / ".ssh" / "id_ed25519"
+
+
+def _find_ssh_endpoint(runtime: dict | None) -> tuple[str, int] | None:
+    """Return ``(ip, public_port)`` mapped to container port 22, or None.
+
+    Mirrors the discovery in ``scripts/deploy_bootstrap_ssh.py`` — RunPod
+    advertises the public SSH forward under ``runtime.ports`` once the pod
+    is RUNNING.
+    """
+    if not runtime:
+        return None
+    for p in runtime.get("ports") or []:
+        if p.get("privatePort") == 22 and p.get("isIpPublic"):
+            ip, port = p.get("ip"), p.get("publicPort")
+            if ip and port:
+                return ip, int(port)
+    return None
 
 
 def _mask_key(key: str) -> str:
@@ -558,6 +588,91 @@ class RunpodClient:
                 "exit_code": payload.get("exitCode"),
             }
         )
+
+    @staticmethod
+    def _build_log_tail_command(
+        lines: int, log_paths: tuple[str, ...]
+    ) -> str:
+        """Build the remote shell command that tails the existing log files.
+
+        Quoting each path keeps it injection-safe even though paths are
+        caller-controlled. Split out so it can be unit-tested without SSH.
+        """
+        n = max(1, int(lines))
+        joined = " ".join(shlex.quote(p) for p in log_paths)
+        return (
+            f"for f in {joined}; do "
+            f'if [ -f "$f" ]; then '
+            f'echo "===== $f (last {n}) ====="; '
+            f'tail -n {n} "$f"; '
+            f"fi; done"
+        )
+
+    async def get_pod_logs(
+        self,
+        pod_id: str,
+        *,
+        lines: int = 200,
+        log_paths: tuple[str, ...] = _DEFAULT_LOG_PATHS,
+        ssh_key: str | Path | None = None,
+    ) -> str:
+        """Fetch bootstrap / ComfyUI logs from a running pod over SSH.
+
+        RunPod exposes **no** API for container logs — the web console shows
+        them but there is no REST/GraphQL endpoint
+        (https://github.com/runpod/runpod-python/issues/400), and the GraphQL
+        ``podExec`` mutation is unavailable on this account ("Unknown type
+        PodExecInput", bug 48). The reliable channel is SSH to the pod's
+        public ``:22`` (the key ``~/.ssh/id_ed25519`` is registered with
+        RunPod). This tails whichever of ``log_paths`` exist on the volume,
+        the same way ``scripts/deploy_bootstrap_ssh.py`` reaches a pod.
+
+        :param lines: trailing lines to read per file.
+        :param log_paths: candidate log files; missing ones are skipped.
+        :param ssh_key: private key path (defaults to ``~/.ssh/id_ed25519``).
+        :returns: concatenated tail output, a ``===== <path> =====`` header
+            before each file. Empty string if no file exists yet.
+        :raises RunpodApiError: if the pod is missing, exposes no public
+            ``:22`` endpoint, or SSH fails. Fall back to the web-console Logs
+            button in that case.
+        """
+        pod = await self.get_pod(pod_id)
+        if pod is None:
+            raise RunpodApiError(
+                f"pod {pod_id} not found", query_name="get_pod_logs"
+            )
+        endpoint = _find_ssh_endpoint(getattr(pod, "runtime", None))
+        if endpoint is None:
+            raise RunpodApiError(
+                f"pod {pod_id} exposes no public :22 endpoint yet — cannot SSH "
+                f"for logs; use the web-console Logs button",
+                query_name="get_pod_logs",
+            )
+        ip, port = endpoint
+        key = Path(ssh_key) if ssh_key else _DEFAULT_SSH_KEY
+        remote_cmd = self._build_log_tail_command(lines, log_paths)
+        cmd = [
+            "ssh", "-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes",
+            "-o", "ConnectTimeout=20", "-i", str(key), "-p", str(port),
+            f"root@{ip}", remote_cmd,
+        ]
+        logger.debug("Fetching pod %s logs via SSH %s:%s", pod_id, ip, port)
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        out, err = await proc.communicate()
+        # Decode ourselves with errors='replace': pod output may carry non-UTF-8
+        # bytes and we must never crash the reader (cf. the cp1251 0x88 bug).
+        text = (out or b"").decode("utf-8", "replace")
+        if proc.returncode != 0:
+            detail = (err or b"").decode("utf-8", "replace").strip()
+            raise RunpodApiError(
+                f"ssh log fetch failed (rc={proc.returncode}): {detail}",
+                query_name="get_pod_logs",
+            )
+        return text
 
     async def get_pod_public_url(
         self, pod_id: str, port: int = 8188

@@ -13,7 +13,9 @@ param(
     [switch]$BackendOnly,
     [switch]$BotOnly,
     [int]$Port = 8010,
-    [string]$BindHost = "127.0.0.1"
+    [string]$BindHost = "127.0.0.1",
+    [switch]$Detached,          # headless: hidden processes + redirected logs (autostart)
+    [switch]$RegisterAutostart  # register the At-Log-On Scheduled Task, then exit
 )
 
 $ErrorActionPreference = "Stop"
@@ -22,17 +24,21 @@ $ProjectRoot = $PSScriptRoot
 chcp 65001 | Out-Null
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-# Load .env
-$EnvFile = Join-Path $ProjectRoot ".env"
-if (Test-Path $EnvFile) {
-    Get-Content $EnvFile | ForEach-Object {
-        if ($_ -match '^\s*([^#=][^=]*)=(.*)$') {
-            $k = $Matches[1].Trim()
-            $v = $Matches[2].Trim().Trim('"').Trim("'")
-            [System.Environment]::SetEnvironmentVariable($k, $v, "Process")
+# Load .env and .env.runpod (P2: both files, runpod last so it wins on conflict).
+# RunPod keys (RUNPOD_*/COMFYUI_*) live in .env.runpod; without this the bot and
+# any -BotOnly watchdog restart come up unable to reach RunPod.
+foreach ($envName in @(".env", ".env.runpod")) {
+    $EnvFile = Join-Path $ProjectRoot $envName
+    if (Test-Path $EnvFile) {
+        Get-Content $EnvFile -Encoding UTF8 | ForEach-Object {
+            if ($_ -match '^\s*([^#=][^=]*)=(.*)$') {
+                $k = $Matches[1].Trim()
+                $v = $Matches[2].Trim().Trim('"').Trim("'")
+                [System.Environment]::SetEnvironmentVariable($k, $v, "Process")
+            }
         }
+        Write-Host "[INFO] Loaded $envName"
     }
-    Write-Host "[INFO] Loaded .env"
 }
 
 # Resolve Python executable
@@ -44,6 +50,44 @@ $env:PYTHONUTF8       = "1"
 $env:PYTHONIOENCODING = "utf-8"
 $env:PYTHONPATH       = $ProjectRoot
 $env:BACKEND_BASE_URL = "http://$($BindHost):$Port"
+
+# Ensure logs dir exists (detached mode redirects here).
+$LogDir = Join-Path $ProjectRoot "logs"
+if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir -Force | Out-Null }
+
+# ---- register autostart task and exit --------------------------------------
+# Mirrors scripts\daily_backup.ps1 -RegisterTask. At Log On of the current user
+# (+30s settle delay) runs THIS script with -Detached, which brings up
+# backend->bot headless with logs. Registration does NOT launch anything.
+if ($RegisterAutostart) {
+    $psArgs = "-NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ProjectRoot\start_jarvis.ps1`" -Detached"
+    $Action  = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $psArgs -WorkingDirectory $ProjectRoot
+    $Trigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERNAME"
+    $Trigger.Delay = "PT30S"
+    $Settings = New-ScheduledTaskSettingsSet -StartWhenAvailable `
+        -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) `
+        -MultipleInstances IgnoreNew
+    $Settings.DisallowStartIfOnBatteries = $false
+    $Settings.StopIfGoingOnBatteries     = $false
+    Register-ScheduledTask -TaskName "JarvisAutostart" -Action $Action -Trigger $Trigger `
+        -Settings $Settings -RunLevel Limited -Force | Out-Null
+    Write-Host "[OK] Registered Scheduled Task 'JarvisAutostart' (At Log On of $env:USERNAME, +30s, runs: start_jarvis.ps1 -Detached)"
+    return
+}
+
+# Detached launcher: hidden process + redirected logs (used by the autostart task
+# and any headless start). Env (incl. PYTHONUTF8/PYTHONIOENCODING) is already set
+# at process scope above, so these children inherit the UTF-8 bake.
+function Start-JarvisDetached {
+    param([string]$ExePath, [string[]]$ExeArgs, [string]$LogName)
+    $ts  = Get-Date -Format "yyyyMMdd_HHmmss"
+    $out = Join-Path $LogDir "$($LogName)_$ts.out.log"
+    $err = Join-Path $LogDir "$($LogName)_$ts.err.log"
+    $p = Start-Process -FilePath $ExePath -ArgumentList $ExeArgs -WorkingDirectory $ProjectRoot `
+        -WindowStyle Hidden -RedirectStandardOutput $out -RedirectStandardError $err -PassThru
+    Write-Host "[INFO] $LogName detached PID=$($p.Id) -> $out"
+    return $p
+}
 
 function Start-JarvisWindow {
     param([string]$ScriptPath, [string]$Title = "Jarvis")
@@ -121,9 +165,15 @@ if (-not $BotOnly) {
         ('& "' + $PythonExe + '" -m uvicorn app.main:app --host ' + $BindHost + ' --port ' + $Port),
         'Read-Host "Backend stopped. Press Enter to close"'
     )
-    $backendScript = Write-TempScript ($lines -join "`r`n")
-    Start-JarvisWindow -ScriptPath $backendScript -Title "Jarvis Backend :$Port"
-    Write-Host "[INFO] Backend window launched"
+    if ($Detached) {
+        Start-JarvisDetached -ExePath $PythonExe `
+            -ExeArgs @("-m","uvicorn","app.main:app","--host",$BindHost,"--port","$Port") `
+            -LogName "backend_boot" | Out-Null
+    } else {
+        $backendScript = Write-TempScript ($lines -join "`r`n")
+        Start-JarvisWindow -ScriptPath $backendScript -Title "Jarvis Backend :$Port"
+        Write-Host "[INFO] Backend window launched"
+    }
 
     # Phase I.5: Wait for backend to be ready before starting bot
     Write-Host "[INFO] Waiting for backend to be ready..."
@@ -173,9 +223,13 @@ if (-not $BackendOnly) {
         ('& "' + $PythonExe + '" "' + $BotFile + '"'),
         'Read-Host "Bot stopped. Press Enter to close"'
     )
-    $botScript = Write-TempScript ($lines2 -join "`r`n")
-    Start-JarvisWindow -ScriptPath $botScript -Title "Jarvis Telegram Bot"
-    Write-Host "[INFO] Bot window launched"
+    if ($Detached) {
+        Start-JarvisDetached -ExePath $PythonExe -ExeArgs @("$BotFile") -LogName "bot_boot" | Out-Null
+    } else {
+        $botScript = Write-TempScript ($lines2 -join "`r`n")
+        Start-JarvisWindow -ScriptPath $botScript -Title "Jarvis Telegram Bot"
+        Write-Host "[INFO] Bot window launched"
+    }
 }
 
 Write-Host ""

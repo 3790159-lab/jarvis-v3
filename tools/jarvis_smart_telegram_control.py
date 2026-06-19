@@ -18,6 +18,11 @@ logger = logging.getLogger(__name__)
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
+
+# --- Env bootstrap (P1+P2): load .env + .env.runpod into os.environ BEFORE any
+# module (or BOT_TOKEN below) reads it. Single source of truth; no manual export. ---
+from app import env_bootstrap  # noqa: F401,E402  (side-effect import)
+
 try:
     from app.core.logging_setup import setup_app_logging
     setup_app_logging("jarvis_bot.log")
@@ -46,6 +51,7 @@ def _check_single_instance() -> bool:
                 result = subprocess.run(
                     ["tasklist", "/FI", f"PID eq {old_pid}"],
                     capture_output=True, text=True, timeout=5,
+                    encoding="utf-8", errors="replace",
                 )
                 if str(old_pid) in result.stdout:
                     print(f"❌ Bot already running with PID {old_pid}", flush=True)
@@ -3737,6 +3743,7 @@ def cmd_restart_backend(chat_id: str) -> None:
              "Get-Process -Name python -ErrorAction SilentlyContinue | "
              "Where-Object { $_.CommandLine -like '*app.main*' } | Stop-Process -Force"],
             capture_output=True, text=True, timeout=10,
+            encoding="utf-8", errors="replace",
         )
     except Exception as exc:
         send(chat_id, f"⚠️ Остановка: {exc}")

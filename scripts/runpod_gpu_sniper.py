@@ -402,18 +402,15 @@ def _load_env_files() -> None:
     pydantic-settings reads .env into RunpodConfig but does NOT touch
     os.environ, and TelegramNotifier uses os.getenv directly — without
     this call the catch alert silently fails (returns False).
+
+    P13: delegate to the single source of truth (``app.env_bootstrap``)
+    instead of a private load_dotenv block, so the sniper, bot and helper
+    scripts all load the same files the same way. Import has the side
+    effect of loading; ``load_env()`` is idempotent if already imported.
     """
-    try:
-        from dotenv import load_dotenv
-    except ImportError:
-        logger.warning(
-            "[sniper] python-dotenv not installed; Telegram alerts may not work"
-        )
-        return
-    for env_file in (".env", ".env.runpod"):
-        path = _ROOT / env_file
-        if path.exists():
-            load_dotenv(path, override=False)
+    from app import env_bootstrap  # noqa: F401 (side-effect: loads .env files)
+
+    env_bootstrap.load_env()
 
 
 def main(argv: list[str] | None = None) -> int:

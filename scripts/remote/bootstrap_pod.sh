@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-BOOTSTRAP_VERSION="2026.06.18-002"  # 06-18-002: + provision GPEN-BFR-1024.onnx in models/facerestore_models/ (sharper restore than GFPGAN; strict probe-gate). 06-18-001: + patch ReActorMaskHelper batch bug (move rgba2rgb_tensor+.cpu() OUT of the per-mask loop; crashed video on 2nd frame). 06-17: occlusion models + ultralytics==8.4.69 + probe gates on torch.cuda/onnxruntime-CUDA/occlusion-files
+BOOTSTRAP_VERSION="2026.06.19-001"  # 06-19-001: P14 supervise ComfyUI with crash-retry (replace `exec python main.py` that killed the container on any crash -> 404/502 loop); stdout+stderr -> /workspace/logs/comfyui.log for get_pod_logs; park pod alive after N fails for inspection. 06-18-002: + provision GPEN-BFR-1024.onnx in models/facerestore_models/ (sharper restore than GFPGAN; strict probe-gate). 06-18-001: + patch ReActorMaskHelper batch bug (move rgba2rgb_tensor+.cpu() OUT of the per-mask loop; crashed video on 2nd frame). 06-17: occlusion models + ultralytics==8.4.69 + probe gates on torch.cuda/onnxruntime-CUDA/occlusion-files
 VOLUME_VERSION_FILE="/workspace/.bootstrap_version"
 LOG_FILE="/workspace/.bootstrap_log"
 COMFYUI_DIR="/workspace/ComfyUI"
@@ -324,9 +324,61 @@ fi
 # --- Kill any existing ComfyUI process (port 8188 conflict prevention) ---
 echo "=== Step: clean port 8188 ==="
 pkill -9 -f "python main.py" 2>/dev/null || true
+# Belt-and-braces: free the port even if a non-'python main.py' holder lingers.
+if command -v fuser >/dev/null 2>&1; then fuser -k 8188/tcp 2>/dev/null || true; fi
 sleep 2
 
-# --- Launch ComfyUI ---
-echo "=== Launching ComfyUI ==="
+# --- Pre-launch model sanity (logged; non-fatal — the probe gate above already
+# enforced presence. This just makes the log show what's on disk so a ComfyUI
+# node-import failure is easy to correlate). ---
+echo "=== Step: pre-launch model check ==="
+for f in "$GPEN_1024_DEST" "$FACE_YOLO_DEST" "$SAM_VIT_B_DEST"; do
+    if [ -f "$f" ]; then
+        echo "  [ok] $(du -h "$f" 2>/dev/null | cut -f1)  $f"
+    else
+        echo "  [MISSING] $f"
+    fi
+done
+
+# --- Launch ComfyUI under a crash-retry supervisor (P14) ---
+# Was `exec python main.py ...`, which REPLACED this shell: any ComfyUI crash
+# killed the container's main process with no restart, so RunPod cycled the pod
+# 404<->502 forever and re-ran the whole bootstrap on each container restart.
+# Now we supervise: capture stdout+stderr to a volume log that get_pod_logs()
+# reads, retry a few times, then park the pod ALIVE for inspection rather than
+# crash-looping (the cost guardian, RUNPOD_MAX_POD_LIFETIME_MIN, caps lifetime).
+mkdir -p /workspace/logs
+COMFY_LOG="/workspace/logs/comfyui.log"
 cd "$COMFYUI_DIR"
-exec python main.py --listen 0.0.0.0 --port 8188
+set +e  # ComfyUI's exit code is handled manually below; don't let -e kill us
+max_attempts=5
+attempt=1
+while [ "$attempt" -le "$max_attempts" ]; do
+    echo "=== Launching ComfyUI (attempt $attempt/$max_attempts) at $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+    echo "----- ComfyUI start attempt $attempt $(date -u +%Y-%m-%dT%H:%M:%SZ) -----" >> "$COMFY_LOG"
+    python main.py --listen 0.0.0.0 --port 8188 >> "$COMFY_LOG" 2>&1
+    code=$?
+    echo "=== ComfyUI exited code=$code (attempt $attempt/$max_attempts) ==="
+    echo "----- ComfyUI exited code=$code at $(date -u +%Y-%m-%dT%H:%M:%SZ) -----" >> "$COMFY_LOG"
+    # Clean stop (0) or SIGTERM (143, deliberate pod stop) -> do not retry.
+    if [ "$code" -eq 0 ] || [ "$code" -eq 143 ]; then
+        echo "ComfyUI stopped cleanly (code $code); not retrying."
+        break
+    fi
+    attempt=$((attempt + 1))
+    if [ "$attempt" -le "$max_attempts" ]; then
+        echo "--- crash tail (last 30 lines of $COMFY_LOG) ---"
+        tail -n 30 "$COMFY_LOG"
+        pkill -9 -f "python main.py" 2>/dev/null || true  # re-free port
+        echo "Restarting ComfyUI in 10s..."
+        sleep 10
+    fi
+done
+
+if [ "$attempt" -gt "$max_attempts" ]; then
+    echo "!!! ComfyUI failed $max_attempts times — parking pod ALIVE for inspection."
+    echo "!!! Logs: $COMFY_LOG and $LOG_FILE (read via get_pod_logs or web console)."
+    echo "!!! Cost guardian (RUNPOD_MAX_POD_LIFETIME_MIN) will cap this pod."
+    tail -n 60 "$COMFY_LOG"
+    sleep infinity
+fi
