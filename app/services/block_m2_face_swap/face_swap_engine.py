@@ -223,6 +223,11 @@ class FaceSwapEngine:
         Returns:
             List the same length as ``target_images``; entry is the saved
             image path on success, ``None`` on per-photo failure.
+
+        Raises:
+            FaceSwapError: if every photo failed (no outputs produced) and the
+                batch was not cancelled — a total failure must not look like a
+                success to the caller.
         """
         if not target_images:
             return []
@@ -234,6 +239,7 @@ class FaceSwapEngine:
         pod_id: str | None = None
         pod: PodInfo | None = None
         results: list[Path | None] = [None] * len(target_images)
+        cancelled = False
 
         try:
             pod, pod_id, reused = await self._find_or_start_pod(client)
@@ -260,6 +266,7 @@ class FaceSwapEngine:
                                 "FaceSwapEngine: cancel requested at idx=%d",
                                 idx,
                             )
+                            cancelled = True
                             break
                     except Exception:  # noqa: BLE001
                         logger.exception("cancel_check raised; ignoring")
@@ -286,6 +293,14 @@ class FaceSwapEngine:
                     self._fire(progress_cb, "swap_failed", {
                         "index": idx, "error": str(exc),
                     })
+
+            # P33: a batch where every photo failed must NOT report success.
+            # A user cancellation that produced nothing is not a failure.
+            if not cancelled and all(r is None for r in results):
+                raise FaceSwapError(
+                    f"all {len(target_images)} swap(s) failed; no outputs "
+                    f"produced (see per-photo errors above)"
+                )
 
             return results
         finally:

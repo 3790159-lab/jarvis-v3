@@ -615,6 +615,7 @@ class RunpodClient:
         lines: int = 200,
         log_paths: tuple[str, ...] = _DEFAULT_LOG_PATHS,
         ssh_key: str | Path | None = None,
+        timeout_sec: float = 60.0,
     ) -> str:
         """Fetch bootstrap / ComfyUI logs from a running pod over SSH.
 
@@ -662,7 +663,23 @@ class RunpodClient:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        out, err = await proc.communicate()
+        # P35: SSH only has a ConnectTimeout; once connected, a stalled remote
+        # `tail` (e.g. on a wedged volume) would hang communicate() forever.
+        # Enforce a wall-clock ceiling and kill the process on breach.
+        try:
+            out, err = await asyncio.wait_for(
+                proc.communicate(), timeout=timeout_sec
+            )
+        except asyncio.TimeoutError:
+            proc.kill()
+            try:
+                await proc.communicate()  # reap the killed process; avoid zombie
+            except Exception:  # noqa: BLE001
+                pass
+            raise RunpodApiError(
+                f"ssh log fetch for pod {pod_id} timed out after {timeout_sec}s",
+                query_name="get_pod_logs",
+            )
         # Decode ourselves with errors='replace': pod output may carry non-UTF-8
         # bytes and we must never crash the reader (cf. the cp1251 0x88 bug).
         text = (out or b"").decode("utf-8", "replace")
