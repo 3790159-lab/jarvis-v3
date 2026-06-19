@@ -213,17 +213,18 @@ class RunpodComfyEngine:
                         _COLD_START_MAX_ATTEMPTS,
                         exc,
                     )
-                    # Bad pod — terminate it (no resume; the pod is broken).
+                    # Bad pod — terminate it (P22: terminate, not stop; a stopped
+                    # pod is RETAINED and keeps billing container-disk storage).
                     try:
-                        await client.stop_pod(pod_id)
+                        await client.terminate_pod(pod_id)
                         logger.info(
-                            "RunpodComfyEngine: stopped bad pod %s after "
+                            "RunpodComfyEngine: terminated bad pod %s after "
                             "cold-start failure",
                             pod_id,
                         )
                     except Exception as stop_exc:  # noqa: BLE001 - cleanup
                         logger.warning(
-                            "RunpodComfyEngine: stop_pod(%s) failed: %s",
+                            "RunpodComfyEngine: terminate_pod(%s) failed: %s",
                             pod_id,
                             stop_exc,
                         )
@@ -302,14 +303,16 @@ class RunpodComfyEngine:
         finally:
             if pod_id is not None:
                 try:
-                    await client.stop_pod(pod_id)
+                    # P22: terminate (not stop) — a stopped pod is retained and
+                    # keeps billing container-disk storage (~$0.10-0.20/GB/mo).
+                    await client.terminate_pod(pod_id)
                     logger.info(
-                        "RunpodComfyEngine: stopped pod %s after generation",
+                        "RunpodComfyEngine: terminated pod %s after generation",
                         pod_id,
                     )
                 except Exception as exc:  # noqa: BLE001 - cleanup must not raise
                     logger.warning(
-                        "RunpodComfyEngine: stop_pod(%s) failed: %s",
+                        "RunpodComfyEngine: terminate_pod(%s) failed: %s",
                         pod_id,
                         exc,
                     )

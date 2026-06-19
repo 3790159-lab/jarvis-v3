@@ -298,14 +298,16 @@ class FaceSwapEngine:
                     )
                 else:
                     try:
-                        await client.stop_pod(pod_id)
+                        # P22: terminate (not stop) — a stopped pod is retained
+                        # and keeps billing container-disk storage.
+                        await client.terminate_pod(pod_id)
                         logger.info(
-                            "FaceSwapEngine: stopped pod %s after batch",
+                            "FaceSwapEngine: terminated pod %s after batch",
                             pod_id,
                         )
                     except Exception as exc:  # noqa: BLE001 - cleanup
                         logger.warning(
-                            "FaceSwapEngine: stop_pod(%s) failed: %s",
+                            "FaceSwapEngine: terminate_pod(%s) failed: %s",
                             pod_id, exc,
                         )
             await self._maybe_close()

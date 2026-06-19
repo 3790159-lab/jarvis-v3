@@ -271,10 +271,13 @@ class RunpodGuardian:
 
     async def _safe_stop(self, pod_id: str, *, reason: str) -> bool:
         try:
-            return await self._client.stop_pod(pod_id)
+            # P22: terminate (not stop) — a stopped pod is retained and keeps
+            # billing container-disk storage; lifetime/budget enforcement must
+            # actually free the pod, not just halt its compute.
+            return await self._client.terminate_pod(pod_id)
         except RunpodApiError as exc:
             logger.error(
-                "Guardian: stop_pod(%s) failed (reason=%s): %s",
+                "Guardian: terminate_pod(%s) failed (reason=%s): %s",
                 pod_id,
                 reason,
                 exc,
