@@ -15,12 +15,16 @@ import logging
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
+
+# Upper bound for GPUs per pod. RunPod tops out at 8 GPUs per pod; capping
+# here guards against a typo silently provisioning a runaway multi-GPU bill.
+_MAX_GPU_COUNT = 8
 
 
 class RunpodConfig(BaseSettings):
@@ -80,9 +84,14 @@ class RunpodConfig(BaseSettings):
 
     @field_validator("gpu_count")
     @classmethod
-    def _validate_gpu_count_positive(cls, value: int) -> int:
+    def _validate_gpu_count(cls, value: int) -> int:
         if value <= 0:
             raise ValueError("RUNPOD_GPU_COUNT must be > 0")
+        if value > _MAX_GPU_COUNT:
+            raise ValueError(
+                f"RUNPOD_GPU_COUNT must be <= {_MAX_GPU_COUNT} (got {value}); "
+                "cap guards against a runaway multi-GPU bill"
+            )
         return value
 
     @field_validator("comfyui_port")
@@ -91,6 +100,46 @@ class RunpodConfig(BaseSettings):
         if not (1 <= value <= 65535):
             raise ValueError("COMFYUI_PORT must be in [1, 65535]")
         return value
+
+    @model_validator(mode="after")
+    def _validate_security_and_completeness(self) -> "RunpodConfig":
+        """Cross-field validation (P36): fail loudly on misconfigurations that
+        would otherwise silently produce a broken or insecure deployment.
+
+        Runs eagerly at instantiation, so calling ``get_runpod_config()`` once
+        at application startup surfaces these problems before any pod work
+        begins rather than lazily mid-flight.
+        """
+        # template_id=None would deploy a bare Docker image with NO bootstrap
+        # (no model weights, no patches) — a silent failure. Make it explicit.
+        if self.template_id is None:
+            raise ValueError(
+                "RUNPOD_TEMPLATE_ID is not set: deploying without a template "
+                "launches a bare image with no bootstrap (no weights/patches). "
+                "Set RUNPOD_TEMPLATE_ID explicitly."
+            )
+
+        # An empty/missing ComfyUI auth token exposes ComfyUI WITHOUT
+        # authentication behind the public proxy — a real security hole.
+        token = (
+            self.comfyui_auth_token.get_secret_value()
+            if self.comfyui_auth_token is not None
+            else ""
+        )
+        if not token.strip():
+            logger.warning(
+                "SECURITY: COMFYUI_AUTH_TOKEN is empty — ComfyUI will be "
+                "exposed WITHOUT authentication on the public proxy. Set "
+                "COMFYUI_AUTH_TOKEN to protect the endpoint."
+            )
+
+        # The RunPod API key is read from a plaintext .env file. Remind
+        # operators to rotate it and keep .env out of version control.
+        logger.warning(
+            "NOTE: RUNPOD_API_KEY is loaded from plaintext .env — rotate it "
+            "periodically and ensure .env files are gitignored."
+        )
+        return self
 
 
 @lru_cache(maxsize=1)
