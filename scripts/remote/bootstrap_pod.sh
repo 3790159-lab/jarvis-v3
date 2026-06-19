@@ -3,9 +3,9 @@
 # Lives on network volume: /workspace/bootstrap.sh
 # Invoked by RunPod template startCmd: bash -lc '/workspace/bootstrap.sh'
 
-set -euo pipefail
+set -Eeuo pipefail  # -E: ERR trap propagates into functions/subshells (P19)
 
-BOOTSTRAP_VERSION="2026.06.19-002"  # 06-19-002: P17 heartbeat — hb() prints a UTC-timestamped marker before every heavy step (apt/pip/wget/probe), visible in the RunPod web-console container logs even before sshd is up (the ONLY visibility window during a boot hang); + wget --timeout=30 --tries=3 on ALL 5 model downloads. ROOT CAUSE of the ~25-min boot hang (P17): bare `wget -q` defaults to read-timeout 900s × up to 20 tries, so a single stalled HF/fbaipublicfiles socket hangs the boot for many minutes with zero log output, then the cost-guardian reaps the pod (pure 404/502, never reached ComfyUI). 06-19-001: P14 supervise ComfyUI with crash-retry (replace `exec python main.py` that killed the container on any crash -> 404/502 loop); stdout+stderr -> /workspace/logs/comfyui.log for get_pod_logs; park pod alive after N fails for inspection. 06-18-002: + provision GPEN-BFR-1024.onnx in models/facerestore_models/ (sharper restore than GFPGAN; strict probe-gate). 06-18-001: + patch ReActorMaskHelper batch bug (move rgba2rgb_tensor+.cpu() OUT of the per-mask loop; crashed video on 2nd frame). 06-17: occlusion models + ultralytics==8.4.69 + probe gates on torch.cuda/onnxruntime-CUDA/occlusion-files
+BOOTSTRAP_VERSION="2026.06.20-001"  # 06-20-001: P19 park-alive — ERR trap → die_park (sleep infinity) on ANY pre-launch failure instead of exit→RunPod container restart-loop (FIXES P17, which was a restart-loop: every step lines 26-285 ran under set -e with NO survival, so any failing apt/pip/unzip/probe killed PID1 → RunPod restarted → loop, sshd never stayed up). Guarded logging redirect so an unmounted/unwritable /workspace no longer crashes boot before the first echo. Sanity-check + post-install-probe now park-alive instead of exit 1/2 (pod stays SSH-inspectable). P29: retry() wrapper (3x + 5s backoff) on apt-get + all pip installs → transient blip retries, genuine failure parks (not loops). 06-19-002: P17 heartbeat — hb() prints a UTC-timestamped marker before every heavy step (apt/pip/wget/probe), visible in the RunPod web-console container logs even before sshd is up (the ONLY visibility window during a boot hang); + wget --timeout=30 --tries=3 on ALL 5 model downloads. ROOT CAUSE of the ~25-min boot hang (P17): bare `wget -q` defaults to read-timeout 900s × up to 20 tries, so a single stalled HF/fbaipublicfiles socket hangs the boot for many minutes with zero log output, then the cost-guardian reaps the pod (pure 404/502, never reached ComfyUI). 06-19-001: P14 supervise ComfyUI with crash-retry (replace `exec python main.py` that killed the container on any crash -> 404/502 loop); stdout+stderr -> /workspace/logs/comfyui.log for get_pod_logs; park pod alive after N fails for inspection. 06-18-002: + provision GPEN-BFR-1024.onnx in models/facerestore_models/ (sharper restore than GFPGAN; strict probe-gate). 06-18-001: + patch ReActorMaskHelper batch bug (move rgba2rgb_tensor+.cpu() OUT of the per-mask loop; crashed video on 2nd frame). 06-17: occlusion models + ultralytics==8.4.69 + probe gates on torch.cuda/onnxruntime-CUDA/occlusion-files
 VOLUME_VERSION_FILE="/workspace/.bootstrap_version"
 LOG_FILE="/workspace/.bootstrap_log"
 COMFYUI_DIR="/workspace/ComfyUI"
@@ -22,8 +22,26 @@ export SAM_VIT_B_DEST="$COMFYUI_DIR/models/sams/sam_vit_b_01ec64.pth"
 # test_bootstrap_facerestore_models.py). Exported so the probe can verify it.
 export GPEN_1024_DEST="$COMFYUI_DIR/models/facerestore_models/GPEN-BFR-1024.onnx"
 
-# --- Logging ---
-exec > >(tee -a "$LOG_FILE") 2>&1
+# --- P19: park-alive on ANY failure (fixes the restart-loop) ---
+# Defined BEFORE the logging redirect so even a redirect/mount failure parks the
+# pod ALIVE (sleep infinity) for SSH inspection instead of exiting → RunPod
+# restart loop. Any unhandled non-zero (set -e) hits the ERR trap → die_park.
+die_park(){ echo "=== BOOTSTRAP FATAL: $* — parking pod ALIVE (sleep infinity) for SSH inspection ==="; sleep infinity; }
+trap 'die_park "unhandled error at line $LINENO (rc=$?)"' ERR
+
+# retry CMD... — run a heavy/network step up to 3x with 5s backoff. On final
+# failure return non-zero so the ERR trap parks the pod (no silent restart loop).
+# Used on apt/pip (which, unlike the 5 wgets, had no timeout/retry). Calls inside
+# this function are part of `&&`/tested context, so set -e doesn't fire mid-retry.
+retry(){ local n=1 max=3; while true; do "$@" && return 0; if [ "$n" -ge "$max" ]; then echo "FAIL after $max tries: $*"; return 1; fi; echo "[retry $n/$max failed] $* — sleeping 5s"; n=$((n+1)); sleep 5; done; }
+
+# --- Logging (guarded: an unmounted/unwritable /workspace must NOT crash boot) ---
+mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
+if (: >> "$LOG_FILE") 2>/dev/null; then
+    exec > >(tee -a "$LOG_FILE") 2>&1
+else
+    echo "WARN: $LOG_FILE not writable (network volume not mounted?) — logging to container stdout only"
+fi
 echo "=== bootstrap.sh starting at $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
 echo "BOOTSTRAP_VERSION=$BOOTSTRAP_VERSION"
 
@@ -36,8 +54,7 @@ hb(){ echo "[HB $(date -u +%H:%M:%SZ)] $*"; }
 
 # --- Sanity check ---
 if [[ ! -d "$COMFYUI_DIR" ]]; then
-    echo "ERROR: COMFYUI_NOT_FOUND ($COMFYUI_DIR)" >&2
-    exit 1
+    die_park "COMFYUI_NOT_FOUND ($COMFYUI_DIR) — network volume not mounted?"
 fi
 
 # --- Import probe (callable; invoked pre-gate and post-install) ---
@@ -176,14 +193,14 @@ fi
 # --- Slow install path ---
 if [[ "$NEED_INSTALL" == "true" ]]; then
     hb "Step: apt update + install system deps (apt-get update + ffmpeg/unzip)"
-    apt-get update -qq
-    apt-get install -y unzip ffmpeg
+    retry apt-get update -qq
+    retry apt-get install -y unzip ffmpeg
 
     hb "Step: pip install ComfyUI requirements.txt (heavy; resolver can backtrack silently)"
-    pip install -r "$COMFYUI_DIR/requirements.txt"
+    retry pip install -r "$COMFYUI_DIR/requirements.txt"
 
     hb "Step: pip install face swap deps (onnxruntime-gpu/insightface/segment_anything/gitpython)"
-    pip install --quiet \
+    retry pip install --quiet \
         onnxruntime-gpu \
         insightface \
         segment_anything \
@@ -197,7 +214,7 @@ if [[ "$NEED_INSTALL" == "true" ]]; then
     pip install --quiet "ultralytics==8.4.69" || pip install --quiet ultralytics
 
     hb "Step: pip force-reinstall transformers<4.45 (re-downloads the wheel)"
-    pip install --force-reinstall --quiet "transformers<4.45"
+    retry pip install --force-reinstall --quiet "transformers<4.45"
 
     hb "Step: enforce onnxruntime-gpu (uninstall both + reinstall GPU-only; re-downloads ~200M wheel)"
     # insightface (and ComfyUI/ReActor) pull the CPU 'onnxruntime' wheel in as a
@@ -209,7 +226,7 @@ if [[ "$NEED_INSTALL" == "true" ]]; then
     # (guarded with `|| true` so it can't trip `set -e`). CUDA 12.4 / cuDNN 9.1
     # libs are already on the volume, so no extra runtime install is needed.
     pip uninstall -y onnxruntime onnxruntime-gpu || true
-    pip install --quiet onnxruntime-gpu
+    retry pip install --quiet onnxruntime-gpu
 
     hb "Step: verify model files on volume (inswapper + buffalo_l)"
     INSWAPPER="$COMFYUI_DIR/models/insightface/inswapper_128.onnx"
@@ -281,7 +298,7 @@ if [[ "$NEED_INSTALL" == "true" ]]; then
     hb "[verify] post-install import probe (torch/insightface/onnxruntime + model-file gates)..."
     if ! run_import_probe; then
         echo "ERROR: post-install probe still failing — refusing to write version file" >&2
-        exit 2
+        die_park "post-install import probe failed (missing module or model file)"
     fi
 
     echo "$BOOTSTRAP_VERSION" > "$VOLUME_VERSION_FILE"
