@@ -149,9 +149,9 @@ class FaceSwapHandler:
             return HandlerReply(text=f"⚠️ {exc}")
         return HandlerReply(
             text=(
-                "📦 Жду альбом target-фото (до 20 штук). Пришли все фото "
-                "одной отправкой (Telegram album). Я подожду 2 секунды после "
-                "последнего фото и покажу оценку."
+                "📦 Жду target-фото (до 100 штук). Можешь слать несколькими "
+                "альбомами подряд — я докину каждый в текущий батч и буду "
+                "показывать сколько принято. Когда всё — /swapbatch_go."
             )
         )
 
@@ -368,20 +368,29 @@ class FaceSwapHandler:
     def consume_targets_album(
         self, chat_id: int, local_photo_paths: list[Path]
     ) -> HandlerReply:
-        """Process a buffered media-group as the targets album."""
-        if not self.orchestrator.is_waiting_for_targets(chat_id):
+        """Append a buffered media-group to the targets (multi-album intake)."""
+        from app.services.block_m2_face_swap.batch_orchestrator import (
+            STATE_TARGETS_RECEIVED,
+        )
+        status = self.orchestrator.status(chat_id)
+        if status not in (STATE_EXPECTING_TARGETS, STATE_TARGETS_RECEIVED):
             return HandlerReply(consumed=False)
         try:
-            sess, est = self.orchestrator.submit_targets(
-                chat_id, local_photo_paths
-            )
+            sess, est = self.orchestrator.add_targets(chat_id, local_photo_paths)
         except OrchestratorError as exc:
             return HandlerReply(text=f"⚠️ {exc}")
+        no_face_advisory = sum(
+            1 for t in sess.targets if t.valid and t.face_count == 0
+        )
+        accepted = len(sess.targets)
         msg = format_cost_report_ru(
             est,
             source_face_count=sess.source_face_count,
-            total_targets=len(sess.targets),
+            total_targets=accepted,
+            no_face_advisory=no_face_advisory,
         )
+        # Prepend running accumulation UX line.
+        msg = f"принято {accepted}/100\n" + msg
         return HandlerReply(text=msg)
 
     # ── long-running phases (called from worker thread) ─────────────────────
@@ -412,6 +421,9 @@ class FaceSwapHandler:
             if t.swap_result_path
         ]
         succeeded = len(photos)
+        # Under advisory semantics: valid=False means unreadable (real skip);
+        # valid=True + no swap_result_path = lucataco returned None (no face
+        # or other per-target failure).
         failed = sum(
             1 for t in sess.targets if t.valid and not t.swap_result_path
         )
@@ -420,9 +432,9 @@ class FaceSwapHandler:
             f"✅ Swap завершён: {succeeded} успешно",
         ]
         if failed:
-            lines.append(f"  ⚠️ {failed} не удалось")
+            lines.append(f"  ⚠️ {failed} не удалось (нет лица или ошибка)")
         if skipped:
-            lines.append(f"  ⏭ {skipped} пропущено (без лица)")
+            lines.append(f"  ⏭ {skipped} пропущено (битые/нечитаемые)")
         if succeeded:
             lines.append("")
             lines.append(

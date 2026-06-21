@@ -1001,8 +1001,13 @@ def _swapbatch_album_intercept(chat_id: str, msgs: list) -> bool:
     handler, orch = _swapbatch_get_handler()
     if handler is None or orch is None:
         return False
+    from app.services.block_m2_face_swap.batch_orchestrator import (
+        STATE_EXPECTING_TARGETS, STATE_TARGETS_RECEIVED,
+    )
     chat_id_int = int(chat_id)
-    if not orch.is_waiting_for_targets(chat_id_int):
+    if orch.status(chat_id_int) not in (
+        STATE_EXPECTING_TARGETS, STATE_TARGETS_RECEIVED,
+    ):
         return False
 
     paths: list = []
