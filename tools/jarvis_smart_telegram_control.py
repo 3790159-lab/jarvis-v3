@@ -755,19 +755,13 @@ def _swapbatch_dispatch(chat_id, command: str) -> None:
     if command == "no":
         _swapbatch_apply_reply(chat_id_s, handler.handle_no(chat_id_int))
         return
-    if command == "animate_custom":
-        _swapbatch_apply_reply(
-            chat_id_s, handler.handle_animate_custom(chat_id_int)
-        )
-        return
-    if command == "retry":
-        _swapbatch_apply_reply(chat_id_s, handler.handle_retry(chat_id_int))
-        return
 
-    # FIX C: guard animate-related commands behind SWAPBATCH_ANIMATE_ENABLED.
-    # When the flag is off, "no" / "animate_no" still work (finish without video).
+    # FIX C (extended): guard all animate-related commands behind
+    # SWAPBATCH_ANIMATE_ENABLED.  "no" / "animate_no" stay above this guard so
+    # they always work (finish without video).  animate_custom and retry are now
+    # included so the user never enters a dead-end state when the flag is off.
     if command in (
-        "animate_yes", "confirm", "apply_partial", "apply_first",
+        "animate_yes", "animate_custom", "confirm", "apply_partial", "apply_first", "retry",
     ):
         from app.services.block_m2_face_swap.cost_estimator import (
             animate_enabled as _animate_enabled,
@@ -779,6 +773,15 @@ def _swapbatch_dispatch(chat_id, command: str) -> None:
                 "Фото уже сохранены; /swapbatch_no — завершить.",
             )
             return
+
+    if command == "animate_custom":
+        _swapbatch_apply_reply(
+            chat_id_s, handler.handle_animate_custom(chat_id_int)
+        )
+        return
+    if command == "retry":
+        _swapbatch_apply_reply(chat_id_s, handler.handle_retry(chat_id_int))
+        return
 
     if command in ("go", "animate_yes", "confirm", "apply_partial", "apply_first"):
         _swapbatch_run_phase(chat_id_int, chat_id_s, command, handler)
