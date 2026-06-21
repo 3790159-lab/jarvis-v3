@@ -72,6 +72,7 @@ class LucatacoClient:
                         f"Replicate rejected lucataco ({code}): "
                         f"{exc.response.text[:300]}"
                     ) from exc
+                logger.warning("lucataco attempt %d/%d failed: %s", attempt, max_retries, exc)
                 if attempt < max_retries:
                     if code == 429:
                         retry_after = exc.response.headers.get("Retry-After")
@@ -85,6 +86,7 @@ class LucatacoClient:
                     await asyncio.sleep(wait)
             except Exception as exc:  # network/transport — retryable, not billed
                 last_err = exc
+                logger.warning("lucataco attempt %d/%d failed: %s", attempt, max_retries, exc)
                 if attempt < max_retries:
                     await asyncio.sleep(2 ** attempt)
         raise RuntimeError(f"lucataco failed after {max_retries} retries: {last_err}")
@@ -98,7 +100,7 @@ class LucatacoClient:
                 raise RuntimeError(f"No prediction id in response: {resp.json()}")
             return pred_id
 
-    async def _poll(self, pred_id: str, max_wait: int = 300) -> Any:
+    async def _poll(self, pred_id: str, max_wait: int = 600) -> Any:
         poll_url = f"{_BASE_URL}/predictions/{pred_id}"
         waited, interval = 0, 3
         async with httpx.AsyncClient(timeout=30.0, transport=self._transport) as c:

@@ -8,7 +8,7 @@ Switching engines = change ``SWAP_ENGINE`` env + add a class. Nothing else moves
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Awaitable, Callable, Protocol, runtime_checkable
+from typing import Callable, Protocol, runtime_checkable
 
 ProgressCb = Callable[[str, dict], None]
 CancelCheck = Callable[[], bool]

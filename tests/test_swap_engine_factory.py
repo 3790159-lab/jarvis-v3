@@ -29,3 +29,13 @@ def test_unknown_engine_raises(monkeypatch):
     f = _factory()
     with pytest.raises(ValueError):
         f.get_swap_engine()
+
+
+def test_get_swap_engine_lucataco(monkeypatch):
+    monkeypatch.setenv("REPLICATE_API_TOKEN", "fake")
+    monkeypatch.delenv("SWAP_ENGINE", raising=False)
+    f = _factory()
+    engine = f.get_swap_engine()
+    from app.services.block_m2_face_swap.engines.base import SwapEngine
+    assert isinstance(engine, SwapEngine)
+    assert engine.name == "lucataco"

@@ -58,7 +58,7 @@ class LucatacoSwapEngine:
     ) -> None:
         self._client = LucatacoClient(api_token, transport=transport)
         self._download_transport = download_transport
-        self._sem = asyncio.Semaphore(concurrency)
+        self._concurrency = concurrency
 
     async def swap_batch(
         self,
@@ -68,7 +68,11 @@ class LucatacoSwapEngine:
         progress_cb: ProgressCb | None = None,
         cancel_check: CancelCheck | None = None,
     ) -> list[Path | None]:
-        source_uri = _to_data_uri(source)
+        try:
+            source_uri = _to_data_uri(source)
+        except Exception as exc:
+            raise ValueError(f"source image unreadable: {exc}") from exc
+        sem = asyncio.Semaphore(self._concurrency)
         results_dir = source.parent / "results"
         results_dir.mkdir(parents=True, exist_ok=True)
         total = len(targets)
@@ -78,7 +82,7 @@ class LucatacoSwapEngine:
         async def _one(idx: int, target: Path) -> Path | None:
             if cancel_check and cancel_check():
                 return None
-            async with self._sem:
+            async with sem:
                 if cancel_check and cancel_check():
                     return None
                 try:

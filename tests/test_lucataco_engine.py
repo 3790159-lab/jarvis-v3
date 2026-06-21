@@ -7,6 +7,7 @@ from PIL import Image
 from app.services.block_m2_face_swap.engines.lucataco_engine import (
     LucatacoSwapEngine,
 )
+from app.services.block_m_common.faceswap_client import PredictionFailed
 
 
 def _make_jpg(path: Path, size=(64, 64)) -> Path:
@@ -48,3 +49,39 @@ async def test_swap_batch_aligns_results_and_marks_no_face(tmp_path):
     assert out[0] is not None and out[0].exists()  # downloaded
     assert out[1] is None  # no-face → failure
     assert engine.cost_per_swap_usd == pytest.approx(0.005)
+
+
+@pytest.mark.asyncio
+async def test_prediction_failed_does_not_abort_batch(tmp_path):
+    """A PredictionFailed for one target must not abort the remaining targets."""
+    src = _make_jpg(tmp_path / "source.jpg")
+    t0 = _make_jpg(tmp_path / "0.jpg")
+    t1 = _make_jpg(tmp_path / "1.jpg")
+
+    # target 0 → prediction fails; target 1 → succeeds with a URL
+    state = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            state["n"] += 1
+            return httpx.Response(201, json={"id": f"p{state['n']}"})
+        pid = request.url.path.rsplit("/", 1)[-1]
+        if pid == "p1":
+            # target 0's prediction failed
+            return httpx.Response(200, json={"status": "failed", "error": "no face detected"})
+        # target 1's prediction succeeded
+        return httpx.Response(200, json={"status": "succeeded", "output": "https://img/ok2.jpg"})
+
+    def dl_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"\xff\xd8\xff\xe0FAKEJPEG")
+
+    engine = LucatacoSwapEngine(
+        api_token="t",
+        transport=httpx.MockTransport(handler),
+        download_transport=httpx.MockTransport(dl_handler),
+        concurrency=2,
+    )
+    out = await engine.swap_batch(src, [t0, t1])
+    assert len(out) == 2
+    assert out[0] is None                           # failed prediction → None
+    assert out[1] is not None and out[1].exists()   # succeeded → downloaded
