@@ -98,8 +98,14 @@ existing `faceswap_client.py` patterns: browser UA, submit, poll, 429 backoff):
   source encoded once, reused for all targets as `swap_image`.
 - `asyncio.gather` over targets, gated by `asyncio.Semaphore(5)` (concurrency
   conservative; tune from logs against the unknown Replicate account limit).
-- Per-target: `succeeded`+output → save; `succeeded`+`None` OR `PredictionFailed`
-  → record failure, keep going; never retry a billable `PredictionFailed`.
+- Per-target outcome handling:
+  - `succeeded` + output URL → download & save.
+  - `succeeded` + `output is None` (no-face) → **billable** (`predict_time>0`,
+    Replicate bills succeeded compute) → record failure, **do NOT retry**.
+  - `PredictionFailed` (failed/canceled) → billable → record failure, **do NOT retry**.
+  - **Retry rule:** retry ONLY on 429 / network errors at submit/poll transport
+    (no prediction created yet → not billable). NEVER retry any *completed*
+    outcome (succeeded-no-face or failed) — both are billed and deterministic.
 
 ### 3. Photo intake — multi-album accumulation
 
@@ -125,8 +131,12 @@ Raise `MAX_TARGETS` 20 → 100. After each album, bot replies "accepted N, total
 - **Progress:** existing callbacks, batched every ~10 ("🔄 30/100…") to respect
   Telegram rate limits.
 - **Delivery: albums + zip.** Results chunked into `sendMediaGroup` of 10 (×10)
-  for in-chat preview, then one `sendDocument` zip of all results for download.
-  Throttle between sends to avoid Telegram 429.
+  for in-chat preview, then zip(s) via `sendDocument` for download.
+  **Zip size:** Telegram bots cap `sendDocument` at ~50 MB. After down-scale
+  (≤1600px) lucataco JPG outputs are ~300–600 KB each → 100 ≈ ~45 MB, dangerously
+  close to the cap. So **split the zip by size** (cap ~45 MB/part → usually 1
+  part, occasionally 2: `results_1of2.zip`, `results_2of2.zip`). Never assume one
+  zip fits. Throttle between sends to avoid Telegram 429.
 
 ## Rollout (small-batch first)
 
@@ -161,6 +171,8 @@ delivery, summary) precedes any 100-photo concurrency/bandwidth tuning.
 3. **Shared video-lock** — swap phase holds `_get_video_lock`, blocking the
    user's other generations for ~100 s. Acceptable; documented.
 4. **Telegram rate-limit** on 10 albums + zip in quick succession → throttle delivery.
+   **Zip 50 MB cap:** 100 down-scaled results ≈ ~45 MB, near the limit → split zip
+   by size (~45 MB/part). Never assume one zip fits.
 5. **Don't activate the frozen RunPod path** — factory defaults to lucataco;
    RunPod engine remains a separate, untouched implementation.
 6. **lucataco null-output-on-no-face** — engine treats `output is None` as failure
