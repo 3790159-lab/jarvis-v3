@@ -32,7 +32,10 @@ from app.services.block_m2_face_swap.batch_orchestrator import (
     get_orchestrator,
 )
 from app.services.audit import cost_tracker as _cost
-from app.services.block_m2_face_swap.cost_estimator import format_cost_report_ru
+from app.services.block_m2_face_swap.cost_estimator import (
+    animate_enabled,
+    format_cost_report_ru,
+)
 from app.services.block_m2_face_swap.prompt_parser import PromptParseError
 from app.services.block_m2_face_swap.quality_settings import (
     FPS_NATIVE,
@@ -389,6 +392,7 @@ class FaceSwapHandler:
             source_face_count=sess.source_face_count,
             total_targets=accepted,
             no_face_advisory=no_face_advisory,
+            animate_enabled=animate_enabled(),
         )
         # Prepend running accumulation UX line.
         msg = f"принято {accepted}/{MAX_TARGETS}\n" + msg
@@ -438,13 +442,18 @@ class FaceSwapHandler:
             lines.append(f"  ⏭ {skipped} пропущено (битые/нечитаемые)")
         if succeeded:
             lines.append("")
-            lines.append(
-                "/swapbatch_animate_yes — анимировать все swapped фото "
-                "(дефолтный промпт)\n"
-                "/swapbatch_animate_custom — задать свой промпт для каждого фото\n"
-                "/swapbatch_set_quality duration=10 — изменить длительность (3-15с)\n"
-                "/swapbatch_no — оставить только swapped фото (без анимации)"
-            )
+            if animate_enabled():
+                lines.append(
+                    "/swapbatch_animate_yes — анимировать все swapped фото "
+                    "(дефолтный промпт)\n"
+                    "/swapbatch_animate_custom — задать свой промпт для каждого фото\n"
+                    "/swapbatch_set_quality duration=10 — изменить длительность (3-15с)\n"
+                    "/swapbatch_no — оставить только swapped фото (без анимации)"
+                )
+            else:
+                lines.append(
+                    "(видео-фаза отключена на этом этапе — фото сохранены)"
+                )
         return HandlerReply(text="\n".join(lines), photos=photos)
 
     @staticmethod

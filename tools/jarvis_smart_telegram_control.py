@@ -764,6 +764,22 @@ def _swapbatch_dispatch(chat_id, command: str) -> None:
         _swapbatch_apply_reply(chat_id_s, handler.handle_retry(chat_id_int))
         return
 
+    # FIX C: guard animate-related commands behind SWAPBATCH_ANIMATE_ENABLED.
+    # When the flag is off, "no" / "animate_no" still work (finish without video).
+    if command in (
+        "animate_yes", "confirm", "apply_partial", "apply_first",
+    ):
+        from app.services.block_m2_face_swap.cost_estimator import (
+            animate_enabled as _animate_enabled,
+        )
+        if not _animate_enabled():
+            send(
+                chat_id_s,
+                "🎬 Видео-фаза временно отключена (работаем над свапом). "
+                "Фото уже сохранены; /swapbatch_no — завершить.",
+            )
+            return
+
     if command in ("go", "animate_yes", "confirm", "apply_partial", "apply_first"):
         _swapbatch_run_phase(chat_id_int, chat_id_s, command, handler)
         return

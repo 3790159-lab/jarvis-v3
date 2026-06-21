@@ -6,6 +6,7 @@ import pytest
 
 from app.services.block_m2_face_swap.cost_estimator import (
     CostEstimate,
+    animate_enabled,
     estimate,
     format_cost_report_ru,
 )
@@ -115,3 +116,107 @@ def test_format_cost_report_no_long_warning_for_small_batch():
     est = estimate(2)
     msg = format_cost_report_ru(est, source_face_count=1, total_targets=2)
     assert "долго" not in msg.lower()
+
+
+# ── FIX C: animate_enabled flag & format_cost_report_ru(animate_enabled=False) ─
+
+
+def test_animate_enabled_default_is_false(monkeypatch):
+    """SWAPBATCH_ANIMATE_ENABLED unset (or "0") → animate_enabled() returns False."""
+    monkeypatch.delenv("SWAPBATCH_ANIMATE_ENABLED", raising=False)
+    assert animate_enabled() is False
+
+
+def test_animate_enabled_reads_env_true(monkeypatch):
+    """SWAPBATCH_ANIMATE_ENABLED="1" → animate_enabled() returns True."""
+    monkeypatch.setenv("SWAPBATCH_ANIMATE_ENABLED", "1")
+    assert animate_enabled() is True
+
+
+def test_animate_enabled_accepts_true_variants(monkeypatch):
+    """Truthy string variants ("true", "yes", "on") are all accepted."""
+    for val in ("true", "True", "TRUE", "yes", "Yes", "on", "ON"):
+        monkeypatch.setenv("SWAPBATCH_ANIMATE_ENABLED", val)
+        assert animate_enabled() is True, f"expected True for {val!r}"
+
+
+def test_animate_enabled_rejects_zero(monkeypatch):
+    """"0" and empty string → False."""
+    for val in ("0", ""):
+        monkeypatch.setenv("SWAPBATCH_ANIMATE_ENABLED", val)
+        assert animate_enabled() is False, f"expected False for {val!r}"
+
+
+def test_format_cost_report_animate_disabled_omits_animate_line():
+    """When animate_enabled=False the report must not contain an Animate line."""
+    est = estimate(5, skipped_count=0)
+    msg = format_cost_report_ru(
+        est,
+        source_face_count=1,
+        total_targets=5,
+        animate_enabled=False,
+    )
+    assert "Animate:" not in msg
+
+
+def test_format_cost_report_animate_disabled_total_is_swap_only():
+    """With animate_enabled=False, Всего uses swap_usd not total_usd."""
+    est = estimate(5)
+    msg = format_cost_report_ru(
+        est,
+        source_face_count=1,
+        total_targets=5,
+        animate_enabled=False,
+    )
+    # swap_usd for 5 photos: 5×0.02 + 0.05 = 0.15
+    assert f"${est.swap_usd:.2f}" in msg
+    # total_usd (swap + animate) must NOT appear as "Всего" line
+    total_str = f"${est.total_usd:.2f}"
+    # The total_usd (e.g. "$1.72") should not appear after "Всего:" in the report
+    # (it could appear coincidentally, so assert the *swap* value is in the Всего line)
+    vsego_line = next(
+        (line for line in msg.splitlines() if "Всего" in line), None
+    )
+    assert vsego_line is not None
+    assert f"${est.swap_usd:.2f}" in vsego_line
+
+
+def test_format_cost_report_animate_disabled_time_is_swap_only():
+    """With animate_enabled=False, Время uses swap_minutes only."""
+    est = estimate(5)
+    msg = format_cost_report_ru(
+        est,
+        source_face_count=1,
+        total_targets=5,
+        animate_enabled=False,
+    )
+    # The word "animate" must not appear in the Время line (or at all, re: label)
+    time_line = next(
+        (line for line in msg.splitlines() if "Время" in line), None
+    )
+    assert time_line is not None
+    assert "animate" not in time_line.lower()
+
+
+def test_format_cost_report_animate_disabled_no_long_warning():
+    """With animate_enabled=False, the долго warning is never shown (swap alone is fast)."""
+    # 20 photos: swap only ~7 min, total (with animate) ~245 min — flag must be absent.
+    est = estimate(20)
+    msg = format_cost_report_ru(
+        est,
+        source_face_count=1,
+        total_targets=20,
+        animate_enabled=False,
+    )
+    assert "долго" not in msg.lower()
+
+
+def test_format_cost_report_animate_enabled_true_unchanged():
+    """Passing animate_enabled=True (the explicit default) produces the same
+    output as the legacy call without the param."""
+    est = estimate(8, skipped_count=2)
+    legacy = format_cost_report_ru(est, source_face_count=1, total_targets=10)
+    explicit = format_cost_report_ru(
+        est, source_face_count=1, total_targets=10, animate_enabled=True
+    )
+    assert legacy == explicit

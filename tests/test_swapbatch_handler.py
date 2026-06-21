@@ -164,28 +164,35 @@ async def _swap_reply(handler, orch, tmp_path, n=1):
 
 
 @pytest.mark.anyio
-async def test_post_swap_menu_lists_animate_custom(tmp_path):
+async def test_post_swap_menu_lists_animate_custom(tmp_path, monkeypatch):
+    # These four tests exercise the animate-ENABLED path explicitly.
+    # SWAPBATCH_ANIMATE_ENABLED defaults to "0" (FIX C); pin it to "1" here so
+    # the tests keep covering the enabled menu without relying on env leakage.
+    monkeypatch.setenv("SWAPBATCH_ANIMATE_ENABLED", "1")
     handler, orch = _make_handler(tmp_path)
     r = await _swap_reply(handler, orch, tmp_path)
     assert "/swapbatch_animate_custom" in r.text
 
 
 @pytest.mark.anyio
-async def test_post_swap_menu_lists_set_quality(tmp_path):
+async def test_post_swap_menu_lists_set_quality(tmp_path, monkeypatch):
+    monkeypatch.setenv("SWAPBATCH_ANIMATE_ENABLED", "1")
     handler, orch = _make_handler(tmp_path)
     r = await _swap_reply(handler, orch, tmp_path)
     assert "/swapbatch_set_quality" in r.text
 
 
 @pytest.mark.anyio
-async def test_post_swap_menu_lists_no(tmp_path):
+async def test_post_swap_menu_lists_no(tmp_path, monkeypatch):
+    monkeypatch.setenv("SWAPBATCH_ANIMATE_ENABLED", "1")
     handler, orch = _make_handler(tmp_path)
     r = await _swap_reply(handler, orch, tmp_path)
     assert "/swapbatch_no" in r.text
 
 
 @pytest.mark.anyio
-async def test_post_swap_menu_still_lists_animate_yes(tmp_path):
+async def test_post_swap_menu_still_lists_animate_yes(tmp_path, monkeypatch):
+    monkeypatch.setenv("SWAPBATCH_ANIMATE_ENABLED", "1")
     handler, orch = _make_handler(tmp_path)
     r = await _swap_reply(handler, orch, tmp_path)
     assert "/swapbatch_animate_yes" in r.text

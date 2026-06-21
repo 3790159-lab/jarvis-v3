@@ -25,6 +25,18 @@ from dataclasses import dataclass
 _LONG_BATCH_MINUTES = 120.0
 
 
+def animate_enabled() -> bool:
+    """Return True when the RunPod animate phase is enabled.
+
+    Controlled by ``SWAPBATCH_ANIMATE_ENABLED`` (default ``"0"`` = OFF).
+    Set to ``"1"`` / ``"true"`` / ``"yes"`` / ``"on"`` to re-enable.
+    """
+    return (
+        os.environ.get("SWAPBATCH_ANIMATE_ENABLED", "0").strip().lower()
+        in ("1", "true", "yes", "on")
+    )
+
+
 def _envf(name: str, default: float) -> float:
     raw = os.environ.get(name)
     if raw is None or not raw.strip():
@@ -119,12 +131,17 @@ def format_cost_report_ru(
     source_face_count: int,
     total_targets: int,
     no_face_advisory: int = 0,
+    animate_enabled: bool = True,
 ) -> str:
     """Render the user-facing cost report in Russian.
 
     ``no_face_advisory`` (keyword-only, default 0): when > 0, append an
     advisory line noting that some photos had no detected face locally but
     will be sent to lucataco anyway — it is the final judge.
+
+    ``animate_enabled`` (keyword-only, default True): when False, the Animate
+    line is omitted and totals/time reflect swap only.  Default True keeps the
+    existing output so existing call-sites and tests are unaffected.
     """
     lines = [
         "📊 Оценка батча",
@@ -142,21 +159,31 @@ def format_cost_report_ru(
         lines.append("/swapbatch_cancel — сбросить")
         return "\n".join(lines)
 
-    lines.extend(
-        [
-            f"Swap: ${est.swap_usd:.2f} ({est.valid_count} × фото + старт)",
-            f"Animate: ${est.animate_usd:.2f} ({est.valid_count} × видео + старт)",
-            f"Всего: ~${est.total_usd:.2f}",
-            f"Время: ~{est.total_minutes:.0f} мин (swap ~{est.swap_minutes:.0f} мин + animate ~{est.animate_minutes:.0f} мин)",
-        ]
-    )
-    # Animation is sequential — large batches take hours. Flag it so the user
-    # isn't surprised by a multi-hour run.
-    if est.total_minutes >= _LONG_BATCH_MINUTES:
-        hours = est.total_minutes / 60.0
-        lines.append(
-            f"⏳ Это долго (~{hours:.1f} ч) — анимация идёт последовательно."
+    if animate_enabled:
+        lines.extend(
+            [
+                f"Swap: ${est.swap_usd:.2f} ({est.valid_count} × фото + старт)",
+                f"Animate: ${est.animate_usd:.2f} ({est.valid_count} × видео + старт)",
+                f"Всего: ~${est.total_usd:.2f}",
+                f"Время: ~{est.total_minutes:.0f} мин (swap ~{est.swap_minutes:.0f} мин + animate ~{est.animate_minutes:.0f} мин)",
+            ]
         )
+        # Animation is sequential — large batches take hours. Flag it so the user
+        # isn't surprised by a multi-hour run.
+        if est.total_minutes >= _LONG_BATCH_MINUTES:
+            hours = est.total_minutes / 60.0
+            lines.append(
+                f"⏳ Это долго (~{hours:.1f} ч) — анимация идёт последовательно."
+            )
+    else:
+        lines.extend(
+            [
+                f"Swap: ${est.swap_usd:.2f} ({est.valid_count} × фото + старт)",
+                f"Всего: ~${est.swap_usd:.2f}",
+                f"Время: ~{est.swap_minutes:.0f} мин",
+            ]
+        )
+
     if no_face_advisory > 0:
         lines.append(
             f"ℹ️ ~{no_face_advisory} фото возможно без лица — отправлю всё равно, "
