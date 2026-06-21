@@ -784,6 +784,22 @@ def _swapbatch_run_phase(
 
     from app.services.block_m2_video.generation_lock import GenerationLockBusy
 
+    # FIX B: friendly guard — if /swapbatch_go is pressed before any targets
+    # were accepted, the orchestrator is still in EXPECTING_TARGETS (or earlier)
+    # and confirm_swap would raise a raw OrchestratorError. Catch it early here
+    # with a human-readable message instead.
+    if command == "go":
+        from app.services.block_m2_face_swap.batch_orchestrator import (
+            STATE_TARGETS_RECEIVED,
+        )
+        if handler.orchestrator.status(chat_id_int) != STATE_TARGETS_RECEIVED:
+            send(
+                chat_id_s,
+                "⏳ Ещё не принял ни одного target-фото. Пришли альбом, "
+                "дождись «принято N/100», потом /swapbatch_go.",
+            )
+            return
+
     lock = _get_video_lock()
     try:
         token = lock.acquire(chat_id_int)
