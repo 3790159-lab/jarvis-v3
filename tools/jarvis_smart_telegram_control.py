@@ -296,6 +296,23 @@ def _send_local_video(chat_id, path, caption: str = "") -> None:
         )
 
 
+def _send_local_document(chat_id, path, caption: str = "") -> None:
+    """Upload a local file (e.g. a results zip) via multipart sendDocument."""
+    import requests as _req
+    from pathlib import Path as _Path
+    p = _Path(path)
+    if not p.exists():
+        send(str(chat_id), f"⚠️ Document not found: {p}")
+        return
+    with p.open("rb") as fh:
+        _req.post(
+            f"{TG}/sendDocument",
+            data={"chat_id": str(chat_id), "caption": caption[:1024] if caption else ""},
+            files={"document": (p.name, fh, "application/zip")},
+            timeout=300,
+        )
+
+
 def _send_local_photo(chat_id, path, caption: str = "") -> None:
     """Upload a local image to Telegram via multipart sendPhoto.
 
@@ -710,12 +727,25 @@ def _swapbatch_apply_reply(chat_id_s: str, reply) -> None:
     if reply.text:
         send(chat_id_s, reply.text)
     if reply.photos:
-        try:
-            _send_local_media_group(chat_id_s, [str(p) for p in reply.photos])
-        except Exception as exc:  # noqa: BLE001
-            send(chat_id_s, f"⚠️ Не удалось отправить альбом: {exc}")
-            for p in reply.photos:
-                _send_local_photo(chat_id_s, str(p))
+        import time as _t
+        from app.services.block_m2_face_swap.result_delivery import chunk_photos
+        chunks = chunk_photos([Path(p) for p in reply.photos])
+        for ci, chunk in enumerate(chunks):
+            try:
+                _send_local_media_group(chat_id_s, [str(p) for p in chunk])
+            except Exception as exc:  # noqa: BLE001
+                send(chat_id_s, f"⚠️ Не удалось отправить альбом: {exc}")
+                for p in chunk:
+                    _send_local_photo(chat_id_s, str(p))
+            if ci < len(chunks) - 1:
+                _t.sleep(1.5)  # avoid Telegram album rate-limit (429)
+    documents = getattr(reply, "documents", None)
+    if documents:
+        for d in documents:
+            try:
+                _send_local_document(chat_id_s, str(d))
+            except Exception as exc:  # noqa: BLE001
+                send(chat_id_s, f"⚠️ Не удалось отправить архив {Path(d).name}: {exc}")
     if reply.videos:
         for v in reply.videos:
             _send_local_video(chat_id_s, str(v))

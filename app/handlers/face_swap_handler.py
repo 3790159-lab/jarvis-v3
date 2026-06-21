@@ -63,6 +63,8 @@ class HandlerReply:
             explicit ``📸 N/M`` caption per photo (used by the custom-prompts
             re-display so the user can see which index is which).
         videos: Local video paths to send one-by-one (after photos).
+        documents: Local files to send as Telegram documents (e.g. result zips),
+            sent after photos.
         consumed: Whether the handler took ownership of the inbound event.
             For photo-ingestion methods this signals to the bot whether to
             stop further dispatch.
@@ -72,6 +74,7 @@ class HandlerReply:
     photos: list[Path] | None = None
     numbered_photos: list[Path] | None = None
     videos: list[Path] | None = None
+    documents: list[Path] | None = None
     consumed: bool = True
 
 
@@ -425,6 +428,20 @@ class FaceSwapHandler:
             for t in sess.targets
             if t.swap_result_path
         ]
+        # Build size-split zips from successful photos only.
+        # `photos` contains only swap_result_path values that are non-None — so
+        # failed targets (swap_result_path=None) are excluded by construction.
+        documents: list[Path] = []
+        if photos:
+            from app.services.block_m2_face_swap.result_delivery import (
+                build_result_zips,
+            )
+            zip_dir = photos[0].parent.parent / "delivery"
+            try:
+                documents = build_result_zips(photos, zip_dir)
+            except Exception as exc:  # noqa: BLE001 — zip is a convenience, not critical
+                logger.warning("result zip build failed: %s", exc)
+                documents = []
         succeeded = len(photos)
         # Under advisory semantics: valid=False means unreadable (real skip);
         # valid=True + no swap_result_path = lucataco returned None (no face
@@ -454,7 +471,9 @@ class FaceSwapHandler:
                 lines.append(
                     "(видео-фаза отключена на этом этапе — фото сохранены)"
                 )
-        return HandlerReply(text="\n".join(lines), photos=photos)
+        return HandlerReply(
+            text="\n".join(lines), photos=photos, documents=documents,
+        )
 
     @staticmethod
     def _envf(name: str, default: float) -> float:
