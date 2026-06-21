@@ -114,9 +114,18 @@ def estimate(
 
 
 def format_cost_report_ru(
-    est: CostEstimate, *, source_face_count: int, total_targets: int
+    est: CostEstimate,
+    *,
+    source_face_count: int,
+    total_targets: int,
+    no_face_advisory: int = 0,
 ) -> str:
-    """Render the user-facing cost report in Russian."""
+    """Render the user-facing cost report in Russian.
+
+    ``no_face_advisory`` (keyword-only, default 0): when > 0, append an
+    advisory line noting that some photos had no detected face locally but
+    will be sent to lucataco anyway — it is the final judge.
+    """
     lines = [
         "📊 Оценка батча",
         f"Source: {source_face_count} лицо ✅"
@@ -147,6 +156,11 @@ def format_cost_report_ru(
         hours = est.total_minutes / 60.0
         lines.append(
             f"⏳ Это долго (~{hours:.1f} ч) — анимация идёт последовательно."
+        )
+    if no_face_advisory > 0:
+        lines.append(
+            f"ℹ️ ~{no_face_advisory} фото возможно без лица — отправлю всё равно, "
+            "lucataco решит (учтены в стоимости)."
         )
     lines.extend(
         [

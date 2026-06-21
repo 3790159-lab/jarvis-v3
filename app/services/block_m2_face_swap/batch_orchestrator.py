@@ -56,9 +56,16 @@ _TERMINAL_STATES = {STATE_DONE, STATE_FAILED_RESUMED}
 _LOCKABLE_STATES = {STATE_SWAPPING, STATE_ANIMATING}
 
 # Max target photos per batch (post-dedupe). Raised 5→20 for larger persona
-# Instagram drops (10-15 photos/shoot). Animation is sequential, so 20 is a
-# ~4h ceiling — see the time note in the cost report.
-MAX_TARGETS = 20
+# Instagram drops (10-15 photos/shoot). Raised 20→100 for the lucataco batch
+# (parallel swaps, ~100s for 100 photos). Animation is sequential — large
+# animate batches are hours; swap-only is fast.
+MAX_TARGETS = 100
+
+# Legacy single-album cap used by the original submit_targets() path. Kept at
+# 20 so the frozen single-album flow doesn't silently accept oversized batches
+# and so existing tests remain green. The new add_targets() path uses
+# MAX_TARGETS for cumulative accumulation across albums.
+_SUBMIT_TARGETS_ALBUM_MAX = 20
 
 
 class OrchestratorError(RuntimeError):
@@ -248,10 +255,11 @@ class BatchOrchestrator:
         # may pass duplicate paths due to retry/race in update delivery.
         # Path-level dedupe preserves order and is O(n).
         target_paths = list(dict.fromkeys(target_paths))
-        if len(target_paths) > MAX_TARGETS:
+        if len(target_paths) > _SUBMIT_TARGETS_ALBUM_MAX:
             raise OrchestratorError(
                 f"Слишком много фото: {len(target_paths)}. Максимум "
-                f"{MAX_TARGETS} за один батч — пришли меньше и запусти ещё раз."
+                f"{_SUBMIT_TARGETS_ALBUM_MAX} за один батч — пришли меньше и "
+                "запусти ещё раз."
             )
         with self._lock:
             sess = self._require(chat_id, {STATE_EXPECTING_TARGETS})
@@ -275,6 +283,66 @@ class BatchOrchestrator:
                     )
                 )
 
+            valid = sum(1 for t in sess.targets if t.valid)
+            skipped = len(sess.targets) - valid
+            est = estimate_cost(
+                valid, skipped,
+                swap_usd_per_photo=get_swap_cost_per_photo(),
+                cold_start_usd=get_swap_cold_start_usd(),
+            )
+            sess.cost_estimate = asdict(est)
+            sess.status = STATE_TARGETS_RECEIVED
+            self._touch(sess)
+            self._persist(sess)
+            return sess, est
+
+    def add_targets(
+        self, chat_id: int, target_paths: list[Path]
+    ) -> tuple[BatchSession, CostEstimate]:
+        """Append a freshly-flushed album to the batch (multi-album intake).
+
+        Unlike ``submit_targets`` (which resets), this preserves already-staged
+        targets so a 100-photo batch arriving as ~10 Telegram albums accumulates
+        into one session. Valid from EXPECTING_TARGETS (first album) and
+        TARGETS_RECEIVED (subsequent albums). Re-computes the cost estimate over
+        the full accumulated set and enforces MAX_TARGETS on the cumulative count.
+
+        ADVISORY validation: the local FaceValidator is informational only.
+        - If the validator RAISES (corrupt/unreadable): valid=False — real skip.
+        - If the validator returns 0 faces: valid=True — sent to lucataco anyway.
+        - If the validator returns >0: valid=True.
+        Only unreadable photos are excluded; lucataco is the final face judge.
+        """
+        if not target_paths:
+            raise OrchestratorError("no target photos provided")
+        target_paths = list(dict.fromkeys(target_paths))
+        with self._lock:
+            sess = self._require(
+                chat_id, {STATE_EXPECTING_TARGETS, STATE_TARGETS_RECEIVED}
+            )
+            base = len(sess.targets)
+            if base + len(target_paths) > MAX_TARGETS:
+                raise OrchestratorError(
+                    f"Слишком много фото: {base + len(target_paths)}. Максимум "
+                    f"{MAX_TARGETS} за батч. Уже принято {base} — пришли меньше."
+                )
+            for offset, raw in enumerate(target_paths):
+                idx = base + offset
+                staged = self._stage_target(chat_id, raw, idx)
+                try:
+                    fc = self._validator.count_faces(staged)
+                except Exception as exc:  # noqa: BLE001
+                    # Unreadable/corrupt image — real skip (can't encode for engine).
+                    sess.targets.append(TargetItem(
+                        path=str(staged), face_count=0, valid=False,
+                        error=f"unreadable: {exc}",
+                    ))
+                    continue
+                # Advisory: 0 faces → still valid (lucataco decides).
+                sess.targets.append(TargetItem(
+                    path=str(staged), face_count=fc, valid=True, error=None,
+                ))
+            # Bill over ALL readable photos (valid=True); only unreadable skipped.
             valid = sum(1 for t in sess.targets if t.valid)
             skipped = len(sess.targets) - valid
             est = estimate_cost(
@@ -771,7 +839,7 @@ class BatchOrchestrator:
         d = self.session_dir(chat_id) / "targets"
         d.mkdir(parents=True, exist_ok=True)
         suffix = Path(target_path).suffix or ".jpg"
-        target = d / f"{idx:02d}{suffix}"
+        target = d / f"{idx:03d}{suffix}"
         shutil.copyfile(target_path, target)
         return target
 
