@@ -25,6 +25,10 @@ _BASE_URL = "https://api.replicate.com/v1"
 _LUCATACO_VERSION = "9a4298548422074c3f57258c5d544497314ae4112df80d116f0d2109e843d20d"
 
 
+class LucatacoTransientError(RuntimeError):
+    """Retries exhausted on a NON-billable failure (429/network); no prediction was created, so callers MAY retry later."""
+
+
 class LucatacoClient:
     """One swap per ``swap()`` call. Construct once, reuse across a batch."""
 
@@ -48,6 +52,8 @@ class LucatacoClient:
 
         Returns the output URL, or ``None`` when lucataco found no face
         (succeeded+output=None). Raises PredictionFailed on failed/canceled.
+        Raises LucatacoTransientError when retries exhausted on 429/network
+        without a prediction ever succeeding (no billing occurred).
         """
         payload = {
             "version": _LUCATACO_VERSION,
@@ -55,7 +61,7 @@ class LucatacoClient:
         }
         return await self._run_prediction(payload)
 
-    async def _run_prediction(self, payload: dict, max_retries: int = 5) -> Any:
+    async def _run_prediction(self, payload: dict, max_retries: int = 8) -> Any:
         submit_url = f"{_BASE_URL}/predictions"
         last_err: Exception | None = None
         for attempt in range(1, max_retries + 1):
@@ -89,7 +95,9 @@ class LucatacoClient:
                 logger.warning("lucataco attempt %d/%d failed: %s", attempt, max_retries, exc)
                 if attempt < max_retries:
                     await asyncio.sleep(2 ** attempt)
-        raise RuntimeError(f"lucataco failed after {max_retries} retries: {last_err}")
+        raise LucatacoTransientError(
+            f"lucataco failed after {max_retries} retries: {last_err}"
+        )
 
     async def _submit(self, url: str, payload: dict) -> str:
         async with httpx.AsyncClient(timeout=60.0, transport=self._transport) as c:

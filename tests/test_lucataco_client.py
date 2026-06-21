@@ -2,7 +2,7 @@ import httpx
 import pytest
 
 from app.services.block_m_common.faceswap_client import PredictionFailed
-from app.services.block_m_common.lucataco_client import LucatacoClient
+from app.services.block_m_common.lucataco_client import LucatacoClient, LucatacoTransientError
 
 
 def _client(handler):
@@ -48,3 +48,29 @@ async def test_failed_raises_prediction_failed_no_retry():
     with pytest.raises(PredictionFailed):
         await _client(handler).swap("data:image/jpeg;base64,A", "data:image/jpeg;base64,B")
     assert calls["post"] == 1  # never retried
+
+
+@pytest.mark.asyncio
+async def test_429_exhausted_raises_lucataco_transient_error():
+    """All retry attempts return 429 → must raise LucatacoTransientError (not plain RuntimeError).
+
+    LucatacoTransientError subclasses RuntimeError so existing pytest.raises(RuntimeError)
+    still passes, but this test verifies the exact type for the sweep classification.
+    """
+    calls = {"post": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            calls["post"] += 1
+            return httpx.Response(429, json={"detail": "rate limited"})
+        # poll should never be reached
+        return httpx.Response(200, json={"status": "succeeded", "output": "https://x/y.jpg"})
+
+    # Use max_retries=2 via _run_prediction directly to keep the test fast.
+    client = _client(handler)
+    with pytest.raises(LucatacoTransientError):
+        await client._run_prediction(
+            {"version": "v", "input": {}}, max_retries=2
+        )
+    # Verifies it IS a RuntimeError subclass (backward compat for any existing catches).
+    assert issubclass(LucatacoTransientError, RuntimeError)
