@@ -70,11 +70,10 @@ def _social_post_keyboard(dish: str) -> Dict:
 
 
 def _confirm_faceswap_keyboard() -> Dict:
+    # Single tier until GPEN lands — two identical tiers would mislead the user.
+    # The dormant "polish" branch stays in handle_faceswap_callback for that step.
     return _kb([
-        [
-            {"text": "🔵 Basic $0.005", "callback_data": "fs:exec:basic"},
-            {"text": "✨ Polished $0.007", "callback_data": "fs:exec:polish"},
-        ],
+        [{"text": "🔄 Сделать swap (~$0.005)", "callback_data": "fs:exec:basic"}],
         [{"text": "❌ Отмена", "callback_data": "fs:cancel"}],
     ])
 
@@ -488,8 +487,8 @@ def handle_faceswap_callback(
             send_fn(chat_id, "❌ Не найдены фото. Начни заново с /faceswap")
             return True
 
-        cost = "$0.005" if quality == "basic" else "$0.007"
-        send_fn(chat_id, f"🔄 Запускаю face swap ({quality}, {cost})...")
+        cost = "$0.005"  # lucataco/faceswap stopgap (uncensored); ComfyUI graph in reserve
+        send_fn(chat_id, f"🔄 Запускаю face swap ({cost})...")
         try:
             if quality == "basic":
                 from app.services.face_swap import face_swap_basic
@@ -505,7 +504,15 @@ def handle_faceswap_callback(
             face_path.write_text(source, encoding="utf-8")
 
         except Exception as exc:
-            send_fn(chat_id, f"❌ Ошибка face swap: {exc}")
+            from app.services.face_swap import NSFWFiltered
+            if isinstance(exc, NSFWFiltered):
+                send_fn(chat_id, (
+                    "⚠️ Фото отклонено NSFW-фильтром модели "
+                    "(он бывает ложно срабатывает на обычных фото). "
+                    "Попробуй другое фото."
+                ))
+            else:
+                send_fn(chat_id, f"❌ Ошибка face swap: {exc}")
         return True
 
     return False
