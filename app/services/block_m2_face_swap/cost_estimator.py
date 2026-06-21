@@ -49,16 +49,35 @@ class CostEstimate:
     total_minutes: float
 
 
-def estimate(valid_count: int, skipped_count: int = 0) -> CostEstimate:
-    """Compute swap + animate cost and wall-clock time for a batch."""
+def estimate(
+    valid_count: int,
+    skipped_count: int = 0,
+    *,
+    swap_usd_per_photo: float | None = None,
+    cold_start_usd: float | None = None,
+) -> CostEstimate:
+    """Compute swap + animate cost and wall-clock time for a batch.
+
+    ``swap_usd_per_photo`` / ``cold_start_usd`` let the caller inject the active
+    engine's real rates (lucataco ≈ $0.005/photo, no cold start) instead of the
+    SWAPBATCH_* env defaults.
+    """
     if valid_count < 0:
         raise ValueError(f"valid_count must be >= 0, got {valid_count}")
     if skipped_count < 0:
         raise ValueError(f"skipped_count must be >= 0, got {skipped_count}")
 
-    swap_per_photo = _envf("SWAPBATCH_SWAP_USD_PER_PHOTO", 0.02)
+    swap_per_photo = (
+        swap_usd_per_photo
+        if swap_usd_per_photo is not None
+        else _envf("SWAPBATCH_SWAP_USD_PER_PHOTO", 0.02)
+    )
     animate_per_video = _envf("SWAPBATCH_ANIMATE_USD_PER_VIDEO", 0.27)
-    cold_start_usd = _envf("SWAPBATCH_COLD_START_USD", 0.05)
+    cold_start_usd = (
+        cold_start_usd
+        if cold_start_usd is not None
+        else _envf("SWAPBATCH_COLD_START_USD", 0.05)
+    )
     swap_sec_per_photo = _envf("SWAPBATCH_SWAP_SEC_PER_PHOTO", 15.0)
     animate_sec_per_video = _envf("SWAPBATCH_ANIMATE_SEC_PER_VIDEO", 720.0)
     cold_start_sec = _envf("SWAPBATCH_COLD_START_SEC", 120.0)

@@ -39,3 +39,9 @@ def test_get_swap_engine_lucataco(monkeypatch):
     from app.services.block_m2_face_swap.engines.base import SwapEngine
     assert isinstance(engine, SwapEngine)
     assert engine.name == "lucataco"
+
+
+def test_estimate_uses_override_rate(monkeypatch):
+    from app.services.block_m2_face_swap.cost_estimator import estimate
+    est = estimate(100, 0, swap_usd_per_photo=0.005, cold_start_usd=0.0)
+    assert est.swap_usd == pytest.approx(0.5)  # 100 * 0.005 + 0 cold start

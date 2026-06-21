@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from .cost_estimator import CostEstimate, estimate as estimate_cost
+from .engines.factory import get_swap_cold_start_usd, get_swap_cost_per_photo
 from .face_validator import FaceValidator
 from .prompt_parser import ParseResult, parse_numbered_prompts
 
@@ -276,7 +277,11 @@ class BatchOrchestrator:
 
             valid = sum(1 for t in sess.targets if t.valid)
             skipped = len(sess.targets) - valid
-            est = estimate_cost(valid, skipped)
+            est = estimate_cost(
+                valid, skipped,
+                swap_usd_per_photo=get_swap_cost_per_photo(),
+                cold_start_usd=get_swap_cold_start_usd(),
+            )
             sess.cost_estimate = asdict(est)
             sess.status = STATE_TARGETS_RECEIVED
             self._touch(sess)
