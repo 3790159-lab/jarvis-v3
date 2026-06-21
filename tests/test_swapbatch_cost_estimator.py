@@ -86,7 +86,7 @@ def test_format_cost_report_contains_required_lines():
     assert "Source: 1 лицо" in msg
     assert "Targets: 10 фото" in msg
     assert "8 с лицами" in msg
-    assert "2 без лиц" in msg
+    assert "2 нечитаемых" in msg
     assert "/swapbatch_go" in msg
     assert "/swapbatch_cancel" in msg
 

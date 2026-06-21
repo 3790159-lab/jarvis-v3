@@ -19,6 +19,7 @@ from typing import Any, Callable
 
 from app.services.block_m2_face_swap.batch_orchestrator import (
     BatchOrchestrator,
+    MAX_TARGETS,
     OrchestratorError,
     STATE_AWAITING_CUSTOM_PROMPTS,
     STATE_DONE,
@@ -390,7 +391,7 @@ class FaceSwapHandler:
             no_face_advisory=no_face_advisory,
         )
         # Prepend running accumulation UX line.
-        msg = f"принято {accepted}/100\n" + msg
+        msg = f"принято {accepted}/{MAX_TARGETS}\n" + msg
         return HandlerReply(text=msg)
 
     # ── long-running phases (called from worker thread) ─────────────────────

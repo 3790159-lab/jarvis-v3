@@ -135,7 +135,7 @@ def format_cost_report_ru(
         f"  ✅ {est.valid_count} с лицами",
     ]
     if est.skipped_count:
-        lines.append(f"  ⚠️ {est.skipped_count} без лиц (будут пропущены)")
+        lines.append(f"  ⚠️ {est.skipped_count} нечитаемых (пропущено)")
     lines.append("")
     if est.valid_count == 0:
         lines.append("Нет валидных фото — батч не может быть запущен.")
