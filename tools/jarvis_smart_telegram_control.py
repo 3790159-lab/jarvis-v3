@@ -977,9 +977,13 @@ def _swapbatch_photo_intercept(chat_id: str, msg: Dict[str, Any]) -> bool:
     file_id = largest.get("file_id")
     if not file_id:
         return False
-    local = _download_telegram_file(
-        file_id, f"swapbatch_{int(time.time())}_{file_id[:8]}.jpg"
+    uid = largest.get("file_unique_id")
+    _fname = (
+        f"swapbatch_{uid}.jpg"
+        if uid
+        else f"swapbatch_{int(time.time())}_{file_id[:8]}.jpg"
     )
+    local = _download_telegram_file(file_id, _fname)
     if not local:
         send(chat_id, "❌ Не удалось скачать фото.")
         return True
@@ -1023,10 +1027,13 @@ def _swapbatch_album_intercept(chat_id: str, msgs: list) -> bool:
         file_id = largest.get("file_id")
         if not file_id:
             continue
-        local = _download_telegram_file(
-            file_id,
-            f"swapbatch_{int(time.time())}_{file_id[:8]}.jpg",
+        uid = largest.get("file_unique_id")
+        _fname = (
+            f"swapbatch_{uid}.jpg"
+            if uid
+            else f"swapbatch_{int(time.time())}_{file_id[:8]}.jpg"
         )
+        local = _download_telegram_file(file_id, _fname)
         if local:
             paths.append(_Path(local))
     if not paths:
