@@ -825,10 +825,10 @@ def _swapbatch_run_phase(
     def _run() -> None:
         try:
             if command == "go":
-                from app.services.block_m2_face_swap.face_swap_engine import (
-                    FaceSwapEngine,
+                from app.services.block_m2_face_swap.engines.factory import (
+                    get_swap_engine,
                 )
-                engine = FaceSwapEngine()
+                engine = get_swap_engine()
 
                 async def _swap_fn(
                     source: _Path,
@@ -1365,7 +1365,7 @@ CAPABILITIES = [
     {"id": "invite_cards",     "category": "photo_studio", "status": CAPABILITY_STATUS_AVAILABLE,
      "label": "персональные приглашения (/invite_card)", "note": "имя гостя + событие + дата"},
     {"id": "face_swap",        "category": "photo_studio", "status": CAPABILITY_STATUS_AVAILABLE,
-     "label": "замена лиц (/faceswap)", "note": "cdingram basic + codeplugtech polish + GFPGAN"},
+     "label": "замена лиц (/faceswap)", "note": "наш ComfyUI-граф (ReActor + inswapper_128 + GFPGAN) на Replicate A100"},
     {"id": "photo_enhance",    "category": "photo_studio", "status": CAPABILITY_STATUS_AVAILABLE,
      "label": "улучшение фото (/enhance)", "note": "GFPGAN v1.4 — лица + детали"},
     {"id": "lora_training",    "category": "photo_studio", "status": CAPABILITY_STATUS_AVAILABLE,
