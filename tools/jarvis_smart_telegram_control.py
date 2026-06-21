@@ -878,6 +878,11 @@ def _swapbatch_run_phase(
                 f"⚠️ Swap #{payload.get('index', 0) + 1} не удался: "
                 f"{payload.get('error')}",
             )
+        elif stage == "swap_progress":
+            completed = payload.get("completed", 0)
+            total = payload.get("total", 0)
+            if completed == total or completed % 10 == 0:
+                send(chat_id_s, f"🔄 Swap {completed}/{total}…")
         elif stage == "animate_step_done":
             send(chat_id_s, f"✅ Animate #{payload.get('index', 0) + 1} готов.")
         elif stage == "animate_step_failed":
