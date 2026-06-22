@@ -754,7 +754,7 @@ def _swapbatch_apply_reply(chat_id_s: str, reply) -> None:
 def _swapbatch_dispatch(chat_id, command: str) -> None:
     """Synchronous /swapbatch_* command router.
 
-    Long-running phases (``go``, ``animate_yes``) spin up a worker thread
+    Long-running phases (``go``, ``animate_go``) spin up a worker thread
     that acquires the shared Phase C video-lock and runs the engine.
     """
     chat_id_s = str(chat_id)
