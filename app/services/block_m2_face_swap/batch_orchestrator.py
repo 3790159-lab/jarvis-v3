@@ -105,6 +105,9 @@ class BatchSession:
     # fps drives RIFE interpolation (21 = native, no interpolation).
     duration_sec: int = 5
     fps: int = 21
+    resolution: str = "720p"
+    video_engine: str = "spicy"   # "spicy" | "seedance"
+    motion_prompt: str = ""        # shared batch motion prompt; "" -> engine default
     created_at_unix: float = field(default_factory=time.time)
     updated_at_unix: float = field(default_factory=time.time)
     last_error: str | None = None
@@ -135,6 +138,9 @@ class BatchSession:
             prompt_mismatch_info=data.get("prompt_mismatch_info"),
             duration_sec=int(data.get("duration_sec", 5)),
             fps=int(data.get("fps", 21)),
+            resolution=str(data.get("resolution", "720p")),
+            video_engine=str(data.get("video_engine", "spicy")),
+            motion_prompt=str(data.get("motion_prompt", "")),
             created_at_unix=float(data.get("created_at_unix", time.time())),
             updated_at_unix=float(data.get("updated_at_unix", time.time())),
             last_error=data.get("last_error"),
@@ -545,6 +551,67 @@ class BatchOrchestrator:
                 cur.status = STATE_DONE
                 self._touch(cur)
                 self._persist(cur)
+        return results
+
+    async def confirm_animate_batch(
+        self,
+        chat_id: int,
+        *,
+        animate_fn: Callable[
+            [list[Path], Callable[[], bool]], Awaitable[list]
+        ],
+        progress_cb: ProgressCb | None = None,
+    ) -> list:
+        """Animate all swapped photos IN PARALLEL via injected ``animate_fn``.
+
+        ``animate_fn(photos, cancel_check) -> list[Path|None]`` aligns to the
+        swapped photos in display order; each maps back to its target's
+        ``animate_result_path``. Transitions SWAP_DONE -> ANIMATING -> DONE.
+        """
+        with self._lock:
+            sess = self._require(chat_id, {STATE_SWAP_DONE})
+            swapped = [t for t in sess.targets if t.swap_result_path]
+            if not swapped:
+                raise OrchestratorError("Нет swapped фото для анимации.")
+            photos = [Path(t.swap_result_path) for t in swapped]
+            sess.status = STATE_ANIMATING
+            sess.cancel_requested = False
+            sess.last_error = None
+            self._touch(sess)
+            self._persist(sess)
+
+        def _cancel_check() -> bool:
+            with self._lock:
+                cur = self._sessions.get(chat_id)
+                return bool(cur and cur.cancel_requested)
+
+        try:
+            results = await animate_fn(photos, _cancel_check)
+        except Exception as exc:  # noqa: BLE001
+            with self._lock:
+                cur = self._sessions.get(chat_id)
+                if cur is not None:
+                    cur.last_error = f"animate engine: {exc}"
+                    cur.status = STATE_SWAP_DONE  # allow retry
+                    self._touch(cur)
+                    self._persist(cur)
+            raise
+
+        with self._lock:
+            cur = self._sessions.get(chat_id)
+            if cur is None:
+                return results
+            swapped_targets = [t for t in cur.targets if t.swap_result_path]
+            for t, r in zip(swapped_targets, results):
+                if r is not None:
+                    t.animate_result_path = str(r)
+            cur.status = STATE_DONE
+            self._touch(cur)
+            self._persist(cur)
+            self._fire(progress_cb, "animate_phase_done", {
+                "succeeded": sum(1 for t in cur.targets if t.animate_result_path),
+                "failed": sum(1 for t in cur.targets if t.swap_result_path and not t.animate_result_path),
+            })
         return results
 
     def skip_animate(self, chat_id: int) -> BatchSession:
