@@ -114,6 +114,32 @@ CUSTOM_PROMPTS_INSTRUCTIONS = (
 )
 
 
+def animate_cost_estimate(
+    *,
+    swapped_count: int,
+    seconds: int,
+    resolution: str,
+    engine_mode: str,
+) -> dict:
+    """Cost + rough wall-clock for animating N videos on the chosen engine."""
+    import math
+    from app.services.block_m2_video.engines.capabilities import caps_for
+    caps = caps_for(engine_mode)
+    per = caps.cost_for(seconds, resolution)
+    concurrency = max(1, int(os.getenv("SWAPBATCH_ANIMATE_CONCURRENCY", "2")))
+    minutes = math.ceil(swapped_count / concurrency) * caps.gen_seconds(seconds) / 60.0
+    return {
+        "count": swapped_count,
+        "per_usd": per,
+        "total_usd": round(per * swapped_count, 2),
+        "minutes": round(minutes, 1),
+        "seconds": caps.snap_duration(seconds),
+        "resolution": caps.snap_resolution(resolution),
+        "engine_mode": engine_mode,
+        "display_name": caps.display_name,
+    }
+
+
 class FaceSwapHandler:
     """Russian-language command handlers for /swapbatch_*.
 
@@ -201,6 +227,44 @@ class FaceSwapHandler:
         return HandlerReply(
             text=f"✅ Готово. Сохранено {n} swapped фото без анимации."
         )
+
+    def handle_animate_yes(self, chat_id: int) -> HandlerReply:
+        """Cost gate: show estimate + confirm prompt; does NOT run animation."""
+        sess = self.orchestrator.get(chat_id)
+        if sess is None or sess.status != STATE_SWAP_DONE:
+            return HandlerReply(text="⚠️ Сначала заверши swap (/swapbatch_go).")
+        swapped = sum(1 for t in sess.targets if t.swap_result_path)
+        if swapped == 0:
+            return HandlerReply(text="⚠️ Нет swapped фото для анимации.")
+        est = animate_cost_estimate(
+            swapped_count=swapped,
+            seconds=sess.duration_sec,
+            resolution=sess.resolution,
+            engine_mode=sess.video_engine,
+        )
+        prompt_line = sess.motion_prompt or "(дефолтный промт движения)"
+        return HandlerReply(text=(
+            f"🎬 {est['display_name']}\n"
+            f"Анимация {est['count']} фото × {est['seconds']}с × {est['resolution']}\n"
+            f"Промт: {prompt_line}\n"
+            f"Стоимость: ~${est['total_usd']:.2f} (${est['per_usd']:.2f}/видео)\n"
+            f"Время: ~{est['minutes']:.0f} мин\n\n"
+            f"/swapbatch_animate_go — запустить (платно)\n"
+            f"/swapbatch_set_prompt <текст> — задать движение/сцену\n"
+            f"/swapbatch_set_quality duration=.. resolution=.. — качество\n"
+            f"/swapbatch_no — без анимации"
+        ))
+
+    def handle_set_prompt(self, chat_id: int, text: str) -> HandlerReply:
+        """/swapbatch_set_prompt — store shared motion prompt for the batch."""
+        sess = self.orchestrator.get(chat_id)
+        if sess is None:
+            return HandlerReply(text="⚠️ Нет активного батча.")
+        sess.motion_prompt = (text or "").strip()
+        self.orchestrator._persist(sess)
+        if sess.motion_prompt:
+            return HandlerReply(text=f"✅ Промт движения задан:\n«{sess.motion_prompt}»")
+        return HandlerReply(text="✅ Промт сброшен на дефолтный.")
 
     # ── quality settings (Task C) ───────────────────────────────────────────
 
@@ -474,6 +538,55 @@ class FaceSwapHandler:
         return HandlerReply(
             text="\n".join(lines), photos=photos, documents=documents,
         )
+
+    async def run_animate_batch_phase(
+        self,
+        chat_id: int,
+        animate_fn,
+        progress_cb=None,
+        *,
+        user_id: int | None = None,
+        username: str | None = None,
+    ) -> HandlerReply:
+        """Paid runner: call confirm_animate_batch and bill successful videos."""
+        sess0 = self.orchestrator.get(chat_id)
+        seconds = sess0.duration_sec if sess0 else 10
+        resolution = sess0.resolution if sess0 else "720p"
+        engine_mode = sess0.video_engine if sess0 else "spicy"
+        try:
+            await self.orchestrator.confirm_animate_batch(
+                chat_id, animate_fn=animate_fn, progress_cb=progress_cb,
+            )
+        except OrchestratorError as exc:
+            return HandlerReply(text=f"⚠️ {exc}")
+        except Exception as exc:  # noqa: BLE001
+            return HandlerReply(text=f"❌ Ошибка animate: {translate_exception(exc)}")
+
+        sess = self.orchestrator.get(chat_id)
+        if sess is None:
+            return HandlerReply(text="Сессия пропала (вероятно, отменена).")
+        videos = [
+            Path(t.animate_result_path)
+            for t in sess.targets
+            if t.animate_result_path
+        ]
+        succeeded = len(videos)
+        failed = sum(
+            1 for t in sess.targets
+            if t.swap_result_path and not t.animate_result_path
+        )
+        lines = [f"🎬 Animate завершён: {succeeded} видео"]
+        if failed:
+            lines.append(f"  ⚠️ {failed} не удалось")
+        from app.services.block_m2_video.engines.capabilities import caps_for
+        amount = succeeded * caps_for(engine_mode).cost_for(seconds, resolution)
+        if user_id is not None and amount > 0:
+            try:
+                _cost.record_cost(user_id, username, amount)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("cost: record_cost failed: %s", exc)
+        self.orchestrator.prune(chat_id)
+        return HandlerReply(text="\n".join(lines), videos=videos)
 
     @staticmethod
     def _envf(name: str, default: float) -> float:

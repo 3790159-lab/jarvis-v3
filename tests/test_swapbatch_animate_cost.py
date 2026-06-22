@@ -75,3 +75,37 @@ def test_parse_animate_quality_rejects_unsupported_for_engine():
 def test_parse_animate_quality_empty_returns_empty():
     from app.services.block_m2_face_swap.quality_settings import parse_animate_quality
     assert parse_animate_quality("", engine_mode="spicy") == {}
+
+
+def test_animate_cost_estimate_math():
+    from app.handlers.face_swap_handler import animate_cost_estimate
+    # 2 photos, spicy, 10s, 720p -> 2 * 1.00 = $2.00
+    est = animate_cost_estimate(swapped_count=2, seconds=10, resolution="720p", engine_mode="spicy")
+    assert est["total_usd"] == pytest.approx(2.00)
+    assert est["per_usd"] == pytest.approx(1.00)
+    assert est["count"] == 2
+    assert est["minutes"] > 0
+
+
+@pytest.mark.asyncio
+async def test_handle_animate_yes_shows_cost_does_not_run(tmp_path):
+    from app.handlers.face_swap_handler import FaceSwapHandler
+    orch = _orch(tmp_path); chat = 7
+    await _seed_swapped(orch, chat, tmp_path)
+    h = FaceSwapHandler(orchestrator=orch)
+    reply = h.handle_animate_yes(chat)
+    assert reply.text is not None
+    assert "$" in reply.text
+    assert "/swapbatch_animate_go" in reply.text
+    assert orch.status(chat) == "SWAP_DONE"   # NOT run
+
+
+@pytest.mark.asyncio
+async def test_handle_set_prompt_stores_shared_prompt(tmp_path):
+    from app.handlers.face_swap_handler import FaceSwapHandler
+    orch = _orch(tmp_path); chat = 8
+    await _seed_swapped(orch, chat, tmp_path)
+    h = FaceSwapHandler(orchestrator=orch)
+    reply = h.handle_set_prompt(chat, "slow dance, neon light")
+    assert "slow dance" in (orch.get(chat).motion_prompt)
+    assert reply.text is not None
