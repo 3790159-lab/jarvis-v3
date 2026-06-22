@@ -81,6 +81,15 @@ class WaveSpeedSpicyEngine:
         if request.seed is not None:
             payload["seed"] = request.seed
 
+        # Diagnostic: log EXACTLY what goes to WaveSpeed (no key, no image bytes).
+        logger.info(
+            "WaveSpeed submit: dur=%s res=%s expansion=%s shot=%s "
+            "prompt(len=%d)=%r negative(len=%d)=%r",
+            seconds, resolution, payload["enable_prompt_expansion"],
+            payload.get("shot_type"), len(request.prompt or ""),
+            (request.prompt or "")[:400], len(request.negative_prompt or ""),
+            (request.negative_prompt or "")[:200],
+        )
         poll_url = await self._submit_with_retry(payload)
         video_url = await self._poll(poll_url)
         out_path = await self._download(video_url, request.persona_id, gen_id)
