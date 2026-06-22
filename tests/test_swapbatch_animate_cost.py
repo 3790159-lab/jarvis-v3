@@ -109,3 +109,30 @@ async def test_handle_set_prompt_stores_shared_prompt(tmp_path):
     reply = h.handle_set_prompt(chat, "slow dance, neon light")
     assert "slow dance" in (orch.get(chat).motion_prompt)
     assert reply.text is not None
+
+
+@pytest.mark.asyncio
+async def test_handle_set_animate_quality_engine_constrained(tmp_path):
+    from app.handlers.face_swap_handler import FaceSwapHandler
+    orch = _orch(tmp_path); chat = 11
+    await _seed_swapped(orch, chat, tmp_path)
+    h = FaceSwapHandler(orchestrator=orch)
+    # spicy (default engine): 15s + 1080p both allowed
+    h.handle_set_animate_quality(chat, "duration=15 resolution=1080p")
+    assert orch.get(chat).duration_sec == 15
+    assert orch.get(chat).resolution == "1080p"
+    # spicy rejects 480p -> warning, resolution unchanged
+    r2 = h.handle_set_animate_quality(chat, "resolution=480p")
+    assert "⚠️" in r2.text
+    assert orch.get(chat).resolution == "1080p"
+
+
+@pytest.mark.asyncio
+async def test_handle_set_animate_quality_no_args_shows_current(tmp_path):
+    from app.handlers.face_swap_handler import FaceSwapHandler
+    orch = _orch(tmp_path); chat = 12
+    await _seed_swapped(orch, chat, tmp_path)
+    h = FaceSwapHandler(orchestrator=orch)
+    r = h.handle_set_animate_quality(chat, "")
+    assert r.text is not None
+    assert "fps" in r.text.lower()   # shows native fps as info-only

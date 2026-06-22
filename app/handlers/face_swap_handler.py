@@ -266,6 +266,41 @@ class FaceSwapHandler:
             return HandlerReply(text=f"✅ Промт движения задан:\n«{sess.motion_prompt}»")
         return HandlerReply(text="✅ Промт сброшен на дефолтный.")
 
+    def handle_set_animate_quality(self, chat_id: int, args_text: str) -> HandlerReply:
+        """Engine-aware quality setter for the managed animate path: constrains
+        duration + resolution to the chosen engine's caps; fps is info-only."""
+        sess = self.orchestrator.get(chat_id)
+        if sess is None:
+            return HandlerReply(text="⚠️ Нет активного батча. Начни с /swapbatch_source.")
+        from app.services.block_m2_face_swap.quality_settings import (
+            parse_animate_quality, QualityError,
+        )
+        from app.services.block_m2_video.engines.capabilities import caps_for
+        caps = caps_for(sess.video_engine)
+        try:
+            parsed = parse_animate_quality(args_text or "", engine_mode=sess.video_engine)
+        except QualityError as exc:
+            return HandlerReply(text=f"⚠️ {exc}")
+        if not parsed:
+            dur = "/".join(str(x) for x in caps.allowed_durations)
+            res = "/".join(caps.allowed_resolutions)
+            return HandlerReply(text=(
+                f"📐 {caps.display_name}: сейчас {sess.duration_sec}с, {sess.resolution}, "
+                f"fps {caps.native_fps} (нативный, не настраивается).\n"
+                f"Доступно: duration={dur}, resolution={res}.\n"
+                f"Изменить: /swapbatch_set_quality duration=.. resolution=.."
+            ))
+        if "duration" in parsed:
+            sess.duration_sec = parsed["duration"]
+        if "resolution" in parsed:
+            sess.resolution = parsed["resolution"]
+        self.orchestrator._persist(sess)
+        return HandlerReply(text=(
+            f"✅ Качество: {sess.duration_sec}с, {sess.resolution} "
+            f"(fps {caps.native_fps}, нативный).\n"
+            f"Дальше: /swapbatch_animate_yes (покажу стоимость) → /swapbatch_animate_go."
+        ))
+
     # ── quality settings (Task C) ───────────────────────────────────────────
 
     def handle_set_quality(self, chat_id: int, args_text: str) -> HandlerReply:
