@@ -791,7 +791,7 @@ def _swapbatch_dispatch(chat_id, command: str) -> None:
     # they always work (finish without video).  animate_custom and retry are now
     # included so the user never enters a dead-end state when the flag is off.
     if command in (
-        "animate_yes", "animate_custom", "confirm", "apply_partial", "apply_first", "retry",
+        "animate_yes", "animate_go", "animate_custom", "confirm", "apply_partial", "apply_first", "retry",
     ):
         from app.services.block_m2_face_swap.cost_estimator import (
             animate_enabled as _animate_enabled,
@@ -804,6 +804,10 @@ def _swapbatch_dispatch(chat_id, command: str) -> None:
             )
             return
 
+    if command == "animate_yes":
+        _swapbatch_apply_reply(chat_id_s, handler.handle_animate_yes(chat_id_int))
+        return
+
     if command == "animate_custom":
         _swapbatch_apply_reply(
             chat_id_s, handler.handle_animate_custom(chat_id_int)
@@ -813,7 +817,7 @@ def _swapbatch_dispatch(chat_id, command: str) -> None:
         _swapbatch_apply_reply(chat_id_s, handler.handle_retry(chat_id_int))
         return
 
-    if command in ("go", "animate_yes", "confirm", "apply_partial", "apply_first"):
+    if command in ("go", "animate_go", "confirm", "apply_partial", "apply_first"):
         _swapbatch_run_phase(chat_id_int, chat_id_s, command, handler)
         return
 
@@ -858,8 +862,8 @@ def _swapbatch_run_phase(
 
     if command == "go":
         send(chat_id_s, "🎭 Запускаю swap. Это займёт несколько минут…")
-    else:
-        send(chat_id_s, "🎬 Запускаю animate. Это займёт ~12 мин на видео…")
+    elif command == "animate_go":
+        send(chat_id_s, "🎬 Запускаю animate (см. оценку времени выше)…")
 
     def _progress(stage: str, payload: dict) -> None:
         if stage == "pod_ready":
@@ -883,6 +887,11 @@ def _swapbatch_run_phase(
             total = payload.get("total", 0)
             if completed == total or completed % 10 == 0:
                 send(chat_id_s, f"🔄 Swap {completed}/{total}…")
+        elif stage == "animate_progress":
+            completed = payload.get("completed", 0)
+            total = payload.get("total", 0)
+            if total and (completed == total or completed % 10 == 0):
+                send(chat_id_s, f"🎬 Animate {completed}/{total}…")
         elif stage == "animate_step_done":
             send(chat_id_s, f"✅ Animate #{payload.get('index', 0) + 1} готов.")
         elif stage == "animate_step_failed":
@@ -915,77 +924,62 @@ def _swapbatch_run_phase(
                         chat_id_int, _swap_fn, progress_cb=_progress,
                     )
                 )
-            else:  # animate_yes / confirm / apply_partial / apply_first
-                from app.services.block_m2_video.engines.runpod_comfy_engine import (
-                    RunpodComfyEngine,
-                )
+            elif command == "animate_go":
+                import os as _os
+                from app.services.block_m2_video.engines.router import EngineRouter
                 from app.services.block_m2_video.engines.engine_protocol import (
-                    VideoRequest,
-                    new_generation_id,
+                    VideoRequest, new_generation_id,
                 )
+                from app.services.block_m2_video.batch_animate import animate_batch
 
-                video_engine = RunpodComfyEngine()
-                # Default motion prompt — shared by /swapbatch_animate_yes and by
-                # custom-flow photos that resolve to the default (None), so an
-                # all-default custom run matches /swapbatch_animate_yes exactly.
-                _DEFAULT_MOTION_PROMPT = "a cinematic portrait, soft natural light"
-
-                # Task C: per-batch quality (duration + fps), read once from the
-                # session. Defaults to the prior behavior (5s, 21fps native).
                 _hq, _orch_q = _swapbatch_get_handler()
                 _sess_q = _orch_q.get(chat_id_int) if _orch_q else None
-                _duration = int(getattr(_sess_q, "duration_sec", 5) or 5)
-                _fps = int(getattr(_sess_q, "fps", 21) or 21)
+                _seconds = int(getattr(_sess_q, "duration_sec", 10) or 10)
+                _resolution = str(getattr(_sess_q, "resolution", "720p") or "720p")
+                _engine_mode = str(getattr(_sess_q, "video_engine", "spicy") or "spicy")
+                _motion = str(getattr(_sess_q, "motion_prompt", "") or "")
+                _DEFAULT_MOTION = ("gentle natural body movement, subtle motion, "
+                                   "soft cinematic lighting, photorealistic")
+                _prompt = _motion or _DEFAULT_MOTION
+                _concurrency = int(_os.getenv("SWAPBATCH_ANIMATE_CONCURRENCY", "2"))
 
-                if command == "animate_yes":
-                    async def _animate_fn(swapped: _Path, idx: int, cancel_check):
-                        req = VideoRequest(
+                router = EngineRouter()
+                engine = _aio.run(router.select(_engine_mode))  # spicy -> WaveSpeed
+
+                async def _animate_fn(photos, cancel_check):
+                    reqs = [
+                        VideoRequest(
                             persona_id=f"swapbatch_{chat_id_int}",
                             persona_name="swapbatch",
-                            input_image_path=swapped,
-                            prompt=_DEFAULT_MOTION_PROMPT,
-                            seconds=_duration,
-                            fps=_fps,
-                            seed=None,
-                            mode="hq",
+                            input_image_path=ph,
+                            prompt=_prompt,
+                            seconds=_seconds,
+                            resolution=_resolution,
                             generation_id=new_generation_id(),
                         )
-                        result = await video_engine.generate(req)
-                        return result.output_path
-
-                    reply = _aio.run(
-                        handler.run_animate_phase(
-                            chat_id_int, _animate_fn, progress_cb=_progress,
-                            user_id=chat_id_int,
-                            username=_USERNAME_BY_CHAT.get(chat_id_s),
-                        )
+                        for ph in photos
+                    ]
+                    return await animate_batch(
+                        engine, reqs, concurrency=_concurrency,
+                        progress_cb=_progress, cancel_check=cancel_check,
                     )
-                else:  # confirm / apply_partial / apply_first → custom prompts
-                    async def _animate_fn(
-                        swapped: _Path, idx: int, prompt, cancel_check
-                    ):
-                        req = VideoRequest(
-                            persona_id=f"swapbatch_{chat_id_int}",
-                            persona_name="swapbatch",
-                            input_image_path=swapped,
-                            prompt=prompt or _DEFAULT_MOTION_PROMPT,
-                            seconds=_duration,
-                            fps=_fps,
-                            seed=None,
-                            mode="hq",
-                            generation_id=new_generation_id(),
-                        )
-                        result = await video_engine.generate(req)
-                        return result.output_path
 
-                    reply = _aio.run(
-                        handler.run_custom_animate_phase(
-                            chat_id_int, _animate_fn, progress_cb=_progress,
-                            user_id=chat_id_int,
-                            username=_USERNAME_BY_CHAT.get(chat_id_s),
-                        )
+                reply = _aio.run(
+                    handler.run_animate_batch_phase(
+                        chat_id_int, _animate_fn, progress_cb=_progress,
+                        user_id=chat_id_int,
+                        username=_USERNAME_BY_CHAT.get(chat_id_s),
                     )
-            _swapbatch_apply_reply(chat_id_s, reply)
+                )
+            else:  # confirm / apply_partial / apply_first — custom prompts deferred on managed path
+                send(
+                    chat_id_s,
+                    "🎬 Кастомные промпты для видео пока недоступны на новом движке. "
+                    "Используй /swapbatch_animate_yes → /swapbatch_animate_go.",
+                )
+                reply = None
+            if reply is not None:
+                _swapbatch_apply_reply(chat_id_s, reply)
         except Exception as exc:  # noqa: BLE001
             send(chat_id_s, f"❌ Ошибка: {translate_exception(exc)}")
         finally:
@@ -4818,8 +4812,20 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
             send(str(chat_id), "⚠️ Модуль face-swap недоступен.")
         else:
             _swapbatch_apply_reply(
-                str(chat_id), _h_sq.handle_set_quality(int(chat_id), query)
+                str(chat_id), _h_sq.handle_set_animate_quality(int(chat_id), query)
             )
+        return
+    if cmd == "/swapbatch_set_prompt":
+        _h_sp, _ = _swapbatch_get_handler()
+        if _h_sp is None:
+            send(str(chat_id), "⚠️ Модуль face-swap недоступен.")
+        else:
+            _swapbatch_apply_reply(
+                str(chat_id), _h_sp.handle_set_prompt(int(chat_id), query)
+            )
+        return
+    if cmd == "/swapbatch_animate_go":
+        _swapbatch_dispatch(chat_id, "animate_go")
         return
     if cmd == "/swapbatch_animate_yes":
         _swapbatch_dispatch(chat_id, "animate_yes")
