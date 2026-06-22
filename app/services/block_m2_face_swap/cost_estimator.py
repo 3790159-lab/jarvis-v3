@@ -132,6 +132,8 @@ def format_cost_report_ru(
     total_targets: int,
     no_face_advisory: int = 0,
     animate_enabled: bool = True,
+    animate_usd_override: float | None = None,
+    animate_minutes_override: float | None = None,
 ) -> str:
     """Render the user-facing cost report in Russian.
 
@@ -142,6 +144,12 @@ def format_cost_report_ru(
     ``animate_enabled`` (keyword-only, default True): when False, the Animate
     line is omitted and totals/time reflect swap only.  Default True keeps the
     existing output so existing call-sites and tests are unaffected.
+
+    ``animate_usd_override`` / ``animate_minutes_override`` (keyword-only,
+    default None): when BOTH are provided, the animate cost + time (and the
+    combined Всего / Время lines and the long-batch warning) use these
+    caps-based values instead of the stale ``est.animate_*`` RunPod-era
+    estimate.  When either is None, behavior is byte-for-byte unchanged.
     """
     lines = [
         "📊 Оценка батча",
@@ -160,18 +168,30 @@ def format_cost_report_ru(
         return "\n".join(lines)
 
     if animate_enabled:
+        use_override = (
+            animate_usd_override is not None
+            and animate_minutes_override is not None
+        )
+        animate_usd = animate_usd_override if use_override else est.animate_usd
+        animate_minutes = (
+            animate_minutes_override if use_override else est.animate_minutes
+        )
+        total_usd = est.swap_usd + animate_usd if use_override else est.total_usd
+        total_minutes = (
+            est.swap_minutes + animate_minutes if use_override else est.total_minutes
+        )
         lines.extend(
             [
                 f"Swap: ${est.swap_usd:.2f} ({est.valid_count} × фото + старт)",
-                f"Animate: ${est.animate_usd:.2f} ({est.valid_count} × видео + старт)",
-                f"Всего: ~${est.total_usd:.2f}",
-                f"Время: ~{est.total_minutes:.0f} мин (swap ~{est.swap_minutes:.0f} мин + animate ~{est.animate_minutes:.0f} мин)",
+                f"Animate: ${animate_usd:.2f} ({est.valid_count} × видео + старт)",
+                f"Всего: ~${total_usd:.2f}",
+                f"Время: ~{total_minutes:.0f} мин (swap ~{est.swap_minutes:.0f} мин + animate ~{animate_minutes:.0f} мин)",
             ]
         )
         # Animation is sequential — large batches take hours. Flag it so the user
         # isn't surprised by a multi-hour run.
-        if est.total_minutes >= _LONG_BATCH_MINUTES:
-            hours = est.total_minutes / 60.0
+        if total_minutes >= _LONG_BATCH_MINUTES:
+            hours = total_minutes / 60.0
             lines.append(
                 f"⏳ Это долго (~{hours:.1f} ч) — анимация идёт последовательно."
             )

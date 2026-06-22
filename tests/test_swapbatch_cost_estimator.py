@@ -6,6 +6,7 @@ import pytest
 
 from app.services.block_m2_face_swap.cost_estimator import (
     CostEstimate,
+    _LONG_BATCH_MINUTES,
     animate_enabled,
     estimate,
     format_cost_report_ru,
@@ -220,3 +221,64 @@ def test_format_cost_report_animate_enabled_true_unchanged():
         est, source_face_count=1, total_targets=10, animate_enabled=True
     )
     assert legacy == explicit
+
+
+# ── animate cost/time overrides (caps-based WaveSpeed estimate) ───────────────
+
+
+def test_animate_overrides_used_when_provided():
+    """When both overrides are passed, the Animate cost + Время reflect the
+    caps-based (WaveSpeed) numbers — NOT the stale RunPod 720s/0.27 estimate."""
+    # 1 photo with default env: animate_usd=0.32, animate_minutes ≈ 14.0
+    est = estimate(1)
+    # Sanity: the stale path would render "~14 мин".
+    assert est.animate_minutes == pytest.approx(14.0, abs=0.1)
+    msg = format_cost_report_ru(
+        est,
+        source_face_count=1,
+        total_targets=1,
+        animate_usd_override=0.50,
+        animate_minutes_override=1.0,
+    )
+    # WaveSpeed numbers present.
+    assert "$0.50" in msg
+    assert "~1 мин" in msg
+    # Combined total reflects swap + override (0.07 + 0.50 = 0.57).
+    assert f"${est.swap_usd + 0.50:.2f}" in msg
+    # Stale RunPod animate time must be gone.
+    assert "~14 мин" not in msg
+    # And the stale animate cost too.
+    assert f"${est.animate_usd:.2f}" not in msg
+
+
+def test_no_overrides_keeps_legacy_output():
+    """With no overrides, output is byte-for-byte identical to legacy."""
+    est = estimate(8, skipped_count=2)
+    legacy = format_cost_report_ru(est, source_face_count=1, total_targets=10)
+    with_none = format_cost_report_ru(
+        est,
+        source_face_count=1,
+        total_targets=10,
+        animate_usd_override=None,
+        animate_minutes_override=None,
+    )
+    assert legacy == with_none
+    # Legacy still uses est.animate_usd / est.animate_minutes verbatim.
+    assert f"Animate: ${est.animate_usd:.2f}" in legacy
+    assert f"animate ~{est.animate_minutes:.0f} мин" in legacy
+
+
+def test_long_batch_warning_uses_overridden_minutes():
+    """When overrides push the total below the long-batch threshold, the
+    'долго' warning is absent even though est.total_minutes is high."""
+    # 20 photos: est.total_minutes ≈ 245 (well past 120) → stale path warns.
+    est = estimate(20)
+    assert est.total_minutes >= _LONG_BATCH_MINUTES
+    msg = format_cost_report_ru(
+        est,
+        source_face_count=1,
+        total_targets=20,
+        animate_usd_override=2.00,
+        animate_minutes_override=5.0,
+    )
+    assert "долго" not in msg.lower()

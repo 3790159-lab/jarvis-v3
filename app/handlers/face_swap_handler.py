@@ -491,12 +491,25 @@ class FaceSwapHandler:
             1 for t in sess.targets if t.valid and t.face_count == 0
         )
         accepted = len(sess.targets)
+        animate_usd_override = None
+        animate_minutes_override = None
+        if est.valid_count > 0:
+            acaps = animate_cost_estimate(
+                swapped_count=est.valid_count,
+                seconds=sess.duration_sec,
+                resolution=sess.resolution,
+                engine_mode=sess.video_engine,
+            )
+            animate_usd_override = acaps["total_usd"]
+            animate_minutes_override = acaps["minutes"]
         msg = format_cost_report_ru(
             est,
             source_face_count=sess.source_face_count,
             total_targets=accepted,
             no_face_advisory=no_face_advisory,
             animate_enabled=animate_enabled(),
+            animate_usd_override=animate_usd_override,
+            animate_minutes_override=animate_minutes_override,
         )
         # Prepend running accumulation UX line.
         msg = f"принято {accepted}/{MAX_TARGETS}\n" + msg
