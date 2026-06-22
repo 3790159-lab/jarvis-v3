@@ -97,8 +97,9 @@ class WaveSpeedSpicyEngine:
 
     @staticmethod
     def _data_uri(path: Path) -> str:
+        mime = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
         b64 = base64.b64encode(path.read_bytes()).decode()
-        return f"data:image/jpeg;base64,{b64}"
+        return f"data:{mime};base64,{b64}"
 
     async def _submit_with_retry(self, payload: dict) -> str:
         last: Exception | None = None
@@ -131,12 +132,27 @@ class WaveSpeedSpicyEngine:
         raise WaveSpeedTransientError(f"WaveSpeed submit failed after {self._max_retries} retries: {last}")
 
     async def _poll(self, poll_url: str, max_wait: int = 600) -> str:
-        waited, interval = 0, 6
+        deadline = time.monotonic() + max_wait
+        interval = 6
         async with httpx.AsyncClient(timeout=60, transport=self._transport) as c:
-            while waited < max_wait:
-                r = await c.get(poll_url, headers=self._headers)
-                r.raise_for_status()
-                d = r.json().get("data", r.json())
+            while time.monotonic() < deadline:
+                try:
+                    r = await c.get(poll_url, headers=self._headers)
+                    if r.status_code == 429 or r.status_code >= 500:
+                        # Transient poll hiccup: re-poll the SAME (already created,
+                        # billable) prediction. Do NOT raise a transient error here —
+                        # that would make the batch runner re-submit and double-bill.
+                        logger.warning("WaveSpeed poll %d, re-polling", r.status_code)
+                        await asyncio.sleep(interval * self._backoff_base)
+                        continue
+                    r.raise_for_status()
+                    d = r.json().get("data", r.json())
+                except WaveSpeedEngineError:
+                    raise
+                except Exception as exc:  # network blip while polling — re-poll, no re-bill
+                    logger.warning("WaveSpeed poll error, re-polling: %s", exc)
+                    await asyncio.sleep(interval * self._backoff_base)
+                    continue
                 status = d.get("status")
                 if status in ("completed", "succeeded"):
                     outs = d.get("outputs") or d.get("output") or []
@@ -148,7 +164,6 @@ class WaveSpeedSpicyEngine:
                 if status in ("failed", "error", "canceled"):
                     raise WaveSpeedEngineError(f"prediction {status}: {d.get('error')}")
                 await asyncio.sleep(interval * self._backoff_base)
-                waited += interval
         raise WaveSpeedEngineError(f"poll timed out after {max_wait}s")
 
     async def _download(self, url: str, persona_id: str, gen_id: str) -> Path:

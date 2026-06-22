@@ -1,8 +1,14 @@
 from pathlib import Path
 
+import httpx
+import pytest
+
 from app.services.block_m2_video.engines.engine_protocol import VideoRequest
 from app.services.block_m2_video.engines.errors import (
     TransientVideoError, TerminalVideoError,
+)
+from app.services.block_m2_video.engines.wavespeed_spicy_engine import (
+    WaveSpeedSpicyEngine, WaveSpeedTransientError, WaveSpeedEngineError,
 )
 
 
@@ -20,17 +26,6 @@ def test_error_bases_are_distinct_runtimeerrors():
     assert issubclass(TransientVideoError, RuntimeError)
     assert issubclass(TerminalVideoError, RuntimeError)
     assert not issubclass(TransientVideoError, TerminalVideoError)
-
-
-import httpx
-import pytest
-
-from app.services.block_m2_video.engines.wavespeed_spicy_engine import (
-    WaveSpeedSpicyEngine, WaveSpeedTransientError, WaveSpeedEngineError,
-)
-from app.services.block_m2_video.engines.errors import (
-    TransientVideoError, TerminalVideoError,
-)
 
 
 def _img(tmp_path) -> Path:
@@ -121,3 +116,65 @@ async def test_submit_4xx_is_terminal_not_retried(tmp_path):
             input_image_path=_img(tmp_path), prompt="m", seconds=5,
         ))
     assert posts["n"] == 1   # MONEY: 4xx never retried
+
+
+@pytest.mark.asyncio
+async def test_poll_transient_5xx_retried_then_succeeds_no_resubmit(tmp_path):
+    counts = {"post": 0, "get": 0}
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.method == "POST":
+            counts["post"] += 1
+            return httpx.Response(200, json={"data": {"id": "v", "status": "created", "urls": {"get": "https://api.wavespeed.ai/api/v3/predictions/v/result"}}})
+        counts["get"] += 1
+        if counts["get"] <= 2:
+            return httpx.Response(503, json={"message": "upstream"})
+        return httpx.Response(200, json={"data": {"status": "completed", "outputs": ["https://cdn/x.mp4"]}})
+
+    from app.services.block_m2_video.engines.engine_protocol import VideoRequest
+    eng = _engine(handler, backoff_base=0.0)
+    res = await eng.generate(VideoRequest(
+        persona_id="p", persona_name="b", input_image_path=_img(tmp_path), prompt="m", seconds=5))
+    assert res.output_path.exists()
+    assert counts["post"] == 1   # MONEY: transient poll hiccup must NOT re-submit/re-bill
+    assert counts["get"] >= 3    # it re-polled
+
+
+@pytest.mark.asyncio
+async def test_poll_timeout_is_terminal(tmp_path):
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"data": {"status": "processing"}})
+    eng = _engine(handler, backoff_base=0.0)
+    with pytest.raises(WaveSpeedEngineError):
+        await eng._poll("https://api.wavespeed.ai/api/v3/predictions/v/result", max_wait=0)
+
+
+@pytest.mark.asyncio
+async def test_download_writes_returned_bytes(tmp_path):
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.method == "POST":
+            return httpx.Response(200, json={"data": {"id": "v", "status": "created", "urls": {"get": "https://api.wavespeed.ai/api/v3/predictions/v/result"}}})
+        return httpx.Response(200, json={"data": {"status": "completed", "outputs": ["https://cdn/x.mp4"]}})
+
+    from app.services.block_m2_video.engines.engine_protocol import VideoRequest
+    eng = _engine(handler, dl_handler=lambda req: httpx.Response(200, content=b"REALMP4"), backoff_base=0.0)
+    res = await eng.generate(VideoRequest(
+        persona_id="p", persona_name="b", input_image_path=_img(tmp_path), prompt="m", seconds=5))
+    assert res.output_path.read_bytes() == b"REALMP4"
+
+
+@pytest.mark.asyncio
+async def test_png_input_uses_png_mime(tmp_path):
+    seen = {}
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.method == "POST":
+            import json
+            seen["image"] = json.loads(req.content)["image"][:20]
+            return httpx.Response(200, json={"data": {"id": "v", "status": "created", "urls": {"get": "https://api.wavespeed.ai/api/v3/predictions/v/result"}}})
+        return httpx.Response(200, json={"data": {"status": "completed", "outputs": ["https://cdn/x.mp4"]}})
+
+    from app.services.block_m2_video.engines.engine_protocol import VideoRequest
+    p = tmp_path / "src.png"; p.write_bytes(b"\x89PNG\r\n")
+    eng = _engine(handler, backoff_base=0.0)
+    await eng.generate(VideoRequest(
+        persona_id="p", persona_name="b", input_image_path=p, prompt="m", seconds=5))
+    assert seen["image"].startswith("data:image/png")
