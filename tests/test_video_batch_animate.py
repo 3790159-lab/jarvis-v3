@@ -1,5 +1,11 @@
 import pytest
+from pathlib import Path
+from types import SimpleNamespace
 
+from app.services.block_m2_video.batch_animate import animate_batch
+from app.services.block_m2_video.engines.errors import (
+    TransientVideoError, TerminalVideoError,
+)
 from app.services.block_m2_video.engines.router import EngineRouter
 
 
@@ -14,15 +20,6 @@ async def test_router_spicy_returns_injected_wavespeed():
     router = EngineRouter(wavespeed=_FakeEngine())
     eng = await router.select("spicy")
     assert eng.engine_name == "fake_spicy"
-
-
-from pathlib import Path
-from types import SimpleNamespace
-
-from app.services.block_m2_video.batch_animate import animate_batch
-from app.services.block_m2_video.engines.errors import (
-    TransientVideoError, TerminalVideoError,
-)
 
 
 class _ScriptedEngine:
@@ -69,3 +66,14 @@ async def test_animate_batch_respects_cancel():
     out = await animate_batch(eng, [_req("a"), _req("b")], concurrency=1, cancel_check=lambda: True)
     assert out == [None, None]             # nothing generated
     assert eng.calls == {}
+
+
+@pytest.mark.asyncio
+async def test_animate_batch_progress_cb_error_does_not_abort():
+    eng = _ScriptedEngine({"a": ["ok"], "b": ["ok"]})
+
+    def bad_cb(stage, payload):
+        raise RuntimeError("telegram down")
+
+    out = await animate_batch(eng, [_req("a"), _req("b")], concurrency=2, progress_cb=bad_cb)
+    assert out == [Path("/tmp/a.mp4"), Path("/tmp/b.mp4")]  # completed despite cb errors
