@@ -383,6 +383,32 @@ class BatchOrchestrator:
             self._persist(sess)
             return sess
 
+    def set_motion_prompt(self, chat_id: int, text: str) -> None:
+        """Set the shared batch motion prompt ("" resets to engine default)."""
+        with self._lock:
+            sess = self._sessions.get(chat_id)
+            if sess is None:
+                raise OrchestratorError("Нет активного батча.")
+            sess.motion_prompt = (text or "").strip()
+            self._touch(sess)
+            self._persist(sess)
+
+    def set_animate_quality(
+        self, chat_id: int, *, duration: int | None = None, resolution: str | None = None,
+    ) -> None:
+        """Set managed-engine animate duration/resolution (already validated by
+        the caller against the engine's caps)."""
+        with self._lock:
+            sess = self._sessions.get(chat_id)
+            if sess is None:
+                raise OrchestratorError("Нет активного батча.")
+            if duration is not None:
+                sess.duration_sec = duration
+            if resolution is not None:
+                sess.resolution = resolution
+            self._touch(sess)
+            self._persist(sess)
+
     # ── transitions: running phases ─────────────────────────────────────────
 
     async def confirm_swap(

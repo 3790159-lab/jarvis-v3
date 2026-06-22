@@ -257,11 +257,10 @@ class FaceSwapHandler:
 
     def handle_set_prompt(self, chat_id: int, text: str) -> HandlerReply:
         """/swapbatch_set_prompt — store shared motion prompt for the batch."""
-        sess = self.orchestrator.get(chat_id)
-        if sess is None:
+        if self.orchestrator.get(chat_id) is None:
             return HandlerReply(text="⚠️ Нет активного батча.")
-        sess.motion_prompt = (text or "").strip()
-        self.orchestrator._persist(sess)
+        self.orchestrator.set_motion_prompt(chat_id, text)
+        sess = self.orchestrator.get(chat_id)
         if sess.motion_prompt:
             return HandlerReply(text=f"✅ Промт движения задан:\n«{sess.motion_prompt}»")
         return HandlerReply(text="✅ Промт сброшен на дефолтный.")
@@ -290,11 +289,14 @@ class FaceSwapHandler:
                 f"Доступно: duration={dur}, resolution={res}.\n"
                 f"Изменить: /swapbatch_set_quality duration=.. resolution=.."
             ))
-        if "duration" in parsed:
-            sess.duration_sec = parsed["duration"]
-        if "resolution" in parsed:
-            sess.resolution = parsed["resolution"]
-        self.orchestrator._persist(sess)
+        self.orchestrator.set_animate_quality(
+            chat_id,
+            duration=parsed.get("duration"),
+            resolution=parsed.get("resolution"),
+        )
+        sess = self.orchestrator.get(chat_id)
+        from app.services.block_m2_video.engines.capabilities import caps_for
+        caps = caps_for(sess.video_engine)
         return HandlerReply(text=(
             f"✅ Качество: {sess.duration_sec}с, {sess.resolution} "
             f"(fps {caps.native_fps}, нативный).\n"
