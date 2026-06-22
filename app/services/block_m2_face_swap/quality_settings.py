@@ -29,6 +29,7 @@ __all__ = [
     "QualityError",
     "QualitySettings",
     "parse_quality_args",
+    "parse_animate_quality",
     "validate_quality",
     "fps_interpolation_enabled",
 ]
@@ -122,3 +123,35 @@ def fps_interpolation_enabled() -> bool:
         "yes",
         "on",
     )
+
+
+def parse_animate_quality(args_text: str, *, engine_mode: str) -> dict:
+    """Parse 'duration=.. resolution=..' constrained to the engine's caps.
+
+    Only values the selected engine supports are accepted (e.g. Seedance has no
+    15s; WaveSpeed has no 480p). Raises QualityError on anything unsupported.
+    """
+    from app.services.block_m2_video.engines.capabilities import caps_for
+    caps = caps_for(engine_mode)
+    out: dict = {}
+    for tok in (args_text or "").split():
+        if "=" not in tok:
+            continue
+        k, v = tok.split("=", 1)
+        k = k.strip().lower()
+        if k == "duration":
+            try:
+                d = int(v)
+            except ValueError as exc:
+                raise QualityError("duration должен быть числом") from exc
+            if d not in caps.allowed_durations:
+                allowed = "/".join(str(x) for x in caps.allowed_durations)
+                raise QualityError(f"duration для {engine_mode}: только {allowed}с")
+            out["duration"] = d
+        elif k == "resolution":
+            r = v.strip().lower()
+            if r not in caps.allowed_resolutions:
+                allowed = "/".join(caps.allowed_resolutions)
+                raise QualityError(f"resolution для {engine_mode}: только {allowed}")
+            out["resolution"] = r
+    return out

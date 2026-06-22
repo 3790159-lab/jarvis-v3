@@ -52,3 +52,26 @@ async def test_confirm_animate_batch_records_videos(tmp_path):
     swapped = [t for t in sess.targets if t.swap_result_path]
     assert swapped[0].animate_result_path == str(tmp_path / "v0.mp4")
     assert swapped[1].animate_result_path is None
+
+
+def test_parse_animate_quality_spicy_ok():
+    from app.services.block_m2_face_swap.quality_settings import parse_animate_quality
+    out = parse_animate_quality("duration=15 resolution=1080p", engine_mode="spicy")
+    assert out == {"duration": 15, "resolution": "1080p"}
+
+
+def test_parse_animate_quality_rejects_unsupported_for_engine():
+    from app.services.block_m2_face_swap.quality_settings import (
+        parse_animate_quality, QualityError,
+    )
+    # seedance has no 15s
+    with pytest.raises(QualityError):
+        parse_animate_quality("duration=15", engine_mode="seedance")
+    # wavespeed has no 480p
+    with pytest.raises(QualityError):
+        parse_animate_quality("resolution=480p", engine_mode="spicy")
+
+
+def test_parse_animate_quality_empty_returns_empty():
+    from app.services.block_m2_face_swap.quality_settings import parse_animate_quality
+    assert parse_animate_quality("", engine_mode="spicy") == {}
