@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal, Protocol, runtime_checkable
 
-GenerationMode = Literal["fast", "hq", "auto"]
+GenerationMode = Literal["fast", "hq", "auto", "spicy", "seedance"]
 
 
 @dataclass
@@ -27,6 +27,9 @@ class VideoRequest:
     mode: GenerationMode = "auto"
     # For redo: reuse an existing generation_id when overwriting is desired.
     generation_id: str | None = None
+    # Managed-engine extras. Ignored by Replicate(legacy)/RunPod (kept default).
+    resolution: str = "720p"
+    negative_prompt: str = ""  # WaveSpeed only; Seedance ignores
 
 
 @dataclass
