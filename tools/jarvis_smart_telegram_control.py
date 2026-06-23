@@ -5925,6 +5925,42 @@ _AUDIT_COMMAND_EVENT: Dict[str, tuple[str, Dict[str, Any]]] = {
 }
 
 
+def _swapbatch_target_count(cid: str, event: str, mode: str) -> Optional[int]:
+    """Real target/video count for the ``swapbatch_go`` / ``animate_started``
+    audit events, looked up from the live orchestrator session.
+
+    Without this, ``_audit_message`` emits these events straight from the
+    command text and the admin-forward formatter falls back to ``0`` for every
+    user — the "Swap started: 0 targets" bug.
+
+    * ``swapbatch_go``            → number of targets accepted into the session.
+    * ``animate_started`` yes/custom → number of successfully-swapped photos
+      (each becomes one video task).
+    * ``animate_started`` no      → 0 (the user chose NOT to animate).
+
+    Returns ``None`` when the session is unavailable so the caller leaves
+    ``details`` untouched (the formatter keeps its ``0`` default) and nothing
+    can raise — audit must never break the dispatch path.
+    """
+    if event == "animate_started" and mode == "no":
+        return 0
+    try:
+        _h, orch = _swapbatch_get_handler()
+        if orch is None:
+            return None
+        sess = orch.get(int(cid))
+    except Exception:  # noqa: BLE001 - audit lookup must never raise
+        return None
+    if sess is None:
+        return None
+    targets = getattr(sess, "targets", None) or []
+    if event == "swapbatch_go":
+        return len(targets)
+    if event == "animate_started":
+        return sum(1 for t in targets if getattr(t, "swap_result_path", None))
+    return None
+
+
 def _audit_message(upd: Dict[str, Any]) -> None:
     """Emit an audit event for a message update if it carries a command."""
     msg = upd.get("message") or upd.get("edited_message") or {}
@@ -5942,6 +5978,10 @@ def _audit_message(upd: Dict[str, Any]) -> None:
     if args:
         details["args"] = args[:500]
     details.update(extra)
+    if event in ("swapbatch_go", "animate_started"):
+        cnt = _swapbatch_target_count(cid, event, details.get("mode", ""))
+        if cnt is not None:
+            details["targets"] = cnt
     try:
         _audit.audit_event(uid, uname, cid, event, details)
     except Exception as _e:
