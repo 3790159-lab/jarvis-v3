@@ -92,3 +92,77 @@ def test_persona_me_swap_video_records_per_user_cost(tmp_path, monkeypatch):
     time.sleep(0.5)  # worker thread
 
     assert ct.get_user_stats(555)["today"] == pytest.approx(0.30)
+
+
+# ── friend persona commands (/persona_photo, /persona_batch) ──────────────────
+
+
+def _patch_persona_storage(ph, monkeypatch):
+    monkeypatch.setattr(ph, "ReplicateVideoClient", lambda *a, **k: object())
+    monkeypatch.setattr(ph, "CostTracker", _NoopTracker)
+    monkeypatch.setattr(ph, "PersonaStorage", lambda *a, **k: object())
+    monkeypatch.setattr(ph, "_safe_send", lambda *a, **k: None)
+    monkeypatch.setattr(ph, "_safe_send_photo", lambda *a, **k: None)
+    monkeypatch.setattr(ph, "setup_block_m_logging", lambda *a, **k: None)
+
+
+def test_persona_photo_records_per_user_cost(tmp_path, monkeypatch):
+    """Gap: /persona_photo → PhotoGenerator only wrote global; now per-user too."""
+    monkeypatch.setenv("JARVIS_COST_FILE", str(tmp_path / "cost.json"))
+    import app.handlers.persona_handler as ph
+    from app.services.audit import cost_tracker as ct
+
+    _patch_persona_storage(ph, monkeypatch)
+
+    class _PhotoGen:
+        def __init__(self, *a, **k):
+            pass
+
+        async def generate_photo(self, persona_id, prompt):
+            return {
+                "cost_usd": 0.05,
+                "image_url": "http://x/p.png",
+                "full_prompt": prompt,
+            }
+
+    monkeypatch.setattr(
+        "app.services.block_m1_persona.photo_generator.PhotoGenerator", _PhotoGen
+    )
+
+    ph.handle_persona_photo(555, "p1 нарисуй кота")
+    time.sleep(0.5)  # worker thread
+
+    assert ct.get_user_stats(555)["today"] == pytest.approx(0.05)
+
+
+def test_persona_batch_records_per_user_cost(tmp_path, monkeypatch):
+    """Gap: /persona_batch computes total_cost but recorded nothing per-user."""
+    monkeypatch.setenv("JARVIS_COST_FILE", str(tmp_path / "cost.json"))
+    import app.handlers.persona_handler as ph
+    from app.services.audit import cost_tracker as ct
+
+    _patch_persona_storage(ph, monkeypatch)
+
+    class _PhotoGen:
+        def __init__(self, *a, **k):
+            pass
+
+    class _Batch:
+        def __init__(self, *a, **k):
+            pass
+
+        async def generate_batch(self, persona_id, prompt, count, progress_cb=None):
+            # 3 photos at $0.05 each → $0.15 total
+            return [{"cost_usd": 0.05} for _ in range(3)]
+
+    monkeypatch.setattr(
+        "app.services.block_m1_persona.photo_generator.PhotoGenerator", _PhotoGen
+    )
+    monkeypatch.setattr(
+        "app.services.block_m23_polish.batch_generator.BatchGenerator", _Batch
+    )
+
+    ph.handle_persona_batch(555, "p1 3 нарисуй кота")
+    time.sleep(0.5)  # worker thread
+
+    assert ct.get_user_stats(555)["today"] == pytest.approx(0.15)

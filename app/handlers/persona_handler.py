@@ -28,6 +28,14 @@ from app.services.error_translator import translate_exception
 
 logger = get_logger("persona_handler")
 
+
+def _record_user_cost(chat_id, amount) -> None:
+    """Per-user ledger write (best-effort) so the friend daily-limit gate sees persona spend."""
+    try:
+        _user_cost.record_cost(chat_id, None, float(amount))
+    except Exception as _e:  # noqa: BLE001 - billing must not break generation
+        logger.warning("cost: per-user record failed: %s", _e)
+
 _send: Callable | None = None
 _send_photo: Callable | None = None
 _send_video: Callable | None = None
@@ -507,6 +515,7 @@ def handle_persona_photo(chat_id: int, args: str) -> None:
             _safe_send(chat_id, "Ошибка генерации. Попробуйте позже.")
             return
 
+        _record_user_cost(chat_id, result["cost_usd"])
         caption = (
             f"Готово! Стоимость: ${result['cost_usd']:.4f}\n"
             f"Промпт: {result['full_prompt'][:120]}"
@@ -576,6 +585,7 @@ def handle_persona_video(chat_id: int, args: str) -> None:
             _safe_send(chat_id, "Ошибка генерации видео. Попробуйте позже.")
             return
 
+        _record_user_cost(chat_id, result["total_cost_usd"])
         caption = (
             f"{result['prompt']}\n"
             f"Engine: {result['engine']}\n"
@@ -635,6 +645,7 @@ def handle_persona_redo(chat_id: int, args: str) -> None:
             _safe_send(chat_id, "Ошибка при перегенерации. Попробуйте позже.")
             return
 
+        _record_user_cost(chat_id, result["total_cost_usd"])
         caption = (
             f"{result['prompt']}\n"
             f"Engine: {result['engine']}\n"
@@ -843,10 +854,7 @@ def handle_me_swap_photo(chat_id: int, args: str) -> None:
                 trigger_word=data.trigger_word,
             )
             await tracker.log_expense("me_swap_photo", result["cost_usd"], data.persona_id)
-            try:
-                _user_cost.record_cost(chat_id, None, result["cost_usd"])
-            except Exception as _e:  # noqa: BLE001 - billing must not break generation
-                logger.warning("cost: per-user record failed: %s", _e)
+            _record_user_cost(chat_id, result["cost_usd"])
             return result
 
         try:
@@ -895,10 +903,7 @@ def handle_me_swap_video(chat_id: int, args: str) -> None:
             pipeline = VideoFaceSwapPipeline(client)
             result = await pipeline.swap_video(chat_id, video_url, data)
             await tracker.log_expense("me_swap_video", result["cost_usd"], data.persona_id)
-            try:
-                _user_cost.record_cost(chat_id, None, result["cost_usd"])
-            except Exception as _e:  # noqa: BLE001 - billing must not break generation
-                logger.warning("cost: per-user record failed: %s", _e)
+            _record_user_cost(chat_id, result["cost_usd"])
             return result
 
         try:
@@ -1076,6 +1081,7 @@ def handle_persona_batch(chat_id: int, args: str) -> None:
             return
 
         total_cost = sum(r.get("cost_usd", 0.0) for r in results)
+        _record_user_cost(chat_id, total_cost)
         _safe_send(
             chat_id,
             f"Batch завершён: {len(results)}/{count} фото\n"

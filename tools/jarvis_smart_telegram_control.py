@@ -495,6 +495,14 @@ def _persona_video_dispatch(
                     input_photo_path=photo_path_obj,
                 ))
             send(chat_id_s, result["summary"])
+            try:
+                _amt = float(result.get("cost_usd", 0.0) or 0.0)
+                if _amt > 0.0:
+                    _cost.record_cost(
+                        chat_id_int, _USERNAME_BY_CHAT.get(chat_id_s), _amt,
+                    )
+            except Exception as _e:  # noqa: BLE001 - billing must not break send
+                print(f"[cost] persona_video record failed: {_e}", flush=True)
             _send_local_video(chat_id_s, result["output_path"])
         except Exception as exc:
             send(chat_id_s, f"❌ Ошибка: {translate_exception(exc)}")

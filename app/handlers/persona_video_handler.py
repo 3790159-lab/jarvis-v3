@@ -310,6 +310,7 @@ class PersonaVideoHandler:
 
         return {
             "output_path": result.output_path,
+            "cost_usd": result.cost_usd,
             "summary": (
                 f"✅ Video generated for {persona_token}\n"
                 f"Engine: {result.engine} | Model: {result.model}\n"
@@ -378,6 +379,7 @@ class PersonaVideoHandler:
         save_result(result, request)
         return {
             "output_path": result.output_path,
+            "cost_usd": result.cost_usd,
             "summary": (
                 f"♻️ Redo: {result.generation_id} "
                 f"(orig prompt+seed from {last['generation_id']})"

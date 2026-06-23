@@ -241,3 +241,38 @@ def test_single_animate_records_cost(friend_env, monkeypatch, tmp_path):
         time.sleep(0.5)  # worker thread completes
 
     assert ct.get_user_stats(555)["today"] > 0.0
+
+
+def test_persona_video_dispatch_records_cost(friend_env, monkeypatch, tmp_path):
+    """Gap: /persona_video → PersonaVideoHandler had NO cost tracking at all."""
+    mod = _get_mod()
+    monkeypatch.setenv("JARVIS_COST_FILE", str(tmp_path / "cost.json"))
+    from app.services.audit import cost_tracker as ct
+
+    mod._USERNAME_BY_CHAT["555"] = "petya"
+    monkeypatch.setattr(mod, "_send_local_video", lambda *a, **k: None)
+
+    class _Lock:
+        def acquire(self, c):
+            return "tok"
+
+        def release(self, t):
+            pass
+
+    monkeypatch.setattr(mod, "_get_video_lock", lambda: _Lock())
+
+    class _Handler:
+        async def handle_video(self, text, chat_id, progress_cb=None,
+                               input_photo_path=None):
+            return {"output_path": "out.mp4", "cost_usd": 0.28,
+                    "summary": "ok"}
+
+    import app.handlers.persona_video_handler as pvh
+    monkeypatch.setattr(pvh, "PersonaVideoHandler", lambda: _Handler())
+
+    with patch.object(mod, "send", lambda c, t, **k: None):
+        mod._persona_video_dispatch("555", "p1 dance")
+        import time
+        time.sleep(0.5)  # worker thread completes
+
+    assert ct.get_user_stats(555)["today"] == pytest.approx(0.28)
