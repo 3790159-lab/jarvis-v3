@@ -635,6 +635,9 @@ class FaceSwapHandler:
         chat_id: int,
         swap_fn,
         progress_cb: Callable[[str, dict[str, Any]], None] | None = None,
+        *,
+        user_id: int | None = None,
+        username: str | None = None,
     ) -> HandlerReply:
         """Run the swap engine and assemble a reply with the swapped photos."""
         try:
@@ -670,6 +673,14 @@ class FaceSwapHandler:
                 logger.warning("result zip build failed: %s", exc)
                 documents = []
         succeeded = len(photos)
+        # Bill the per-user ledger for the swap phase exactly once (succeeded ×
+        # swap rate). Best-effort: a billing failure must not break the reply.
+        if user_id is not None and succeeded > 0:
+            swap_rate = self._envf("SWAPBATCH_SWAP_USD_PER_PHOTO", 0.02)
+            try:
+                _cost.record_cost(user_id, username, succeeded * swap_rate)
+            except Exception as exc:  # noqa: BLE001 - billing must not break the reply
+                logger.warning("cost: swap record_cost failed: %s", exc)
         # Under advisory semantics: valid=False means unreadable (real skip);
         # valid=True + no swap_result_path = lucataco returned None (no face
         # or other per-target failure).

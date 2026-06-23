@@ -311,6 +311,31 @@ async def test_animate_batch_blocked_when_friend_over_limit(tmp_path, monkeypatc
     assert "лимит" in reply.text.lower()
 
 
+@pytest.mark.anyio
+async def test_swap_phase_records_per_user_cost(tmp_path, monkeypatch):
+    """The swap phase bills the per-user ledger once: succeeded × swap rate."""
+    monkeypatch.setenv("JARVIS_COST_FILE", str(tmp_path / "cost.json"))
+    from app.services.audit import cost_tracker as ct
+
+    handler, orch = _make_handler(tmp_path)
+    src = _make_photo(tmp_path, "src.jpg")
+    targets = [_make_photo(tmp_path, f"t{i}.jpg") for i in range(2)]
+    handler.handle_source_intent(42)
+    handler.consume_source(42, src)
+    handler.handle_batch_intent(42)
+    handler.consume_targets_album(42, targets)
+
+    swapped = [_make_photo(tmp_path, f"sw{i}.png") for i in range(2)]
+
+    async def swap_fn(source, tgts, cc):
+        return swapped
+
+    await handler.run_swap_phase(42, swap_fn, user_id=555, username="petya")
+
+    stats = ct.get_user_stats(555)
+    assert stats["today"] == pytest.approx(2 * 0.02)
+
+
 # ── custom-prompts flow (Day 6) ──────────────────────────────────────────────
 
 

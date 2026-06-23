@@ -938,6 +938,8 @@ def _swapbatch_run_phase(
                 reply = _aio.run(
                     handler.run_swap_phase(
                         chat_id_int, _swap_fn, progress_cb=_progress,
+                        user_id=chat_id_int,
+                        username=_USERNAME_BY_CHAT.get(chat_id_s),
                     )
                 )
             elif command == "animate_go":
