@@ -1086,6 +1086,113 @@ def _swapbatch_photo_intercept(chat_id: str, msg: Dict[str, Any]) -> bool:
     return True
 
 
+# ── standalone /animate (Task 11): one photo -> engine menu -> one video ──────
+_ANIMATE_PENDING: Dict[int, Dict[str, Any]] = {}
+
+
+def _animate_start(chat_id: str) -> None:
+    """/animate — enter single-photo wait state."""
+    _ANIMATE_PENDING[int(chat_id)] = {"photo": None}
+    send(
+        chat_id,
+        "🎬 Пришли 1 фото — анимирую его в короткое видео. "
+        "После фото выберешь движок.",
+    )
+
+
+def _animate_photo_intercept(chat_id: str, msg: Dict[str, Any]) -> bool:
+    """Consume a photo for a pending standalone /animate request."""
+    chat_id_int = int(chat_id)
+    pend = _ANIMATE_PENDING.get(chat_id_int)
+    if pend is None or pend.get("photo") is not None:
+        return False
+    photos = msg.get("photo")
+    if not photos:
+        return False
+    largest = sorted(photos, key=lambda p: p.get("file_size", 0))[-1]
+    file_id = largest.get("file_id")
+    if not file_id:
+        return False
+    uid = largest.get("file_unique_id")
+    _fname = (
+        f"animate_{uid}.jpg" if uid
+        else f"animate_{int(time.time())}_{file_id[:8]}.jpg"
+    )
+    local = _download_telegram_file(file_id, _fname)
+    if not local:
+        send(chat_id, "❌ Не удалось скачать фото.")
+        _ANIMATE_PENDING.pop(chat_id_int, None)
+        return True
+    pend["photo"] = local
+    _hq, _ = _swapbatch_get_handler()
+    kb = _hq.build_engine_keyboard() if _hq else {"inline_keyboard": []}
+    # Distinct callback prefix for the standalone flow (anim: vs batch sbeng:).
+    for row in kb["inline_keyboard"]:
+        for b in row:
+            b["callback_data"] = b["callback_data"].replace("sbeng:", "anim:")
+    send_with_keyboard(chat_id, "🎬 Выбери движок для анимации:", kb["inline_keyboard"])
+    return True
+
+
+def _animate_run_single(chat_id: str, engine_mode: str) -> None:
+    """Run one standalone /animate video on the chosen engine (worker thread)."""
+    import asyncio as _aio
+    import threading
+    from app.services.block_m2_video.engines.router import EngineRouter
+    from app.services.block_m2_video.engines.capabilities import caps_for
+    from app.services.block_m2_video.batch_animate import animate_batch
+    from app.services.block_m2_video.generation_lock import GenerationLockBusy
+
+    chat_id_int = int(chat_id)
+    pend = _ANIMATE_PENDING.pop(chat_id_int, None)
+    if not pend or not pend.get("photo"):
+        send(chat_id, "⚠️ Нет фото. Начни заново: /animate.")
+        return
+    photo = pend["photo"]
+    handler, _ = _swapbatch_get_handler()
+    if handler is None:
+        send(chat_id, "⚠️ Модуль face-swap недоступен.")
+        return
+    caps = caps_for(engine_mode)
+    seconds = caps.default_duration
+    resolution = caps.default_resolution
+    req = handler.build_single_animate_request(
+        chat_id_int, image_path=photo, motion="",
+        engine_mode=engine_mode, seconds=seconds, resolution=resolution,
+    )
+
+    lock = _get_video_lock()
+    try:
+        token = lock.acquire(chat_id_int)
+    except GenerationLockBusy:
+        send(chat_id, "⏳ Уже идёт другая генерация. Дождитесь завершения.")
+        return
+
+    note = "" if not caps.censored else " (censored — SFW)"
+    send(chat_id, f"🎬 {caps.display_name}{note}: {seconds}с, {resolution}. Генерирую…")
+
+    def _run() -> None:
+        try:
+            router = EngineRouter()
+            engine = _aio.run(router.select(engine_mode))
+            results = _aio.run(animate_batch(engine, [req], concurrency=1))
+            ok = [p for p in results if p is not None]
+            if not ok:
+                send(chat_id, "❌ Анимация не удалась.")
+                return
+            cost = caps.cost_for(seconds, resolution)
+            send(chat_id, f"✅ Готово. Стоимость ~${cost:.2f}.")
+            _send_local_video(chat_id, str(ok[0]))
+        except Exception as exc:  # noqa: BLE001
+            send(chat_id, f"❌ Ошибка: {translate_exception(exc)}")
+        finally:
+            lock.release(token)
+
+    threading.Thread(
+        target=_run, daemon=True, name=f"animate_{chat_id_int}",
+    ).start()
+
+
 def _swapbatch_album_intercept(chat_id: str, msgs: list) -> bool:
     """Album-flush intercept: route media-group to swapbatch if waiting.
 
@@ -2673,6 +2780,18 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
         reply = _hq.handle_set_engine(int(chat_id), choice)
         answer_callback_query(cq_id, "Движок выбран")
         _swapbatch_apply_reply(chat_id, reply)
+        return
+
+    # ── Standalone /animate engine choice (Task 11) ───────────────────────────
+    if data.startswith("anim:"):
+        choice = data.split(":", 1)[1]
+        if choice == "none":
+            answer_callback_query(cq_id, "Отменено")
+            _ANIMATE_PENDING.pop(int(chat_id), None)
+            send(chat_id, "🚫 Анимация отменена.")
+            return
+        answer_callback_query(cq_id, "Движок выбран")
+        _animate_run_single(chat_id, choice)
         return
 
     # ── Mesh mode switches ────────────────────────────────────────────────────
@@ -4830,6 +4949,9 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
         return
 
     # ── Block M.2.5 face-swap batch commands ────────────────────────────────
+    if cmd == "/animate":
+        _animate_start(str(chat_id))
+        return
     if cmd == "/swapbatch":
         _swapbatch_dispatch(chat_id, "help")
         return
@@ -6186,6 +6308,15 @@ def process_update(upd: Dict[str, Any], media_group_buffer: Optional[Dict[str, A
 
     # Block M.2.6: /video_face_swap — face photo + video pair (either order).
     if chat_id == ALLOWED_CHAT_ID and _video_face_swap_intercept(chat_id, msg):
+        return
+
+    # Block M.2.5: single photo for a pending standalone /animate request.
+    if (
+        chat_id == ALLOWED_CHAT_ID
+        and msg.get("photo")
+        and not media_gid
+        and _animate_photo_intercept(chat_id, msg)
+    ):
         return
 
     # Block M.2.5: single photo for an active swapbatch session (albums go

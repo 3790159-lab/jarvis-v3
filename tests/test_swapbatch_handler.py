@@ -543,3 +543,17 @@ def test_set_engine_updates_session_and_snaps_quality(tmp_path):
     # 15с недоступно у Seedance → дефолтная длительность снапается в допустимую
     assert sess.duration_sec in (5, 10)
     assert sess.resolution in ("480p", "720p", "1080p")
+
+
+# ── standalone /animate (Task 11) ────────────────────────────────────────────
+
+
+def test_animate_single_request_uses_session_engine_and_quality(tmp_path):
+    handler, orch = _make_handler(tmp_path)
+    _seed_swap_done(handler, orch, tmp_path, n=1)
+    handler.handle_set_engine(42, "seedance")
+    req = handler.build_single_animate_request(
+        42, image_path="x.jpg", motion="смотрит в камеру",
+    )
+    assert req.mode == "seedance"
+    assert req.prompt.startswith("смотрит в камеру")

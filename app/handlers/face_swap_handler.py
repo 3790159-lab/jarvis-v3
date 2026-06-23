@@ -325,6 +325,36 @@ class FaceSwapHandler:
             f"Дальше: /swapbatch_animate_yes → /swapbatch_animate_go."
         ))
 
+    def build_single_animate_request(
+        self, chat_id: int, *, image_path, motion: str,
+        engine_mode: str | None = None, seconds: int | None = None,
+        resolution: str | None = None,
+    ):
+        """Собрать один VideoRequest для standalone /animate.
+
+        Engine/quality читаются из активной сессии, если есть; для чисто
+        standalone-потока (без батча) их можно передать явно через оверрайды.
+        """
+        from pathlib import Path
+        from app.services.block_m2_video.engines.engine_protocol import (
+            VideoRequest, new_generation_id,
+        )
+        from app.services.block_m2_video.prompt_assembly import assemble_animate_prompt
+        sess = self.orchestrator.get(chat_id)
+        engine_mode = engine_mode or (sess.video_engine if sess else "spicy")
+        seconds = seconds or (sess.duration_sec if sess else 5)
+        resolution = resolution or (sess.resolution if sess else "720p")
+        prompt, negative = assemble_animate_prompt(
+            (sess.motion_prompt if sess else "") or motion,
+            add_realism=True, add_negative=True,
+        )
+        return VideoRequest(
+            persona_id=f"animate_{chat_id}", persona_name="animate",
+            input_image_path=Path(image_path), prompt=prompt, seconds=seconds,
+            resolution=resolution, negative_prompt=negative, mode=engine_mode,
+            generation_id=new_generation_id(),
+        )
+
     def handle_set_animate_quality(self, chat_id: int, args_text: str) -> HandlerReply:
         """Engine-aware quality setter for the managed animate path: constrains
         duration + resolution to the chosen engine's caps; fps is info-only."""
