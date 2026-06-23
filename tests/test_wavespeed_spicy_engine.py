@@ -162,6 +162,53 @@ async def test_download_writes_returned_bytes(tmp_path):
     assert res.output_path.read_bytes() == b"REALMP4"
 
 
+def test_video_request_has_expansion_and_shot_type_defaults():
+    r = VideoRequest(
+        persona_id="p", persona_name="n",
+        input_image_path=Path("x.jpg"), prompt="move",
+    )
+    assert r.enable_prompt_expansion is True
+    assert r.shot_type is None
+
+
+@pytest.mark.asyncio
+async def test_payload_reflects_expansion_negative_and_shot_type(tmp_path):
+    seen = {}
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.method == "POST":
+            import json
+            seen["body"] = json.loads(req.content)
+            return httpx.Response(200, json={"data": {"id": "v", "status": "created", "urls": {"get": "https://api.wavespeed.ai/api/v3/predictions/v/result"}}})
+        return httpx.Response(200, json={"data": {"status": "completed", "outputs": ["https://cdn/x.mp4"]}})
+
+    eng = _engine(handler, backoff_base=0.0)
+    await eng.generate(VideoRequest(
+        persona_id="p", persona_name="b", input_image_path=_img(tmp_path), prompt="m", seconds=5,
+        enable_prompt_expansion=False, shot_type="single", negative_prompt="anime, cartoon",
+    ))
+    assert seen["body"]["enable_prompt_expansion"] is False
+    assert seen["body"]["shot_type"] == "single"
+    assert seen["body"]["negative_prompt"] == "anime, cartoon"
+
+
+@pytest.mark.asyncio
+async def test_payload_omits_shot_type_when_none(tmp_path):
+    seen = {}
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.method == "POST":
+            import json
+            seen["body"] = json.loads(req.content)
+            return httpx.Response(200, json={"data": {"id": "v", "status": "created", "urls": {"get": "https://api.wavespeed.ai/api/v3/predictions/v/result"}}})
+        return httpx.Response(200, json={"data": {"status": "completed", "outputs": ["https://cdn/x.mp4"]}})
+
+    eng = _engine(handler, backoff_base=0.0)
+    await eng.generate(VideoRequest(
+        persona_id="p", persona_name="b", input_image_path=_img(tmp_path), prompt="m", seconds=5,
+    ))
+    assert "shot_type" not in seen["body"]
+    assert seen["body"]["enable_prompt_expansion"] is True
+
+
 @pytest.mark.asyncio
 async def test_png_input_uses_png_mime(tmp_path):
     seen = {}

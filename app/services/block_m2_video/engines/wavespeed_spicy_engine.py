@@ -76,8 +76,10 @@ class WaveSpeedSpicyEngine:
             "duration": seconds,
             "resolution": resolution,
             "negative_prompt": request.negative_prompt or "",
-            "enable_prompt_expansion": True,
+            "enable_prompt_expansion": request.enable_prompt_expansion,
         }
+        if request.shot_type:
+            payload["shot_type"] = request.shot_type
         if request.seed is not None:
             payload["seed"] = request.seed
 

@@ -30,6 +30,9 @@ class VideoRequest:
     # Managed-engine extras. Ignored by Replicate(legacy)/RunPod (kept default).
     resolution: str = "720p"
     negative_prompt: str = ""  # WaveSpeed only; Seedance ignores
+    # WaveSpeed-only managed controls. Seedance ignores both.
+    enable_prompt_expansion: bool = True  # True = current behavior; off = anti-anime test
+    shot_type: str | None = None          # None | "single" | "multi" (WaveSpeed)
 
 
 @dataclass
