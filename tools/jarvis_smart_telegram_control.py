@@ -31,6 +31,7 @@ except Exception as _logging_exc:
 
 from app.services.error_translator import translate_exception
 from app.services.auth import whitelist as _whitelist
+from app.services.auth import users_store as _users_store
 from app.services.audit import audit_logger as _audit
 from app.services.audit import cost_tracker as _cost
 
@@ -1348,7 +1349,8 @@ def _flush_media_group(media_group_buffer: Dict[str, Any], gid: str) -> None:
     if not msgs:
         return
     chat_id = str(msgs[0].get("chat", {}).get("id", ""))
-    if chat_id != ALLOWED_CHAT_ID:
+    _uid = (msgs[0].get("from") or {}).get("id")
+    if not (_is_member_id(_uid) or chat_id == ALLOWED_CHAT_ID):
         return
     # Block M.2.5: route to swapbatch if session waiting.
     if not _swapbatch_album_intercept(chat_id, msgs):
@@ -2768,6 +2770,13 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
         return
 
     parts = data.split(":")
+
+    # Role-гейт: friend → только генеративные кнопки; админ → всё.
+    _cq_uid = (callback_query.get("from") or {}).get("id")
+    if not _is_admin_id(_cq_uid) and str(_cq_uid) != ALLOWED_CHAT_ID:
+        if not data.startswith(FRIEND_ALLOWED_CALLBACK_PREFIXES):
+            answer_callback_query(cq_id, "🚫 Только для администратора")
+            return
 
     # ── Swapbatch engine choice (Task 9) ──────────────────────────────────────
     if data.startswith("sbeng:"):
@@ -5539,9 +5548,19 @@ def _log(intent: str, query: str, user_id: str, result: str = "", latency: int =
 
 
 def handle(chat_id: str, text: str) -> None:
-    if str(chat_id) != ALLOWED_CHAT_ID:
+    role = _role_for_chat(chat_id)
+    # Backward-compat: legacy single-chat admin still works even без users.json.
+    if role is None and str(chat_id) == ALLOWED_CHAT_ID:
+        role = "admin"
+    if role is None:
         send(chat_id, "Access denied.")
         return
+    if role != "admin":
+        # friend: только генеративный allowlist (default-deny на всё прочее).
+        _cmd = (text or "").strip().split(maxsplit=1)[0].split("@", 1)[0].lower()
+        if _cmd not in FRIEND_ALLOWED_COMMANDS:
+            send(chat_id, "🚫 Эта команда доступна только администратору.")
+            return
 
     state = load_state()
     t0 = time.time()
@@ -5668,6 +5687,48 @@ def _check_backend_startup() -> None:
         )
     else:
         print(f"✅ Backend at {BACKEND} is UP.", flush=True)
+
+
+# Команды, доступные роли friend (всё прочее в handle() — только admin).
+# Генеративный набор: лицевой своп + анимация + persona (+ video_face_swap идёт
+# через interceptor, не команду). Личная статистика. Default-deny.
+FRIEND_ALLOWED_COMMANDS: frozenset = frozenset({
+    "/animate", "/swapbatch", "/swapbatch_source", "/swapbatch_batch",
+    "/swapbatch_go", "/swapbatch_set_quality", "/swapbatch_set_prompt",
+    "/swapbatch_set_wardrobe", "/swapbatch_set_engine",
+    "/swapbatch_animate_yes", "/swapbatch_animate_go", "/swapbatch_animate_no",
+    "/swapbatch_animate_custom", "/swapbatch_status", "/swapbatch_cancel",
+    "/persona_photo", "/persona_video", "/persona_video_redo", "/persona_redo",
+    "/persona_engine", "/persona_batch", "/me_swap_photo", "/me_swap_video",
+    "/my_stats", "/start", "/help",
+})
+# video_face_swap (фото+видео пара) идёт через _video_face_swap_intercept,
+# уже member-gated в process_update — отдельная команда не нужна.
+
+# Префиксы callback_data, разрешённые friend (генеративные кнопки). Остальное — admin.
+FRIEND_ALLOWED_CALLBACK_PREFIXES = ("sbeng:", "sbq:", "anim:")
+
+
+def _role_for_chat(chat_id) -> Optional[str]:
+    """Роль по chat_id (в личке chat_id == user_id; бот одно-чат-на-юзера)."""
+    try:
+        return _users_store.get_role(int(chat_id))
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_member_id(user_id) -> bool:
+    try:
+        return _users_store.is_member(int(user_id))
+    except (TypeError, ValueError):
+        return False
+
+
+def _is_admin_id(user_id) -> bool:
+    try:
+        return _users_store.get_role(int(user_id)) == "admin"
+    except (TypeError, ValueError):
+        return False
 
 
 def _extract_user_id(upd: Dict[str, Any]) -> Optional[int]:
@@ -6301,9 +6362,10 @@ def process_update(upd: Dict[str, Any], media_group_buffer: Optional[Dict[str, A
 
     cq = upd.get("callback_query")
     if cq:
-        cq_chat_id = str((cq.get("from") or {}).get("id", ""))
+        cq_uid = (cq.get("from") or {}).get("id")
+        cq_chat_id = str(cq_uid or "")
         msg_chat_id = str((cq.get("message", {}).get("chat") or {}).get("id", ""))
-        if cq_chat_id == ALLOWED_CHAT_ID or msg_chat_id == ALLOWED_CHAT_ID:
+        if _is_member_id(cq_uid) or cq_chat_id == ALLOWED_CHAT_ID or msg_chat_id == ALLOWED_CHAT_ID:
             state = load_state()
             try:
                 handle_callback_query(cq, state)
@@ -6317,22 +6379,23 @@ def process_update(upd: Dict[str, Any], media_group_buffer: Optional[Dict[str, A
     msg = upd.get("message") or upd.get("edited_message") or {}
     chat = msg.get("chat") or {}
     chat_id = str(chat.get("id", ""))
+    _member = _is_member_id(chat_id) or chat_id == ALLOWED_CHAT_ID  # legacy admin
     text = msg.get("text", "")
     has_file = bool(msg.get("document") or msg.get("photo") or msg.get("video"))
     has_voice = bool(msg.get("voice") or msg.get("audio"))
     media_gid = msg.get("media_group_id")
 
     # Block M.2 Phase C: /persona_video with attached or replied-to photo.
-    if chat_id == ALLOWED_CHAT_ID and _persona_video_intercept(chat_id, msg):
+    if _member and _persona_video_intercept(chat_id, msg):
         return
 
     # Block M.2.6: /video_face_swap — face photo + video pair (either order).
-    if chat_id == ALLOWED_CHAT_ID and _video_face_swap_intercept(chat_id, msg):
+    if _member and _video_face_swap_intercept(chat_id, msg):
         return
 
     # Block M.2.5: single photo for a pending standalone /animate request.
     if (
-        chat_id == ALLOWED_CHAT_ID
+        _member
         and msg.get("photo")
         and not media_gid
         and _animate_photo_intercept(chat_id, msg)
@@ -6342,7 +6405,7 @@ def process_update(upd: Dict[str, Any], media_group_buffer: Optional[Dict[str, A
     # Block M.2.5: single photo for an active swapbatch session (albums go
     # through the media_group buffer below, not here).
     if (
-        chat_id == ALLOWED_CHAT_ID
+        _member
         and msg.get("photo")
         and not media_gid
         and _swapbatch_photo_intercept(chat_id, msg)
@@ -6351,7 +6414,7 @@ def process_update(upd: Dict[str, Any], media_group_buffer: Optional[Dict[str, A
 
     if text:
         # Block M.2.5: numbered-prompt message for an active custom-prompts flow.
-        if chat_id == ALLOWED_CHAT_ID and _swapbatch_text_intercept(chat_id, text):
+        if _member and _swapbatch_text_intercept(chat_id, text):
             return
         if not _route_plain_text(chat_id, text, msg):
             handle(chat_id, text)
@@ -6361,7 +6424,7 @@ def process_update(upd: Dict[str, Any], media_group_buffer: Optional[Dict[str, A
         # with the text branch — available to any whitelisted user, not just
         # the legacy single chat.
         _route_voice(chat_id, msg)
-    elif has_file and chat_id == ALLOWED_CHAT_ID:
+    elif has_file and _member:
         if media_gid:
             # Buffer media group — process when all parts arrive. Dedupe
             # duplicate deliveries by file_unique_id (B-51) instead of a naive
