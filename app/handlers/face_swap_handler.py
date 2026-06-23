@@ -32,6 +32,7 @@ from app.services.block_m2_face_swap.batch_orchestrator import (
     get_orchestrator,
 )
 from app.services.audit import cost_tracker as _cost
+from app.services.auth.access_control import check_limit
 from app.services.block_m2_face_swap.cost_estimator import (
     animate_enabled,
     format_cost_report_ru,
@@ -715,6 +716,15 @@ class FaceSwapHandler:
         seconds = sess0.duration_sec if sess0 else 10
         resolution = sess0.resolution if sess0 else "720p"
         engine_mode = sess0.video_engine if sess0 else "spicy"
+        if user_id is not None:
+            from app.services.block_m2_video.engines.capabilities import caps_for
+            n = len(
+                [t for t in sess0.targets if t.swap_result_path]
+            ) if sess0 else 0
+            est = n * caps_for(engine_mode).cost_for(seconds, resolution)
+            allowed, reason = check_limit(user_id, estimated_usd=est)
+            if not allowed:
+                return HandlerReply(text=f"🚫 {reason}")
         try:
             await self.orchestrator.confirm_animate_batch(
                 chat_id, animate_fn=animate_fn, progress_cb=progress_cb,

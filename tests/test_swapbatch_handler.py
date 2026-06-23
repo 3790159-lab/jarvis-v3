@@ -284,6 +284,33 @@ async def test_run_animate_phase_records_cost_for_successful_videos(
     assert amount == pytest.approx(0.29)
 
 
+@pytest.mark.anyio
+async def test_animate_batch_blocked_when_friend_over_limit(tmp_path, monkeypatch):
+    """An over-limit friend's paid batch animate is blocked BEFORE generation."""
+    from app.handlers import face_swap_handler as fsh
+
+    handler, orch = _make_handler(tmp_path)
+    _seed_swap_done(handler, orch, tmp_path, n=2)
+
+    monkeypatch.setattr(
+        fsh, "check_limit",
+        lambda uid, *, estimated_usd: (False, "Дневной лимит исчерпан"),
+    )
+
+    called = {"gen": False}
+
+    async def _fake_fn(*a, **k):
+        called["gen"] = True
+        return _make_photo(tmp_path, "v.mp4")
+
+    reply = await handler.run_animate_batch_phase(
+        42, _fake_fn, user_id=555, username="petya",
+    )
+
+    assert called["gen"] is False  # generation never started
+    assert "лимит" in reply.text.lower()
+
+
 # ── custom-prompts flow (Day 6) ──────────────────────────────────────────────
 
 
