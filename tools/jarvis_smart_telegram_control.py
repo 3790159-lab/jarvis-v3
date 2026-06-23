@@ -955,6 +955,7 @@ def _swapbatch_run_phase(
                             prompt=_prompt,
                             seconds=_seconds,
                             resolution=_resolution,
+                            negative_prompt=_os.getenv("SWAPBATCH_TEST_NEGATIVE", ""),
                             generation_id=new_generation_id(),
                         )
                         for ph in photos
