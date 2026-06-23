@@ -3,7 +3,8 @@ from __future__ import annotations
 from app.prompts.video_prompt_builder import default_negative_prompt
 
 DEFAULT_MOTION = (
-    "gentle natural body movement, subtle motion, "
+    "slow gentle head turn, soft blinking, subtle breathing, minimal body movement, "
+    "locked static camera, smooth continuous slow motion, "
     "soft cinematic lighting, photorealistic"
 )
 REALISM_SUFFIX = (

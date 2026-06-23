@@ -75,6 +75,15 @@ def test_wardrobe_modes_tuple():
     assert WARDROBE_MODES == ("preserve", "safe", "spicy")
 
 
+def test_default_motion_favors_smoothness():
+    # Default fallback motion is tuned for smoothness (slow, minimal, locked camera)
+    # because high motion-per-frame reads jerky at the engines' fixed fps.
+    low = DEFAULT_MOTION.lower()
+    assert "slow" in low
+    assert "static camera" in low
+    assert "minimal" in low
+
+
 def test_clamp_truncates_on_word_boundary():
     text = "the quick brown fox jumps"
     cut, flag = clamp_prompt(text, 12)
