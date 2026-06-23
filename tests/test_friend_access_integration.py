@@ -157,6 +157,26 @@ def test_friend_cannot_use_access_callback(friend_env):
     assert any("админ" in a.lower() for a in answered)
 
 
+def test_single_animate_blocked_over_limit_before_spend(friend_env, monkeypatch, tmp_path):
+    mod = _get_mod()
+    monkeypatch.setenv("JARVIS_COST_FILE", str(tmp_path / "cost.json"))
+    from app.services.audit import cost_tracker as ct
+    from app.services.auth import users_store
+    users_store.set_limit(555, 0.10)          # tiny limit
+    ct.record_cost(555, "petya", 0.10)        # already at limit
+    mod._ANIMATE_PENDING[555] = {"photo": "x.jpg"}
+    sent = []
+
+    def _boom():
+        raise AssertionError("must not reach video lock / generation")
+
+    with patch.object(mod, "send", lambda c, t, **k: sent.append(t)), \
+         patch.object(mod, "_get_video_lock", _boom):
+        mod._animate_run_single("555", "spicy")
+    # blocked with soft limit message; generation never started
+    assert any("лимит" in t.lower() for t in sent)
+
+
 def test_blocked_user_silently_dropped(friend_env):
     mod = _get_mod()
     from app.services.auth import users_store

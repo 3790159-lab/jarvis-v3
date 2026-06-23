@@ -1157,6 +1157,21 @@ def _animate_run_single(chat_id: str, engine_mode: str) -> None:
     caps = caps_for(engine_mode)
     seconds = caps.default_duration
     resolution = caps.default_resolution
+
+    # Лимит-гейт ДО траты (friend под лимитом; admin безлимит).
+    from app.services.auth.access_control import check_limit
+    _est = caps.cost_for(seconds, resolution)
+    _allowed, _reason = check_limit(chat_id_int, estimated_usd=_est)
+    if not _allowed:
+        send(chat_id, f"🚫 {_reason}")
+        try:
+            _admin = _whitelist.load_admin_user_id()
+            if _admin is not None and _admin != chat_id_int:
+                send(str(_admin), f"⚠️ Друг id={chat_id_int} уперся в лимит (/animate, ~${_est:.2f}).")
+        except Exception:  # noqa: BLE001
+            pass
+        return
+
     req = handler.build_single_animate_request(
         chat_id_int, image_path=photo, motion="",
         engine_mode=engine_mode, seconds=seconds, resolution=resolution,
