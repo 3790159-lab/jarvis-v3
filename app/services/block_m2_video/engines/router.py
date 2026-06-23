@@ -20,12 +20,14 @@ class EngineRouter:
         replicate: VideoGenerator | None = None,
         runpod: VideoGenerator | None = None,
         wavespeed: VideoGenerator | None = None,
+        seedance: VideoGenerator | None = None,
     ) -> None:
         # Engines are lazy-instantiated by default so importing the router
         # does not require REPLICATE_API_TOKEN at module load time.
         self._replicate = replicate
         self._runpod = runpod
         self._wavespeed = wavespeed
+        self._seedance = seedance
 
     def _get_replicate(self) -> VideoGenerator:
         if self._replicate is None:
@@ -43,6 +45,12 @@ class EngineRouter:
             self._wavespeed = WaveSpeedSpicyEngine()
         return self._wavespeed
 
+    def _get_seedance(self) -> VideoGenerator:
+        if self._seedance is None:
+            from .replicate_seedance_engine import ReplicateSeedanceEngine
+            self._seedance = ReplicateSeedanceEngine()
+        return self._seedance
+
     async def select(self, mode: GenerationMode) -> VideoGenerator:
         """Pick an engine for ``mode``.
 
@@ -53,6 +61,9 @@ class EngineRouter:
         if mode == "spicy":
             logger.info("EngineRouter: mode=spicy -> WaveSpeedSpicyEngine")
             return self._get_wavespeed()
+        if mode == "seedance":
+            logger.info("EngineRouter: mode=seedance -> ReplicateSeedanceEngine")
+            return self._get_seedance()
         if mode == "fast":
             logger.info("EngineRouter: mode=fast -> ReplicateEngine")
             return self._get_replicate()

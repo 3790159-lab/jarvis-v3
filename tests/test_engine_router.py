@@ -63,3 +63,11 @@ async def test_mode_auto_falls_back_to_replicate_when_runpod_unavailable():
 
     assert chosen is replicate
     runpod.is_available.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_mode_seedance_returns_seedance_engine():
+    seed = _make_engine("replicate_seedance", available=True)
+    router = EngineRouter(seedance=seed)
+    chosen = await router.select("seedance")
+    assert chosen is seed
