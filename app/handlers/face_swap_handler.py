@@ -256,14 +256,39 @@ class FaceSwapHandler:
         ))
 
     def handle_set_prompt(self, chat_id: int, text: str) -> HandlerReply:
-        """/swapbatch_set_prompt — store shared motion prompt for the batch."""
+        """/swapbatch_set_prompt — store shared motion prompt; clamp over-long
+        with explicit warning (no silent truncation)."""
         if self.orchestrator.get(chat_id) is None:
             return HandlerReply(text="⚠️ Нет активного батча.")
-        self.orchestrator.set_motion_prompt(chat_id, text)
+        from app.services.block_m2_video.prompt_assembly import clamp_prompt
+        cap = int(os.getenv("WAVESPEED_PROMPT_MAX_CHARS", "1500"))
+        clamped, truncated = clamp_prompt(text or "", cap)
+        self.orchestrator.set_motion_prompt(chat_id, clamped)
         sess = self.orchestrator.get(chat_id)
-        if sess.motion_prompt:
-            return HandlerReply(text=f"✅ Промт движения задан:\n«{sess.motion_prompt}»")
-        return HandlerReply(text="✅ Промт сброшен на дефолтный.")
+        if not sess.motion_prompt:
+            return HandlerReply(text="✅ Промт сброшен на дефолтный.")
+        warn = ""
+        if truncated:
+            warn = (f"\n⚠️ Промт был длиннее лимита ({len(text)} > {cap} симв.) "
+                    f"и обрезан до {len(clamped)} симв.")
+        return HandlerReply(text=f"✅ Промт движения задан:\n«{sess.motion_prompt}»{warn}")
+
+    def handle_set_wardrobe(self, chat_id: int, mode: str) -> HandlerReply:
+        """/swapbatch_set_wardrobe preserve|safe|spicy — clothing control."""
+        from app.services.block_m2_video.prompt_assembly import WARDROBE_MODES
+        if self.orchestrator.get(chat_id) is None:
+            return HandlerReply(text="⚠️ Нет активного батча.")
+        mode = (mode or "").strip().lower()
+        if mode not in WARDROBE_MODES:
+            return HandlerReply(text=(
+                "⚠️ Режим одежды: preserve | safe | spicy\n"
+                "• preserve — сохранить одежду как на фото\n"
+                "• safe — не раздевать (дефолт)\n"
+                "• spicy — без ограничений (uncensored)"
+            ))
+        self.orchestrator.set_wardrobe(chat_id, mode)
+        labels = {"preserve": "сохранять одежду", "safe": "не раздевать (дефолт)", "spicy": "без ограничений"}
+        return HandlerReply(text=f"✅ Режим одежды: {mode} — {labels[mode]}.")
 
     def handle_set_animate_quality(self, chat_id: int, args_text: str) -> HandlerReply:
         """Engine-aware quality setter for the managed animate path: constrains

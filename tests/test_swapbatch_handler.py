@@ -463,3 +463,57 @@ def test_set_quality_long_duration_warning(tmp_path):
     _seed_swap_done(handler, orch, tmp_path, n=1)
     r = handler.handle_set_quality(42, "duration=15")
     assert "Wan 2.2" in r.text
+
+
+# ── set_prompt clamp ─────────────────────────────────────────────────────────
+
+
+def test_set_prompt_within_cap_unchanged(tmp_path):
+    handler, orch = _make_handler(tmp_path)
+    _seed_swap_done(handler, orch, tmp_path, n=1)
+    r = handler.handle_set_prompt(42, "walking on the beach")
+    assert orch.get(42).motion_prompt == "walking on the beach"
+    assert "обрез" not in r.text
+
+
+def test_set_prompt_overlong_is_clamped_and_warns(tmp_path, monkeypatch):
+    monkeypatch.setenv("WAVESPEED_PROMPT_MAX_CHARS", "50")
+    handler, orch = _make_handler(tmp_path)
+    _seed_swap_done(handler, orch, tmp_path, n=1)
+    long = "word " * 40  # 200 chars
+    r = handler.handle_set_prompt(42, long)
+    assert len(orch.get(42).motion_prompt) <= 50
+    assert "обрез" in r.text
+
+
+def test_set_prompt_no_session(tmp_path):
+    handler, _ = _make_handler(tmp_path)
+    r = handler.handle_set_prompt(42, "anything")
+    assert "⚠️" in r.text
+
+
+# ── set_wardrobe ─────────────────────────────────────────────────────────────
+
+
+def test_set_wardrobe_preserve(tmp_path):
+    handler, orch = _make_handler(tmp_path)
+    _seed_swap_done(handler, orch, tmp_path, n=1)
+    r = handler.handle_set_wardrobe(42, "preserve")
+    assert orch.get(42).wardrobe_mode == "preserve"
+    assert "preserve" in r.text
+
+
+def test_set_wardrobe_invalid_keeps_mode_and_shows_help(tmp_path):
+    handler, orch = _make_handler(tmp_path)
+    _seed_swap_done(handler, orch, tmp_path, n=1)
+    handler.handle_set_wardrobe(42, "preserve")
+    r = handler.handle_set_wardrobe(42, "xxx")
+    # Invalid mode does not change the stored value.
+    assert orch.get(42).wardrobe_mode == "preserve"
+    assert "preserve | safe | spicy" in r.text
+
+
+def test_set_wardrobe_no_session(tmp_path):
+    handler, _ = _make_handler(tmp_path)
+    r = handler.handle_set_wardrobe(42, "preserve")
+    assert "⚠️" in r.text

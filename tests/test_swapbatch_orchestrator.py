@@ -593,6 +593,59 @@ def test_quality_survives_dict_roundtrip(tmp_path):
     assert revived.fps == 84
 
 
+# ── wardrobe mode ────────────────────────────────────────────────────────────
+
+
+def test_new_session_has_default_wardrobe_safe(tmp_path):
+    orch = _make_orch(tmp_path)
+    orch.begin_source(42)
+    sess = orch.get(42)
+    assert sess.wardrobe_mode == "safe"
+
+
+def test_set_wardrobe_stores_on_session(tmp_path):
+    orch = _make_orch(tmp_path)
+    _seed_swap_done(orch, tmp_path, n=1)
+    orch.set_wardrobe(42, "preserve")
+    assert orch.get(42).wardrobe_mode == "preserve"
+
+
+def test_set_wardrobe_invalid_falls_back_to_safe(tmp_path):
+    orch = _make_orch(tmp_path)
+    _seed_swap_done(orch, tmp_path, n=1)
+    orch.set_wardrobe(42, "xxx")
+    assert orch.get(42).wardrobe_mode == "safe"
+
+
+def test_set_wardrobe_no_session_is_noop(tmp_path):
+    orch = _make_orch(tmp_path)
+    # Must not raise when there is no active batch.
+    orch.set_wardrobe(42, "preserve")
+    assert orch.get(42) is None
+
+
+def test_set_wardrobe_persisted(tmp_path):
+    orch = _make_orch(tmp_path)
+    _seed_swap_done(orch, tmp_path, n=1)
+    orch.set_wardrobe(42, "preserve")
+    data = json.loads(orch.session_file(42).read_text(encoding="utf-8"))
+    assert data["wardrobe_mode"] == "preserve"
+
+
+def test_wardrobe_survives_dict_roundtrip(tmp_path):
+    sess = BatchSession(chat_id=7, wardrobe_mode="preserve")
+    revived = BatchSession.from_dict(json.loads(json.dumps(sess.to_dict())))
+    assert revived.wardrobe_mode == "preserve"
+
+
+def test_wardrobe_defaults_safe_on_load_when_missing(tmp_path):
+    # A legacy session.json without wardrobe_mode must default to "safe".
+    blob = BatchSession(chat_id=7).to_dict()
+    blob.pop("wardrobe_mode", None)
+    revived = BatchSession.from_dict(blob)
+    assert revived.wardrobe_mode == "safe"
+
+
 # ── dataclass plumbing ──────────────────────────────────────────────────────
 
 

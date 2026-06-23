@@ -108,6 +108,7 @@ class BatchSession:
     resolution: str = "720p"
     video_engine: str = "spicy"   # "spicy" | "seedance"
     motion_prompt: str = ""        # shared batch motion prompt; "" -> engine default
+    wardrobe_mode: str = "safe"    # clothing control: preserve | safe | spicy
     created_at_unix: float = field(default_factory=time.time)
     updated_at_unix: float = field(default_factory=time.time)
     last_error: str | None = None
@@ -141,6 +142,7 @@ class BatchSession:
             resolution=str(data.get("resolution", "720p")),
             video_engine=str(data.get("video_engine", "spicy")),
             motion_prompt=str(data.get("motion_prompt", "")),
+            wardrobe_mode=str(data.get("wardrobe_mode", "safe") or "safe"),
             created_at_unix=float(data.get("created_at_unix", time.time())),
             updated_at_unix=float(data.get("updated_at_unix", time.time())),
             last_error=data.get("last_error"),
@@ -390,6 +392,20 @@ class BatchOrchestrator:
             if sess is None:
                 raise OrchestratorError("Нет активного батча.")
             sess.motion_prompt = (text or "").strip()
+            self._touch(sess)
+            self._persist(sess)
+
+    def set_wardrobe(self, chat_id: int, mode: str) -> None:
+        """Set per-batch wardrobe mode (preserve|safe|spicy). Invalid -> safe.
+
+        No-op when there is no active batch (mirrors the handler's own
+        no-session guard, so the handler can call this unconditionally)."""
+        from app.services.block_m2_video.prompt_assembly import WARDROBE_MODES
+        with self._lock:
+            sess = self._sessions.get(chat_id)
+            if sess is None:
+                return
+            sess.wardrobe_mode = mode if mode in WARDROBE_MODES else "safe"
             self._touch(sess)
             self._persist(sess)
 
