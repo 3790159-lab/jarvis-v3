@@ -74,15 +74,27 @@ def is_allowed(user_id: int) -> bool:
 
     Decision order:
 
-    1. Both admin and allowed-list empty → open mode → allow.
-    2. ``user_id`` equals the admin → allow (bypass).
-    3. ``user_id`` is in the allowed list → allow.
-    4. Otherwise → reject.
+    1. Active member of ``state/users.json`` (incl. env bootstrap-admin) → allow.
+    2. ``user_id`` equals env admin → allow (bypass).
+    3. ``user_id`` is in env allowed-list → allow.
+    4. Nothing configured anywhere (no env, no members) → open mode → allow.
+    5. Otherwise → reject.
     """
+    # Lazy import avoids a module-load cycle (users_store imports this module).
+    try:
+        from app.services.auth import users_store
+        if users_store.is_member(user_id):
+            return True
+        has_members = users_store.has_members()
+    except Exception:  # noqa: BLE001 - users_store must never harden us into a lockout
+        has_members = False
+
     admin = load_admin_user_id()
     allowed = load_allowed_user_ids()
-    if admin is None and not allowed:
-        return True
     if admin is not None and user_id == admin:
         return True
-    return user_id in allowed
+    if user_id in allowed:
+        return True
+    if admin is None and not allowed and not has_members:
+        return True  # open mode (dev): nothing configured at all
+    return False

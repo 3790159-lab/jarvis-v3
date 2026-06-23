@@ -102,3 +102,21 @@ def test_atomic_write_uses_replace(store_env, monkeypatch):
     monkeypatch.setattr(us.os, "replace", spy)
     us.add_friend(555, "petya", added_by="111")
     assert called["n"] >= 1
+
+
+def test_whitelist_allows_active_member(store_env):
+    from app.services.auth import whitelist
+    us.add_friend(555, "petya", added_by="111")
+    assert whitelist.is_allowed(555) is True
+    us.set_status(555, "blocked")
+    assert whitelist.is_allowed(555) is False
+
+
+def test_whitelist_open_mode_only_when_nothing_configured(store_env, monkeypatch):
+    from app.services.auth import whitelist
+    monkeypatch.delenv("JARVIS_ALLOWED_USER_IDS", raising=False)
+    # nothing configured + empty users.json → open mode preserved
+    assert whitelist.is_allowed(12345) is True
+    # once a member exists, open mode is OFF (strangers rejected)
+    us.add_friend(555, "petya", added_by="111")
+    assert whitelist.is_allowed(12345) is False

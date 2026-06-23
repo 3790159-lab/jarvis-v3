@@ -127,11 +127,12 @@ def test_bot_allows_admin(monkeypatch):
     assert handled == ["привет"]
 
 
-def test_bot_open_mode_allows_anyone(monkeypatch):
+def test_bot_open_mode_allows_anyone(monkeypatch, tmp_path):
     """When neither env var is set, dispatch keeps its existing behaviour."""
     monkeypatch.delenv("JARVIS_ADMIN_USER_ID", raising=False)
     monkeypatch.delenv("JARVIS_ALLOWED_USER_IDS", raising=False)
     monkeypatch.setenv("TELEGRAM_ALLOWED_CHAT_ID", "555")
+    monkeypatch.setenv("JARVIS_USERS_FILE", str(tmp_path / "users.json"))
     mod = _get_mod()
 
     handled: list[str] = []
