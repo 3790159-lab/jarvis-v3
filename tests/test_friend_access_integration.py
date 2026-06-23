@@ -243,6 +243,52 @@ def test_single_animate_records_cost(friend_env, monkeypatch, tmp_path):
     assert ct.get_user_stats(555)["today"] > 0.0
 
 
+def _admin_text(text):
+    return {"update_id": 1, "message": {
+        "from": {"id": 111, "username": "daniil"},
+        "chat": {"id": 111}, "text": text}}
+
+
+def test_admin_users_lists_members(friend_env):
+    mod = _get_mod()
+    sent = []
+    with patch.object(mod, "send", lambda c, t, **k: sent.append(t)):
+        consumed = mod._admin_command_intercept(_admin_text("/admin_users"))
+    assert consumed is True
+    assert any("555" in t for t in sent)  # friend petya listed
+
+
+def test_admin_setlimit_changes_limit(friend_env):
+    mod = _get_mod()
+    from app.services.auth import users_store
+    with patch.object(mod, "send", lambda c, t, **k: None):
+        mod._admin_command_intercept(_admin_text("/admin_setlimit 555 12"))
+    assert users_store.get_limit(555) == 12.0
+
+
+def test_admin_resetlimit_forgives_today(friend_env, monkeypatch, tmp_path):
+    mod = _get_mod()
+    monkeypatch.setenv("JARVIS_COST_FILE", str(tmp_path / "cost.json"))
+    from app.services.audit import cost_tracker as ct
+    from app.services.auth import users_store
+    ct.record_cost(555, "petya", 4.0)
+    with patch.object(mod, "send", lambda c, t, **k: None):
+        mod._admin_command_intercept(_admin_text("/admin_resetlimit 555"))
+    assert users_store.effective_spent(555, spent_today=4.0) == 0.0
+
+
+def test_friend_cannot_run_admin_command(friend_env):
+    mod = _get_mod()
+    sent = []
+    upd = {"update_id": 1, "message": {
+        "from": {"id": 555, "username": "petya"},
+        "chat": {"id": 555}, "text": "/admin_users"}}
+    with patch.object(mod, "send", lambda c, t, **k: sent.append(t)):
+        consumed = mod._admin_command_intercept(upd)
+    assert consumed is True
+    assert any("админ" in t.lower() for t in sent)  # refusal, not the list
+
+
 def test_persona_video_dispatch_records_cost(friend_env, monkeypatch, tmp_path):
     """Gap: /persona_video → PersonaVideoHandler had NO cost tracking at all."""
     mod = _get_mod()

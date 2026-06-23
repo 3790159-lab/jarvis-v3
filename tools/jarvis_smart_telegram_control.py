@@ -5999,6 +5999,103 @@ def _cost_command_intercept(upd: Dict[str, Any]) -> bool:
     return True
 
 
+def _admin_command_intercept(upd: Dict[str, Any]) -> bool:
+    """Обработать /admin_users|/admin_setlimit|/admin_resetlimit|/admin_activity.
+
+    Все — только для роли admin (default-deny). Возвращает True, если апдейт был
+    админ-командой и потреблён.
+    """
+    msg = upd.get("message") or upd.get("edited_message") or {}
+    text = (msg.get("text") or "").strip()
+    if not text.startswith("/admin_"):
+        return False
+    cmd = text.split(maxsplit=1)[0].split("@", 1)[0]
+    if cmd not in ("/admin_users", "/admin_setlimit", "/admin_resetlimit", "/admin_activity"):
+        return False
+    uid, uname, cid = _extract_audit_ctx(upd)
+    reply_to = cid or (str(uid) if uid is not None else "")
+    if not reply_to:
+        return True
+    if not (_is_admin_id(uid) or str(uid) == ALLOWED_CHAT_ID):
+        send(reply_to, "🚫 Команда доступна только администратору.")
+        return True
+
+    parts = text.split()
+    if cmd == "/admin_users":
+        rows = _users_store.list_users()
+        if not rows:
+            send(reply_to, "👥 Пользователей нет.")
+            return True
+        lines = ["👥 Пользователи:"]
+        for r in rows:
+            lim = r.get("daily_limit_usd")
+            lim_s = "∞" if lim is None else f"${float(lim):.2f}"
+            lines.append(
+                f"• {r.get('role')} @{r.get('username') or '—'} (id={r['user_id']}) "
+                f"[{r.get('status')}] лимит {lim_s}"
+            )
+        pend = _users_store.list_pending()
+        if pend:
+            lines.append("\n⏳ Ожидают:")
+            for p in pend:
+                lines.append(f"• @{p.get('username') or '—'} (id={p['user_id']})")
+        send(reply_to, "\n".join(lines))
+        return True
+
+    if cmd == "/admin_setlimit":
+        if len(parts) < 3:
+            send(reply_to, "Использование: /admin_setlimit <user_id> <сумма$>")
+            return True
+        try:
+            tgt, amount = int(parts[1]), float(parts[2])
+        except ValueError:
+            send(reply_to, "user_id и сумма должны быть числами.")
+            return True
+        ok = _users_store.set_limit(tgt, amount)
+        send(reply_to, f"✅ Лимит id={tgt}: ${amount:.2f}" if ok
+                       else f"⚠️ Нет такого пользователя id={tgt}.")
+        return True
+
+    if cmd == "/admin_resetlimit":
+        if len(parts) < 2:
+            send(reply_to, "Использование: /admin_resetlimit <user_id>")
+            return True
+        try:
+            tgt = int(parts[1])
+        except ValueError:
+            send(reply_to, "user_id должен быть числом.")
+            return True
+        spent = float(_cost.get_user_stats(tgt).get("today", 0.0))
+        ok = _users_store.record_reset(tgt, spent_today=spent)
+        send(reply_to, f"✅ Лимит id={tgt} сброшен на сегодня (прощено ${spent:.2f})."
+                       if ok else f"⚠️ Нет такого пользователя id={tgt}.")
+        return True
+
+    if cmd == "/admin_activity":
+        if len(parts) < 2:
+            send(reply_to, "Использование: /admin_activity <user_id>")
+            return True
+        try:
+            tgt = int(parts[1])
+        except ValueError:
+            send(reply_to, "user_id должен быть числом.")
+            return True
+        events = [e for e in _audit.read_user_activity(tgt, limit=20)
+                  if e.get("event") != "user_first_seen"]
+        if not events:
+            send(reply_to, f"Активности по id={tgt} нет.")
+            return True
+        lines = [f"📜 Активность id={tgt} (последние {len(events)}):"]
+        for e in events:
+            d = e.get("details") or {}
+            extra = d.get("command") or d.get("action") or e.get("event")
+            lines.append(f"• {str(e.get('ts', ''))[:16]} {extra}")
+        send(reply_to, "\n".join(lines))
+        return True
+
+    return True
+
+
 # ── Phase 4: unified LLM router (natural-language → tools) ───────────────────
 # Plain (non-command) text is routed through the Claude tool_use router. This
 # is purely additive: commands and a disabled/unavailable router fall back to
@@ -6449,6 +6546,8 @@ def process_update(upd: Dict[str, Any], media_group_buffer: Optional[Dict[str, A
     _audit_message(upd)
     _remember_identity(upd)
     if _cost_command_intercept(upd):
+        return
+    if _admin_command_intercept(upd):
         return
     if media_group_buffer is None:
         media_group_buffer = {}
