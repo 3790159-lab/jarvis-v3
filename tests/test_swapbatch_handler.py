@@ -517,3 +517,29 @@ def test_set_wardrobe_no_session(tmp_path):
     handler, _ = _make_handler(tmp_path)
     r = handler.handle_set_wardrobe(42, "preserve")
     assert "⚠️" in r.text
+
+
+# ── engine choice (Task 9) ───────────────────────────────────────────────────
+
+
+def test_engine_keyboard_lists_both_engines_with_seedance_label(tmp_path):
+    handler, orch = _make_handler(tmp_path)
+    _seed_swap_done(handler, orch, tmp_path, n=1)
+    kb = handler.build_engine_keyboard()
+    flat = [b["callback_data"] for row in kb["inline_keyboard"] for b in row]
+    labels = " ".join(b["text"] for row in kb["inline_keyboard"] for b in row)
+    assert "sbeng:spicy" in flat
+    assert "sbeng:seedance" in flat
+    assert "sbeng:none" in flat
+    assert "censored" in labels.lower() or "sfw" in labels.lower()  # пометка
+
+
+def test_set_engine_updates_session_and_snaps_quality(tmp_path):
+    handler, orch = _make_handler(tmp_path)
+    _seed_swap_done(handler, orch, tmp_path, n=1)
+    reply = handler.handle_set_engine(42, "seedance")
+    sess = orch.get(42)
+    assert sess.video_engine == "seedance"
+    # 15с недоступно у Seedance → дефолтная длительность снапается в допустимую
+    assert sess.duration_sec in (5, 10)
+    assert sess.resolution in ("480p", "720p", "1080p")

@@ -991,6 +991,18 @@ def _swapbatch_run_phase(
                 reply = None
             if reply is not None:
                 _swapbatch_apply_reply(chat_id_s, reply)
+            # After a successful swap, offer the engine-choice menu (Task 9).
+            if command == "go":
+                from app.services.block_m2_face_swap.cost_estimator import (
+                    animate_enabled as _animate_enabled,
+                )
+                if _animate_enabled():
+                    _kb = handler.build_engine_keyboard()
+                    send_with_keyboard(
+                        chat_id_s,
+                        "🎬 Выбери движок анимации (или «Без анимации»):",
+                        _kb["inline_keyboard"],
+                    )
         except Exception as exc:  # noqa: BLE001
             send(chat_id_s, f"❌ Ошибка: {translate_exception(exc)}")
         finally:
@@ -2649,6 +2661,19 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
         return
 
     parts = data.split(":")
+
+    # ── Swapbatch engine choice (Task 9) ──────────────────────────────────────
+    if data.startswith("sbeng:"):
+        choice = data.split(":", 1)[1]
+        _hq, _ = _swapbatch_get_handler()
+        if choice == "none":
+            answer_callback_query(cq_id, "Без анимации")
+            _swapbatch_dispatch(chat_id, "animate_no")
+            return
+        reply = _hq.handle_set_engine(int(chat_id), choice)
+        answer_callback_query(cq_id, "Движок выбран")
+        _swapbatch_apply_reply(chat_id, reply)
+        return
 
     # ── Mesh mode switches ────────────────────────────────────────────────────
     if data.startswith("mesh:mode:"):

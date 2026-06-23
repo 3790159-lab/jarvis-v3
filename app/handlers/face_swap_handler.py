@@ -291,6 +291,40 @@ class FaceSwapHandler:
         labels = {"preserve": "сохранять одежду", "safe": "не раздевать (дефолт)", "spicy": "без ограничений"}
         return HandlerReply(text=f"✅ Режим одежды: {mode} — {labels[mode]}.")
 
+    @staticmethod
+    def build_engine_keyboard() -> dict:
+        """Inline-меню выбора движка после свапа. Seedance с пометкой censored."""
+        from app.services.block_m2_video.engines.capabilities import (
+            WAVESPEED_CAPS, SEEDANCE_CAPS,
+        )
+        return {"inline_keyboard": [
+            [{"text": f"🎬 {WAVESPEED_CAPS.display_name}", "callback_data": "sbeng:spicy"}],
+            [{"text": f"🎬 {SEEDANCE_CAPS.display_name} · censored (SFW)",
+              "callback_data": "sbeng:seedance"}],
+            [{"text": "🚫 Без анимации", "callback_data": "sbeng:none"}],
+        ]}
+
+    def handle_set_engine(self, chat_id: int, engine_mode: str) -> HandlerReply:
+        """Установить движок батча и снапнуть качество в его caps."""
+        sess = self.orchestrator.get(chat_id)
+        if sess is None:
+            return HandlerReply(text="⚠️ Нет активного батча.")
+        from app.services.block_m2_video.engines.capabilities import caps_for
+        caps = caps_for(engine_mode)
+        snapped_dur = caps.snap_duration(sess.duration_sec)
+        snapped_res = caps.snap_resolution(sess.resolution)
+        self.orchestrator.set_video_engine(chat_id, engine_mode)
+        self.orchestrator.set_animate_quality(
+            chat_id, duration=snapped_dur, resolution=snapped_res,
+        )
+        sess = self.orchestrator.get(chat_id)
+        note = "" if not caps.censored else "\n⚠️ Censored: подходит для SFW/одетых сцен."
+        return HandlerReply(text=(
+            f"✅ Движок: {caps.display_name}. Качество: {sess.duration_sec}с, "
+            f"{sess.resolution}, fps {caps.native_fps}.{note}\n"
+            f"Дальше: /swapbatch_animate_yes → /swapbatch_animate_go."
+        ))
+
     def handle_set_animate_quality(self, chat_id: int, args_text: str) -> HandlerReply:
         """Engine-aware quality setter for the managed animate path: constrains
         duration + resolution to the chosen engine's caps; fps is info-only."""

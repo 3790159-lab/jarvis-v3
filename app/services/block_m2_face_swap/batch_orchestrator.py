@@ -409,6 +409,16 @@ class BatchOrchestrator:
             self._touch(sess)
             self._persist(sess)
 
+    def set_video_engine(self, chat_id: int, engine_mode: str) -> None:
+        """Set per-batch animate engine ("spicy" | "seedance"). No-op w/o session."""
+        with self._lock:
+            sess = self._sessions.get(chat_id)
+            if sess is None:
+                return
+            sess.video_engine = engine_mode
+            self._touch(sess)
+            self._persist(sess)
+
     def set_animate_quality(
         self, chat_id: int, *, duration: int | None = None, resolution: str | None = None,
     ) -> None:
