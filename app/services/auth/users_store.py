@@ -119,6 +119,14 @@ def get_limit(user_id: int) -> Optional[float]:
     return float(lim) if lim is not None else None
 
 
+def get_status(user_id: int) -> Optional[str]:
+    """Вернуть status записи ('active'|'blocked') или None если записи нет.
+    Не учитывает env-admin (у bootstrap-админа нет файловой записи)."""
+    with _LOCK:
+        rec = _load()["users"].get(str(user_id))
+    return rec.get("status") if rec else None
+
+
 # ── mutations ────────────────────────────────────────────────────────────────
 
 
@@ -133,6 +141,23 @@ def add_friend(
             "username": username,
             "status": "active",
             "daily_limit_usd": float(limit_usd),
+            "added_by": str(added_by),
+            "added_at": _now().isoformat(),
+        }
+        state["pending"].pop(str(user_id), None)
+        _save_atomic(state)
+
+
+def add_blocked(user_id: int, username: Optional[str], *, added_by: str) -> None:
+    """Записать заблокированного пользователя одним write (для reject access-флоу).
+    Чистит pending. get_role вернёт None (статус не active)."""
+    with _LOCK:
+        state = _load()
+        state["users"][str(user_id)] = {
+            "role": "friend",
+            "username": username,
+            "status": "blocked",
+            "daily_limit_usd": DEFAULT_FRIEND_LIMIT_USD,
             "added_by": str(added_by),
             "added_at": _now().isoformat(),
         }

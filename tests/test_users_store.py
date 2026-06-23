@@ -120,3 +120,19 @@ def test_whitelist_open_mode_only_when_nothing_configured(store_env, monkeypatch
     # once a member exists, open mode is OFF (strangers rejected)
     us.add_friend(555, "petya", added_by="111")
     assert whitelist.is_allowed(12345) is False
+
+
+def test_get_status_reflects_record(store_env):
+    assert us.get_status(555) is None
+    us.add_friend(555, "petya", added_by="111")
+    assert us.get_status(555) == "active"
+    us.set_status(555, "blocked")
+    assert us.get_status(555) == "blocked"
+
+
+def test_add_blocked_single_write(store_env):
+    us.add_pending(999, "x")
+    us.add_blocked(999, "x", added_by="111")
+    assert us.get_status(999) == "blocked"
+    assert us.get_role(999) is None        # blocked → no role
+    assert us.pop_pending(999) is None     # pending cleared

@@ -2803,9 +2803,7 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
             except Exception as _e:  # noqa: BLE001
                 print(f"[access] notify approved user failed: {_e}", flush=True)
         else:  # reject → blocked (тихо игнорить дальше)
-            _users_store.add_friend(target_id, uname, added_by=str(_cq_uid))
-            _users_store.set_status(target_id, "blocked")
-            _users_store.pop_pending(target_id)
+            _users_store.add_blocked(target_id, uname, added_by=str(_cq_uid))
             answer_callback_query(cq_id, "Отклонён")
             send(chat_id, f"❌ Запрос @{uname or target_id} отклонён.")
         return
@@ -5805,9 +5803,7 @@ def _whitelist_gate(upd: Dict[str, Any]) -> bool:
         return True
     # Blocked users: молча отклонены, без REJECT_MESSAGE / pending / пинга админу.
     try:
-        _rec = next((u for u in _users_store.list_users()
-                     if u["user_id"] == str(user_id)), None)
-        if _rec and _rec.get("status") == "blocked":
+        if _users_store.get_status(user_id) == "blocked":
             return False
     except Exception as _e:  # noqa: BLE001 - never let this break the gate
         print(f"[access] blocked-check failed: {_e}", flush=True)
