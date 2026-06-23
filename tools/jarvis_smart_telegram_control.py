@@ -5790,6 +5790,26 @@ def _whitelist_gate(upd: Dict[str, Any]) -> bool:
             send(chat_id, _whitelist.REJECT_MESSAGE)
         except Exception as _e:
             print(f"[whitelist] reject reply failed: {_e}", flush=True)
+    # Access-flow: register pending; ping admin with buttons only on FIRST request.
+    try:
+        is_new = _users_store.add_pending(user_id, username)
+        if is_new:
+            admin_id = _whitelist.load_admin_user_id()
+            admin_to = str(admin_id) if admin_id is not None else ALLOWED_CHAT_ID
+            if admin_to:
+                kb = {"inline_keyboard": [[
+                    {"text": "✅ Добавить", "callback_data": f"access:approve:{user_id}"},
+                    {"text": "❌ Отклонить", "callback_data": f"access:reject:{user_id}"},
+                ]]}
+                send(
+                    admin_to,
+                    f"🔔 Запрос доступа к боту:\n"
+                    f"👤 @{username or '—'} (id={user_id})\n"
+                    f"Добавить как друга (лимит ${_users_store.DEFAULT_FRIEND_LIMIT_USD:.0f}/день)?",
+                    reply_markup=kb,
+                )
+    except Exception as _e:  # noqa: BLE001 - access-flow must not break the gate
+        print(f"[access] pending/notify failed: {_e}", flush=True)
     try:
         _audit.audit_event(
             user_id=user_id,

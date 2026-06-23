@@ -69,6 +69,37 @@ def test_friend_allowed_generative_command(friend_env):
     assert handled == ["/swapbatch_source"]
 
 
+def test_stranger_creates_pending_and_pings_admin(friend_env):
+    mod = _get_mod()
+    sent = []  # (chat_id, text, reply_markup)
+    upd = _text_update(999, 999, "привет")
+    with patch.object(mod, "send",
+                      lambda c, t, reply_markup=None: sent.append((str(c), t, reply_markup))):
+        mod.process_update(upd)
+    from app.services.auth.whitelist import REJECT_MESSAGE
+    from app.services.auth import users_store
+    # вежливый отказ юзеру
+    assert any(str(c) == "999" and REJECT_MESSAGE in t for c, t, _ in sent)
+    # уведомление АДМИНУ (111) с inline-кнопками approve/reject
+    admin_msgs = [(c, t, kb) for c, t, kb in sent if c == "111" and kb]
+    assert admin_msgs, "admin not pinged with buttons"
+    flat = [b["callback_data"] for row in admin_msgs[0][2]["inline_keyboard"] for b in row]
+    assert "access:approve:999" in flat and "access:reject:999" in flat
+    # pending записан
+    assert any(p["user_id"] == "999" for p in users_store.list_pending())
+
+
+def test_stranger_repeat_does_not_respam_admin(friend_env):
+    mod = _get_mod()
+    sent = []
+    with patch.object(mod, "send",
+                      lambda c, t, reply_markup=None: sent.append((str(c), t, reply_markup))):
+        mod.process_update(_text_update(999, 999, "1"))
+        mod.process_update(_text_update(999, 999, "2"))
+    admin_button_pings = [1 for c, t, kb in sent if c == "111" and kb]
+    assert len(admin_button_pings) == 1  # только первый запрос пингует админа
+
+
 def test_admin_runs_everything(friend_env):
     mod = _get_mod()
     handled = []
