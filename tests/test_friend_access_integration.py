@@ -190,3 +190,54 @@ def test_blocked_user_silently_dropped(friend_env):
     # blocked user: НЕ получает REJECT_MESSAGE, админ НЕ пингуется
     assert not any(REJECT_MESSAGE in t for _, t in sent)
     assert not any(str(c) == "111" for c, _ in sent)
+
+
+def test_single_animate_records_cost(friend_env, monkeypatch, tmp_path):
+    """Gap (a): a successful standalone /animate must record per-user cost."""
+    mod = _get_mod()
+    monkeypatch.setenv("JARVIS_COST_FILE", str(tmp_path / "cost.json"))
+    from app.services.audit import cost_tracker as ct
+
+    mod._ANIMATE_PENDING[555] = {"photo": "x.jpg"}
+    mod._USERNAME_BY_CHAT["555"] = "petya"
+    monkeypatch.setattr(mod, "_send_local_video", lambda *a, **k: None)
+
+    # Generation is invoked inside a worker thread; stub the network boundary
+    # at the SOURCE modules (the function imports them locally).
+    import app.services.block_m2_video.batch_animate as ba
+
+    async def _ok(engine, reqs, concurrency=1):
+        return ["out.mp4"]
+
+    monkeypatch.setattr(ba, "animate_batch", _ok)
+
+    class _Eng:
+        ...
+
+    class _Router:
+        async def select(self, mode):
+            return _Eng()
+
+    import app.services.block_m2_video.engines.router as router_mod
+    monkeypatch.setattr(router_mod, "EngineRouter", lambda: _Router())
+
+    handler = type("H", (), {
+        "build_single_animate_request": staticmethod(lambda *a, **k: object()),
+    })()
+    monkeypatch.setattr(mod, "_swapbatch_get_handler", lambda: (handler, None))
+
+    class _Lock:
+        def acquire(self, c):
+            return "tok"
+
+        def release(self, t):
+            pass
+
+    monkeypatch.setattr(mod, "_get_video_lock", lambda: _Lock())
+
+    with patch.object(mod, "send", lambda c, t, **k: None):
+        mod._animate_run_single("555", "spicy")
+        import time
+        time.sleep(0.5)  # worker thread completes
+
+    assert ct.get_user_stats(555)["today"] > 0.0

@@ -626,6 +626,13 @@ def _video_face_swap_run(chat_id, face_path, video_path) -> None:
                 )
             )
             send(chat_id_s, "✅ Готово.")
+            try:
+                amount = float(os.getenv("VIDEO_FACE_SWAP_USD", "0.10"))
+                _cost.record_cost(
+                    chat_id_int, _USERNAME_BY_CHAT.get(chat_id_s), amount,
+                )
+            except Exception as _e:  # noqa: BLE001 - billing must not break send
+                print(f"[cost] video_face_swap record failed: {_e}", flush=True)
             _send_local_video(chat_id_s, str(out))
         except VideoTooLongError as exc:
             send(chat_id_s, f"⚠️ Видео слишком длинное: {exc}")
@@ -1198,6 +1205,11 @@ def _animate_run_single(chat_id: str, engine_mode: str) -> None:
                 return
             cost = caps.cost_for(seconds, resolution)
             send(chat_id, f"✅ Готово. Стоимость ~${cost:.2f}.")
+            try:
+                _uname = _USERNAME_BY_CHAT.get(str(chat_id))
+                _cost.record_cost(chat_id_int, _uname, cost)
+            except Exception as _e:  # noqa: BLE001 - billing must not break send
+                print(f"[cost] single /animate record failed: {_e}", flush=True)
             _send_local_video(chat_id, str(ok[0]))
         except Exception as exc:  # noqa: BLE001
             send(chat_id, f"❌ Ошибка: {translate_exception(exc)}")

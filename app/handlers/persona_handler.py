@@ -9,6 +9,7 @@ import threading
 from pathlib import Path
 from typing import Callable
 
+from app.services.audit import cost_tracker as _user_cost
 from app.services.block_m_common.cost_tracker import CostTracker, DailyLimitExceeded
 from app.services.block_m_common.logging_setup import get_logger, setup_block_m_logging
 from app.services.block_m_common.persona_storage import PersonaStorage
@@ -842,6 +843,10 @@ def handle_me_swap_photo(chat_id: int, args: str) -> None:
                 trigger_word=data.trigger_word,
             )
             await tracker.log_expense("me_swap_photo", result["cost_usd"], data.persona_id)
+            try:
+                _user_cost.record_cost(chat_id, None, result["cost_usd"])
+            except Exception as _e:  # noqa: BLE001 - billing must not break generation
+                logger.warning("cost: per-user record failed: %s", _e)
             return result
 
         try:
@@ -890,6 +895,10 @@ def handle_me_swap_video(chat_id: int, args: str) -> None:
             pipeline = VideoFaceSwapPipeline(client)
             result = await pipeline.swap_video(chat_id, video_url, data)
             await tracker.log_expense("me_swap_video", result["cost_usd"], data.persona_id)
+            try:
+                _user_cost.record_cost(chat_id, None, result["cost_usd"])
+            except Exception as _e:  # noqa: BLE001 - billing must not break generation
+                logger.warning("cost: per-user record failed: %s", _e)
             return result
 
         try:
