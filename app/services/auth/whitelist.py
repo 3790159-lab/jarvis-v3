@@ -87,6 +87,7 @@ def is_allowed(user_id: int) -> bool:
             return True
         has_members = users_store.has_members()
     except Exception:  # noqa: BLE001 - users_store must never harden us into a lockout
+        logger.exception("whitelist: users_store membership check failed; failing open to env gate")
         has_members = False
 
     admin = load_admin_user_id()
