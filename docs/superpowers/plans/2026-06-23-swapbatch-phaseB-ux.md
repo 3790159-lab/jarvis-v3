@@ -62,6 +62,14 @@ echo $SWAPBATCH_ANIMATE_ENABLED   # ожидаем 1; если пусто — ex
 
 ## Этап 1 — Реализм + защита промта
 
+> **СТАТУС 2026-06-23: Stage-1 КОД ГОТОВ на моках (193 теста зелёных, ноль трат).** Реализовано
+> Task 1-5 + расширение из диагностики — **wardrobe-режимы контроля одежды** `preserve|safe|spicy`
+> (дефолт `safe`), т.к. wan-2.6-spicy дорисовывает бельё при пустом negative. `assemble_animate_prompt`
+> теперь принимает `wardrobe=`; добавлены `BatchSession.wardrobe_mode`, `set_wardrobe`,
+> `handle_set_wardrobe`, команда `/swapbatch_set_wardrobe`. Бридж шлёт wardrobe(из сессии)+env-флаги.
+> Коммиты: bce0085, ecf5793, 15f9978, 7215eb8. Бот перезапущен на этом коде (чистый старт).
+> **ОЖИДАЕТ: живой A/B-тест реализма (Task 6, ~$0.75) + проверка wardrobe — пользователь тестит.**
+
 ### Task 1: Чистый модуль сборки промта `prompt_assembly.py`
 
 **Files:**
