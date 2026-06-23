@@ -938,9 +938,17 @@ def _swapbatch_run_phase(
                 _resolution = str(getattr(_sess_q, "resolution", "720p") or "720p")
                 _engine_mode = str(getattr(_sess_q, "video_engine", "spicy") or "spicy")
                 _motion = str(getattr(_sess_q, "motion_prompt", "") or "")
-                _DEFAULT_MOTION = ("gentle natural body movement, subtle motion, "
-                                   "soft cinematic lighting, photorealistic")
-                _prompt = _motion or _DEFAULT_MOTION
+                _wardrobe = str(getattr(_sess_q, "wardrobe_mode", "safe") or "safe")
+                from app.services.block_m2_video.prompt_assembly import assemble_animate_prompt
+                def _envbool(_name, _default):
+                    return _os.getenv(_name, _default).strip().lower() in ("1", "true", "yes", "on")
+                _add_realism = _envbool("SWAPBATCH_REALISM_SUFFIX", "1")
+                _add_negative = _envbool("SWAPBATCH_NEGATIVE", "1")
+                _expansion = _envbool("SWAPBATCH_PROMPT_EXPANSION", "1")
+                _shot = (_os.getenv("SWAPBATCH_SHOT_TYPE", "").strip() or None)
+                _prompt, _negative = assemble_animate_prompt(
+                    _motion, add_realism=_add_realism, add_negative=_add_negative, wardrobe=_wardrobe,
+                )
                 _concurrency = int(_os.getenv("SWAPBATCH_ANIMATE_CONCURRENCY", "2"))
 
                 router = EngineRouter()
@@ -955,7 +963,9 @@ def _swapbatch_run_phase(
                             prompt=_prompt,
                             seconds=_seconds,
                             resolution=_resolution,
-                            negative_prompt=_os.getenv("SWAPBATCH_TEST_NEGATIVE", ""),
+                            negative_prompt=_negative,
+                            enable_prompt_expansion=_expansion,
+                            shot_type=_shot,
                             generation_id=new_generation_id(),
                         )
                         for ph in photos
@@ -4823,6 +4833,15 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
         else:
             _swapbatch_apply_reply(
                 str(chat_id), _h_sp.handle_set_prompt(int(chat_id), query)
+            )
+        return
+    if cmd == "/swapbatch_set_wardrobe":
+        _h_sw, _ = _swapbatch_get_handler()
+        if _h_sw is None:
+            send(str(chat_id), "⚠️ Модуль face-swap недоступен.")
+        else:
+            _swapbatch_apply_reply(
+                str(chat_id), _h_sw.handle_set_wardrobe(int(chat_id), query)
             )
         return
     if cmd == "/swapbatch_animate_go":

@@ -251,6 +251,7 @@ class FaceSwapHandler:
             f"Время: ~{est['minutes']:.0f} мин\n\n"
             f"/swapbatch_animate_go — запустить (платно)\n"
             f"/swapbatch_set_prompt <текст> — задать движение/сцену\n"
+            f"/swapbatch_set_wardrobe preserve|safe|spicy — одежда (дефолт safe)\n"
             f"/swapbatch_set_quality duration=.. resolution=.. — качество\n"
             f"/swapbatch_no — без анимации"
         ))
