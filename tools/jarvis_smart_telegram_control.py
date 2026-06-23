@@ -5695,7 +5695,7 @@ def _check_backend_startup() -> None:
 FRIEND_ALLOWED_COMMANDS: frozenset = frozenset({
     "/animate", "/swapbatch", "/swapbatch_source", "/swapbatch_batch",
     "/swapbatch_go", "/swapbatch_set_quality", "/swapbatch_set_prompt",
-    "/swapbatch_set_wardrobe", "/swapbatch_set_engine",
+    "/swapbatch_set_wardrobe",
     "/swapbatch_animate_yes", "/swapbatch_animate_go", "/swapbatch_animate_no",
     "/swapbatch_animate_custom", "/swapbatch_status", "/swapbatch_cancel",
     "/persona_photo", "/persona_video", "/persona_video_redo", "/persona_redo",
