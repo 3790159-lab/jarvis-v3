@@ -21,7 +21,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -250,3 +250,33 @@ def audit_event(
         logger.warning("audit: write %s failed: %s", event, exc)
     seen.add(user_id)
     _maybe_forward(obj)
+
+
+def read_user_activity(user_id: int, limit: int = 20) -> List[Dict[str, Any]]:
+    """Вернуть последние ``limit`` событий ``user_id`` (новые первыми).
+
+    Сканирует дневные .jsonl от свежих к старым, собирает совпадения, пока не
+    наберёт ``limit``. Битые строки пропускаются.
+    """
+    out: List[Dict[str, Any]] = []
+    d = _audit_dir()
+    if not d.exists():
+        return out
+    for f in sorted(d.glob("*.jsonl"), reverse=True):
+        try:
+            lines = f.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line in reversed(lines):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if obj.get("user_id") == user_id:
+                out.append(obj)
+                if len(out) >= limit:
+                    return out
+    return out
