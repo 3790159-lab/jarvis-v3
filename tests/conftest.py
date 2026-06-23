@@ -28,3 +28,20 @@ def _router_disabled_by_default(monkeypatch):
     ``monkeypatch.setenv("JARVIS_ROUTER_ENABLED", "1")``, which wins.
     """
     monkeypatch.setenv("JARVIS_ROUTER_ENABLED", "0")
+
+
+@pytest.fixture(autouse=True)
+def _isolate_users_file(monkeypatch, tmp_path):
+    """Point the multi-user store at a per-test tmp file so no test can write
+    to the live ``state/users.json``.
+
+    ``users_store._state_file()`` falls back to the *relative* default
+    ``state/users.json`` when ``JARVIS_USERS_FILE`` is unset. Any test that
+    drives ``process_update`` from a non-whitelisted user reaches
+    ``add_pending`` and writes through to that prod file (proven: a stray
+    ``pending`` entry id=999 accumulated request_count=11 from test runs).
+    Cost state (``JARVIS_COST_FILE``) was already isolated per-file; this gives
+    the users store the same guarantee globally. Tests that set their own
+    ``JARVIS_USERS_FILE`` run after this fixture, so their path still wins.
+    """
+    monkeypatch.setenv("JARVIS_USERS_FILE", str(tmp_path / "users.json"))
