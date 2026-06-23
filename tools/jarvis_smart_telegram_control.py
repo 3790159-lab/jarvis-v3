@@ -2778,6 +2778,38 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
             answer_callback_query(cq_id, "🚫 Только для администратора")
             return
 
+    # ── Access requests: admin approve/reject (Фаза 3) ────────────────────────
+    if data.startswith("access:"):
+        # Role-гейт выше уже отсёк friend от admin-callback; это страховка.
+        if not (_is_admin_id(_cq_uid) or str(_cq_uid) == ALLOWED_CHAT_ID):
+            answer_callback_query(cq_id, "🚫 Только для администратора")
+            return
+        _, action, target = data.split(":", 2)
+        target_id = int(target)
+        pend = _users_store.pop_pending(target_id)
+        uname = (pend or {}).get("username")
+        if action == "approve":
+            _users_store.add_friend(
+                target_id, uname, added_by=str(_cq_uid),
+                limit_usd=_users_store.DEFAULT_FRIEND_LIMIT_USD,
+            )
+            answer_callback_query(cq_id, "Добавлен")
+            send(chat_id, f"✅ @{uname or target_id} добавлен (лимит "
+                          f"${_users_store.DEFAULT_FRIEND_LIMIT_USD:.0f}/день).")
+            try:
+                send(str(target_id),
+                     "✅ Тебе открыли доступ к боту! Команды: /swapbatch_source, /animate. "
+                     "Статистика: /my_stats.")
+            except Exception as _e:  # noqa: BLE001
+                print(f"[access] notify approved user failed: {_e}", flush=True)
+        else:  # reject → blocked (тихо игнорить дальше)
+            _users_store.add_friend(target_id, uname, added_by=str(_cq_uid))
+            _users_store.set_status(target_id, "blocked")
+            _users_store.pop_pending(target_id)
+            answer_callback_query(cq_id, "Отклонён")
+            send(chat_id, f"❌ Запрос @{uname or target_id} отклонён.")
+        return
+
     # ── Swapbatch engine choice (Task 9) ──────────────────────────────────────
     if data.startswith("sbeng:"):
         choice = data.split(":", 1)[1]
@@ -5771,6 +5803,14 @@ def _whitelist_gate(upd: Dict[str, Any]) -> bool:
         return True
     if _whitelist.is_allowed(user_id):
         return True
+    # Blocked users: молча отклонены, без REJECT_MESSAGE / pending / пинга админу.
+    try:
+        _rec = next((u for u in _users_store.list_users()
+                     if u["user_id"] == str(user_id)), None)
+        if _rec and _rec.get("status") == "blocked":
+            return False
+    except Exception as _e:  # noqa: BLE001 - never let this break the gate
+        print(f"[access] blocked-check failed: {_e}", flush=True)
     cq = upd.get("callback_query") or {}
     msg = upd.get("message") or upd.get("edited_message") or {}
     username = (

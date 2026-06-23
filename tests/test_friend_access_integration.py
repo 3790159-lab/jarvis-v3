@@ -111,3 +111,62 @@ def test_admin_runs_everything(friend_env):
                                         "command": "/restart_bot", "query": ""}):
         mod.handle("111", "/restart_bot")
     assert handled == ["/restart_bot"]
+
+
+def _cb(uid, chat, data):
+    return {"id": "cq1", "data": data,
+            "from": {"id": uid, "username": "admin"},
+            "message": {"message_id": 7, "chat": {"id": chat}}}
+
+
+def test_admin_approve_adds_friend(friend_env):
+    mod = _get_mod()
+    from app.services.auth import users_store
+    users_store.add_pending(999, "newguy")
+    sent = []
+    with patch.object(mod, "send", lambda c, t, **k: sent.append((str(c), t))), \
+         patch.object(mod, "answer_callback_query", lambda *a, **k: None):
+        mod.handle_callback_query(_cb(111, 111, "access:approve:999"), {})
+    assert users_store.get_role(999) == "friend"
+    assert users_store.get_limit(999) == 5.0
+    assert any(str(c) == "999" for c, _ in sent)  # друг уведомлён
+
+
+def test_admin_reject_blocks(friend_env):
+    mod = _get_mod()
+    from app.services.auth import users_store
+    users_store.add_pending(999, "newguy")
+    with patch.object(mod, "send", lambda c, t, **k: None), \
+         patch.object(mod, "answer_callback_query", lambda *a, **k: None):
+        mod.handle_callback_query(_cb(111, 111, "access:reject:999"), {})
+    assert users_store.get_role(999) is None
+    assert users_store.pop_pending(999) is None  # вынут из pending
+
+
+def test_friend_cannot_use_access_callback(friend_env):
+    mod = _get_mod()
+    from app.services.auth import users_store
+    users_store.add_pending(999, "newguy")
+    answered = []
+    with patch.object(mod, "send", lambda c, t, **k: None), \
+         patch.object(mod, "answer_callback_query",
+                      lambda cid, txt="": answered.append(txt)):
+        # friend (555) пытается сам себя одобрить
+        mod.handle_callback_query(_cb(555, 555, "access:approve:999"), {})
+    assert users_store.get_role(999) is None  # не сработало
+    assert any("админ" in a.lower() for a in answered)
+
+
+def test_blocked_user_silently_dropped(friend_env):
+    mod = _get_mod()
+    from app.services.auth import users_store
+    users_store.add_friend(999, "newguy", added_by="111")
+    users_store.set_status(999, "blocked")
+    sent = []
+    with patch.object(mod, "send",
+                      lambda c, t, reply_markup=None: sent.append((str(c), t))):
+        mod.process_update(_text_update(999, 999, "привет"))
+    from app.services.auth.whitelist import REJECT_MESSAGE
+    # blocked user: НЕ получает REJECT_MESSAGE, админ НЕ пингуется
+    assert not any(REJECT_MESSAGE in t for _, t in sent)
+    assert not any(str(c) == "111" for c, _ in sent)
