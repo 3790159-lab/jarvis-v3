@@ -358,6 +358,25 @@ class FaceSwapHandler:
             generation_id=new_generation_id(),
         )
 
+    def build_quality_keyboard(self, chat_id: int) -> dict:
+        """Caps-aware кнопки длины и разрешения для текущего движка."""
+        from app.services.block_m2_video.engines.capabilities import caps_for
+        sess = self.orchestrator.get(chat_id)
+        caps = caps_for(sess.video_engine if sess else "spicy")
+        dur_row = [{"text": f"{d}с", "callback_data": f"sbq:dur:{d}"}
+                   for d in caps.allowed_durations]
+        res_row = [{"text": r, "callback_data": f"sbq:res:{r}"}
+                   for r in caps.allowed_resolutions]
+        return {"inline_keyboard": [
+            dur_row, res_row,
+            [{"text": "✅ Готово", "callback_data": "sbq:done"}],
+        ]}
+
+    def handle_quality_button(self, chat_id: int, kind: str, value: str) -> HandlerReply:
+        """Тап кнопки → собрать аргумент → существующий handle_set_animate_quality."""
+        arg = f"duration={value}" if kind == "dur" else f"resolution={value}"
+        return self.handle_set_animate_quality(chat_id, arg)
+
     def handle_set_animate_quality(self, chat_id: int, args_text: str) -> HandlerReply:
         """Engine-aware quality setter for the managed animate path: constrains
         duration + resolution to the chosen engine's caps; fps is info-only."""

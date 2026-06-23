@@ -557,3 +557,25 @@ def test_animate_single_request_uses_session_engine_and_quality(tmp_path):
     )
     assert req.mode == "seedance"
     assert req.prompt.startswith("смотрит в камеру")
+
+
+# ── quality/length buttons (Task 13, Этап 3) ─────────────────────────────────
+
+
+def test_quality_keyboard_respects_engine_caps(tmp_path):
+    handler, orch = _make_handler(tmp_path)
+    _seed_swap_done(handler, orch, tmp_path, n=1)
+    handler.handle_set_engine(42, "seedance")  # нет 15с
+    kb = handler.build_quality_keyboard(42)
+    durations = [b["callback_data"] for row in kb["inline_keyboard"] for b in row
+                 if b["callback_data"].startswith("sbq:dur:")]
+    assert "sbq:dur:15" not in durations          # Seedance не предлагает 15с
+    assert "sbq:dur:5" in durations and "sbq:dur:10" in durations
+
+
+def test_quality_callback_applies_via_existing_handler(tmp_path):
+    handler, orch = _make_handler(tmp_path)
+    _seed_swap_done(handler, orch, tmp_path, n=1)
+    reply = handler.handle_quality_button(42, "dur", "10")
+    sess = orch.get(42)
+    assert sess.duration_sec == 10

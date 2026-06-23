@@ -2780,6 +2780,26 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
         reply = _hq.handle_set_engine(int(chat_id), choice)
         answer_callback_query(cq_id, "Движок выбран")
         _swapbatch_apply_reply(chat_id, reply)
+        # Этап 3: follow with caps-aware length/quality buttons.
+        _kbq = _hq.build_quality_keyboard(int(chat_id))
+        send_with_keyboard(
+            chat_id,
+            "📐 Длина и качество (или сразу /swapbatch_animate_yes):",
+            _kbq["inline_keyboard"],
+        )
+        return
+
+    # ── Swapbatch quality/length buttons (Task 13, Этап 3) ────────────────────
+    if data.startswith("sbq:"):
+        parts = data.split(":")
+        _hq, _ = _swapbatch_get_handler()
+        if parts[1] == "done":
+            answer_callback_query(cq_id, "Готово")
+            _swapbatch_apply_reply(chat_id, _hq.handle_animate_yes(int(chat_id)))
+            return
+        reply = _hq.handle_quality_button(int(chat_id), parts[1], parts[2])
+        answer_callback_query(cq_id, f"{parts[1]}={parts[2]}")
+        _swapbatch_apply_reply(chat_id, reply)
         return
 
     # ── Standalone /animate engine choice (Task 11) ───────────────────────────
