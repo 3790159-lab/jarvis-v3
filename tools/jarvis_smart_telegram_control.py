@@ -1000,13 +1000,53 @@ def _swapbatch_run_phase(
                         username=_USERNAME_BY_CHAT.get(chat_id_s),
                     )
                 )
-            else:  # confirm / apply_partial / apply_first — custom prompts deferred on managed path
-                send(
-                    chat_id_s,
-                    "🎬 Кастомные промпты для видео пока недоступны на новом движке. "
-                    "Используй /swapbatch_animate_yes → /swapbatch_animate_go.",
+            else:  # confirm / apply_partial / apply_first — per-photo custom prompts
+                import os as _os
+                from app.services.block_m2_video.engines.router import EngineRouter
+                from app.handlers.face_swap_handler import make_custom_animate_fn
+
+                _hq, _orch_q = _swapbatch_get_handler()
+                _sess_q = _orch_q.get(chat_id_int) if _orch_q else None
+                _seconds = int(getattr(_sess_q, "duration_sec", 10) or 10)
+                _resolution = str(getattr(_sess_q, "resolution", "720p") or "720p")
+                _engine_mode = str(getattr(_sess_q, "video_engine", "spicy") or "spicy")
+                _wardrobe = str(getattr(_sess_q, "wardrobe_mode", "safe") or "safe")
+                def _envbool(_name, _default):
+                    return _os.getenv(_name, _default).strip().lower() in ("1", "true", "yes", "on")
+                _add_realism = _envbool("SWAPBATCH_REALISM_SUFFIX", "1")
+                _add_negative = _envbool("SWAPBATCH_NEGATIVE", "1")
+                _expansion = _envbool("SWAPBATCH_PROMPT_EXPANSION", "1")
+                _shot = (_os.getenv("SWAPBATCH_SHOT_TYPE", "").strip() or None)
+                _concurrency = int(_os.getenv("SWAPBATCH_ANIMATE_CONCURRENCY", "2"))
+
+                router = EngineRouter()
+                engine = _aio.run(router.select(_engine_mode))  # spicy -> WaveSpeed
+
+                # Per-photo prompts from sess.custom_prompts (Задача 2/4); the
+                # closure runs them through animate_batch (concurrency + 429
+                # sweep) and the run goes through the SAME money-safe runner as
+                # animate_go (check_limit + caps billing + RIFE smooth).
+                _animate_fn = make_custom_animate_fn(
+                    engine=engine,
+                    custom_prompts=getattr(_sess_q, "custom_prompts", None),
+                    chat_id=chat_id_int,
+                    seconds=_seconds,
+                    resolution=_resolution,
+                    wardrobe=_wardrobe,
+                    add_realism=_add_realism,
+                    add_negative=_add_negative,
+                    enable_prompt_expansion=_expansion,
+                    shot_type=_shot,
+                    concurrency=_concurrency,
+                    progress_cb=_progress,
                 )
-                reply = None
+                reply = _aio.run(
+                    handler.run_animate_batch_phase(
+                        chat_id_int, _animate_fn, progress_cb=_progress,
+                        user_id=chat_id_int,
+                        username=_USERNAME_BY_CHAT.get(chat_id_s),
+                    )
+                )
             if reply is not None:
                 _swapbatch_apply_reply(chat_id_s, reply)
             # After a successful swap, offer the engine-choice menu (Task 9).

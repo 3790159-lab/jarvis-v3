@@ -190,6 +190,100 @@ def animate_cost_estimate(
     }
 
 
+def build_custom_animate_reqs(
+    photos,
+    prompt_pairs,
+    *,
+    chat_id: int,
+    seconds: int,
+    resolution: str,
+    enable_prompt_expansion: bool,
+    shot_type: str | None,
+    id_factory,
+):
+    """Zip swapped ``photos`` with per-photo ``(prompt, negative)`` pairs into
+    VideoRequests, order-locked: ``photos[i]`` → ``reqs[i]`` → ``prompt_pairs[i]``.
+
+    ``id_factory`` supplies each request's ``generation_id`` (injected so tests
+    stay deterministic; production passes ``new_generation_id``). The
+    non-prompt fields mirror the default-path req exactly so the only difference
+    between the shared and the custom path is the prompt source.
+    """
+    from app.services.block_m2_video.engines.engine_protocol import VideoRequest
+    return [
+        VideoRequest(
+            persona_id=f"swapbatch_{chat_id}",
+            persona_name="swapbatch",
+            input_image_path=ph,
+            prompt=prompt,
+            seconds=seconds,
+            resolution=resolution,
+            negative_prompt=negative,
+            enable_prompt_expansion=enable_prompt_expansion,
+            shot_type=shot_type,
+            generation_id=id_factory(),
+        )
+        for ph, (prompt, negative) in zip(photos, prompt_pairs)
+    ]
+
+
+def make_custom_animate_fn(
+    *,
+    engine,
+    custom_prompts,
+    chat_id: int,
+    seconds: int,
+    resolution: str,
+    wardrobe: str,
+    add_realism: bool,
+    add_negative: bool,
+    enable_prompt_expansion: bool,
+    shot_type: str | None,
+    concurrency: int,
+    progress_cb=None,
+    id_factory=None,
+    animate_batch_fn=None,
+):
+    """Build the ``animate_fn(photos, cancel_check)`` for the per-photo custom
+    flow (Variant A).
+
+    Each swapped photo gets its OWN prompt from ``custom_prompts`` (via the pure
+    :func:`assemble_custom_animate_prompts`), then all reqs run through
+    ``animate_batch`` (concurrency + 429-sweep) — the SAME engine mechanism as
+    the default path, never the old sequential per-photo runner. ``id_factory``
+    and ``animate_batch_fn`` are injectable for tests; production uses the real
+    ``new_generation_id`` / ``animate_batch``.
+    """
+    from app.services.block_m2_video.prompt_assembly import (
+        assemble_custom_animate_prompts,
+    )
+    if animate_batch_fn is None:
+        from app.services.block_m2_video.batch_animate import animate_batch
+        animate_batch_fn = animate_batch
+    if id_factory is None:
+        from app.services.block_m2_video.engines.engine_protocol import (
+            new_generation_id,
+        )
+        id_factory = new_generation_id
+
+    async def _animate_fn(photos, cancel_check):
+        pairs = assemble_custom_animate_prompts(
+            photos, custom_prompts,
+            add_realism=add_realism, add_negative=add_negative, wardrobe=wardrobe,
+        )
+        reqs = build_custom_animate_reqs(
+            photos, pairs, chat_id=chat_id, seconds=seconds, resolution=resolution,
+            enable_prompt_expansion=enable_prompt_expansion, shot_type=shot_type,
+            id_factory=id_factory,
+        )
+        return await animate_batch_fn(
+            engine, reqs, concurrency=concurrency,
+            progress_cb=progress_cb, cancel_check=cancel_check,
+        )
+
+    return _animate_fn
+
+
 class FaceSwapHandler:
     """Russian-language command handlers for /swapbatch_*.
 
