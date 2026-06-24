@@ -109,6 +109,12 @@ class BatchSession:
     video_engine: str = "spicy"   # "spicy" | "seedance"
     motion_prompt: str = ""        # shared batch motion prompt; "" -> engine default
     wardrobe_mode: str = "safe"    # clothing control: preserve | safe | spicy
+    # Задача 3: per-batch RIFE smooth flag. Money-safe default OFF; reset to
+    # OFF on every new batch (fresh session in begin_source) so multi-user
+    # chats never inherit another user's enabled smooth. multiplier reserved
+    # for Задача 4 (only ×2 today → 1 = native, no interpolation).
+    smooth_enabled: bool = False
+    smooth_multiplier: int = 1
     created_at_unix: float = field(default_factory=time.time)
     updated_at_unix: float = field(default_factory=time.time)
     last_error: str | None = None
@@ -143,6 +149,8 @@ class BatchSession:
             video_engine=str(data.get("video_engine", "spicy")),
             motion_prompt=str(data.get("motion_prompt", "")),
             wardrobe_mode=str(data.get("wardrobe_mode", "safe") or "safe"),
+            smooth_enabled=bool(data.get("smooth_enabled", False)),
+            smooth_multiplier=int(data.get("smooth_multiplier", 1)),
             created_at_unix=float(data.get("created_at_unix", time.time())),
             updated_at_unix=float(data.get("updated_at_unix", time.time())),
             last_error=data.get("last_error"),
@@ -416,6 +424,22 @@ class BatchOrchestrator:
             if sess is None:
                 return
             sess.video_engine = engine_mode
+            self._touch(sess)
+            self._persist(sess)
+
+    def set_smooth(self, chat_id: int, enabled: bool, multiplier: int = 1) -> None:
+        """Set the per-batch RIFE smooth flag. No-op without a session.
+
+        Money-safe: smooth never engages unless explicitly enabled here, and a
+        new batch (begin_source) resets it back to OFF via a fresh session.
+        ``multiplier`` is reserved for Задача 4 (only ×2 today → defaults 1).
+        """
+        with self._lock:
+            sess = self._sessions.get(chat_id)
+            if sess is None:
+                return
+            sess.smooth_enabled = bool(enabled)
+            sess.smooth_multiplier = int(multiplier)
             self._touch(sess)
             self._persist(sess)
 
