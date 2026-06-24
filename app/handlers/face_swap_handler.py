@@ -11,6 +11,7 @@ All user-visible strings are in Russian to match the Phase C UX style.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from dataclasses import dataclass
@@ -1056,6 +1057,16 @@ class FaceSwapHandler:
             created no billable RIFE charge, so it is not counted).
 
         Returns the delivery list (smoothed where it worked, original otherwise).
+
+        RIFE is OPTIONAL polish and must never degrade base-video delivery, so:
+          * each video has a hard per-video timeout (SWAPBATCH_RIFE_TIMEOUT_SEC,
+            default 90s); a slower/hung interpolation is CANCELLED via
+            ``asyncio.wait_for`` (tearing down the underlying request) and that
+            video's un-smoothed original is delivered instead;
+          * videos are interpolated CONCURRENTLY (Semaphore-capped at
+            SWAPBATCH_ANIMATE_CONCURRENCY, default 2), so one hung video never
+            holds the rest of the batch hostage. ``gather`` preserves order, so
+            ``delivered[i]`` always corresponds to ``videos[i]``.
         """
         if not videos:
             return videos
@@ -1067,19 +1078,35 @@ class FaceSwapHandler:
                 exc, len(videos),
             )
             return videos
-        delivered: list[Path] = []
-        succeeded = 0
-        for video in videos:
-            try:
-                smoothed = await client.interpolate(Path(video), num_frames=1)
-                delivered.append(smoothed)
-                succeeded += 1
-            except Exception as exc:  # noqa: BLE001 — never drop a user's video
-                logger.warning(
-                    "RIFE interpolation failed for %s: %s — delivering original",
-                    getattr(video, "name", video), exc,
-                )
-                delivered.append(video)
+        timeout = self._envf("SWAPBATCH_RIFE_TIMEOUT_SEC", 90.0)
+        concurrency = max(1, int(os.getenv("SWAPBATCH_ANIMATE_CONCURRENCY", "2")))
+        sem = asyncio.Semaphore(concurrency)
+
+        async def _one(video):
+            """Return (delivered_path, smoothed?) — never raises, never drops."""
+            async with sem:
+                try:
+                    smoothed = await asyncio.wait_for(
+                        client.interpolate(Path(video), num_frames=1),
+                        timeout=timeout,
+                    )
+                    return smoothed, True
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "RIFE timed out (>%.0fs) for %s — delivering original",
+                        timeout, getattr(video, "name", video),
+                    )
+                    return video, False
+                except Exception as exc:  # noqa: BLE001 — never drop a user's video
+                    logger.warning(
+                        "RIFE interpolation failed for %s: %s — delivering original",
+                        getattr(video, "name", video), exc,
+                    )
+                    return video, False
+
+        results = await asyncio.gather(*[_one(v) for v in videos])
+        delivered = [path for path, _ok in results]      # gather keeps order
+        succeeded = sum(1 for _path, ok in results if ok)
         # Bill only the videos that were really smoothed (Задача 2 formula/rate).
         self._bill_interpolated_videos(succeeded, seconds, user_id, username)
         return delivered
