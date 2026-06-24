@@ -6,6 +6,7 @@ from app.services.block_m2_video.prompt_assembly import (
     REALISM_SUFFIX,
     WARDROBE_MODES,
     assemble_animate_prompt,
+    assemble_custom_animate_prompts,
     clamp_prompt,
 )
 
@@ -97,3 +98,79 @@ def test_clamp_noop_within_cap():
     cut, flag = clamp_prompt(text, 100)
     assert cut == "short"
     assert flag is False
+
+
+# ── Задача 2: per-photo custom prompt assembly (pure, no engine/billing) ───────
+# Variant A's ONLY difference from the default path is the prompt SOURCE: each
+# swapped photo gets its own motion prompt from sess.custom_prompts (1-based
+# display position), falling back to DEFAULT_MOTION when absent/empty. Order of
+# the returned list must track the photo order exactly (result[i-1] == photo i).
+
+
+def _photos(n):
+    # the helper only needs the count/order; contents are irrelevant
+    return [f"photo_{i}.png" for i in range(n)]
+
+
+def test_custom_all_prompts_each_gets_its_own():
+    custom = {1: "walking", 2: "dancing", 3: "jumping"}
+    reqs = assemble_custom_animate_prompts(
+        _photos(3), custom, add_realism=False, add_negative=False, wardrobe="spicy"
+    )
+    assert len(reqs) == 3
+    assert reqs[0][0] == "walking"
+    assert reqs[1][0] == "dancing"
+    assert reqs[2][0] == "jumping"
+
+
+def test_custom_empty_entry_falls_back_to_default():
+    # photo 2 has no prompt (None) → DEFAULT_MOTION; others keep their own.
+    custom = {1: "walking", 2: None, 3: "jumping"}
+    reqs = assemble_custom_animate_prompts(
+        _photos(3), custom, add_realism=False, add_negative=False, wardrobe="spicy"
+    )
+    assert reqs[0][0] == "walking"
+    assert reqs[1][0] == DEFAULT_MOTION   # fallback, not duplicated
+    assert reqs[2][0] == "jumping"
+
+
+def test_custom_no_prompts_all_default():
+    # No custom prompts at all → every photo animates with DEFAULT_MOTION,
+    # identical to the shared-default behaviour.
+    reqs = assemble_custom_animate_prompts(
+        _photos(3), {}, add_realism=False, add_negative=False, wardrobe="spicy"
+    )
+    assert [r[0] for r in reqs] == [DEFAULT_MOTION, DEFAULT_MOTION, DEFAULT_MOTION]
+
+
+def test_custom_none_map_all_default():
+    # custom_prompts may be None entirely (never submitted) — still safe.
+    reqs = assemble_custom_animate_prompts(
+        _photos(2), None, add_realism=False, add_negative=False, wardrobe="spicy"
+    )
+    assert [r[0] for r in reqs] == [DEFAULT_MOTION, DEFAULT_MOTION]
+
+
+def test_custom_order_does_not_drift():
+    # The prompt for photo #2 must land at reqs[1], never shifted.
+    custom = {2: "ONLY_SECOND"}
+    reqs = assemble_custom_animate_prompts(
+        _photos(3), custom, add_realism=False, add_negative=False, wardrobe="spicy"
+    )
+    assert reqs[0][0] == DEFAULT_MOTION
+    assert reqs[1][0] == "ONLY_SECOND"
+    assert reqs[2][0] == DEFAULT_MOTION
+
+
+def test_custom_wardrobe_realism_negative_applied_per_req():
+    custom = {1: "walking", 2: "dancing"}
+    reqs = assemble_custom_animate_prompts(
+        _photos(2), custom, add_realism=True, add_negative=True, wardrobe="preserve"
+    )
+    for prompt, negative in reqs:
+        # realism appended (custom motion present) ...
+        assert REALISM_SUFFIX in prompt
+        # ... wardrobe anchor + negative applied uniformly to every photo
+        assert "keeping original clothing" in prompt
+        assert default_negative_prompt() in negative
+        assert "bra" in negative

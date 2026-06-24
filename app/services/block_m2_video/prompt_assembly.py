@@ -70,6 +70,38 @@ def assemble_animate_prompt(
     return (prompt, negative)
 
 
+def assemble_custom_animate_prompts(
+    photos,
+    custom_prompts,
+    *,
+    add_realism: bool,
+    add_negative: bool,
+    wardrobe: str = "safe",
+) -> list[tuple[str, str]]:
+    """Per-photo ``(prompt, negative)`` for the custom-prompts flow (Variant A).
+
+    The ONLY difference from the shared-default path is the prompt source: each
+    swapped photo gets its own motion prompt from ``custom_prompts`` keyed by
+    1-based display position. A missing/None/empty entry falls back to
+    ``DEFAULT_MOTION`` via :func:`assemble_animate_prompt` (the fallback lives
+    there — it is not duplicated here).
+
+    ``result[i - 1]`` corresponds to photo ``i`` in ``photos`` order, so the
+    per-photo prompt can never drift relative to the swapped-photo list. Pure:
+    no engine, no billing, no I/O — just prompt assembly.
+    """
+    custom = custom_prompts or {}
+    return [
+        assemble_animate_prompt(
+            custom.get(pos) or "",
+            add_realism=add_realism,
+            add_negative=add_negative,
+            wardrobe=wardrobe,
+        )
+        for pos, _photo in enumerate(photos, start=1)
+    ]
+
+
 def clamp_prompt(text: str, cap: int) -> tuple[str, bool]:
     if len(text) <= cap:
         return (text, False)
