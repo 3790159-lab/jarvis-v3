@@ -850,6 +850,12 @@ class FaceSwapHandler:
                 _cost.record_cost(user_id, username, amount)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("cost: record_cost failed: %s", exc)
+        # RIFE smoothing (Этап 4): runs AFTER the animate billing, only when the
+        # batch opted in. Money-safe — never drops a video, bills only successes.
+        if sess.smooth_enabled and videos:
+            videos = await self._interpolate_batch(
+                videos, seconds, user_id, username
+            )
         self.orchestrator.prune(chat_id)
         return HandlerReply(text="\n".join(lines), videos=videos)
 
@@ -905,6 +911,59 @@ class FaceSwapHandler:
             _cost.record_cost(user_id, username, amount)
         except Exception as exc:  # noqa: BLE001 - cost tracking must not raise
             logger.warning("cost: RIFE record_cost failed: %s", exc)
+
+    def _make_rife_client(self):
+        """Construct the WaveSpeed RIFE client (lazy: only when smooth is on).
+
+        Isolated in a tiny factory so the smooth-off path never imports/builds
+        the client (which requires WAVESPEED_API_KEY) and so tests can inject a
+        fake without monkeypatching module globals.
+        """
+        from app.services.block_m2_video.engines.wavespeed_rife_client import (
+            WaveSpeedRifeClient,
+        )
+        return WaveSpeedRifeClient()
+
+    async def _interpolate_batch(
+        self, videos: list[Path], seconds: int,
+        user_id: int | None, username: str | None,
+    ) -> list[Path]:
+        """Smooth each video via WaveSpeed RIFE (Этап 4). Money-safe by design.
+
+        Contract — interpolation NEVER deprives the user of a video:
+          * a per-video RIFE/litterbox failure delivers that video's UN-smoothed
+            ORIGINAL instead of dropping it, and never aborts the batch;
+          * only videos that were actually smoothed are billed (a failed video
+            created no billable RIFE charge, so it is not counted).
+
+        Returns the delivery list (smoothed where it worked, original otherwise).
+        """
+        if not videos:
+            return videos
+        try:
+            client = self._make_rife_client()
+        except Exception as exc:  # noqa: BLE001 — no client (e.g. missing key)
+            logger.warning(
+                "RIFE unavailable (%s) — delivering %d un-smoothed originals",
+                exc, len(videos),
+            )
+            return videos
+        delivered: list[Path] = []
+        succeeded = 0
+        for video in videos:
+            try:
+                smoothed = await client.interpolate(Path(video), num_frames=1)
+                delivered.append(smoothed)
+                succeeded += 1
+            except Exception as exc:  # noqa: BLE001 — never drop a user's video
+                logger.warning(
+                    "RIFE interpolation failed for %s: %s — delivering original",
+                    getattr(video, "name", video), exc,
+                )
+                delivered.append(video)
+        # Bill only the videos that were really smoothed (Задача 2 formula/rate).
+        self._bill_interpolated_videos(succeeded, seconds, user_id, username)
+        return delivered
 
     async def run_animate_phase(
         self,
