@@ -800,6 +800,31 @@ class FaceSwapHandler:
         except Exception as exc:  # noqa: BLE001 - cost tracking must not raise
             logger.warning("cost: record_cost failed: %s", exc)
 
+    def _bill_interpolated_videos(
+        self, succeeded: int, seconds: int,
+        user_id: int | None, username: str | None,
+    ) -> None:
+        """Record RIFE interpolation cost for SUCCESSFULLY smoothed videos only.
+
+        Charge = succeeded × max(1, seconds) × rate, where ``seconds`` is the
+        input video duration (already known from the animate phase — not
+        re-measured) and ``rate`` is SWAPBATCH_RIFE_USD_PER_SEC (default $0.01,
+        WaveSpeed's per-input-second price). The 1s floor mirrors WaveSpeed's
+        minimum charge so we never under-bill below what we paid.
+
+        Best-effort: a ledger failure must never break batch delivery, so all
+        exceptions are swallowed (same contract as :meth:`_bill_completed_videos`).
+        """
+        if user_id is None or succeeded <= 0:
+            return
+        rate = self._envf("SWAPBATCH_RIFE_USD_PER_SEC", 0.01)
+        billable_seconds = max(1, seconds)
+        amount = succeeded * billable_seconds * rate
+        try:
+            _cost.record_cost(user_id, username, amount)
+        except Exception as exc:  # noqa: BLE001 - cost tracking must not raise
+            logger.warning("cost: RIFE record_cost failed: %s", exc)
+
     async def run_animate_phase(
         self,
         chat_id: int,
