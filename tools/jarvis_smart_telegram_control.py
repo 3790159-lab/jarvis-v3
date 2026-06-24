@@ -972,6 +972,10 @@ def _swapbatch_run_phase(
                 router = EngineRouter()
                 engine = _aio.run(router.select(_engine_mode))  # spicy -> WaveSpeed
 
+                # Shared per-index reason sink: animate_batch fills it, the
+                # report builder reads it to tell the user WHY a frame failed.
+                _animate_errs: dict[int, str] = {}
+
                 async def _animate_fn(photos, cancel_check):
                     reqs = [
                         VideoRequest(
@@ -991,6 +995,7 @@ def _swapbatch_run_phase(
                     return await animate_batch(
                         engine, reqs, concurrency=_concurrency,
                         progress_cb=_progress, cancel_check=cancel_check,
+                        errors_out=_animate_errs,
                     )
 
                 reply = _aio.run(
@@ -998,6 +1003,7 @@ def _swapbatch_run_phase(
                         chat_id_int, _animate_fn, progress_cb=_progress,
                         user_id=chat_id_int,
                         username=_USERNAME_BY_CHAT.get(chat_id_s),
+                        animate_errors=_animate_errs,
                     )
                 )
             else:  # confirm / apply_partial / apply_first — per-photo custom prompts
@@ -1026,6 +1032,7 @@ def _swapbatch_run_phase(
                 # closure runs them through animate_batch (concurrency + 429
                 # sweep) and the run goes through the SAME money-safe runner as
                 # animate_go (check_limit + caps billing + RIFE smooth).
+                _animate_errs: dict[int, str] = {}
                 _animate_fn = make_custom_animate_fn(
                     engine=engine,
                     custom_prompts=getattr(_sess_q, "custom_prompts", None),
@@ -1039,12 +1046,14 @@ def _swapbatch_run_phase(
                     shot_type=_shot,
                     concurrency=_concurrency,
                     progress_cb=_progress,
+                    errors_out=_animate_errs,
                 )
                 reply = _aio.run(
                     handler.run_animate_batch_phase(
                         chat_id_int, _animate_fn, progress_cb=_progress,
                         user_id=chat_id_int,
                         username=_USERNAME_BY_CHAT.get(chat_id_s),
+                        animate_errors=_animate_errs,
                     )
                 )
             if reply is not None:

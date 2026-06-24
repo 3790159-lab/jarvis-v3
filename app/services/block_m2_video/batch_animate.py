@@ -36,23 +36,33 @@ async def animate_batch(
     progress_cb=None,
     cancel_check=None,
     sweep_pause: float = 2.0,
+    errors_out: dict[int, str] | None = None,
 ) -> list[Path | None]:
+    """Run N generations, money-safe. If ``errors_out`` is given, the raw failure
+    reason for each index that ends up with NO video (terminal, or a transient
+    that survives the sweep) is recorded there so callers can surface WHY a frame
+    failed (e.g. Seedance E005 censorship). Recovered frames leave no entry.
+    """
     total = len(requests)
     results: list[Path | None] = [None] * total
     transient_idxs: list[int] = []
     sem = asyncio.Semaphore(max(1, concurrency))
     completed = 0
 
+    def _record(idx: int, reason: str) -> None:
+        if errors_out is not None:
+            errors_out[idx] = reason
+
     async def _attempt(idx: int, req):
         try:
             res = await engine.generate(req)
-            return res.output_path, False
+            return res.output_path, False, ""
         except TransientVideoError as exc:
             logger.warning("animate idx=%d transient: %s", idx, exc)
-            return None, True
+            return None, True, str(exc)
         except Exception as exc:  # noqa: BLE001 — terminal, do not retry
             logger.warning("animate idx=%d terminal: %s", idx, exc)
-            return None, False
+            return None, False, str(exc)
 
     async def _one(idx: int, req) -> None:
         nonlocal completed
@@ -61,10 +71,12 @@ async def animate_batch(
         async with sem:
             if cancel_check and cancel_check():
                 return
-            path, transient = await _attempt(idx, req)
+            path, transient, reason = await _attempt(idx, req)
         results[idx] = path
         if transient:
-            transient_idxs.append(idx)
+            transient_idxs.append(idx)        # reason recorded later iff sweep fails
+        elif path is None:
+            _record(idx, reason)              # terminal — record now
         # Safe under asyncio's cooperative model: no await between increment and use.
         completed += 1
         _fire(progress_cb, "animate_progress",
@@ -78,8 +90,10 @@ async def animate_batch(
             break
         if sweep_pause > 0:
             await asyncio.sleep(sweep_pause)
-        path, _ = await _attempt(idx, requests[idx])
+        path, _, reason = await _attempt(idx, requests[idx])
         if path is not None:
             results[idx] = path
+        else:
+            _record(idx, reason)              # transient survived the sweep
         _fire(progress_cb, "animate_retry", {"index": idx, "ok": path is not None})
     return results

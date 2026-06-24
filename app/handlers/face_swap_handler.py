@@ -34,6 +34,11 @@ from app.services.block_m2_face_swap.batch_orchestrator import (
 )
 from app.services.audit import cost_tracker as _cost
 from app.services.auth.access_control import check_limit
+from app.services.auth.users_store import get_role
+from app.services.block_m2_video.animate_failures import (
+    detailed_failure_lines,
+    friendly_failure_lines,
+)
 from app.services.block_m2_face_swap.cost_estimator import (
     animate_enabled,
     format_cost_report_ru,
@@ -244,6 +249,7 @@ def make_custom_animate_fn(
     progress_cb=None,
     id_factory=None,
     animate_batch_fn=None,
+    errors_out: dict | None = None,
 ):
     """Build the ``animate_fn(photos, cancel_check)`` for the per-photo custom
     flow (Variant A).
@@ -277,10 +283,15 @@ def make_custom_animate_fn(
             enable_prompt_expansion=enable_prompt_expansion, shot_type=shot_type,
             id_factory=id_factory,
         )
-        return await animate_batch_fn(
-            engine, reqs, concurrency=concurrency,
+        kwargs = dict(
+            concurrency=concurrency,
             progress_cb=progress_cb, cancel_check=cancel_check,
         )
+        if errors_out is not None:
+            # Only thread when requested so test fakes with the old signature
+            # (no errors_out param) keep working.
+            kwargs["errors_out"] = errors_out
+        return await animate_batch_fn(engine, reqs, **kwargs)
 
     return _animate_fn
 
@@ -923,8 +934,15 @@ class FaceSwapHandler:
         *,
         user_id: int | None = None,
         username: str | None = None,
+        animate_errors: dict | None = None,
     ) -> HandlerReply:
-        """Paid runner: call confirm_animate_batch and bill successful videos."""
+        """Paid runner: call confirm_animate_batch and bill successful videos.
+
+        ``animate_errors`` is the per-index raw-reason dict that ``animate_batch``
+        fills via its ``errors_out`` hook (same object, threaded by the bot). When
+        present and a frame failed, the caller learns WHY: a friend sees a grouped
+        friendly reason (no raw codes), an admin sees concrete per-index errors.
+        """
         sess0 = self.orchestrator.get(chat_id)
         seconds = sess0.duration_sec if sess0 else 10
         resolution = sess0.resolution if sess0 else "720p"
@@ -962,7 +980,7 @@ class FaceSwapHandler:
         )
         lines = [f"🎬 Animate завершён: {succeeded} видео"]
         if failed:
-            lines.append(f"  ⚠️ {failed} не удалось")
+            lines.extend(self._failure_lines(failed, animate_errors, user_id))
         from app.services.block_m2_video.engines.capabilities import caps_for
         amount = succeeded * caps_for(engine_mode).cost_for(seconds, resolution)
         if user_id is not None and amount > 0:
@@ -978,6 +996,34 @@ class FaceSwapHandler:
             )
         self.orchestrator.prune(chat_id)
         return HandlerReply(text="\n".join(lines), videos=videos)
+
+    @staticmethod
+    def _failure_lines(
+        failed: int, animate_errors: dict | None, user_id: int | None
+    ) -> list[str]:
+        """Build the failure tail of the animate report.
+
+        With reasons available: friend → grouped friendly text (no raw codes),
+        admin → concrete per-index raw errors. Any failures without a recorded
+        reason fall back to a bare count so nothing is silently hidden.
+        """
+        if not animate_errors:
+            return [f"  ⚠️ {failed} не удалось"]
+        is_admin = False
+        if user_id is not None:
+            try:
+                is_admin = get_role(user_id) == "admin"
+            except Exception:  # noqa: BLE001 — role lookup must never break the report
+                is_admin = False
+        lines = (
+            detailed_failure_lines(animate_errors)
+            if is_admin
+            else friendly_failure_lines(animate_errors)
+        )
+        unknown = failed - len(animate_errors)
+        if unknown > 0:
+            lines.append(f"  ⚠️ ещё {unknown} не удалось (причина не записана)")
+        return lines
 
     @staticmethod
     def _envf(name: str, default: float) -> float:
