@@ -623,6 +623,31 @@ class FaceSwapHandler:
             prompt = custom.get(i)
             lines.append(f"  {i}. {prompt}" if prompt else f"  {i}. (по умолчанию)")
         lines.append("")
+        # Cost gate BEFORE the paid confirm step: the custom flow reuses the same
+        # animate_cost_estimate as /swapbatch_animate_yes, so the quoted sum
+        # (caps.cost_for + RIFE surcharge when smooth is on) equals what the
+        # custom run will actually bill — no flat rate, no quote-vs-charge drift.
+        if sess is not None and photo_count > 0:
+            est = animate_cost_estimate(
+                swapped_count=photo_count,
+                seconds=sess.duration_sec,
+                resolution=sess.resolution,
+                engine_mode=sess.video_engine,
+                smooth_enabled=sess.smooth_enabled,
+            )
+            smooth_line = (
+                f"🪶 Плавность 48fps (RIFE): +${est['rife_surcharge_usd']:.2f}\n"
+                if est["rife_surcharge_usd"] > 0 else ""
+            )
+            lines.append(
+                f"💰 {est['display_name']}: {est['count']} фото × "
+                f"{est['seconds']}с × {est['resolution']}\n"
+                f"Стоимость: ~${est['total_usd']:.2f} "
+                f"(${est['per_usd']:.2f}/видео)\n"
+                f"{smooth_line}"
+                f"Время: ~{est['minutes']:.0f} мин"
+            )
+            lines.append("")
 
         mi = result.mismatch_info
         if mi and mi["kind"] == "too_few":
