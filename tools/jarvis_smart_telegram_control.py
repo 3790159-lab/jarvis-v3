@@ -1143,7 +1143,7 @@ def _animate_photo_intercept(chat_id: str, msg: Dict[str, Any]) -> bool:
         return True
     pend["photo"] = local
     _hq, _ = _swapbatch_get_handler()
-    kb = _hq.build_engine_keyboard() if _hq else {"inline_keyboard": []}
+    kb = _hq.build_engine_keyboard(show_smooth=False) if _hq else {"inline_keyboard": []}
     # Distinct callback prefix for the standalone flow (anim: vs batch sbeng:).
     for row in kb["inline_keyboard"]:
         for b in row:

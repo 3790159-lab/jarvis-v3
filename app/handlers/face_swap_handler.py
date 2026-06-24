@@ -351,24 +351,33 @@ class FaceSwapHandler:
         return HandlerReply(text=f"✅ Режим одежды: {mode} — {labels[mode]}.")
 
     @staticmethod
-    def build_engine_keyboard(smooth_enabled: bool = False) -> dict:
+    def build_engine_keyboard(
+        smooth_enabled: bool = False, show_smooth: bool = True
+    ) -> dict:
         """Inline-меню выбора движка после свапа. Seedance с пометкой censored.
 
         ``smooth_enabled`` рисует кнопку-тоггл плавности (RIFE) с текущим
         состоянием: callback flips on⇄off по образцу sbeng:*.
+
+        ``show_smooth=False`` полностью прячет кнопку плавности — для
+        standalone /animate, где нет batch-сессии и тоггл был бы мёртвым.
         """
         from app.services.block_m2_video.engines.capabilities import (
             WAVESPEED_CAPS, SEEDANCE_CAPS,
         )
         smooth_state = "ВКЛ" if smooth_enabled else "ВЫКЛ"
         smooth_cb = "sbsmooth:off" if smooth_enabled else "sbsmooth:on"
-        return {"inline_keyboard": [
+        rows = [
             [{"text": f"🎬 {WAVESPEED_CAPS.display_name}", "callback_data": "sbeng:spicy"}],
             [{"text": f"🎬 {SEEDANCE_CAPS.display_name} · censored (SFW)",
               "callback_data": "sbeng:seedance"}],
-            [{"text": f"🪶 Плавность 48fps: {smooth_state}", "callback_data": smooth_cb}],
-            [{"text": "🚫 Без анимации", "callback_data": "sbeng:none"}],
-        ]}
+        ]
+        if show_smooth:
+            rows.append(
+                [{"text": f"🪶 Плавность 48fps: {smooth_state}", "callback_data": smooth_cb}]
+            )
+        rows.append([{"text": "🚫 Без анимации", "callback_data": "sbeng:none"}])
+        return {"inline_keyboard": rows}
 
     def handle_smooth_button(self, chat_id: int, enabled: bool) -> dict:
         """Тап кнопки плавности → set_smooth (Задача 3) → перерисованное меню.

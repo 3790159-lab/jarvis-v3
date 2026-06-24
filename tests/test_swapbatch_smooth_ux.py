@@ -59,6 +59,10 @@ def _smooth_button(kb: dict) -> dict:
     raise AssertionError("no smooth toggle button in keyboard")
 
 
+def _has_smooth_button(kb: dict) -> bool:
+    return any(b["callback_data"].startswith("sbsmooth:") for b in _buttons(kb))
+
+
 # ── keyboard rendering ────────────────────────────────────────────────────────
 
 
@@ -81,6 +85,26 @@ def test_engine_keyboard_default_is_off():
     # No-arg call (existing callers) must keep working and show OFF.
     btn = _smooth_button(FaceSwapHandler.build_engine_keyboard())
     assert "ВЫКЛ" in btn["text"]
+
+
+# ── show_smooth gate (standalone /animate hides the toggle) ─────────────────────
+
+
+def test_swapbatch_menu_keeps_smooth_button():
+    # The main swapbatch engine menu MUST keep the smooth toggle (default ON).
+    kb = FaceSwapHandler.build_engine_keyboard()
+    assert _has_smooth_button(kb)
+
+
+def test_standalone_animate_menu_hides_smooth_button():
+    # Standalone /animate has no batch session / smooth_enabled concept, so the
+    # toggle would be dead/broken — it must be suppressed via show_smooth=False.
+    kb = FaceSwapHandler.build_engine_keyboard(show_smooth=False)
+    assert not _has_smooth_button(kb)
+    # but the engine-choice rows must still be present
+    cbs = [b["callback_data"] for b in _buttons(kb)]
+    assert "sbeng:spicy" in cbs
+    assert "sbeng:none" in cbs
 
 
 # ── toggle callback handler ───────────────────────────────────────────────────
