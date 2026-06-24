@@ -115,29 +115,78 @@ CUSTOM_PROMPTS_INSTRUCTIONS = (
 )
 
 
+# RIFE interpolation pricing — SINGLE source of truth shared by the cost
+# estimate shown to the user and _bill_interpolated_videos that charges them,
+# so the quoted price and the charged price can never diverge (money-bug guard).
+RIFE_USD_PER_SEC_ENV = "SWAPBATCH_RIFE_USD_PER_SEC"
+RIFE_DEFAULT_USD_PER_SEC = 0.01
+
+
+def rife_rate_usd_per_sec() -> float:
+    """Read the per-input-second RIFE rate from env (default $0.01)."""
+    raw = os.getenv(RIFE_USD_PER_SEC_ENV)
+    if raw is None or not raw.strip():
+        return RIFE_DEFAULT_USD_PER_SEC
+    try:
+        return float(raw)
+    except ValueError:
+        return RIFE_DEFAULT_USD_PER_SEC
+
+
+def rife_surcharge_usd(count: int, seconds: int, rate: float | None = None) -> float:
+    """RIFE interpolation cost: count × max(1, seconds) × per-input-second rate.
+
+    The 1s floor mirrors WaveSpeed's minimum charge. Used by BOTH the estimate
+    and the billing path so they can never disagree. ``rate`` defaults to
+    :func:`rife_rate_usd_per_sec`.
+    """
+    if count <= 0:
+        return 0.0
+    if rate is None:
+        rate = rife_rate_usd_per_sec()
+    return count * max(1, seconds) * rate
+
+
 def animate_cost_estimate(
     *,
     swapped_count: int,
     seconds: int,
     resolution: str,
     engine_mode: str,
+    smooth_enabled: bool = False,
 ) -> dict:
-    """Cost + rough wall-clock for animating N videos on the chosen engine."""
+    """Cost + rough wall-clock for animating N videos on the chosen engine.
+
+    When ``smooth_enabled`` the RIFE interpolation surcharge is added so the
+    user sees the FULL price (animation + RIFE) up-front. ``total_usd`` is the
+    grand total; ``animate_usd`` keeps the animation-only subtotal.
+    """
     import math
     from app.services.block_m2_video.engines.capabilities import caps_for
     caps = caps_for(engine_mode)
     per = caps.cost_for(seconds, resolution)
     concurrency = max(1, int(os.getenv("SWAPBATCH_ANIMATE_CONCURRENCY", "2")))
     minutes = math.ceil(swapped_count / concurrency) * caps.gen_seconds(seconds) / 60.0
+    snapped_sec = caps.snap_duration(seconds)
+    animate_usd = round(per * swapped_count, 2)
+    # Bill RIFE on the *snapped* duration — that's the real length of the video
+    # fed to interpolation, the same number _bill_interpolated_videos charges.
+    surcharge = (
+        round(rife_surcharge_usd(swapped_count, snapped_sec), 2)
+        if smooth_enabled else 0.0
+    )
     return {
         "count": swapped_count,
         "per_usd": per,
-        "total_usd": round(per * swapped_count, 2),
+        "animate_usd": animate_usd,
+        "rife_surcharge_usd": surcharge,
+        "total_usd": round(animate_usd + surcharge, 2),
         "minutes": round(minutes, 1),
-        "seconds": caps.snap_duration(seconds),
+        "seconds": snapped_sec,
         "resolution": caps.snap_resolution(resolution),
         "engine_mode": engine_mode,
         "display_name": caps.display_name,
+        "smooth_enabled": bool(smooth_enabled),
     }
 
 
@@ -242,13 +291,19 @@ class FaceSwapHandler:
             seconds=sess.duration_sec,
             resolution=sess.resolution,
             engine_mode=sess.video_engine,
+            smooth_enabled=sess.smooth_enabled,
         )
         prompt_line = sess.motion_prompt or "(дефолтный промт движения)"
+        smooth_line = (
+            f"🪶 Плавность 48fps (RIFE): +${est['rife_surcharge_usd']:.2f}\n"
+            if est["rife_surcharge_usd"] > 0 else ""
+        )
         return HandlerReply(text=(
             f"🎬 {est['display_name']}\n"
             f"Анимация {est['count']} фото × {est['seconds']}с × {est['resolution']}\n"
             f"Промт: {prompt_line}\n"
             f"Стоимость: ~${est['total_usd']:.2f} (${est['per_usd']:.2f}/видео)\n"
+            f"{smooth_line}"
             f"Время: ~{est['minutes']:.0f} мин\n\n"
             f"/swapbatch_animate_go — запустить (платно)\n"
             f"/swapbatch_set_prompt <текст> — задать движение/сцену\n"
@@ -296,17 +351,35 @@ class FaceSwapHandler:
         return HandlerReply(text=f"✅ Режим одежды: {mode} — {labels[mode]}.")
 
     @staticmethod
-    def build_engine_keyboard() -> dict:
-        """Inline-меню выбора движка после свапа. Seedance с пометкой censored."""
+    def build_engine_keyboard(smooth_enabled: bool = False) -> dict:
+        """Inline-меню выбора движка после свапа. Seedance с пометкой censored.
+
+        ``smooth_enabled`` рисует кнопку-тоггл плавности (RIFE) с текущим
+        состоянием: callback flips on⇄off по образцу sbeng:*.
+        """
         from app.services.block_m2_video.engines.capabilities import (
             WAVESPEED_CAPS, SEEDANCE_CAPS,
         )
+        smooth_state = "ВКЛ" if smooth_enabled else "ВЫКЛ"
+        smooth_cb = "sbsmooth:off" if smooth_enabled else "sbsmooth:on"
         return {"inline_keyboard": [
             [{"text": f"🎬 {WAVESPEED_CAPS.display_name}", "callback_data": "sbeng:spicy"}],
             [{"text": f"🎬 {SEEDANCE_CAPS.display_name} · censored (SFW)",
               "callback_data": "sbeng:seedance"}],
+            [{"text": f"🪶 Плавность 48fps: {smooth_state}", "callback_data": smooth_cb}],
             [{"text": "🚫 Без анимации", "callback_data": "sbeng:none"}],
         ]}
+
+    def handle_smooth_button(self, chat_id: int, enabled: bool) -> dict:
+        """Тап кнопки плавности → set_smooth (Задача 3) → перерисованное меню.
+
+        Возвращает обновлённую клавиатуру с новым label, чтобы бот мог
+        edit_message_reply_markup (паттерн как у sbeng-перерисовки)."""
+        self.orchestrator.set_smooth(chat_id, enabled)
+        sess = self.orchestrator.get(chat_id)
+        return self.build_engine_keyboard(
+            smooth_enabled=bool(sess and sess.smooth_enabled)
+        )
 
     def handle_set_engine(self, chat_id: int, engine_mode: str) -> HandlerReply:
         """Установить движок батча и снапнуть качество в его caps."""
@@ -817,9 +890,8 @@ class FaceSwapHandler:
         """
         if user_id is None or succeeded <= 0:
             return
-        rate = self._envf("SWAPBATCH_RIFE_USD_PER_SEC", 0.01)
-        billable_seconds = max(1, seconds)
-        amount = succeeded * billable_seconds * rate
+        # Same formula+rate the user was quoted in animate_cost_estimate.
+        amount = rife_surcharge_usd(succeeded, seconds)
         try:
             _cost.record_cost(user_id, username, amount)
         except Exception as exc:  # noqa: BLE001 - cost tracking must not raise
