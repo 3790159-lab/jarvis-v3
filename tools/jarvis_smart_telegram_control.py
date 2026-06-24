@@ -2865,6 +2865,22 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
         )
         return
 
+    # ── Swapbatch smooth (RIFE) toggle (Задача 4) ─────────────────────────────
+    if data.startswith("sbsmooth:"):
+        choice = data.split(":", 1)[1]          # "on" | "off"
+        _hq, _ = _swapbatch_get_handler()
+        # set_smooth touches ONLY the smooth flag — engine/quality picks on the
+        # session are preserved; the redrawn keyboard reads live session state.
+        kb = _hq.handle_smooth_button(int(chat_id), choice == "on")
+        answer_callback_query(cq_id, f"Плавность: {'ВКЛ' if choice == 'on' else 'ВЫКЛ'}")
+        edit_message_with_keyboard(
+            chat_id,
+            message_id,
+            "🎬 Выбери движок анимации (или «Без анимации»):",
+            kb["inline_keyboard"],
+        )
+        return
+
     # ── Swapbatch quality/length buttons (Task 13, Этап 3) ────────────────────
     if data.startswith("sbq:"):
         parts = data.split(":")
@@ -5773,7 +5789,7 @@ FRIEND_ALLOWED_COMMANDS: frozenset = frozenset({
 # уже member-gated в process_update — отдельная команда не нужна.
 
 # Префиксы callback_data, разрешённые friend (генеративные кнопки). Остальное — admin.
-FRIEND_ALLOWED_CALLBACK_PREFIXES = ("sbeng:", "sbq:", "anim:")
+FRIEND_ALLOWED_CALLBACK_PREFIXES = ("sbeng:", "sbq:", "sbsmooth:", "anim:")
 
 
 def _role_for_chat(chat_id) -> Optional[str]:
