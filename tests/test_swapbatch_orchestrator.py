@@ -517,6 +517,73 @@ def test_cancel_animate_from_awaiting_returns_to_idle(tmp_path):
     assert orch.get(42) is None
 
 
+# ── Задача 1: state bridge — confirm_animate_batch accepts custom-confirm ──────
+# Variant A routes the per-photo custom flow through the SAME money-safe batch
+# runner (run_animate_batch_phase → confirm_animate_batch). That runner must
+# therefore start not only from SWAP_DONE but also from the state the custom
+# flow leaves the session in: AWAITING_CUSTOM_PROMPTS_CONFIRM.
+
+
+@pytest.mark.anyio
+async def test_confirm_animate_batch_runs_from_custom_confirm_state(tmp_path):
+    orch = _make_orch(tmp_path)
+    _seed_swap_done(orch, tmp_path, n=2)
+    orch.start_custom_prompts(42)
+    orch.submit_custom_prompts(42, "1. walking\n2. dancing")
+    assert orch.status(42) == STATE_AWAITING_CUSTOM_PROMPTS_CONFIRM
+
+    v0 = tmp_path / "v0.mp4"; v0.write_bytes(b"x")
+    v1 = tmp_path / "v1.mp4"; v1.write_bytes(b"x")
+
+    async def animate_fn(photos, cancel_check):
+        # batch signature: one video per swapped photo, in order
+        return [v0, v1]
+
+    results = await orch.confirm_animate_batch(42, animate_fn=animate_fn)
+
+    assert results == [v0, v1]
+    sess = orch.get(42)
+    assert sess.status == STATE_DONE
+    assert sess.targets[0].animate_result_path == str(v0)
+    assert sess.targets[1].animate_result_path == str(v1)
+    # custom prompts must survive the run (the bot wiring reads them per-photo)
+    assert sess.custom_prompts == {1: "walking", 2: "dancing"}
+
+
+@pytest.mark.anyio
+async def test_confirm_animate_batch_still_runs_from_swap_done(tmp_path):
+    # Regression: the existing default (/swapbatch_animate_yes) entry must keep
+    # working unchanged from SWAP_DONE.
+    orch = _make_orch(tmp_path)
+    _seed_swap_done(orch, tmp_path, n=2)
+    assert orch.status(42) == STATE_SWAP_DONE
+
+    v0 = tmp_path / "v0.mp4"; v0.write_bytes(b"x")
+    v1 = tmp_path / "v1.mp4"; v1.write_bytes(b"x")
+
+    async def animate_fn(photos, cancel_check):
+        return [v0, v1]
+
+    results = await orch.confirm_animate_batch(42, animate_fn=animate_fn)
+    assert results == [v0, v1]
+    assert orch.status(42) == STATE_DONE
+
+
+@pytest.mark.anyio
+async def test_confirm_animate_batch_rejects_unrelated_state(tmp_path):
+    # Must not start from a state that has no swapped photos / no user intent to
+    # animate (e.g. still receiving targets).
+    orch = _make_orch(tmp_path)
+    _seed_swap_done(orch, tmp_path, n=2)
+    orch.get(42).status = STATE_TARGETS_RECEIVED
+
+    async def animate_fn(photos, cancel_check):
+        return []
+
+    with pytest.raises(OrchestratorError, match="expected one of"):
+        await orch.confirm_animate_batch(42, animate_fn=animate_fn)
+
+
 def test_cancel_animate_from_swap_done_closes_session(tmp_path):
     """/swapbatch_no equivalent: exit without animation, swaps already sent."""
     orch = _make_orch(tmp_path)

@@ -643,9 +643,17 @@ class BatchOrchestrator:
         ``animate_fn(photos, cancel_check) -> list[Path|None]`` aligns to the
         swapped photos in display order; each maps back to its target's
         ``animate_result_path``. Transitions SWAP_DONE -> ANIMATING -> DONE.
+
+        Also accepts AWAITING_CUSTOM_PROMPTS_CONFIRM so the per-photo custom
+        flow (Variant A) reuses this single money-safe runner instead of a
+        parallel one — the per-photo prompts live in ``sess.custom_prompts`` and
+        are read by the bot's ``animate_fn``; this runner is prompt-agnostic.
         """
         with self._lock:
-            sess = self._require(chat_id, {STATE_SWAP_DONE})
+            sess = self._require(
+                chat_id,
+                {STATE_SWAP_DONE, STATE_AWAITING_CUSTOM_PROMPTS_CONFIRM},
+            )
             swapped = [t for t in sess.targets if t.swap_result_path]
             if not swapped:
                 raise OrchestratorError("Нет swapped фото для анимации.")
