@@ -48,6 +48,10 @@ STATE_SWAP_DONE = "SWAP_DONE"
 # Day 6: per-photo custom-prompt sub-flow between SWAP_DONE and ANIMATING.
 STATE_AWAITING_CUSTOM_PROMPTS = "AWAITING_CUSTOM_PROMPTS"
 STATE_AWAITING_CUSTOM_PROMPTS_CONFIRM = "AWAITING_CUSTOM_PROMPTS_CONFIRM"
+# Задача 2 (Вариант A): animate ГОТОВЫХ фото без свапа. The user uploads
+# already-finished photos which are dropped straight into ``swap_result_path``
+# and into SWAP_DONE, never touching run_swap_phase — so swap is never billed.
+STATE_EXPECTING_READY_PHOTOS = "EXPECTING_READY_PHOTOS"
 STATE_ANIMATING = "ANIMATING"
 STATE_DONE = "DONE"
 STATE_FAILED_RESUMED = "FAILED_RESUMED"
@@ -255,6 +259,93 @@ class BatchOrchestrator:
             sess.status = STATE_EXPECTING_TARGETS
             sess.targets = []
             sess.cost_estimate = None
+            self._touch(sess)
+            self._persist(sess)
+            return sess
+
+    # ── transitions: ready-photo batch (Задача 2, Вариант A) ────────────────
+
+    def begin_ready_batch(self, chat_id: int) -> BatchSession:
+        """Start an animate-only batch of ALREADY-finished photos.
+
+        Mirrors ``begin_source`` but skips the swap setup entirely: a fresh
+        session is created in ``EXPECTING_READY_PHOTOS``. Fresh session ⇒
+        money-safe defaults (smooth OFF, wardrobe preserve) so a friend never
+        inherits another user's enabled smooth and silently pays for it.
+        """
+        with self._lock:
+            existing = self._sessions.get(chat_id)
+            if existing and existing.status in _LOCKABLE_STATES:
+                raise OrchestratorError(
+                    f"chat {chat_id} has an in-flight batch ({existing.status}); "
+                    "wait or /swapbatch_cancel first"
+                )
+            self._cleanup_files(chat_id)
+            sess = BatchSession(
+                chat_id=chat_id, status=STATE_EXPECTING_READY_PHOTOS
+            )
+            self._sessions[chat_id] = sess
+            self._persist(sess)
+            return sess
+
+    def add_ready_photos(
+        self, chat_id: int, photo_paths: list[Path]
+    ) -> BatchSession:
+        """Append already-finished photos, dropping each straight into
+        ``swap_result_path`` (the field the animate phase reads).
+
+        No swap is run and nothing is billed here — this is the whole trick of
+        Variant A. Accumulates across albums (multi-album intake) and enforces
+        the same ``MAX_TARGETS`` cap as the swap batch.
+
+        ADVISORY readability: unreadable files (validator raises) are appended
+        with ``valid=False`` and NO ``swap_result_path`` so the animate phase
+        skips them instead of choking on a corrupt image.
+        """
+        if not photo_paths:
+            raise OrchestratorError("no photos provided")
+        photo_paths = list(dict.fromkeys(photo_paths))
+        with self._lock:
+            sess = self._require(chat_id, {STATE_EXPECTING_READY_PHOTOS})
+            base = len(sess.targets)
+            if base + len(photo_paths) > MAX_TARGETS:
+                raise OrchestratorError(
+                    f"Слишком много фото: {base + len(photo_paths)}. Максимум "
+                    f"{MAX_TARGETS} за батч. Уже принято {base} — пришли меньше."
+                )
+            for offset, raw in enumerate(photo_paths):
+                idx = base + offset
+                staged = self._stage_target(chat_id, raw, idx)
+                try:
+                    self._validator.count_faces(staged)
+                except Exception as exc:  # noqa: BLE001 — unreadable ⇒ skip, don't crash
+                    sess.targets.append(TargetItem(
+                        path=str(staged), face_count=0, valid=False,
+                        swap_result_path=None, error=f"unreadable: {exc}",
+                    ))
+                    continue
+                # Readable ready photo: its OWN path IS the swap result.
+                sess.targets.append(TargetItem(
+                    path=str(staged), face_count=0, valid=True,
+                    swap_result_path=str(staged), error=None,
+                ))
+            self._touch(sess)
+            self._persist(sess)
+            return sess
+
+    def finish_ready_batch(self, chat_id: int) -> BatchSession:
+        """Close ready-photo intake → SWAP_DONE, ready for the animate stage.
+
+        Transitions EXPECTING_READY_PHOTOS → SWAP_DONE directly. ``run_swap_phase``
+        is never on this path, so the swap ledger is never touched.
+        """
+        with self._lock:
+            sess = self._require(chat_id, {STATE_EXPECTING_READY_PHOTOS})
+            if not any(t.swap_result_path for t in sess.targets):
+                raise OrchestratorError(
+                    "Нет готовых фото для анимации — пришли альбом сначала."
+                )
+            sess.status = STATE_SWAP_DONE
             self._touch(sess)
             self._persist(sess)
             return sess
