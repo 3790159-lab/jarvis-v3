@@ -495,6 +495,42 @@ class FaceSwapHandler:
                     f"и обрезан до {len(clamped)} симв.")
         return HandlerReply(text=f"✅ Промт движения задан:\n«{sess.motion_prompt}»{warn}")
 
+    def handle_generate_prompt(self, chat_id: int) -> HandlerReply:
+        """✨ Сгенерировать промт — Claude Vision пишет motion-промт по первому
+        swapped фото батча. Юзер видит результат ДО платной анимации и может
+        принять / переписать / перегенерировать.
+
+        Money/check_limit (Task 3) и кнопка/тред (Task 4) — отдельно. Здесь
+        чистое склеивание: фото → генератор → запись → reply.
+        """
+        sess = self.orchestrator.get(chat_id)
+        if sess is None:
+            return HandlerReply(text="⚠️ Нет активного батча.")
+        target = next((t for t in sess.targets if t.swap_result_path), None)
+        if target is None:
+            return HandlerReply(
+                text="⚠️ Нет готового фото для генерации промта. "
+                "Сначала сделай swap (/swapbatch_go)."
+            )
+        from app.services.block_m2_video import motion_prompt_ai
+        prompt = motion_prompt_ai.generate_motion_prompt(target.swap_result_path)
+        if not prompt:
+            # leave the existing motion_prompt untouched — never overwrite with junk
+            return HandlerReply(
+                text="⚠️ Не удалось сгенерировать промт. Попробуй ещё раз "
+                "или задай вручную (/swapbatch_set_prompt)."
+            )
+        self.orchestrator.set_motion_prompt(chat_id, prompt)
+        return HandlerReply(
+            text=(
+                f"✨ Сгенерирован промт движения:\n«{prompt}»\n\n"
+                "Дальше:\n"
+                "• Нравится → выбери движок и запусти (/swapbatch_animate_yes)\n"
+                "• Переписать вручную → /swapbatch_set_prompt <текст>\n"
+                "• Другой вариант → нажми «✨ Сгенерировать промт» ещё раз"
+            )
+        )
+
     def handle_set_wardrobe(self, chat_id: int, mode: str) -> HandlerReply:
         """/swapbatch_set_wardrobe preserve|safe|spicy — clothing control."""
         from app.services.block_m2_video.prompt_assembly import WARDROBE_MODES
