@@ -41,15 +41,49 @@ _PREAMBLE_RE = re.compile(r"^\s*(here|sure|okay|certainly)\b[^\n:]*:\s*", re.IGN
 # Matching quote pairs to peel off a fully-wrapped reply.
 _QUOTE_PAIRS = {'"': '"', "'": "'", "«": "»", "“": "”", "`": "`"}
 
+# Claude Vision is safety-aligned and REFUSES suggestive/NSFW photos with a
+# natural-language refusal (e.g. "I can't create motion prompts… inappropriate").
+# That refusal is a valid string, so without this guard it leaks into the paid
+# animation as the motion prompt. Three layers, refusal-first, high precision:
+#
+#   Layer 1 — refusal openers anchored to the START. A compliant motion prompt is
+#     a comma-style description of movement; it NEVER opens with "I"/"Sorry"/etc.
+#   Layer 2 — distinctive refusal phrases anywhere (embedded refusals).
+#   Layer 3 — no comma at all => not our mandated comma-list format. Tiny false-
+#     positive risk (a terse valid prompt without commas), but the cost is benign
+#     (user re-clicks, nothing billed) vs. a refusal reaching a paid render.
+_REFUSAL_OPENERS_RE = re.compile(
+    r"^(i\b|i'm|i'd|i'll|i've|i am|sorry|unfortunately|apolog|my apologies|"
+    r"as an\b|as a language)",
+    re.IGNORECASE,
+)
+_REFUSAL_PHRASES = (
+    "can't", "cannot", "can not", "unable", "not able to",
+    "inappropriate", "not comfortable", "won't", "will not",
+)
 
-def _postprocess(raw: str) -> str:
+
+def _clean(raw: str) -> str:
+    """Strip whitespace, a leading preamble, and surrounding quotes (no clamp)."""
     text = raw.strip()
     text = _PREAMBLE_RE.sub("", text, count=1).strip()
     if text and text[0] in _QUOTE_PAIRS and text.endswith(_QUOTE_PAIRS[text[0]]):
         text = text[1:-1].strip()
-    cap = int(os.getenv("WAVESPEED_PROMPT_MAX_CHARS", "1500"))
-    text, _ = clamp_prompt(text, cap)
-    return text.strip()
+    return text
+
+
+def _looks_like_refusal(text: str) -> bool:
+    """True when the cleaned reply is a model refusal, not a usable motion prompt."""
+    low = text.strip().lower()
+    if not low:
+        return True
+    if _REFUSAL_OPENERS_RE.match(low):           # layer 1: opener
+        return True
+    if any(p in low for p in _REFUSAL_PHRASES):  # layer 2: phrase
+        return True
+    if "," not in low:                           # layer 3: not comma-list format
+        return True
+    return False
 
 
 def generate_motion_prompt(image_path: str) -> str | None:
@@ -66,5 +100,10 @@ def generate_motion_prompt(image_path: str) -> str | None:
         return None
     if not raw or _PLACEHOLDER_SENTINEL in raw:
         return None
-    cleaned = _postprocess(raw)
-    return cleaned or None
+    # Detect refusals on the CLEANED text (before clamp — clamp could cut a marker).
+    candidate = _clean(raw)
+    if _looks_like_refusal(candidate):
+        return None
+    cap = int(os.getenv("WAVESPEED_PROMPT_MAX_CHARS", "1500"))
+    cleaned, _ = clamp_prompt(candidate, cap)
+    return cleaned.strip() or None

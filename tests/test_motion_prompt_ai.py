@@ -9,12 +9,15 @@ with the MOTION_VISION_QUESTION and post-processes the result:
 """
 from __future__ import annotations
 
+import pytest
+
 from app.services import vision
 from app.services.block_m2_video import motion_prompt_ai
 from app.services.block_m2_video.motion_prompt_ai import (
     MOTION_VISION_QUESTION,
     generate_motion_prompt,
 )
+from app.services.block_m2_video.motion_prompt_ai import _looks_like_refusal
 
 
 def test_returns_clean_prompt_and_passes_motion_question(monkeypatch):
@@ -108,3 +111,68 @@ def test_motion_question_is_constant_string():
     # guardrail: the vision question must be a non-empty constant
     assert isinstance(MOTION_VISION_QUESTION, str)
     assert MOTION_VISION_QUESTION.strip()
+
+
+# ── Content-refusal detection (Claude Vision is censored and refuses spicy) ───
+
+def _gen_with(monkeypatch, raw_reply):
+    monkeypatch.setattr(vision, "is_vision_supported", lambda: True)
+    monkeypatch.setattr(vision, "analyze_image", lambda p, q="": raw_reply)
+    return generate_motion_prompt("/tmp/face.jpg")
+
+
+def test_refusal_exact_screenshot_returns_none(monkeypatch):
+    # the actual live failure: model refusal leaked into motion_prompt
+    refusal = (
+        "I can't create motion prompts for this image. The pose and framing "
+        "are inappropriate for me to work with"
+    )
+    assert _gen_with(monkeypatch, refusal) is None
+
+
+@pytest.mark.parametrize("refusal", [
+    "I cannot generate a motion prompt for this photo.",
+    "I'm not able to animate this image.",
+    "I'm unable to help with that.",
+    "Unfortunately, I can't assist with this request.",
+    "Sorry, I can't do that.",
+    "As an AI, I won't create content like this.",
+    "I'm not comfortable describing this image.",
+])
+def test_refusal_variants_return_none(monkeypatch, refusal):
+    assert _gen_with(monkeypatch, refusal) is None
+
+
+def test_valid_prompt_with_can_substrings_not_refused(monkeypatch):
+    # "camera"/"candle" contain "can" but are NOT refusals — must pass through
+    prompt = "slow camera push, candle flicker, hair sway, locked static camera, photorealistic"
+    assert _gen_with(monkeypatch, prompt) == prompt
+
+
+def test_valid_prompt_with_scan_not_refused(monkeypatch):
+    prompt = "slow scan across the face, subtle breathing, locked static camera, photorealistic"
+    assert _gen_with(monkeypatch, prompt) == prompt
+
+
+def test_valid_prompt_subject_opener_not_refused(monkeypatch):
+    # starts with "she" (allowed), not "I" — must not trip the opener layer
+    prompt = "she slowly turns toward the camera, soft blinking, photorealistic"
+    assert _gen_with(monkeypatch, prompt) == prompt
+
+
+def test_layer3_prose_without_comma_returns_none(monkeypatch):
+    # a prose sentence with no comma is not our comma-list format -> refusal
+    prose = "The subject remains completely still in this photograph"
+    assert _gen_with(monkeypatch, prose) is None
+
+
+def test_looks_like_refusal_unit():
+    # layer 1 (opener), layer 2 (phrase), layer 3 (no comma)
+    assert _looks_like_refusal("I can't do this, sorry") is True
+    assert _looks_like_refusal("Sorry, not happening") is True
+    assert _looks_like_refusal("this pose is inappropriate, no") is True
+    assert _looks_like_refusal("slow head turn no commas here at all") is True
+    # valid comma-list motion prompt
+    assert _looks_like_refusal(
+        "slow gentle head turn, soft blinking, photorealistic"
+    ) is False
