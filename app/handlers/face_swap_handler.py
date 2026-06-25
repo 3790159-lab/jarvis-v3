@@ -495,13 +495,21 @@ class FaceSwapHandler:
                     f"и обрезан до {len(clamped)} симв.")
         return HandlerReply(text=f"✅ Промт движения задан:\n«{sess.motion_prompt}»{warn}")
 
-    def handle_generate_prompt(self, chat_id: int) -> HandlerReply:
+    def handle_generate_prompt(
+        self,
+        chat_id: int,
+        *,
+        user_id: int | None = None,
+        username: str | None = None,
+    ) -> HandlerReply:
         """✨ Сгенерировать промт — Claude Vision пишет motion-промт по первому
         swapped фото батча. Юзер видит результат ДО платной анимации и может
         принять / переписать / перегенерировать.
 
-        Money/check_limit (Task 3) и кнопка/тред (Task 4) — отдельно. Здесь
-        чистое склеивание: фото → генератор → запись → reply.
+        Money-safe (mirror run_animate_batch_phase): check_limit ДО vision,
+        record_cost($0.01) ПОСЛЕ успеха (за сбой/None не платим). admin безлимит,
+        friend под дневным лимитом. Admin-нотификация при over-limit — в Task 4
+        (wiring-слой, где есть send). Кнопка/тред — тоже Task 4.
         """
         sess = self.orchestrator.get(chat_id)
         if sess is None:
@@ -512,15 +520,28 @@ class FaceSwapHandler:
                 text="⚠️ Нет готового фото для генерации промта. "
                 "Сначала сделай swap (/swapbatch_go)."
             )
+        # Estimate == charge (single source of truth) so quoted never differs.
+        est = self._envf("SWAPBATCH_VISION_PROMPT_USD", 0.01)
+        # Limit gate STRICTLY before the paid vision call. Over-limit friend pays
+        # nothing and vision never runs.
+        if user_id is not None:
+            allowed, reason = check_limit(user_id, estimated_usd=est)
+            if not allowed:
+                return HandlerReply(text=f"🚫 {reason}")
         from app.services.block_m2_video import motion_prompt_ai
         prompt = motion_prompt_ai.generate_motion_prompt(target.swap_result_path)
         if not prompt:
-            # leave the existing motion_prompt untouched — never overwrite with junk
+            # Generation failed — leave motion_prompt untouched and DO NOT bill.
             return HandlerReply(
                 text="⚠️ Не удалось сгенерировать промт. Попробуй ещё раз "
                 "или задай вручную (/swapbatch_set_prompt)."
             )
         self.orchestrator.set_motion_prompt(chat_id, prompt)
+        if user_id is not None:
+            try:
+                _cost.record_cost(user_id, username, est)
+            except Exception as exc:  # noqa: BLE001 - billing must not break reply
+                logger.warning("cost: motion-prompt record_cost failed: %s", exc)
         return HandlerReply(
             text=(
                 f"✨ Сгенерирован промт движения:\n«{prompt}»\n\n"
