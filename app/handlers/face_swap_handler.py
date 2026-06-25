@@ -458,21 +458,31 @@ class FaceSwapHandler:
 
     @staticmethod
     def build_engine_keyboard(
-        smooth_enabled: bool = False, show_smooth: bool = True
+        smooth_enabled: bool = False, show_smooth: bool = True,
+        wardrobe_mode: str = "preserve", show_wardrobe: bool = True,
     ) -> dict:
         """Inline-меню выбора движка после свапа. Seedance с пометкой censored.
 
         ``smooth_enabled`` рисует кнопку-тоггл плавности (RIFE) с текущим
         состоянием: callback flips on⇄off по образцу sbeng:*.
 
-        ``show_smooth=False`` полностью прячет кнопку плавности — для
-        standalone /animate, где нет batch-сессии и тоггл был бы мёртвым.
+        ``wardrobe_mode`` рисует бинарный тоггл «не раздевать»:
+        preserve → ВКЛ (одет), spicy → ВЫКЛ (без ограничений). ``safe`` на
+        кнопке не отображается — он доступен только командой
+        /swapbatch_set_wardrobe для тонкой настройки; на бинарной кнопке
+        любой не-preserve трактуется как ВЫКЛ.
+
+        ``show_smooth``/``show_wardrobe``=False прячут соответствующий тоггл —
+        для standalone /animate, где нет batch-сессии и тоггл был бы мёртвым.
         """
         from app.services.block_m2_video.engines.capabilities import (
             WAVESPEED_CAPS, SEEDANCE_CAPS,
         )
         smooth_state = "ВКЛ" if smooth_enabled else "ВЫКЛ"
         smooth_cb = "sbsmooth:off" if smooth_enabled else "sbsmooth:on"
+        wardrobe_on = wardrobe_mode == "preserve"
+        wardrobe_state = "ВКЛ" if wardrobe_on else "ВЫКЛ"
+        wardrobe_cb = "sbward:off" if wardrobe_on else "sbward:on"
         rows = [
             [{"text": f"🎬 {WAVESPEED_CAPS.display_name}", "callback_data": "sbeng:spicy"}],
             [{"text": f"🎬 {SEEDANCE_CAPS.display_name} · censored (SFW)",
@@ -482,8 +492,22 @@ class FaceSwapHandler:
             rows.append(
                 [{"text": f"🪶 Плавность 48fps: {smooth_state}", "callback_data": smooth_cb}]
             )
+        if show_wardrobe:
+            rows.append(
+                [{"text": f"🩱 Не раздевать: {wardrobe_state}", "callback_data": wardrobe_cb}]
+            )
         rows.append([{"text": "🚫 Без анимации", "callback_data": "sbeng:none"}])
         return {"inline_keyboard": rows}
+
+    def _redraw_engine_keyboard(self, chat_id: int) -> dict:
+        """Перерисовать меню движка из ЖИВОЙ сессии — читает ОБА тоггла
+        (smooth_enabled И wardrobe_mode), чтобы тап по одной кнопке не сбросил
+        label другой (урок smooth-кнопки)."""
+        sess = self.orchestrator.get(chat_id)
+        return self.build_engine_keyboard(
+            smooth_enabled=bool(sess and sess.smooth_enabled),
+            wardrobe_mode=(sess.wardrobe_mode if sess else "preserve"),
+        )
 
     def handle_smooth_button(self, chat_id: int, enabled: bool) -> dict:
         """Тап кнопки плавности → set_smooth (Задача 3) → перерисованное меню.
@@ -491,10 +515,13 @@ class FaceSwapHandler:
         Возвращает обновлённую клавиатуру с новым label, чтобы бот мог
         edit_message_reply_markup (паттерн как у sbeng-перерисовки)."""
         self.orchestrator.set_smooth(chat_id, enabled)
-        sess = self.orchestrator.get(chat_id)
-        return self.build_engine_keyboard(
-            smooth_enabled=bool(sess and sess.smooth_enabled)
-        )
+        return self._redraw_engine_keyboard(chat_id)
+
+    def handle_wardrobe_button(self, chat_id: int, enabled: bool) -> dict:
+        """Тап кнопки «не раздевать» → set_wardrobe (preserve если ВКЛ, spicy
+        если ВЫКЛ) → перерисованное меню из живой сессии (зеркало smooth)."""
+        self.orchestrator.set_wardrobe(chat_id, "preserve" if enabled else "spicy")
+        return self._redraw_engine_keyboard(chat_id)
 
     def handle_set_engine(self, chat_id: int, engine_mode: str) -> HandlerReply:
         """Установить движок батча и снапнуть качество в его caps."""

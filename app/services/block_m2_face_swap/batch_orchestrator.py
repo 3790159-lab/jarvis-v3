@@ -108,7 +108,8 @@ class BatchSession:
     resolution: str = "720p"
     video_engine: str = "spicy"   # "spicy" | "seedance"
     motion_prompt: str = ""        # shared batch motion prompt; "" -> engine default
-    wardrobe_mode: str = "safe"    # clothing control: preserve | safe | spicy
+    wardrobe_mode: str = "preserve"  # clothing control: preserve | safe | spicy
+    #   safer default — start dressed (anti-undress anchor) → fewer censor E005
     # Задача 3: per-batch RIFE smooth flag. Money-safe default OFF; reset to
     # OFF on every new batch (fresh session in begin_source) so multi-user
     # chats never inherit another user's enabled smooth. multiplier reserved
@@ -148,7 +149,7 @@ class BatchSession:
             resolution=str(data.get("resolution", "720p")),
             video_engine=str(data.get("video_engine", "spicy")),
             motion_prompt=str(data.get("motion_prompt", "")),
-            wardrobe_mode=str(data.get("wardrobe_mode", "safe") or "safe"),
+            wardrobe_mode=str(data.get("wardrobe_mode", "preserve") or "preserve"),
             smooth_enabled=bool(data.get("smooth_enabled", False)),
             smooth_multiplier=int(data.get("smooth_multiplier", 1)),
             created_at_unix=float(data.get("created_at_unix", time.time())),

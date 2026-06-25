@@ -663,11 +663,13 @@ def test_quality_survives_dict_roundtrip(tmp_path):
 # ── wardrobe mode ────────────────────────────────────────────────────────────
 
 
-def test_new_session_has_default_wardrobe_safe(tmp_path):
+def test_new_session_has_default_wardrobe_preserve(tmp_path):
+    # Safer default: new sessions start dressed (preserve) → fewer censor E005
+    # and the wardrobe toggle honestly shows ВКЛ out of the box.
     orch = _make_orch(tmp_path)
     orch.begin_source(42)
     sess = orch.get(42)
-    assert sess.wardrobe_mode == "safe"
+    assert sess.wardrobe_mode == "preserve"
 
 
 def test_set_wardrobe_stores_on_session(tmp_path):
@@ -705,12 +707,13 @@ def test_wardrobe_survives_dict_roundtrip(tmp_path):
     assert revived.wardrobe_mode == "preserve"
 
 
-def test_wardrobe_defaults_safe_on_load_when_missing(tmp_path):
-    # A legacy session.json without wardrobe_mode must default to "safe".
+def test_wardrobe_defaults_preserve_on_load_when_missing(tmp_path):
+    # A legacy session.json without wardrobe_mode now defaults to the safer
+    # "preserve" (consistent with the new-session default).
     blob = BatchSession(chat_id=7).to_dict()
     blob.pop("wardrobe_mode", None)
     revived = BatchSession.from_dict(blob)
-    assert revived.wardrobe_mode == "safe"
+    assert revived.wardrobe_mode == "preserve"
 
 
 # ── dataclass plumbing ──────────────────────────────────────────────────────
