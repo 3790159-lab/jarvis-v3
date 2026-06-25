@@ -573,6 +573,7 @@ class FaceSwapHandler:
     def build_engine_keyboard(
         smooth_enabled: bool = False, show_smooth: bool = True,
         wardrobe_mode: str = "preserve", show_wardrobe: bool = True,
+        show_generate: bool = True,
     ) -> dict:
         """Inline-меню выбора движка после свапа. Seedance с пометкой censored.
 
@@ -587,6 +588,10 @@ class FaceSwapHandler:
 
         ``show_smooth``/``show_wardrobe``=False прячут соответствующий тоггл —
         для standalone /animate, где нет batch-сессии и тоггл был бы мёртвым.
+
+        ``show_generate`` рисует кнопку «✨ Сгенерировать промт» (Claude Vision
+        пишет motion-промт по фото). Прячется на standalone /animate — там нет
+        batch-сессии с motion_prompt, кнопка была бы мёртвой.
         """
         from app.services.block_m2_video.engines.capabilities import (
             WAVESPEED_CAPS, SEEDANCE_CAPS,
@@ -608,6 +613,10 @@ class FaceSwapHandler:
         if show_wardrobe:
             rows.append(
                 [{"text": f"🩱 Не раздевать: {wardrobe_state}", "callback_data": wardrobe_cb}]
+            )
+        if show_generate:
+            rows.append(
+                [{"text": "✨ Сгенерировать промт", "callback_data": "sbgen:run"}]
             )
         rows.append([{"text": "🚫 Без анимации", "callback_data": "sbeng:none"}])
         return {"inline_keyboard": rows}

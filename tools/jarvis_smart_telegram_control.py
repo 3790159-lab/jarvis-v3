@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import sys
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -739,6 +740,59 @@ def _swapbatch_engine_menu_kb(chat_id_int: int) -> dict:
     return _hq._redraw_engine_keyboard(chat_id_int)
 
 
+def _sbgen_worker(chat_id: str, message_id: int, user_id) -> None:
+    """Blocking ~5s Claude Vision motion-prompt generation (daemon worker).
+
+    Money/limit gate lives INSIDE handle_generate_prompt (Task 3) — we pass the
+    REAL ``user_id``/``username`` so check_limit actually fires (the gate is a
+    no-op when user_id is None). On a friend's over-limit refusal (🚫 reply) we
+    notify the admin, mirroring _animate_run_single.
+    """
+    _hq, _ = _swapbatch_get_handler()
+    if _hq is None:
+        send(chat_id, "⚠️ Модуль face-swap недоступен.")
+        return
+    chat_id_int = int(chat_id)
+    username = _USERNAME_BY_CHAT.get(str(chat_id))
+    try:
+        reply = _hq.handle_generate_prompt(
+            chat_id_int, user_id=user_id, username=username,
+        )
+    except Exception as exc:  # noqa: BLE001 - never crash the worker thread
+        send(chat_id, f"❌ Ошибка: {translate_exception(exc)}")
+        return
+    _swapbatch_apply_reply(chat_id, reply)
+    text = getattr(reply, "text", "") or ""
+    # Admin-notify on a friend's over-limit refusal (handler returns "🚫 …").
+    if text.startswith("🚫"):
+        try:
+            _admin = _whitelist.load_admin_user_id()
+            if _admin is not None and _admin != chat_id_int:
+                send(str(_admin), f"⚠️ Друг id={chat_id_int} уперся в лимит (✨ промт ~$0.01).")
+        except Exception:  # noqa: BLE001
+            pass
+    # Redraw the engine menu so the user can keep choosing right away.
+    try:
+        kb = _hq._redraw_engine_keyboard(chat_id_int)
+        edit_message_with_keyboard(
+            chat_id, message_id,
+            "🎬 Выбери движок анимации (или «Без анимации»):",
+            kb["inline_keyboard"],
+        )
+    except Exception:  # noqa: BLE001 - redraw is best-effort
+        pass
+
+
+def _sbgen_start(chat_id: str, message_id: int, user_id) -> None:
+    """Spawn the vision worker as a daemon thread (callback already acked)."""
+    threading.Thread(
+        target=_sbgen_worker,
+        args=(chat_id, message_id, user_id),
+        daemon=True,
+        name=f"sbgen_{chat_id}",
+    ).start()
+
+
 def _swapbatch_apply_reply(chat_id_s: str, reply) -> None:
     """Render a HandlerReply: numbered photos → text → album photos → videos."""
     if reply is None:
@@ -1242,7 +1296,7 @@ def _animate_photo_intercept(chat_id: str, msg: Dict[str, Any]) -> bool:
     pend["photo"] = local
     _hq, _ = _swapbatch_get_handler()
     kb = (
-        _hq.build_engine_keyboard(show_smooth=False, show_wardrobe=False)
+        _hq.build_engine_keyboard(show_smooth=False, show_wardrobe=False, show_generate=False)
         if _hq else {"inline_keyboard": []}
     )
     # Distinct callback prefix for the standalone flow (anim: vs batch sbeng:).
@@ -3002,6 +3056,14 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
             "🎬 Выбери движок анимации (или «Без анимации»):",
             kb["inline_keyboard"],
         )
+        return
+
+    # ── Swapbatch ✨ generate motion prompt (Claude Vision, BLOCKING ~5s) ──────
+    if data.startswith("sbgen:"):
+        # Ack INSTANTLY, then run vision in a daemon worker — long-poll must not
+        # block ~5s (the key difference from the instant sbward:/sbsmooth: toggles).
+        answer_callback_query(cq_id, "✨ Генерирую промт по фото…")
+        _sbgen_start(chat_id, message_id, _cq_uid)
         return
 
     # ── Swapbatch quality/length buttons (Task 13, Этап 3) ────────────────────
@@ -5919,7 +5981,7 @@ FRIEND_ALLOWED_COMMANDS: frozenset = frozenset({
 # уже member-gated в process_update — отдельная команда не нужна.
 
 # Префиксы callback_data, разрешённые friend (генеративные кнопки). Остальное — admin.
-FRIEND_ALLOWED_CALLBACK_PREFIXES = ("sbeng:", "sbq:", "sbsmooth:", "sbward:", "anim:")
+FRIEND_ALLOWED_CALLBACK_PREFIXES = ("sbeng:", "sbq:", "sbsmooth:", "sbward:", "anim:", "sbgen:")
 
 
 def _role_for_chat(chat_id) -> Optional[str]:
