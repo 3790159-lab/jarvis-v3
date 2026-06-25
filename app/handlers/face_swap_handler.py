@@ -24,6 +24,7 @@ from app.services.block_m2_face_swap.batch_orchestrator import (
     OrchestratorError,
     STATE_AWAITING_CUSTOM_PROMPTS,
     STATE_DONE,
+    STATE_EXPECTING_READY_PHOTOS,
     STATE_EXPECTING_SOURCE,
     STATE_EXPECTING_TARGETS,
     STATE_IDLE,
@@ -342,6 +343,60 @@ class FaceSwapHandler:
                 "альбомами подряд — я докину каждый в текущий батч и буду "
                 "показывать сколько принято. Когда всё — /swapbatch_go."
             )
+        )
+
+    # ── animate-batch of ready photos (Задача 2, Вариант A) ──────────────────
+
+    def handle_animate_batch_intent(self, chat_id: int) -> HandlerReply:
+        """/animate_batch — start an animate-only batch of ready photos."""
+        try:
+            self.orchestrator.begin_ready_batch(chat_id)
+        except OrchestratorError as exc:
+            return HandlerReply(text=f"⚠️ {exc}")
+        return HandlerReply(
+            text=(
+                "🎬 Анимация готовых фото (без свапа).\n"
+                "Пришли альбом(ы) ГОТОВЫХ фото (до 100). Можешь слать "
+                "несколькими альбомами подряд — докину каждый и покажу сколько "
+                "принято. Когда всё — /animate_batch_go."
+            )
+        )
+
+    def consume_ready_album(
+        self, chat_id: int, local_photo_paths: list[Path]
+    ) -> HandlerReply:
+        """Append a buffered media-group as ready (already-finished) photos.
+
+        Gated strictly on ``EXPECTING_READY_PHOTOS`` so it never hijacks a
+        swap-batch album (those route through ``consume_targets_album``).
+        """
+        if self.orchestrator.status(chat_id) != STATE_EXPECTING_READY_PHOTOS:
+            return HandlerReply(consumed=False)
+        try:
+            sess = self.orchestrator.add_ready_photos(chat_id, local_photo_paths)
+        except OrchestratorError as exc:
+            return HandlerReply(text=f"⚠️ {exc}")
+        accepted = sum(1 for t in sess.targets if t.swap_result_path)
+        skipped = sum(1 for t in sess.targets if not t.swap_result_path)
+        msg = f"✅ Принято {accepted}/{MAX_TARGETS} готовых фото."
+        if skipped:
+            msg += f"\n⏭ {skipped} пропущено (битые/нечитаемые)."
+        msg += "\nЕщё альбом или /animate_batch_go."
+        return HandlerReply(text=msg)
+
+    def handle_animate_batch_go(self, chat_id: int) -> HandlerReply:
+        """/animate_batch_go — close ready-photo intake → SWAP_DONE.
+
+        From here the entire existing second stage (engine menu, smooth,
+        wardrobe, animate_yes/custom, billing, delivery) reuses unchanged.
+        """
+        try:
+            sess = self.orchestrator.finish_ready_batch(chat_id)
+        except OrchestratorError as exc:
+            return HandlerReply(text=f"⚠️ {exc}")
+        n = sum(1 for t in sess.targets if t.swap_result_path)
+        return HandlerReply(
+            text=f"✅ Готово: {n} фото. Выбери движок анимации ниже."
         )
 
     def handle_status(self, chat_id: int) -> HandlerReply:
