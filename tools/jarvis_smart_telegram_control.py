@@ -802,6 +802,27 @@ def _swapbatch_dispatch(chat_id, command: str) -> None:
     if command == "batch":
         _swapbatch_apply_reply(chat_id_s, handler.handle_batch_intent(chat_id_int))
         return
+    if command == "animate_batch":
+        # Variant A: animate ready photos (no swap). Enters EXPECTING_READY_PHOTOS;
+        # albums then route through the ready-photo branch of the intercepts.
+        _swapbatch_apply_reply(
+            chat_id_s, handler.handle_animate_batch_intent(chat_id_int)
+        )
+        return
+    if command == "animate_batch_go":
+        # Close ready-photo intake (→ SWAP_DONE) and draw the SAME engine menu the
+        # swap path shows post-swap, so the entire second stage reuses 1:1.
+        _swapbatch_apply_reply(
+            chat_id_s, handler.handle_animate_batch_go(chat_id_int)
+        )
+        _kb = _swapbatch_engine_menu_kb(chat_id_int)
+        if _kb.get("inline_keyboard"):
+            send_with_keyboard(
+                chat_id_s,
+                "🎬 Выбери движок анимации (или «Без анимации»):",
+                _kb["inline_keyboard"],
+            )
+        return
     if command == "status":
         _swapbatch_apply_reply(chat_id_s, handler.handle_status(chat_id_int))
         return
@@ -1129,12 +1150,14 @@ def _swapbatch_photo_intercept(chat_id: str, msg: Dict[str, Any]) -> bool:
     if handler is None or orch is None:
         return False
     from app.services.block_m2_face_swap.batch_orchestrator import (
-        STATE_EXPECTING_TARGETS, STATE_TARGETS_RECEIVED,
+        STATE_EXPECTING_TARGETS, STATE_TARGETS_RECEIVED, STATE_EXPECTING_READY_PHOTOS,
     )
     chat_id_int = int(chat_id)
     if not (
         orch.is_waiting_for_source(chat_id_int)
-        or orch.status(chat_id_int) in (STATE_EXPECTING_TARGETS, STATE_TARGETS_RECEIVED)
+        or orch.status(chat_id_int) in (
+            STATE_EXPECTING_TARGETS, STATE_TARGETS_RECEIVED, STATE_EXPECTING_READY_PHOTOS,
+        )
     ):
         return False
     photos = msg.get("photo")
@@ -1158,6 +1181,11 @@ def _swapbatch_photo_intercept(chat_id: str, msg: Dict[str, Any]) -> bool:
     p = _Path(local)
     if orch.is_waiting_for_source(chat_id_int):
         _swapbatch_apply_reply(chat_id, handler.consume_source(chat_id_int, p))
+    elif orch.status(chat_id_int) == STATE_EXPECTING_READY_PHOTOS:
+        # Variant A: a single ready photo treated as a 1-element ready album.
+        _swapbatch_apply_reply(
+            chat_id, handler.consume_ready_album(chat_id_int, [p])
+        )
     else:
         # Single-photo target treated as a 1-element album.
         _swapbatch_apply_reply(
@@ -1306,11 +1334,11 @@ def _swapbatch_album_intercept(chat_id: str, msgs: list) -> bool:
     if handler is None or orch is None:
         return False
     from app.services.block_m2_face_swap.batch_orchestrator import (
-        STATE_EXPECTING_TARGETS, STATE_TARGETS_RECEIVED,
+        STATE_EXPECTING_TARGETS, STATE_TARGETS_RECEIVED, STATE_EXPECTING_READY_PHOTOS,
     )
     chat_id_int = int(chat_id)
     if orch.status(chat_id_int) not in (
-        STATE_EXPECTING_TARGETS, STATE_TARGETS_RECEIVED,
+        STATE_EXPECTING_TARGETS, STATE_TARGETS_RECEIVED, STATE_EXPECTING_READY_PHOTOS,
     ):
         return False
 
@@ -1336,9 +1364,15 @@ def _swapbatch_album_intercept(chat_id: str, msgs: list) -> bool:
     if not paths:
         send(chat_id, "❌ Не удалось скачать фото из альбома.")
         return True
-    _swapbatch_apply_reply(
-        chat_id, handler.consume_targets_album(chat_id_int, paths)
-    )
+    if orch.status(chat_id_int) == STATE_EXPECTING_READY_PHOTOS:
+        # Variant A: route ready photos to the animate-only intake.
+        _swapbatch_apply_reply(
+            chat_id, handler.consume_ready_album(chat_id_int, paths)
+        )
+    else:
+        _swapbatch_apply_reply(
+            chat_id, handler.consume_targets_album(chat_id_int, paths)
+        )
     return True
 
 
@@ -5157,6 +5191,12 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
     if cmd == "/swapbatch_go":
         _swapbatch_dispatch(chat_id, "go")
         return
+    if cmd == "/animate_batch":
+        _swapbatch_dispatch(chat_id, "animate_batch")
+        return
+    if cmd == "/animate_batch_go":
+        _swapbatch_dispatch(chat_id, "animate_batch_go")
+        return
     if cmd == "/swapbatch_set_quality":
         _h_sq, _ = _swapbatch_get_handler()
         if _h_sq is None:
@@ -5857,7 +5897,8 @@ def _check_backend_startup() -> None:
 # Генеративный набор: лицевой своп + анимация + persona (+ video_face_swap идёт
 # через interceptor, не команду). Личная статистика. Default-deny.
 FRIEND_ALLOWED_COMMANDS: frozenset = frozenset({
-    "/animate", "/swapbatch", "/swapbatch_source", "/swapbatch_batch",
+    "/animate", "/animate_batch", "/animate_batch_go",
+    "/swapbatch", "/swapbatch_source", "/swapbatch_batch",
     "/swapbatch_go", "/swapbatch_set_quality", "/swapbatch_set_prompt",
     "/swapbatch_set_wardrobe",
     "/swapbatch_animate_yes", "/swapbatch_animate_go", "/swapbatch_animate_no",
