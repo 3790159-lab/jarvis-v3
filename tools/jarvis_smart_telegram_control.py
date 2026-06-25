@@ -815,13 +815,21 @@ def _swapbatch_dispatch(chat_id, command: str) -> None:
         _swapbatch_apply_reply(
             chat_id_s, handler.handle_animate_batch_go(chat_id_int)
         )
-        _kb = _swapbatch_engine_menu_kb(chat_id_int)
-        if _kb.get("inline_keyboard"):
-            send_with_keyboard(
-                chat_id_s,
-                "🎬 Выбери движок анимации (или «Без анимации»):",
-                _kb["inline_keyboard"],
-            )
+        # Symmetry with the swap-go menu draw: only offer the engine menu when
+        # the video phase is enabled. With the flag off the subsequent animate
+        # commands are guarded anyway, so drawing a dead menu would diverge from
+        # the swap path's behaviour.
+        from app.services.block_m2_face_swap.cost_estimator import (
+            animate_enabled as _animate_enabled,
+        )
+        if _animate_enabled():
+            _kb = _swapbatch_engine_menu_kb(chat_id_int)
+            if _kb.get("inline_keyboard"):
+                send_with_keyboard(
+                    chat_id_s,
+                    "🎬 Выбери движок анимации (или «Без анимации»):",
+                    _kb["inline_keyboard"],
+                )
         return
     if command == "status":
         _swapbatch_apply_reply(chat_id_s, handler.handle_status(chat_id_int))

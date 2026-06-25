@@ -74,7 +74,8 @@ def test_dispatch_animate_batch_go_draws_engine_menu():
     bot = _get_bot_module()
     h = MagicMock()
     kb = {"inline_keyboard": [[{"text": "WaveSpeed", "callback_data": "sbeng:wavespeed"}]]}
-    with patch.object(bot, "_swapbatch_get_handler", return_value=(h, MagicMock())), \
+    with patch.dict(os.environ, {"SWAPBATCH_ANIMATE_ENABLED": "1"}), \
+         patch.object(bot, "_swapbatch_get_handler", return_value=(h, MagicMock())), \
          patch.object(bot, "_swapbatch_apply_reply"), \
          patch.object(bot, "_swapbatch_engine_menu_kb", return_value=kb), \
          patch.object(bot, "send_with_keyboard") as swk:
@@ -82,6 +83,25 @@ def test_dispatch_animate_batch_go_draws_engine_menu():
     h.handle_animate_batch_go.assert_called_once_with(123)
     swk.assert_called_once()
     assert swk.call_args[0][2] == kb["inline_keyboard"]
+
+
+def test_dispatch_animate_batch_go_skips_menu_when_animate_disabled():
+    """Symmetry with swap-go: when SWAPBATCH_ANIMATE_ENABLED is off, the engine
+    menu is NOT drawn (the subsequent animate commands are guarded too), so the
+    flag-off behaviour does not diverge between the swap and ready-photo paths.
+    The go reply still applies (intake closes), only the menu is suppressed."""
+    bot = _get_bot_module()
+    h = MagicMock()
+    kb = {"inline_keyboard": [[{"text": "WaveSpeed", "callback_data": "sbeng:wavespeed"}]]}
+    with patch.dict(os.environ, {"SWAPBATCH_ANIMATE_ENABLED": "0"}), \
+         patch.object(bot, "_swapbatch_get_handler", return_value=(h, MagicMock())), \
+         patch.object(bot, "_swapbatch_apply_reply") as apply_reply, \
+         patch.object(bot, "_swapbatch_engine_menu_kb", return_value=kb), \
+         patch.object(bot, "send_with_keyboard") as swk:
+        bot._swapbatch_dispatch("123", "animate_batch_go")
+    h.handle_animate_batch_go.assert_called_once_with(123)
+    apply_reply.assert_called_once()      # intake still closes (→ SWAP_DONE)
+    swk.assert_not_called()               # but no engine menu when flag off
 
 
 # ── album intercept: ready photos accepted, swap NOT broken ──────────────────
