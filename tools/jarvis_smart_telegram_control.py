@@ -726,6 +726,19 @@ def _swapbatch_get_handler():
         return None, None
 
 
+def _swapbatch_engine_menu_kb(chat_id_int: int) -> dict:
+    """Post-swap engine-choice keyboard drawn from LIVE session state.
+
+    Routes through handle/redraw so smooth AND wardrobe reflect the session —
+    a mode set by command (e.g. /swapbatch_set_wardrobe) BEFORE the menu draws
+    must show correctly, not the param defaults.
+    """
+    _hq, _ = _swapbatch_get_handler()
+    if _hq is None:
+        return {"inline_keyboard": []}
+    return _hq._redraw_engine_keyboard(chat_id_int)
+
+
 def _swapbatch_apply_reply(chat_id_s: str, reply) -> None:
     """Render a HandlerReply: numbered photos → text → album photos → videos."""
     if reply is None:
@@ -956,7 +969,7 @@ def _swapbatch_run_phase(
                 _resolution = str(getattr(_sess_q, "resolution", "720p") or "720p")
                 _engine_mode = str(getattr(_sess_q, "video_engine", "spicy") or "spicy")
                 _motion = str(getattr(_sess_q, "motion_prompt", "") or "")
-                _wardrobe = str(getattr(_sess_q, "wardrobe_mode", "safe") or "safe")
+                _wardrobe = str(getattr(_sess_q, "wardrobe_mode", "preserve") or "preserve")
                 from app.services.block_m2_video.prompt_assembly import assemble_animate_prompt
                 def _envbool(_name, _default):
                     return _os.getenv(_name, _default).strip().lower() in ("1", "true", "yes", "on")
@@ -1016,7 +1029,7 @@ def _swapbatch_run_phase(
                 _seconds = int(getattr(_sess_q, "duration_sec", 10) or 10)
                 _resolution = str(getattr(_sess_q, "resolution", "720p") or "720p")
                 _engine_mode = str(getattr(_sess_q, "video_engine", "spicy") or "spicy")
-                _wardrobe = str(getattr(_sess_q, "wardrobe_mode", "safe") or "safe")
+                _wardrobe = str(getattr(_sess_q, "wardrobe_mode", "preserve") or "preserve")
                 def _envbool(_name, _default):
                     return _os.getenv(_name, _default).strip().lower() in ("1", "true", "yes", "on")
                 _add_realism = _envbool("SWAPBATCH_REALISM_SUFFIX", "1")
@@ -1064,7 +1077,7 @@ def _swapbatch_run_phase(
                     animate_enabled as _animate_enabled,
                 )
                 if _animate_enabled():
-                    _kb = handler.build_engine_keyboard()
+                    _kb = _swapbatch_engine_menu_kb(chat_id_int)
                     send_with_keyboard(
                         chat_id_s,
                         "🎬 Выбери движок анимации (или «Без анимации»):",
@@ -1192,7 +1205,10 @@ def _animate_photo_intercept(chat_id: str, msg: Dict[str, Any]) -> bool:
         return True
     pend["photo"] = local
     _hq, _ = _swapbatch_get_handler()
-    kb = _hq.build_engine_keyboard(show_smooth=False) if _hq else {"inline_keyboard": []}
+    kb = (
+        _hq.build_engine_keyboard(show_smooth=False, show_wardrobe=False)
+        if _hq else {"inline_keyboard": []}
+    )
     # Distinct callback prefix for the standalone flow (anim: vs batch sbeng:).
     for row in kb["inline_keyboard"]:
         for b in row:
@@ -2922,6 +2938,22 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
         # session are preserved; the redrawn keyboard reads live session state.
         kb = _hq.handle_smooth_button(int(chat_id), choice == "on")
         answer_callback_query(cq_id, f"Плавность: {'ВКЛ' if choice == 'on' else 'ВЫКЛ'}")
+        edit_message_with_keyboard(
+            chat_id,
+            message_id,
+            "🎬 Выбери движок анимации (или «Без анимации»):",
+            kb["inline_keyboard"],
+        )
+        return
+
+    # ── Swapbatch wardrobe ("не раздевать") toggle (Задача 2) ──────────────────
+    if data.startswith("sbward:"):
+        choice = data.split(":", 1)[1]          # "on" | "off"
+        _hq, _ = _swapbatch_get_handler()
+        # set_wardrobe touches ONLY wardrobe_mode (preserve|spicy); the redrawn
+        # keyboard reads live session state so smooth/engine picks are kept.
+        kb = _hq.handle_wardrobe_button(int(chat_id), choice == "on")
+        answer_callback_query(cq_id, f"Одежда: {'ВКЛ' if choice == 'on' else 'ВЫКЛ'}")
         edit_message_with_keyboard(
             chat_id,
             message_id,
@@ -5838,7 +5870,7 @@ FRIEND_ALLOWED_COMMANDS: frozenset = frozenset({
 # уже member-gated в process_update — отдельная команда не нужна.
 
 # Префиксы callback_data, разрешённые friend (генеративные кнопки). Остальное — admin.
-FRIEND_ALLOWED_CALLBACK_PREFIXES = ("sbeng:", "sbq:", "sbsmooth:", "anim:")
+FRIEND_ALLOWED_CALLBACK_PREFIXES = ("sbeng:", "sbq:", "sbsmooth:", "sbward:", "anim:")
 
 
 def _role_for_chat(chat_id) -> Optional[str]:
