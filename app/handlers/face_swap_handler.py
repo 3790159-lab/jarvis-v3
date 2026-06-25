@@ -413,6 +413,7 @@ class FaceSwapHandler:
             f"Время: ~{est['minutes']:.0f} мин\n\n"
             f"/swapbatch_animate_go — запустить (платно)\n"
             f"/swapbatch_set_prompt <текст> — задать движение/сцену\n"
+            f"/swapbatch_animate_custom — свой промпт для каждого фото\n"
             f"💡 для плавности (скопируй):\n"
             f"/swapbatch_set_prompt slow gentle head turn, soft blinking, subtle breathing, "
             f"minimal movement, locked static camera, smooth continuous slow motion\n"

@@ -101,6 +101,21 @@ async def test_handle_animate_yes_shows_cost_does_not_run(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_handle_animate_yes_offers_custom_prompt_switch(tmp_path):
+    """Estimate screen must surface /swapbatch_animate_custom so the user can
+    switch from the shared-prompt branch to per-photo prompts (Daniil missed it)."""
+    from app.handlers.face_swap_handler import FaceSwapHandler
+    orch = _orch(tmp_path); chat = 8
+    await _seed_swapped(orch, chat, tmp_path)
+    h = FaceSwapHandler(orchestrator=orch)
+    reply = h.handle_animate_yes(chat)
+    assert "/swapbatch_animate_custom" in reply.text
+    # Switching to custom from the estimate screen must not break state.
+    h.handle_animate_custom(chat)
+    assert orch.status(chat) == "AWAITING_CUSTOM_PROMPTS"
+
+
+@pytest.mark.asyncio
 async def test_handle_set_prompt_stores_shared_prompt(tmp_path):
     from app.handlers.face_swap_handler import FaceSwapHandler
     orch = _orch(tmp_path); chat = 8
