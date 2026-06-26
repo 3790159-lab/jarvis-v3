@@ -9,6 +9,8 @@ with the MOTION_VISION_QUESTION and post-processes the result:
 """
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from app.services import vision
@@ -17,7 +19,12 @@ from app.services.block_m2_video.motion_prompt_ai import (
     MOTION_VISION_QUESTION,
     generate_motion_prompt,
 )
-from app.services.block_m2_video.motion_prompt_ai import _looks_like_refusal
+from app.services.block_m2_video.motion_prompt_ai import (
+    _looks_like_refusal,
+    _refusal_layer,
+)
+
+_MODULE_LOGGER = "app.services.block_m2_video.motion_prompt_ai"
 
 
 def test_returns_clean_prompt_and_passes_motion_question(monkeypatch):
@@ -176,3 +183,75 @@ def test_looks_like_refusal_unit():
     assert _looks_like_refusal(
         "slow gentle head turn, soft blinking, photorealistic"
     ) is False
+
+
+# ── Refusal layer classification + diagnostic logging ────────────────────────
+
+def test_refusal_layer_unit():
+    # None == valid prompt; 1 opener, 2 phrase, 3 no-comma, 0 empty
+    assert _refusal_layer("I can't, sorry") == 1
+    assert _refusal_layer("this is inappropriate, no") == 2
+    assert _refusal_layer("no commas at all here") == 3
+    assert _refusal_layer("") == 0
+    assert _refusal_layer("   \n ") == 0
+    assert _refusal_layer("slow head turn, soft blinking, photorealistic") is None
+
+
+def test_layer1_refusal_logs_raw_and_layer(monkeypatch, caplog):
+    refusal = "I can't create motion prompts for this image, it's inappropriate"
+    monkeypatch.setattr(vision, "is_vision_supported", lambda: True)
+    monkeypatch.setattr(vision, "analyze_image", lambda p, q="": refusal)
+
+    with caplog.at_level(logging.INFO, logger=_MODULE_LOGGER):
+        result = generate_motion_prompt("/tmp/face.jpg")
+
+    assert result is None
+    recs = [r for r in caplog.records if r.name == _MODULE_LOGGER]
+    assert len(recs) == 1
+    blob = recs[0].getMessage()
+    assert "layer=1" in blob                         # the layer is parseable
+    assert "I can't create motion prompts" in blob   # the RAW reply is logged
+
+
+def test_layer2_refusal_logs_layer2(monkeypatch, caplog):
+    # no opener, but an embedded phrase marker -> layer 2
+    refusal = "this content is inappropriate, I won't describe it"
+    monkeypatch.setattr(vision, "is_vision_supported", lambda: True)
+    monkeypatch.setattr(vision, "analyze_image", lambda p, q="": refusal)
+
+    with caplog.at_level(logging.INFO, logger=_MODULE_LOGGER):
+        assert generate_motion_prompt("/tmp/face.jpg") is None
+
+    recs = [r for r in caplog.records if r.name == _MODULE_LOGGER]
+    assert len(recs) == 1
+    assert "layer=2" in recs[0].getMessage()
+
+
+def test_layer3_no_comma_logs_layer3(monkeypatch, caplog):
+    # a valid-looking but comma-less reply -> layer 3 (the false-positive suspect)
+    prose = "the subject remains completely still in this photograph"
+    monkeypatch.setattr(vision, "is_vision_supported", lambda: True)
+    monkeypatch.setattr(vision, "analyze_image", lambda p, q="": prose)
+
+    with caplog.at_level(logging.INFO, logger=_MODULE_LOGGER):
+        assert generate_motion_prompt("/tmp/face.jpg") is None
+
+    recs = [r for r in caplog.records if r.name == _MODULE_LOGGER]
+    assert len(recs) == 1
+    blob = recs[0].getMessage()
+    assert "layer=3" in blob
+    assert "remains completely still" in blob        # raw reply present
+
+
+def test_successful_prompt_does_not_log(monkeypatch, caplog):
+    prompt = "slow gentle head turn, soft blinking, locked static camera, photorealistic"
+    monkeypatch.setattr(vision, "is_vision_supported", lambda: True)
+    monkeypatch.setattr(vision, "analyze_image", lambda p, q="": prompt)
+
+    with caplog.at_level(logging.DEBUG, logger=_MODULE_LOGGER):
+        result = generate_motion_prompt("/tmp/face.jpg")
+
+    assert result == prompt
+    # the success path must stay silent (no log spam, no content leak)
+    recs = [r for r in caplog.records if r.name == _MODULE_LOGGER]
+    assert recs == []

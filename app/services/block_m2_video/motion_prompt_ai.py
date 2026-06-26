@@ -11,11 +11,19 @@ placeholder) so callers can show a soft error instead of billing a bad prompt.
 """
 from __future__ import annotations
 
+import logging
 import os
 import re
 
 from app.services import vision
 from app.services.block_m2_video.prompt_assembly import clamp_prompt
+
+logger = logging.getLogger(__name__)
+
+# Cap on how much of the raw Claude reply we mirror into the diagnostic log: the
+# reply is the model's own short text (a motion prompt or a refusal, ~40 words),
+# never the user's photo or PII, but we truncate defensively to avoid log spam.
+_LOG_RAW_MAX = 500
 
 # Vision question, tuned for the DEFAULT_MOTION style: slow/subtle motion, no
 # description of the person's appearance, comma-style english, output-only.
@@ -72,18 +80,34 @@ def _clean(raw: str) -> str:
     return text
 
 
-def _looks_like_refusal(text: str) -> bool:
-    """True when the cleaned reply is a model refusal, not a usable motion prompt."""
+def _refusal_layer(text: str) -> int | None:
+    """Classify a cleaned reply: which guard layer (if any) marks it a refusal.
+
+    Returns the firing layer so the caller can log not just THAT a reply was
+    rejected but WHICH heuristic caught it (key for telling a genuine content
+    refusal apart from a layer-3 false-positive on a comma-less valid prompt):
+
+      ``None`` — a usable motion prompt (no layer fired)
+      ``0``    — empty / whitespace-only reply
+      ``1``    — refusal opener anchored to the start
+      ``2``    — distinctive refusal phrase anywhere
+      ``3``    — no comma at all (not our mandated comma-list format)
+    """
     low = text.strip().lower()
     if not low:
-        return True
+        return 0
     if _REFUSAL_OPENERS_RE.match(low):           # layer 1: opener
-        return True
+        return 1
     if any(p in low for p in _REFUSAL_PHRASES):  # layer 2: phrase
-        return True
+        return 2
     if "," not in low:                           # layer 3: not comma-list format
-        return True
-    return False
+        return 3
+    return None
+
+
+def _looks_like_refusal(text: str) -> bool:
+    """True when the cleaned reply is a model refusal, not a usable motion prompt."""
+    return _refusal_layer(text) is not None
 
 
 def generate_motion_prompt(image_path: str) -> str | None:
@@ -102,7 +126,14 @@ def generate_motion_prompt(image_path: str) -> str | None:
         return None
     # Detect refusals on the CLEANED text (before clamp — clamp could cut a marker).
     candidate = _clean(raw)
-    if _looks_like_refusal(candidate):
+    layer = _refusal_layer(candidate)
+    if layer is not None:
+        # Diagnostic only (file/console log, never the user chat): record the raw
+        # reply + which layer caught it, so we can later tell a real Claude refusal
+        # (layer 1/2) from a layer-3 false-positive on a comma-less valid prompt.
+        logger.info(
+            "motion-prompt refusal: layer=%d raw=%r", layer, raw[:_LOG_RAW_MAX]
+        )
         return None
     cap = int(os.getenv("WAVESPEED_PROMPT_MAX_CHARS", "1500"))
     cleaned, _ = clamp_prompt(candidate, cap)
