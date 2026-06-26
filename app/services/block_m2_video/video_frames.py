@@ -21,6 +21,28 @@ class VideoFramesError(Exception):
     """Raised when a reference video cannot be opened, read, or sliced."""
 
 
+def validate_videoref(
+    file_size: int,
+    duration: float,
+    *,
+    max_size_mb: int = 20,
+    max_duration_s: float = 15,
+) -> tuple[bool, str]:
+    """Gate a reference video on its Telegram metadata before downloading.
+
+    Pure: no I/O. ``file_size`` is in bytes, ``duration`` in seconds (both come
+    from ``msg["video"]``). Limits are inclusive — exactly at the limit passes.
+    Checks run in a deterministic order (size, then duration) so an oversized
+    *and* over-long video reports the size reason. Returns ``(ok, reason)``;
+    ``reason`` is "" when ``ok`` is True.
+    """
+    if file_size > max_size_mb * 1024 * 1024:
+        return False, f"видео слишком большое, до {max_size_mb} МБ"
+    if duration > max_duration_s:
+        return False, f"пришли клип до {int(max_duration_s)} секунд"
+    return True, ""
+
+
 def _cv2():
     """Lazy cv2 import, isolated so tests can monkeypatch the boundary."""
     import cv2  # type: ignore[import-not-found]
