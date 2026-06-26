@@ -1256,6 +1256,78 @@ def _swapbatch_photo_intercept(chat_id: str, msg: Dict[str, Any]) -> bool:
     return True
 
 
+# ── Веха B: /videoref — reference video -> frames (local, free, no swap) ──────
+# Lightweight per-chat arm: only a video arriving while this chat is armed gets
+# sliced, so /video_face_swap and every other video flow stay untouched.
+_VIDEOREF_AWAITING: set = set()
+_VIDEOREF_FRAMES_ROOT = ROOT / "state" / "video_ref"
+
+
+def _videoref_start(chat_id: str) -> None:
+    """/videoref — arm this chat to slice the next video into frames."""
+    _VIDEOREF_AWAITING.add(int(chat_id))
+    send(
+        chat_id,
+        "🎬 Пришли референс-видео (до 15 сек, до 20 МБ) — нарежу его на кадры.",
+    )
+
+
+def _videoref_intercept(chat_id: str, msg: Dict[str, Any]) -> bool:
+    """Slice an armed reference video into frames.
+
+    Returns True only when this chat is armed (via /videoref) AND the message
+    carries a video; otherwise returns False so the message falls through to
+    /video_face_swap and the rest of the pipeline untouched. Once we take the
+    message the arm is cleared regardless of outcome (success, refusal, or
+    download failure) so a later video is never hijacked. Limits are validated
+    on Telegram metadata BEFORE any download. Free: no vision / paid calls.
+    """
+    chat_id_int = int(chat_id)
+    if chat_id_int not in _VIDEOREF_AWAITING:
+        return False
+    video = msg.get("video")
+    if not video:
+        return False
+    # We own this message now — disarm before doing anything that can fail.
+    _VIDEOREF_AWAITING.discard(chat_id_int)
+
+    from app.services.block_m2_video.video_frames import (
+        validate_videoref,
+        slice_video_to_frames,
+        VideoFramesError,
+    )
+
+    ok, reason = validate_videoref(
+        int(video.get("file_size", 0) or 0),
+        float(video.get("duration", 0) or 0),
+    )
+    if not ok:
+        send(chat_id, f"❌ {reason}")
+        return True
+
+    file_id = video.get("file_id")
+    if not file_id:
+        send(chat_id, "❌ Не удалось скачать видео.")
+        return True
+    local = _download_telegram_file(
+        file_id, f"videoref_{chat_id_int}_{int(time.time())}.mp4"
+    )
+    if not local:
+        send(chat_id, "❌ Не удалось скачать видео.")
+        return True
+
+    from pathlib import Path as _Path
+
+    out_dir = _VIDEOREF_FRAMES_ROOT / str(chat_id_int) / "frames"
+    try:
+        frames = slice_video_to_frames(_Path(local), out_dir)
+    except VideoFramesError:
+        send(chat_id, "❌ Не смог прочитать видео.")
+        return True
+    send(chat_id, f"✂️ Нарезано {len(frames)} кадров.")
+    return True
+
+
 # ── standalone /animate (Task 11): one photo -> engine menu -> one video ──────
 _ANIMATE_PENDING: Dict[int, Dict[str, Any]] = {}
 
@@ -5246,6 +5318,9 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
         return
 
     # ── Block M.2.5 face-swap batch commands ────────────────────────────────
+    if cmd == "/videoref":
+        _videoref_start(str(chat_id))
+        return
     if cmd == "/animate":
         _animate_start(str(chat_id))
         return
@@ -5975,6 +6050,7 @@ FRIEND_ALLOWED_COMMANDS: frozenset = frozenset({
     "/swapbatch_animate_custom", "/swapbatch_status", "/swapbatch_cancel",
     "/persona_photo", "/persona_video", "/persona_video_redo", "/persona_redo",
     "/persona_engine", "/persona_batch", "/me_swap_photo", "/me_swap_video",
+    "/videoref",
     "/my_stats", "/start", "/help",
 })
 # video_face_swap (фото+видео пара) идёт через _video_face_swap_intercept,
@@ -6827,6 +6903,12 @@ def process_update(upd: Dict[str, Any], media_group_buffer: Optional[Dict[str, A
 
     # Block M.2 Phase C: /persona_video with attached or replied-to photo.
     if _member and _persona_video_intercept(chat_id, msg):
+        return
+
+    # Веха B: /videoref — slice an armed reference video into frames. Sits
+    # above the swap-video flows; only fires when this chat armed /videoref, so
+    # an unarmed video falls straight through to /video_face_swap below.
+    if _member and _videoref_intercept(chat_id, msg):
         return
 
     # Block M.2.6: /video_face_swap — face photo + video pair (either order).
