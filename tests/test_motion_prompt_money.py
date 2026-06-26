@@ -160,6 +160,42 @@ def test_generator_none_after_passing_check_does_not_bill(tmp_path, monkeypatch)
     assert recorded == []  # ...but billed nothing for the failed generation
 
 
+def test_over_limit_calls_neither_engine(tmp_path, monkeypatch):
+    """Spy with teeth across BOTH engines: an over-limit friend must trigger
+    zero Claude AND zero Grok calls through the REAL generate_motion_prompt
+    chain (not a mocked generator), and bill nothing."""
+    from app.services import vision, grok_vision
+
+    handler, orch = _make_handler(tmp_path)
+    _seed_swapped(handler, orch, tmp_path)
+    recorded = _spy_ledger(monkeypatch)
+
+    monkeypatch.setenv("MOTION_PROMPT_VISION_ENGINES", "claude,grok")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    monkeypatch.setattr(
+        "app.handlers.face_swap_handler.check_limit",
+        lambda user_id, *, estimated_usd: (False, "Дневной лимит исчерпан"),
+    )
+
+    def boom_claude(*a, **k):
+        raise AssertionError("Claude must NOT run over the limit")
+
+    def boom_grok(*a, **k):
+        raise AssertionError("Grok must NOT run over the limit")
+
+    monkeypatch.setattr(vision, "is_vision_supported", lambda: True)
+    monkeypatch.setattr(vision, "analyze_image", boom_claude)
+    monkeypatch.setattr(grok_vision, "is_grok_vision_supported", lambda: True)
+    monkeypatch.setattr(grok_vision, "analyze_image", boom_grok)
+    # NOTE: generate_motion_prompt is deliberately NOT mocked -> real engine chain
+
+    r = handler.handle_generate_prompt(CHAT, user_id=FRIEND, username="petya")
+
+    assert "🚫" in r.text
+    assert recorded == []            # zero spend
+    # neither boom fired -> zero engine calls across the whole chain
+
+
 def test_check_limit_strictly_before_vision(tmp_path, monkeypatch):
     handler, orch = _make_handler(tmp_path)
     _seed_swapped(handler, orch, tmp_path)

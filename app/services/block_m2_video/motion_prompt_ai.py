@@ -15,7 +15,7 @@ import logging
 import os
 import re
 
-from app.services import vision
+from app.services import grok_vision, vision
 from app.services.block_m2_video.prompt_assembly import clamp_prompt
 
 logger = logging.getLogger(__name__)
@@ -31,12 +31,15 @@ MOTION_VISION_QUESTION = (
     "You write motion prompts for an image-to-video model that animates this "
     "photo. Output ONLY the motion prompt — no preamble, no quotes, no "
     "explanation. Describe SLOW, SUBTLE, natural movement only (gentle head "
-    "turn, soft blinking, subtle breathing, minimal body movement). Do NOT "
-    "describe the person's appearance, clothing, face or background. Use "
-    "comma-separated english phrases, max ~40 words. Always include "
-    "\"locked static camera\" and \"photorealistic\".\n"
-    "Example: slow gentle head turn, soft blinking, subtle breathing, minimal "
-    "body movement, locked static camera, soft cinematic lighting, photorealistic"
+    "turn, soft blinking, subtle breathing, minimal body movement) that suits "
+    "THIS specific photo. Do NOT describe the person's appearance, clothing, "
+    "face or background. Use comma-separated english phrases, max ~40 words. "
+    "Always include \"locked static camera\" and \"photorealistic\". "
+    "Do NOT repeat the example below verbatim — it only shows the FORMAT; your "
+    "prompt must describe the movement that fits this particular image.\n"
+    "Format example (do NOT copy these words): slow gentle head turn, soft "
+    "blinking, subtle breathing, minimal body movement, locked static camera, "
+    "soft cinematic lighting, photorealistic"
 )
 
 # Sentinel that marks vision's not-configured / error fallback placeholder.
@@ -110,31 +113,67 @@ def _looks_like_refusal(text: str) -> bool:
     return _refusal_layer(text) is not None
 
 
-def generate_motion_prompt(image_path: str) -> str | None:
-    """Generate a motion prompt for ``image_path`` via Claude Vision.
+def _engine_chain() -> list[str]:
+    """Ordered vision engines from ``MOTION_PROMPT_VISION_ENGINES``.
 
-    Returns the cleaned prompt, or ``None`` when vision is unavailable or the
-    reply is empty/placeholder.
+    Default ``"claude,grok"``: cheap, SFW-friendly Claude first, uncensored Grok
+    as an AUTOMATIC fallback when Claude refuses (no manual per-press switch).
+    Set ``"grok"`` / ``"claude"`` to force a single engine.
     """
-    if not vision.is_vision_supported():
-        return None
-    try:
-        raw = vision.analyze_image(image_path, MOTION_VISION_QUESTION)
-    except Exception:
-        return None
-    if not raw or _PLACEHOLDER_SENTINEL in raw:
-        return None
-    # Detect refusals on the CLEANED text (before clamp — clamp could cut a marker).
-    candidate = _clean(raw)
-    layer = _refusal_layer(candidate)
-    if layer is not None:
-        # Diagnostic only (file/console log, never the user chat): record the raw
-        # reply + which layer caught it, so we can later tell a real Claude refusal
-        # (layer 1/2) from a layer-3 false-positive on a comma-less valid prompt.
-        logger.info(
-            "motion-prompt refusal: layer=%d raw=%r", layer, raw[:_LOG_RAW_MAX]
-        )
-        return None
+    raw = os.getenv("MOTION_PROMPT_VISION_ENGINES", "claude,grok")
+    return [e.strip().lower() for e in raw.split(",") if e.strip()]
+
+
+def _run_engine(engine: str, image_path: str) -> str | None:
+    """Call one vision engine; return its RAW reply, or ``None`` when the engine
+    is unavailable (no key) or the call errored. Never raises."""
+    if engine == "claude":
+        if not vision.is_vision_supported():
+            return None
+        try:
+            return vision.analyze_image(image_path, MOTION_VISION_QUESTION)
+        except Exception:  # noqa: BLE001 - degrade, let the chain continue
+            return None
+    if engine == "grok":
+        if not grok_vision.is_grok_vision_supported():
+            return None
+        try:
+            return grok_vision.analyze_image(image_path, MOTION_VISION_QUESTION)
+        except Exception:  # noqa: BLE001 - degrade, let the chain continue
+            return None
+    logger.warning("motion-prompt: unknown vision engine %r — skipping", engine)
+    return None
+
+
+def generate_motion_prompt(image_path: str) -> str | None:
+    """Generate a motion prompt via the configured vision-engine chain.
+
+    Engines are tried in ``MOTION_PROMPT_VISION_ENGINES`` order (default
+    ``claude,grok``). ``_refusal_layer`` is applied to EVERY engine identically
+    (engine-agnostic), so a refusal from one engine auto-falls-back to the next.
+    Returns the first usable prompt, or ``None`` when every engine is
+    unavailable / empty / refuses. Money (check_limit/record_cost) is the
+    caller's job — this stays pure so a fallback never double-charges.
+    """
     cap = int(os.getenv("WAVESPEED_PROMPT_MAX_CHARS", "1500"))
-    cleaned, _ = clamp_prompt(candidate, cap)
-    return cleaned.strip() or None
+    for engine in _engine_chain():
+        raw = _run_engine(engine, image_path)
+        if not raw or _PLACEHOLDER_SENTINEL in raw:
+            continue  # unavailable / empty / placeholder -> try next engine
+        # Detect refusals on the CLEANED text (before clamp — clamp could cut a marker).
+        candidate = _clean(raw)
+        layer = _refusal_layer(candidate)
+        if layer is not None:
+            # Diagnostic only (file/console log, never the user chat): raw reply +
+            # which engine and which layer caught it, so we can tell a real refusal
+            # (layer 1/2) from a layer-3 false-positive on a comma-less prompt.
+            logger.info(
+                "motion-prompt refusal: engine=%s layer=%d raw=%r",
+                engine, layer, raw[:_LOG_RAW_MAX],
+            )
+            continue  # this engine refused -> fall back to the next engine
+        cleaned, _ = clamp_prompt(candidate, cap)
+        result = cleaned.strip()
+        if result:
+            return result
+    return None

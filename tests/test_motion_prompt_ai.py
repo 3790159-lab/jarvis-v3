@@ -14,6 +14,7 @@ import logging
 import pytest
 
 from app.services import vision
+from app.services import grok_vision
 from app.services.block_m2_video import motion_prompt_ai
 from app.services.block_m2_video.motion_prompt_ai import (
     MOTION_VISION_QUESTION,
@@ -25,6 +26,18 @@ from app.services.block_m2_video.motion_prompt_ai import (
 )
 
 _MODULE_LOGGER = "app.services.block_m2_video.motion_prompt_ai"
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_claude_only(monkeypatch):
+    """Default: every test exercises the Claude engine ONLY and never makes a
+    real Grok network call. Fallback/routing tests override the chain + key."""
+    monkeypatch.setenv("MOTION_PROMPT_VISION_ENGINES", "claude")
+    monkeypatch.delenv("XAI_API_KEY", raising=False)
+
+
+def _boom(*a, **k):
+    raise AssertionError("this engine must not be called")
 
 
 def test_returns_clean_prompt_and_passes_motion_question(monkeypatch):
@@ -255,3 +268,106 @@ def test_successful_prompt_does_not_log(monkeypatch, caplog):
     # the success path must stay silent (no log spam, no content leak)
     recs = [r for r in caplog.records if r.name == _MODULE_LOGGER]
     assert recs == []
+
+
+# ── Engine switch + auto-fallback (Claude SFW → Grok uncensored) ─────────────
+
+def test_engine_grok_routes_to_grok_vision(monkeypatch):
+    monkeypatch.setenv("MOTION_PROMPT_VISION_ENGINES", "grok")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    # Claude must NOT run when the engine is grok
+    monkeypatch.setattr(vision, "is_vision_supported", lambda: True)
+    monkeypatch.setattr(vision, "analyze_image", _boom)
+    monkeypatch.setattr(grok_vision, "is_grok_vision_supported", lambda: True)
+    captured = {}
+
+    def fake_grok(path, question=""):
+        captured["q"] = question
+        return "grok head turn, soft blinking, photorealistic"
+
+    monkeypatch.setattr(grok_vision, "analyze_image", fake_grok)
+
+    out = generate_motion_prompt("/tmp/face.jpg")
+    assert out == "grok head turn, soft blinking, photorealistic"
+    assert captured["q"] == MOTION_VISION_QUESTION   # same house-style question
+
+
+def test_engine_claude_routes_to_vision(monkeypatch):
+    # default chain "claude" from the autouse fixture
+    monkeypatch.setattr(vision, "is_vision_supported", lambda: True)
+    monkeypatch.setattr(
+        vision, "analyze_image",
+        lambda p, q="": "claude head turn, soft blinking, photorealistic",
+    )
+    monkeypatch.setattr(grok_vision, "analyze_image", _boom)  # grok must not run
+
+    out = generate_motion_prompt("/tmp/face.jpg")
+    assert out == "claude head turn, soft blinking, photorealistic"
+
+
+def test_fallback_claude_refusal_retries_grok(monkeypatch):
+    monkeypatch.setenv("MOTION_PROMPT_VISION_ENGINES", "claude,grok")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    monkeypatch.setattr(vision, "is_vision_supported", lambda: True)
+    monkeypatch.setattr(
+        vision, "analyze_image",
+        lambda p, q="": "I can't create motion prompts for this image, inappropriate",
+    )
+    monkeypatch.setattr(grok_vision, "is_grok_vision_supported", lambda: True)
+    grok_called = []
+
+    def fake_grok(path, question=""):
+        grok_called.append(path)
+        return "slow head turn, soft blinking, locked static camera, photorealistic"
+
+    monkeypatch.setattr(grok_vision, "analyze_image", fake_grok)
+
+    out = generate_motion_prompt("/tmp/face.jpg")
+    assert out == "slow head turn, soft blinking, locked static camera, photorealistic"
+    assert len(grok_called) == 1   # auto-fell-back to Grok after Claude refused
+
+
+def test_fallback_both_refuse_returns_none(monkeypatch):
+    monkeypatch.setenv("MOTION_PROMPT_VISION_ENGINES", "claude,grok")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    monkeypatch.setattr(vision, "is_vision_supported", lambda: True)
+    monkeypatch.setattr(vision, "analyze_image", lambda p, q="": "I can't, sorry")
+    monkeypatch.setattr(grok_vision, "is_grok_vision_supported", lambda: True)
+    monkeypatch.setattr(
+        grok_vision, "analyze_image", lambda p, q="": "I won't do that either"
+    )
+
+    assert generate_motion_prompt("/tmp/face.jpg") is None
+
+
+def test_fallback_skips_grok_when_unsupported(monkeypatch):
+    # chain asks for grok but no XAI key -> grok skipped, claude refusal -> None
+    monkeypatch.setenv("MOTION_PROMPT_VISION_ENGINES", "claude,grok")
+    monkeypatch.delenv("XAI_API_KEY", raising=False)
+    monkeypatch.setattr(vision, "is_vision_supported", lambda: True)
+    monkeypatch.setattr(vision, "analyze_image", lambda p, q="": "I can't, sorry")
+    monkeypatch.setattr(grok_vision, "analyze_image", _boom)  # must be skipped
+
+    assert generate_motion_prompt("/tmp/face.jpg") is None
+
+
+def test_refusal_log_includes_engine(monkeypatch, caplog):
+    monkeypatch.setattr(vision, "is_vision_supported", lambda: True)
+    monkeypatch.setattr(
+        vision, "analyze_image", lambda p, q="": "I can't, inappropriate, sorry"
+    )
+    with caplog.at_level(logging.INFO, logger=_MODULE_LOGGER):
+        assert generate_motion_prompt("/tmp/face.jpg") is None
+
+    blob = " ".join(
+        r.getMessage() for r in caplog.records if r.name == _MODULE_LOGGER
+    )
+    assert "engine=claude" in blob   # which engine refused is parseable
+    assert "layer=" in blob
+
+
+def test_motion_question_discourages_example_copy():
+    # anti-"эхо примера": the question must steer the model off verbatim copying
+    low = MOTION_VISION_QUESTION.lower()
+    assert ("verbatim" in low) or ("do not copy" in low) or ("do not repeat" in low)
+    assert "this" in low             # anchored to THIS specific photo
