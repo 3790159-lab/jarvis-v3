@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+from dataclasses import dataclass
 
 from app.services import grok_vision, vision
 from app.services.block_m2_video.prompt_assembly import clamp_prompt
@@ -42,8 +43,45 @@ MOTION_VISION_QUESTION = (
     "soft cinematic lighting, photorealistic"
 )
 
+# Video-motion question (Веха C / Задача 3). UNLIKE MOTION_VISION_QUESTION (which
+# asks for slow/subtle motion on ONE static photo), this asks Grok to read an
+# ORDERED sequence of frames and re-create the movement happening ACROSS them —
+# the action and its direction/sequence. Still output-only + comma-list so the
+# engine-agnostic _refusal_layer applies unchanged. "do NOT copy the example"
+# guards against the echo failure mode learned in Веха A.
+VIDEO_MOTION_VISION_QUESTION = (
+    "You are given an ORDERED sequence of frames sampled from one short video, "
+    "first to last. Write ONE motion prompt for an image-to-video model that "
+    "RE-CREATES the movement happening ACROSS these frames over time — the "
+    "action and its direction/sequence (e.g. \"turns head left, then raises "
+    "right hand, leans forward\"). Output ONLY the motion prompt — no preamble, "
+    "no quotes, no explanation. Do NOT describe the person's appearance, "
+    "clothing, face, or background — movement only. Use comma-separated english "
+    "phrases, max ~50 words. State the camera explicitly (\"locked static "
+    "camera\" if the framing does not move, otherwise the camera motion you "
+    "observe). Do NOT copy the example; it only shows the FORMAT.\n"
+    "Format example (do NOT copy these words): turns head slowly to the left, "
+    "raises right hand toward face, gentle forward lean, hair sways, locked "
+    "static camera, photorealistic"
+)
+
 # Sentinel that marks vision's not-configured / error fallback placeholder.
 _PLACEHOLDER_SENTINEL = "Анализ изображений пока не поддерживается"
+
+
+@dataclass
+class VideoMotionResult:
+    """Result of one Grok multi-image motion-prompt call (Веха C / Задача 3).
+
+    ``prompt`` is ``None`` on refusal / empty / no-key — the money-gate Задача 4
+    checks to decide whether to charge. ``usage``/``cost_usd`` come from the SAME
+    call (no second request) so Задача 4's ledger logs the real cost even when
+    ``prompt`` is ``None`` (a refusal is still a billable xAI call).
+    """
+
+    prompt: str | None
+    usage: dict | None = None
+    cost_usd: float | None = None
 
 # Leading preamble the model may emit despite "output-only" instructions, e.g.
 # "Here is the motion prompt:" / "Sure, here's the prompt:".
@@ -177,3 +215,41 @@ def generate_motion_prompt(image_path: str) -> str | None:
         if result:
             return result
     return None
+
+
+def generate_video_motion_prompt(frame_paths) -> VideoMotionResult:
+    """Write a motion prompt that re-creates movement across video frames.
+
+    Веха C / Задача 3 — the first PAID task. One Grok multi-image call (Claude is
+    skipped: it censors spicy by design, so it would only waste a call). Returns
+    a :class:`VideoMotionResult`; ``prompt`` is ``None`` on refusal / empty /
+    no-key, while ``usage``/``cost_usd`` from the same call are always surfaced.
+
+    PURE generation: NO ``check_limit`` / ``record_cost`` here — billing and the
+    money-gate are Задача 4. An empty ``frame_paths`` short-circuits BEFORE any
+    paid call (never pay to analyse nothing).
+    """
+    frames = list(frame_paths)
+    if not frames:
+        return VideoMotionResult(prompt=None)
+
+    res = grok_vision.analyze_images_detailed(frames, VIDEO_MOTION_VISION_QUESTION)
+    raw = res.text or ""
+    if not raw or _PLACEHOLDER_SENTINEL in raw:
+        return VideoMotionResult(prompt=None, usage=res.usage, cost_usd=res.cost_usd)
+
+    candidate = _clean(raw)
+    layer = _refusal_layer(candidate)
+    if layer is not None:
+        # Diagnostic only (never the user chat): which layer caught the refusal,
+        # so a real content refusal (layer 1/2) is distinguishable from a layer-3
+        # false-positive on a comma-less reply. cost stays in the result.
+        logger.info(
+            "video-motion refusal: layer=%d raw=%r", layer, raw[:_LOG_RAW_MAX]
+        )
+        return VideoMotionResult(prompt=None, usage=res.usage, cost_usd=res.cost_usd)
+
+    cap = int(os.getenv("WAVESPEED_PROMPT_MAX_CHARS", "1500"))
+    cleaned, _ = clamp_prompt(candidate, cap)
+    prompt = cleaned.strip() or None
+    return VideoMotionResult(prompt=prompt, usage=res.usage, cost_usd=res.cost_usd)
