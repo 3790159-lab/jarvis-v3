@@ -43,6 +43,30 @@ def validate_videoref(
     return True, ""
 
 
+def select_best_frame(frame_paths, validator) -> "Path | None":
+    """Pick the frame whose largest face scores highest (Веха C / Задача 2).
+
+    Scores each frame locally via ``validator.score_largest_face`` (free, no
+    vision) and returns the path with the maximum ``composite``. Frames with no
+    detectable face (score ``None``) are skipped. Returns ``None`` when the list
+    is empty or no frame has a usable face — this is the money-gate: Веха C
+    stops here and never starts a paid Grok call when there is nothing to swap.
+
+    Determinism: on tied composite scores the earliest frame in ``frame_paths``
+    wins (``max`` keeps the first maximum).
+    """
+    best: Path | None = None
+    best_composite = float("-inf")
+    for path in frame_paths:
+        score = validator.score_largest_face(Path(path))
+        if score is None:
+            continue
+        if score.composite > best_composite:
+            best_composite = score.composite
+            best = Path(path)
+    return best
+
+
 def _cv2():
     """Lazy cv2 import, isolated so tests can monkeypatch the boundary."""
     import cv2  # type: ignore[import-not-found]
