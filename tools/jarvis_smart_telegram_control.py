@@ -1262,6 +1262,18 @@ def _swapbatch_photo_intercept(chat_id: str, msg: Dict[str, Any]) -> bool:
 _VIDEOREF_AWAITING: set = set()
 _VIDEOREF_FRAMES_ROOT = ROOT / "state" / "video_ref"
 
+# Веха C / Task 4: paid motion-analysis on the sliced frames. Module-level imports
+# + a price constant referenced as a SINGLE source so quoted == charged. Pending
+# stashes the frames-dir per chat so the vref:motion callback can run the pipeline.
+from app.services.auth.access_control import check_limit as _check_limit  # noqa: E402
+from app.services.block_m2_video.video_frames import select_best_frame  # noqa: E402
+from app.services.block_m2_video.motion_prompt_ai import (  # noqa: E402
+    generate_video_motion_prompt,
+)
+
+VIDEOREF_MOTION_USD = 0.35  # money-safe fixed estimate (covers worst-case ~17 frames)
+_VIDEOREF_PENDING: Dict[int, Dict[str, Any]] = {}
+
 
 def _videoref_start(chat_id: str) -> None:
     """/videoref — arm this chat to slice the next video into frames."""
@@ -1324,8 +1336,90 @@ def _videoref_intercept(chat_id: str, msg: Dict[str, Any]) -> bool:
     except VideoFramesError:
         send(chat_id, "❌ Не смог прочитать видео.")
         return True
-    send(chat_id, f"✂️ Нарезано {len(frames)} кадров.")
+    # Stash the frames-dir so the opt-in 🎬 button can run the paid pipeline, and
+    # show the price BEFORE the click (money-safe opt-in). Slicing/receipt above
+    # is untouched — we only enrich the reply.
+    _VIDEOREF_PENDING[chat_id_int] = {"frames_dir": out_dir}
+    send_with_keyboard(
+        chat_id,
+        f"✂️ Нарезано {len(frames)} кадров.",
+        [[{"text": f"🎬 Анализ движения (~${VIDEOREF_MOTION_USD:.2f})",
+           "callback_data": "vref:motion"}]],
+    )
     return True
+
+
+def _videoref_motion_run(chat_id) -> None:
+    """Веха C / Task 4: best-frame + paid Grok motion prompt for sliced frames.
+
+    Money order is STRICT: limit gate BEFORE any paid OR local-scoring work; free
+    best-frame selection (``None`` -> no face -> no paid call); then ONE paid Grok
+    call. ``record_cost`` fires ONCE and ONLY on a usable prompt. A refusal is
+    never billed to the user (xAI billed US -> admin gets a visibility ping).
+    Pending is popped first so a double-click can't double-charge. Synchronous so
+    it is unit-testable; the callback dispatch runs it in a worker thread.
+    """
+    from pathlib import Path as _P
+
+    chat_id_int = int(chat_id)
+    pend = _VIDEOREF_PENDING.pop(chat_id_int, None)
+    if not pend:
+        send(chat_id, "⚠️ Кадры не найдены — пришли видео заново: /videoref")
+        return
+    frames_dir = pend.get("frames_dir")
+    frames = (
+        sorted(str(p) for p in _P(frames_dir).glob("frame_*.jpg"))
+        if frames_dir else []
+    )
+
+    # 1. Limit gate BEFORE any paid call or local scoring.
+    allowed, reason = _check_limit(chat_id_int, estimated_usd=VIDEOREF_MOTION_USD)
+    if not allowed:
+        send(chat_id, f"🚫 {reason}")
+        try:
+            _admin = _whitelist.load_admin_user_id()
+            if _admin is not None and _admin != chat_id_int:
+                send(str(_admin),
+                     f"⚠️ Друг id={chat_id_int} уперся в лимит "
+                     f"(videoref motion, ~${VIDEOREF_MOTION_USD:.2f}).")
+        except Exception:  # noqa: BLE001
+            pass
+        return
+
+    # 2. Best frame (free, local). No face -> nothing to swap -> no paid call.
+    from app.services.block_m2_face_swap.face_validator import FaceValidator
+    best = select_best_frame(frames, FaceValidator())
+    if best is None:
+        send(chat_id, "❌ Не нашёл лицо в кадрах — свапать нечего.")
+        return
+
+    # 3. Paid Grok multi-image motion prompt.
+    result = generate_video_motion_prompt(frames)
+    if result.prompt is None:
+        # Refusal / failure: xAI billed US, the user pays nothing. Log + ping the
+        # admin so mass refusals don't silently drain the xAI key.
+        _real = result.cost_usd
+        print(f"[videoref] Grok refusal/fail chat={chat_id_int} "
+              f"xAI cost~{_real}, user NOT charged", flush=True)
+        try:
+            _admin = _whitelist.load_admin_user_id()
+            if _admin is not None and _admin != chat_id_int:
+                send(str(_admin),
+                     f"⚠️ Grok refusal videoref (id={chat_id_int}), "
+                     f"xAI cost ~${(_real or 0.0):.2f}, с юзера не списано.")
+        except Exception:  # noqa: BLE001
+            pass
+        send(chat_id, "❌ Не смог проанализировать движение, попробуй другое видео.")
+        return
+
+    # 4. Success: quoted == charged (single source VIDEOREF_MOTION_USD).
+    try:
+        _uname = _USERNAME_BY_CHAT.get(str(chat_id))
+        _cost.record_cost(chat_id_int, _uname, VIDEOREF_MOTION_USD)
+    except Exception as _e:  # noqa: BLE001 - billing must not break the reply
+        print(f"[cost] videoref motion record failed: {_e}", flush=True)
+    _send_local_photo(chat_id, str(best), caption=result.prompt)
+    send(chat_id, "🔜 Дальше — свап лица (Веха D, скоро).")
 
 
 # ── standalone /animate (Task 11): one photo -> engine menu -> one video ──────
@@ -3076,6 +3170,22 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
             _users_store.add_blocked(target_id, uname, added_by=str(_cq_uid))
             answer_callback_query(cq_id, "Отклонён")
             send(chat_id, f"❌ Запрос @{uname or target_id} отклонён.")
+        return
+
+    # ── Videoref motion analysis (Веха C / Task 4) — paid, opt-in ─────────────
+    if data.startswith("vref:"):
+        action = parts[1] if len(parts) > 1 else ""
+        if action == "motion":
+            # Ack immediately; scoring ~17 frames + Grok takes seconds, so run the
+            # synchronous core in a worker thread (don't block the long-poll loop).
+            answer_callback_query(cq_id, "Анализирую…")
+            import threading as _thr
+            _thr.Thread(
+                target=_videoref_motion_run, args=(chat_id,), daemon=True,
+                name=f"videoref_motion_{chat_id}",
+            ).start()
+            return
+        answer_callback_query(cq_id)
         return
 
     # ── Swapbatch engine choice (Task 9) ──────────────────────────────────────
@@ -6057,7 +6167,7 @@ FRIEND_ALLOWED_COMMANDS: frozenset = frozenset({
 # уже member-gated в process_update — отдельная команда не нужна.
 
 # Префиксы callback_data, разрешённые friend (генеративные кнопки). Остальное — admin.
-FRIEND_ALLOWED_CALLBACK_PREFIXES = ("sbeng:", "sbq:", "sbsmooth:", "sbward:", "anim:", "sbgen:")
+FRIEND_ALLOWED_CALLBACK_PREFIXES = ("sbeng:", "sbq:", "sbsmooth:", "sbward:", "anim:", "sbgen:", "vref:")
 
 
 def _role_for_chat(chat_id) -> Optional[str]:

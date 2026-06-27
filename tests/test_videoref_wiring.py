@@ -58,13 +58,15 @@ def test_video_with_flag_sliced_and_flag_cleared():
     frames = [Path("frame_000.jpg"), Path("frame_001.jpg"), Path("frame_002.jpg")]
     with patch.object(bot, "_download_telegram_file", return_value="/tmp/ref.mp4") as dl, \
          patch.object(vf, "slice_video_to_frames", return_value=frames) as sl, \
-         patch.object(bot, "send") as snd:
+         patch.object(bot, "send_with_keyboard") as skb, \
+         patch.object(bot, "send"):
         consumed = bot._videoref_intercept("123", _video_msg())
     assert consumed is True
     dl.assert_called_once()
     sl.assert_called_once()
     assert 123 not in bot._VIDEOREF_AWAITING  # flag cleared after success
-    assert "3" in snd.call_args[0][1]  # "Нарезано 3 кадров"
+    # Веха C: the "Нарезано N" receipt now carries the opt-in motion button.
+    assert "3" in skb.call_args.args[1]  # "Нарезано 3 кадров"
 
 
 # ── CRITICAL: a video without the flag must not be hijacked ──────────────────
