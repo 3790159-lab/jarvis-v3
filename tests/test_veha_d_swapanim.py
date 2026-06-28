@@ -465,3 +465,129 @@ def test_double_run_second_finds_no_pending_and_spends_nothing():
     assert stages.call_count == 1     # only the first trigger reached the stages
     assert cl.call_count == 1         # second run bailed BEFORE the gate
     rec.assert_not_called()
+
+
+# ── I2.1: duration capture + est(seconds) — price becomes a function of length ─
+
+
+def test_est_scales_with_duration():
+    """est = swap $0.02 + spicy caps: 5с=$0.52, 10с=$1.02, 15с=$1.52."""
+    bot = _get_bot_module()
+    assert round(bot._videoref_swapanim_est(5), 2) == 0.52
+    assert round(bot._videoref_swapanim_est(10), 2) == 1.02
+    assert round(bot._videoref_swapanim_est(15), 2) == 1.52
+
+
+def test_intercept_captures_reference_duration_into_pending():
+    import app.services.block_m2_video.video_frames as vf
+    bot = _get_bot_module()
+    bot._VIDEOREF_AWAITING.add(123)
+    frames = [Path("frame_000.jpg"), Path("frame_001.jpg")]
+    with patch.object(bot, "_download_telegram_file", return_value="/tmp/ref.mp4"), \
+         patch.object(vf, "slice_video_to_frames", return_value=frames), \
+         patch.object(bot, "send_with_keyboard"), \
+         patch.object(bot, "send"):
+        bot._videoref_intercept(
+            "123", {"video": {"file_id": "v", "file_size": 1_000_000, "duration": 8}}
+        )
+    assert bot._VIDEOREF_PENDING[123].get("duration") == 8
+
+
+def _run_handoff(bot, frames_root, duration):
+    """Run a successful motion analysis with a given reference duration stashed."""
+    frames_dir = frames_root / "frames"
+    frames_dir.mkdir(parents=True, exist_ok=True)
+    (frames_dir / "frame_000.jpg").write_bytes(b"\xff\xd8\xff\xe0")
+    pend = {"frames_dir": frames_dir}
+    if duration is not None:
+        pend["duration"] = duration
+    bot._VIDEOREF_PENDING[123] = pend
+    ok = VideoMotionResult(prompt="turns head left", cost_usd=0.31)
+    with patch.object(bot, "_check_limit", return_value=(True, "")), \
+         patch.object(bot, "select_best_frame", return_value=Path("frame_001.jpg")), \
+         patch.object(bot, "generate_video_motion_prompt", return_value=ok), \
+         patch.object(bot._cost, "record_cost"), \
+         patch.object(bot, "_send_local_photo"), \
+         patch.object(bot, "send_with_keyboard") as skb, \
+         patch.object(bot, "send"):
+        bot._videoref_motion_run("123")
+    return skb
+
+
+def test_handoff_proposes_snapped_duration(tmp_path):
+    """Proposed length = caps.snap_duration(ref): 7->5, 8->10, 13->15."""
+    for ref, proposed in [(7, 5), (8, 10), (13, 15)]:
+        bot = _get_bot_module()
+        _run_handoff(bot, tmp_path / f"r{ref}", ref)
+        assert bot._VIDEOREF_SWAP_PENDING[123]["seconds"] == proposed, f"ref={ref}"
+
+
+def test_handoff_no_duration_falls_back_to_5s(tmp_path):
+    bot = _get_bot_module()
+    _run_handoff(bot, tmp_path / "nodur", None)
+    assert bot._VIDEOREF_SWAP_PENDING[123]["seconds"] == 5   # money-safe cheapest
+
+
+def test_handoff_button_label_uses_proposed_duration_est(tmp_path):
+    bot = _get_bot_module()
+    skb = _run_handoff(bot, tmp_path / "d10", 10)      # ref 10 -> propose 10
+    btn = skb.call_args.args[2][0][0]
+    assert f"{bot._videoref_swapanim_est(10):.2f}" in btn["text"]   # "1.02"
+    assert "0.52" not in btn["text"]                    # not the fixed-5s quote
+
+
+def test_gate_reads_est_of_pending_seconds_not_hardcoded():
+    bot = _get_bot_module()
+    bot._VIDEOREF_SWAP_PENDING[123] = {
+        "best_frame": Path("f.jpg"), "motion_prompt": "x", "seconds": 10,
+    }
+    with patch.object(bot, "_check_limit", return_value=(True, "")) as cl, \
+         patch.object(bot, "_videoref_swapanim_stages"), \
+         patch.object(bot, "send"):
+        bot._videoref_swapanim_run("123", "/tmp/face.jpg")
+    assert cl.call_args.kwargs["estimated_usd"] == bot._videoref_swapanim_est(10)
+
+
+def test_animate_record_is_caps_cost_for_pending_seconds():
+    bot = _get_bot_module()
+    handler = MagicMock()
+    pend = {"best_frame": Path("f.jpg"), "motion_prompt": "x", "seconds": 10}
+    with patch.object(bot, "_videoref_do_swap", return_value=Path("/tmp/s.jpg")), \
+         patch.object(bot, "_swapbatch_get_handler", return_value=(handler, None)), \
+         patch.object(bot, "_videoref_do_animate", return_value=Path("/tmp/v.mp4")) as an, \
+         patch.object(bot._cost, "record_cost") as rec, \
+         patch.object(bot, "_send_local_video"), patch.object(bot, "send"):
+        bot._videoref_swapanim_stages(
+            "123", "/tmp/face.jpg", pend, bot._videoref_swapanim_est(10)
+        )
+    from app.services.block_m2_video.engines.capabilities import caps_for
+    amounts = [c.args[2] for c in rec.call_args_list]
+    assert amounts[0] == bot.VIDEOREF_SWAP_USD                   # swap flat
+    assert amounts[1] == caps_for("spicy").cost_for(10, "720p")  # animate scales
+    assert an.call_args.args[4] == 10        # pending seconds threaded into animate
+
+
+def test_quoted_equals_charged_for_seconds_10():
+    """TEETH: gate est == sum of per-stage records == est(10) for a 10s clip."""
+    bot = _get_bot_module()
+    handler = MagicMock()
+    bot._VIDEOREF_SWAP_PENDING[123] = {
+        "best_frame": Path("f.jpg"), "motion_prompt": "x", "seconds": 10,
+    }
+    gate = {}
+
+    def _cl(uid, *, estimated_usd):
+        gate["v"] = estimated_usd
+        return (True, "")
+
+    with patch.object(bot, "_check_limit", side_effect=_cl), \
+         patch.object(bot, "_videoref_do_swap", return_value=Path("/tmp/s.jpg")), \
+         patch.object(bot, "_swapbatch_get_handler", return_value=(handler, None)), \
+         patch.object(bot, "_videoref_do_animate", return_value=Path("/tmp/v.mp4")), \
+         patch.object(bot._cost, "record_cost") as rec, \
+         patch.object(bot, "_send_local_video"), patch.object(bot, "send"):
+        bot._videoref_swapanim_run("123", "/tmp/face.jpg")
+
+    charged = sum(c.args[2] for c in rec.call_args_list)
+    assert gate["v"] == bot._videoref_swapanim_est(10)   # quoted (the gate)
+    assert gate["v"] == charged                          # == charged (stage sum)

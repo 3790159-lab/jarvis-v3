@@ -1286,13 +1286,18 @@ _VIDEOREF_SWAP_PENDING: Dict[int, Dict[str, Any]] = {}
 _VIDEOREF_FACE_AWAITING: set = set()
 
 
-def _videoref_swapanim_est() -> float:
-    """Single source for the Веха D quote == charge: swap + spicy animate."""
+def _videoref_swapanim_est(seconds: int = VIDEOREF_ANIM_SECONDS,
+                           resolution: str = VIDEOREF_ANIM_RESOLUTION) -> float:
+    """Single source for the Веха D quote == charge, now parameterized by length.
+
+    swap ($0.02, length-independent) + spicy animate caps.cost_for(seconds, res).
+    EVERYTHING reads the price through here: the button label, the check_limit
+    gate, and the animate record_cost — so quoted == charged holds for ANY chosen
+    duration (5с=$0.52, 10с=$1.02, 15с=$1.52).
+    """
     from app.services.block_m2_video.engines.capabilities import caps_for
     caps = caps_for("spicy")
-    return VIDEOREF_SWAP_USD + caps.cost_for(
-        VIDEOREF_ANIM_SECONDS, VIDEOREF_ANIM_RESOLUTION
-    )
+    return VIDEOREF_SWAP_USD + caps.cost_for(seconds, resolution)
 
 
 def _videoref_start(chat_id: str) -> None:
@@ -1329,9 +1334,10 @@ def _videoref_intercept(chat_id: str, msg: Dict[str, Any]) -> bool:
         VideoFramesError,
     )
 
+    _dur = float(video.get("duration", 0) or 0)
     ok, reason = validate_videoref(
         int(video.get("file_size", 0) or 0),
-        float(video.get("duration", 0) or 0),
+        _dur,
     )
     if not ok:
         send(chat_id, f"❌ {reason}")
@@ -1359,7 +1365,9 @@ def _videoref_intercept(chat_id: str, msg: Dict[str, Any]) -> bool:
     # Stash the frames-dir so the opt-in 🎬 button can run the paid pipeline, and
     # show the price BEFORE the click (money-safe opt-in). Slicing/receipt above
     # is untouched — we only enrich the reply.
-    _VIDEOREF_PENDING[chat_id_int] = {"frames_dir": out_dir}
+    # Carry the reference DURATION so the swap+animate step can auto-propose a
+    # matching clip length (I2) — captured here from Telegram metadata, free.
+    _VIDEOREF_PENDING[chat_id_int] = {"frames_dir": out_dir, "duration": _dur}
     send_with_keyboard(
         chat_id,
         f"✂️ Нарезано {len(frames)} кадров.",
@@ -1442,13 +1450,22 @@ def _videoref_motion_run(chat_id) -> None:
     # Веха D handoff: stash best frame + motion prompt and offer the swap+animate
     # button. The price comes from the single-source est, so the number on the
     # button is exactly what check_limit will gate and record_cost will sum.
+    # I2.1: propose a clip length matching the reference (snap to 5/10/15, tie→
+    # smaller); no reference duration -> 5с (cheapest, money-safe). The proposed
+    # length lives in pending["seconds"] and drives est everywhere downstream.
+    from app.services.block_m2_video.engines.capabilities import caps_for as _caps_for
+    _ref_dur = pend.get("duration")
+    _proposed = (
+        _caps_for("spicy").snap_duration(int(_ref_dur))
+        if _ref_dur else VIDEOREF_ANIM_SECONDS
+    )
     _VIDEOREF_SWAP_PENDING[chat_id_int] = {
-        "best_frame": best, "motion_prompt": result.prompt,
+        "best_frame": best, "motion_prompt": result.prompt, "seconds": _proposed,
     }
-    _est = _videoref_swapanim_est()
+    _est = _videoref_swapanim_est(_proposed)
     send_with_keyboard(
         chat_id,
-        "🔜 Дальше — свап лица + анимация по движению.",
+        f"🔜 Дальше — свап лица + анимация по движению ({_proposed}с).",
         [[{"text": f"🎭 Свап + анимация (~${_est:.2f})",
            "callback_data": "vref:swapanim"}]],
     )
@@ -1535,8 +1552,9 @@ def _videoref_swapanim_run(chat_id, source_face) -> None:
         send(chat_id, "⚠️ Кнопка устарела — пришли видео заново: /videoref")
         return
 
-    # Money gate FIRST: full est before any spend. Single source == button quote.
-    est = _videoref_swapanim_est()
+    # Money gate FIRST: full est before any spend. Single source == button quote,
+    # priced at the chosen clip length (pending["seconds"]) so quoted == charged.
+    est = _videoref_swapanim_est(pend.get("seconds", VIDEOREF_ANIM_SECONDS))
     allowed, reason = _check_limit(chat_id_int, estimated_usd=est)
     if not allowed:
         send(chat_id, f"🚫 {reason}")
@@ -1569,9 +1587,10 @@ def _videoref_do_swap(source_face, best_frame):
     return results[0] if results else None
 
 
-def _videoref_do_animate(chat_id_int, handler, swapped, motion_prompt):
+def _videoref_do_animate(chat_id_int, handler, swapped, motion_prompt,
+                         seconds=VIDEOREF_ANIM_SECONDS):
     """Stage-2 raw call (reuse 1:1, the _animate_run_single pattern): animate the
-    swapped frame on WaveSpeed spicy (5s/720p) by the motion prompt.
+    swapped frame on WaveSpeed spicy (``seconds``/720p) by the motion prompt.
 
     engine_mode is explicitly "spicy" (uncensored — the point of the arc).
     Returns the video Path or None.
@@ -1583,7 +1602,7 @@ def _videoref_do_animate(chat_id_int, handler, swapped, motion_prompt):
     req = handler.build_single_animate_request(
         chat_id_int, image_path=swapped, motion=motion_prompt,
         engine_mode="spicy",
-        seconds=VIDEOREF_ANIM_SECONDS, resolution=VIDEOREF_ANIM_RESOLUTION,
+        seconds=seconds, resolution=VIDEOREF_ANIM_RESOLUTION,
     )
     engine = _aio.run(EngineRouter().select("spicy"))
     results = _aio.run(animate_batch(engine, [req], concurrency=1))
@@ -1603,6 +1622,7 @@ def _videoref_swapanim_stages(chat_id, source_face, pend, est) -> None:
     _uname = _USERNAME_BY_CHAT.get(str(chat_id))
     best_frame = pend["best_frame"]
     motion_prompt = pend["motion_prompt"]
+    seconds = pend.get("seconds", VIDEOREF_ANIM_SECONDS)   # chosen clip length (I2)
 
     # ── Stage 1: face swap (batch-of-1). Record $0.02 ONLY on success. ──
     try:
@@ -1623,9 +1643,11 @@ def _videoref_swapanim_stages(chat_id, source_face, pend, est) -> None:
         send(chat_id, "⚠️ Модуль анимации недоступен (свап готов, видео нет).")
         return
 
-    # ── Stage 2: animate (spicy 5s/720p). Record caps ONLY on success. ──
+    # ── Stage 2: animate (spicy <seconds>/720p). Record caps ONLY on success. ──
     try:
-        video = _videoref_do_animate(chat_id_int, handler, swapped, motion_prompt)
+        video = _videoref_do_animate(
+            chat_id_int, handler, swapped, motion_prompt, seconds
+        )
     except Exception as exc:  # noqa: BLE001
         video = None
         print(f"[videoref] animate failed chat={chat_id_int}: {exc}", flush=True)
@@ -1634,9 +1656,7 @@ def _videoref_swapanim_stages(chat_id, source_face, pend, est) -> None:
         send(chat_id, "❌ Анимация не удалась (свап готов, видео нет).")
         return
     from app.services.block_m2_video.engines.capabilities import caps_for
-    anim_cost = caps_for("spicy").cost_for(
-        VIDEOREF_ANIM_SECONDS, VIDEOREF_ANIM_RESOLUTION
-    )
+    anim_cost = caps_for("spicy").cost_for(seconds, VIDEOREF_ANIM_RESOLUTION)
     try:
         _cost.record_cost(chat_id_int, _uname, anim_cost)
     except Exception as _e:  # noqa: BLE001 - billing must not break the reply
