@@ -143,3 +143,100 @@ def test_vref_swapanim_in_friend_callback_allowlist():
     """vref: prefix already friend-allowed → vref:swapanim covered for friends."""
     bot = _get_bot_module()
     assert "vref:" in bot.FRIEND_ALLOWED_CALLBACK_PREFIXES
+
+
+# ── D3: source-face intercept — strict flag-gate isolation (the riskiest) ─────
+
+_FACE_MSG = {"photo": [{"file_id": "p", "file_size": 1000, "file_unique_id": "u"}]}
+
+
+def test_face_intercept_armed_downloads_disarms_and_spawns_worker():
+    """Armed + photo → True, download called, flag cleared, worker spawned."""
+    bot = _get_bot_module()
+    bot._VIDEOREF_FACE_AWAITING.add(123)
+    bot._VIDEOREF_SWAP_PENDING[123] = {
+        "best_frame": Path("frame_001.jpg"), "motion_prompt": "x",
+    }
+    with patch.object(bot, "_download_telegram_file", return_value="/tmp/face.jpg") as dl, \
+         patch("threading.Thread") as Thr, \
+         patch.object(bot, "_videoref_swapanim_run") as worker, \
+         patch.object(bot, "send"):
+        consumed = bot._videoref_face_intercept("123", _FACE_MSG)
+
+    assert consumed is True
+    dl.assert_called_once()
+    assert 123 not in bot._VIDEOREF_FACE_AWAITING        # disarmed after capture
+    Thr.assert_called_once()                              # worker spawned
+    assert Thr.call_args.kwargs["target"] is worker
+    assert Thr.call_args.kwargs["args"] == ("123", "/tmp/face.jpg")
+    Thr.return_value.start.assert_called_once()
+
+
+def test_face_intercept_not_armed_returns_false_and_no_download():
+    """CRITICAL: no face-awaiting flag → False, no download — foreign photo
+    falls straight through to swapbatch / /animate / normal photo flow."""
+    bot = _get_bot_module()
+    assert 123 not in bot._VIDEOREF_FACE_AWAITING
+    with patch.object(bot, "_download_telegram_file") as dl, \
+         patch("threading.Thread") as Thr, \
+         patch.object(bot, "_videoref_swapanim_run") as worker, \
+         patch.object(bot, "send") as snd:
+        consumed = bot._videoref_face_intercept("123", _FACE_MSG)
+
+    assert consumed is False     # not ours → caller continues the chain
+    dl.assert_not_called()       # never touch a foreign photo
+    Thr.assert_not_called()
+    worker.assert_not_called()
+    snd.assert_not_called()
+
+
+def test_face_intercept_disarms_so_next_photo_falls_through():
+    """Flag cleared after handling → a following photo is NOT hijacked
+    (e.g. the next swapbatch photo)."""
+    bot = _get_bot_module()
+    bot._VIDEOREF_FACE_AWAITING.add(123)
+    bot._VIDEOREF_SWAP_PENDING[123] = {"best_frame": Path("f.jpg"), "motion_prompt": "x"}
+    msg2 = {"photo": [{"file_id": "q", "file_size": 1000, "file_unique_id": "v"}]}
+    with patch.object(bot, "_download_telegram_file", return_value="/tmp/face.jpg"), \
+         patch("threading.Thread"), \
+         patch.object(bot, "_videoref_swapanim_run"), \
+         patch.object(bot, "send"):
+        first = bot._videoref_face_intercept("123", _FACE_MSG)
+        second = bot._videoref_face_intercept("123", msg2)
+
+    assert first is True
+    assert second is False        # disarmed → second photo not intercepted
+
+
+def test_face_intercept_download_failure_still_disarms():
+    """Download error → flag still cleared (never stuck armed), no worker."""
+    bot = _get_bot_module()
+    bot._VIDEOREF_FACE_AWAITING.add(123)
+    bot._VIDEOREF_SWAP_PENDING[123] = {"best_frame": Path("f.jpg"), "motion_prompt": "x"}
+    with patch.object(bot, "_download_telegram_file", return_value=None), \
+         patch("threading.Thread") as Thr, \
+         patch.object(bot, "_videoref_swapanim_run") as worker, \
+         patch.object(bot, "send") as snd:
+        consumed = bot._videoref_face_intercept("123", _FACE_MSG)
+
+    assert consumed is True
+    assert 123 not in bot._VIDEOREF_FACE_AWAITING        # not stuck armed
+    Thr.assert_not_called()                               # no worker on failure
+    worker.assert_not_called()
+    assert snd.called                                     # user told it failed
+
+
+def test_face_intercept_armed_but_no_photo_keeps_flag_and_returns_false():
+    """Armed but message has no photo (e.g. text) → False, flag KEPT so the
+    real face photo arriving next is still caught (mirror of video intercept)."""
+    bot = _get_bot_module()
+    bot._VIDEOREF_FACE_AWAITING.add(123)
+    with patch.object(bot, "_download_telegram_file") as dl, \
+         patch("threading.Thread") as Thr, \
+         patch.object(bot, "send"):
+        consumed = bot._videoref_face_intercept("123", {"text": "hi"})
+
+    assert consumed is False
+    assert 123 in bot._VIDEOREF_FACE_AWAITING            # still waiting for the face
+    dl.assert_not_called()
+    Thr.assert_not_called()

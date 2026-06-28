@@ -1470,6 +1470,63 @@ def _videoref_swapanim_arm(chat_id) -> None:
     send(chat_id, "🎭 Пришли фото-лицо для свапа.")
 
 
+def _videoref_face_intercept(chat_id: str, msg: Dict[str, Any]) -> bool:
+    """Веха D: consume the source-face photo for the swap+animate step.
+
+    Mirror of ``_videoref_intercept`` (video) but for a photo. Returns True ONLY
+    when this chat is armed (via the vref:swapanim button) AND the message carries
+    a photo; otherwise False so the photo falls through to swapbatch / standalone
+    /animate / the normal photo flow UNTOUCHED — the core isolation guarantee.
+    The arm is cleared the moment we take the message (success OR download
+    failure) so a later swap-batch photo is never hijacked. A photo arriving for
+    an armed chat that somehow has no pending is treated as stale (disarm + hint).
+    """
+    chat_id_int = int(chat_id)
+    if chat_id_int not in _VIDEOREF_FACE_AWAITING:
+        return False
+    photos = msg.get("photo")
+    if not photos:
+        # Armed but this message is not a photo (e.g. text) — keep waiting for the
+        # real face; do not disarm, do not consume.
+        return False
+    # We own this message now — disarm before anything that can fail so the flag
+    # never sticks and hijacks the next photo.
+    _VIDEOREF_FACE_AWAITING.discard(chat_id_int)
+
+    largest = sorted(photos, key=lambda p: p.get("file_size", 0))[-1]
+    file_id = largest.get("file_id")
+    if not file_id:
+        send(chat_id, "❌ Не удалось скачать фото.")
+        return True
+    uid = largest.get("file_unique_id")
+    _fname = (
+        f"vref_face_{uid}.jpg" if uid
+        else f"vref_face_{int(time.time())}_{file_id[:8]}.jpg"
+    )
+    local = _download_telegram_file(file_id, _fname)
+    if not local:
+        send(chat_id, "❌ Не удалось скачать фото.")
+        return True
+
+    import threading as _thr
+    _thr.Thread(
+        target=_videoref_swapanim_run, args=(chat_id, local), daemon=True,
+        name=f"videoref_swapanim_{chat_id_int}",
+    ).start()
+    return True
+
+
+def _videoref_swapanim_run(chat_id, source_face) -> None:
+    """Веха D orchestration: money gate → swap → animate → video (worker thread).
+
+    STUB until D4/D5 — D3's face intercept already spawns this. Next:
+    D4 = single check_limit on the full est BEFORE any spend; D5 = swap_batch
+    of one frame → record swap on success, then build_single_animate_request +
+    animate_batch (spicy 5s/720p) → record animate on success, send the video.
+    """
+    return None
+
+
 # ── standalone /animate (Task 11): one photo -> engine menu -> one video ──────
 _ANIMATE_PENDING: Dict[int, Dict[str, Any]] = {}
 
@@ -7076,6 +7133,17 @@ def process_update(upd: Dict[str, Any], media_group_buffer: Optional[Dict[str, A
 
     # Block M.2.6: /video_face_swap — face photo + video pair (either order).
     if _member and _video_face_swap_intercept(chat_id, msg):
+        return
+
+    # Веха D: source-face photo for an armed swap+animate (vref:swapanim). Sits
+    # ABOVE /animate and swapbatch photo intakes; strictly gated by the
+    # face-awaiting flag, so an unarmed photo falls straight through to them.
+    if (
+        _member
+        and msg.get("photo")
+        and not media_gid
+        and _videoref_face_intercept(chat_id, msg)
+    ):
         return
 
     # Block M.2.5: single photo for a pending standalone /animate request.
