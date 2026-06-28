@@ -21,7 +21,8 @@ negative prompt: low quality, distorted anatomy, stiff facial expression, unnatu
 def default_negative_prompt() -> str:
     return (
         "worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, "
-        "cartoon, 3d, doll, oil painting, anime, manga, comic book, plastic skin, shiny skin, "
+        "cartoon, 3d, doll, oil painting, anime, manga, comic book, cgi, render, stylized, "
+        "illustration, plastic skin, shiny skin, "
         "asymmetric eyes, crooked smile, deformed fingers, extra fingers, too many fingers, "
         "mutated hands, bad proportions, unnatural pose, distorted background, dirty, blurry, "
         "motion artifacts, hair artifacts, lags, blurry movements, texture gap, text, font, logo"

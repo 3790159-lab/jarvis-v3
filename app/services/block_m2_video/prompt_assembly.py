@@ -8,7 +8,8 @@ DEFAULT_MOTION = (
     "soft cinematic lighting, photorealistic"
 )
 REALISM_SUFFIX = (
-    "photorealistic, realistic, cinematic, natural skin texture, detailed skin"
+    "photorealistic, realistic, cinematic, natural skin texture, detailed skin, "
+    "lifelike, realistic lighting, true-to-life motion"
 )
 WARDROBE_MODES = ("preserve", "safe", "spicy")
 

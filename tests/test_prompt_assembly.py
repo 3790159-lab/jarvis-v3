@@ -174,3 +174,42 @@ def test_custom_wardrobe_realism_negative_applied_per_req():
         assert "keeping original clothing" in prompt
         assert default_negative_prompt() in negative
         assert "bra" in negative
+
+
+# ── I1: stronger realism (shared suffix + negative → videoref AND swapbatch) ───
+
+
+def test_realism_suffix_strengthened_with_new_terms():
+    """REALISM_SUFFIX gains lifelike/lighting/true-to-life motion; existing kept."""
+    low = REALISM_SUFFIX.lower()
+    # new realism terms (video came out anime — strengthen the existing suffix)
+    assert "lifelike" in low
+    assert "realistic lighting" in low
+    assert "true-to-life motion" in low
+    # existing terms preserved (NOT lost, NOT duplicated)
+    assert "photorealistic" in low
+    assert "natural skin texture" in low
+
+
+def test_negative_prompt_strengthened_anti_stylization():
+    """default_negative_prompt gains cgi/render/stylized/illustration; anti-anime kept."""
+    neg = default_negative_prompt().lower()
+    # new anti-stylization terms
+    assert "cgi" in neg
+    assert "render" in neg
+    assert "stylized" in neg
+    assert "illustration" in neg
+    # existing anti-anime preserved
+    assert "anime" in neg
+    assert "cartoon" in neg
+    assert "3d" in neg
+
+
+def test_strengthened_realism_flows_through_shared_stack():
+    """The shared stack carries the strengthened suffix + negative into the
+    assembled prompt (covers both videoref and swapbatch animation)."""
+    prompt, negative = assemble_animate_prompt(
+        "turns head left", add_realism=True, add_negative=True, wardrobe="safe"
+    )
+    assert "lifelike" in prompt.lower()
+    assert "cgi" in negative.lower()
