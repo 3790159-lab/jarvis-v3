@@ -1527,7 +1527,10 @@ def _videoref_swapanim_run(chat_id, source_face) -> None:
     record_cost live in _videoref_swapanim_stages (D5).
     """
     chat_id_int = int(chat_id)
-    pend = _VIDEOREF_SWAP_PENDING.get(chat_id_int)
+    # Anti-double-click: consume pending FIRST (pop, mirror of vref:motion) so a
+    # repeated face photo / double trigger finds nothing and $0.52 is never
+    # billed twice — the pop happens before the gate and before any spend.
+    pend = _VIDEOREF_SWAP_PENDING.pop(chat_id_int, None)
     if not pend:
         send(chat_id, "⚠️ Кнопка устарела — пришли видео заново: /videoref")
         return

@@ -432,3 +432,36 @@ def test_do_animate_reuses_pattern_with_spicy_5s_720p(monkeypatch):
     assert kw["motion"] == "motion text"
     assert fake_select.mode == "spicy"
     assert fake_animate.seen[2] == 1        # concurrency=1
+
+
+# ── D6: anti-double-click — pending consumed (pop) before any spend ───────────
+
+
+def test_first_run_pops_pending_and_runs_stages():
+    """First trigger → pending consumed (popped) before spend, stages run."""
+    bot = _get_bot_module()
+    _arm_swap_pending(bot)
+    with patch.object(bot, "_check_limit", return_value=(True, "")), \
+         patch.object(bot, "_videoref_swapanim_stages") as stages, \
+         patch.object(bot, "send"):
+        bot._videoref_swapanim_run("123", "/tmp/face.jpg")
+
+    assert 123 not in bot._VIDEOREF_SWAP_PENDING     # consumed before stages
+    stages.assert_called_once()
+
+
+def test_double_run_second_finds_no_pending_and_spends_nothing():
+    """Double-click / repeated photo → second run finds empty pending → 0 swap,
+    0 animate, 0 charge ($0.52 never billed twice)."""
+    bot = _get_bot_module()
+    _arm_swap_pending(bot)
+    with patch.object(bot, "_check_limit", return_value=(True, "")) as cl, \
+         patch.object(bot, "_videoref_swapanim_stages") as stages, \
+         patch.object(bot._cost, "record_cost") as rec, \
+         patch.object(bot, "send"):
+        bot._videoref_swapanim_run("123", "/tmp/face.jpg")   # first: pop + run
+        bot._videoref_swapanim_run("123", "/tmp/face.jpg")   # second: empty
+
+    assert stages.call_count == 1     # only the first trigger reached the stages
+    assert cl.call_count == 1         # second run bailed BEFORE the gate
+    rec.assert_not_called()
