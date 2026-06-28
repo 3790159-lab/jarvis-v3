@@ -110,3 +110,36 @@ def test_motion_refusal_does_not_stash_swap_pending(tmp_path):
 
     assert 123 not in bot._VIDEOREF_SWAP_PENDING
     skb.assert_not_called()
+
+
+# ── D2: button vref:swapanim → arm face-awaiting + ask for the source face ────
+
+
+def test_swapanim_button_with_pending_arms_and_asks_face():
+    """Click with a live swap-pending → face-awaiting armed, bot asks for a face."""
+    bot = _get_bot_module()
+    bot._VIDEOREF_SWAP_PENDING[123] = {
+        "best_frame": Path("frame_001.jpg"), "motion_prompt": "turns head left",
+    }
+    with patch.object(bot, "send") as snd:
+        bot._videoref_swapanim_arm("123")
+
+    assert 123 in bot._VIDEOREF_FACE_AWAITING
+    assert any("лицо" in c.args[1].lower() for c in snd.call_args_list)
+
+
+def test_swapanim_button_without_pending_is_soft_and_does_not_arm():
+    """Stale button / double-click (no pending) → soft message, NOT armed."""
+    bot = _get_bot_module()
+    assert 123 not in bot._VIDEOREF_SWAP_PENDING
+    with patch.object(bot, "send") as snd:
+        bot._videoref_swapanim_arm("123")
+
+    assert 123 not in bot._VIDEOREF_FACE_AWAITING   # never arm without pending
+    assert snd.called                                # but the user still hears back
+
+
+def test_vref_swapanim_in_friend_callback_allowlist():
+    """vref: prefix already friend-allowed → vref:swapanim covered for friends."""
+    bot = _get_bot_module()
+    assert "vref:" in bot.FRIEND_ALLOWED_CALLBACK_PREFIXES
