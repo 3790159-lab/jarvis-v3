@@ -1519,10 +1519,43 @@ def _videoref_face_intercept(chat_id: str, msg: Dict[str, Any]) -> bool:
 def _videoref_swapanim_run(chat_id, source_face) -> None:
     """Веха D orchestration: money gate → swap → animate → video (worker thread).
 
-    STUB until D4/D5 — D3's face intercept already spawns this. Next:
-    D4 = single check_limit on the full est BEFORE any spend; D5 = swap_batch
-    of one frame → record swap on success, then build_single_animate_request +
-    animate_batch (spicy 5s/720p) → record animate on success, send the video.
+    Money is gated with TEETH: a SINGLE check_limit on the FULL est
+    (_videoref_swapanim_est = swap + spicy animate) runs FIRST — before any paid
+    OR local work — so a friend over the limit never even starts the swap (the
+    $0.02 swap can't sneak past and breach the cap). The est is the single source
+    that the button quoted, so quoted == charged. The paid stages with per-stage
+    record_cost live in _videoref_swapanim_stages (D5).
+    """
+    chat_id_int = int(chat_id)
+    pend = _VIDEOREF_SWAP_PENDING.get(chat_id_int)
+    if not pend:
+        send(chat_id, "⚠️ Кнопка устарела — пришли видео заново: /videoref")
+        return
+
+    # Money gate FIRST: full est before any spend. Single source == button quote.
+    est = _videoref_swapanim_est()
+    allowed, reason = _check_limit(chat_id_int, estimated_usd=est)
+    if not allowed:
+        send(chat_id, f"🚫 {reason}")
+        try:
+            _admin = _whitelist.load_admin_user_id()
+            if _admin is not None and _admin != chat_id_int:
+                send(str(_admin),
+                     f"⚠️ Друг id={chat_id_int} уперся в лимит "
+                     f"(videoref свап+аним, ~${est:.2f}).")
+        except Exception:  # noqa: BLE001
+            pass
+        return
+
+    # Gate passed — run the paid stages (swap + animate, per-stage billing in D5).
+    _videoref_swapanim_stages(chat_id, source_face, pend, est)
+
+
+def _videoref_swapanim_stages(chat_id, source_face, pend, est) -> None:
+    """Веха D paid stages: swap (record $0.02) → animate (record caps) → video.
+
+    STUB until D5. The single money gate in _videoref_swapanim_run guards every
+    call in here, so a friend over the limit never reaches this point.
     """
     return None
 

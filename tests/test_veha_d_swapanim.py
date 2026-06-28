@@ -240,3 +240,72 @@ def test_face_intercept_armed_but_no_photo_keeps_flag_and_returns_false():
     assert 123 in bot._VIDEOREF_FACE_AWAITING            # still waiting for the face
     dl.assert_not_called()
     Thr.assert_not_called()
+
+
+# ── D4: money gate with TEETH — single check_limit on the FULL est ────────────
+
+
+def _arm_swap_pending(bot, chat_id: int = 123):
+    bot._VIDEOREF_SWAP_PENDING[chat_id] = {
+        "best_frame": Path("frame_001.jpg"), "motion_prompt": "turns head left",
+    }
+
+
+def test_over_limit_blocks_all_paid_stages_and_charges_nothing():
+    """CULMINATION teeth: friend over limit → check_limit False → NO swap, NO
+    animate (stages seam 0), NO record_cost; soft refusal + admin ping."""
+    bot = _get_bot_module()
+    _arm_swap_pending(bot)
+    with patch.object(bot, "_check_limit",
+                      return_value=(False, "Дневной лимит $5.00 исчерпан")) as cl, \
+         patch.object(bot, "_videoref_swapanim_stages") as stages, \
+         patch.object(bot._cost, "record_cost") as rec, \
+         patch.object(bot._whitelist, "load_admin_user_id", return_value=999), \
+         patch.object(bot, "send") as snd:
+        bot._videoref_swapanim_run("123", "/tmp/face.jpg")
+
+    cl.assert_called_once()
+    stages.assert_not_called()      # no swap, no animate — gate blocked everything
+    rec.assert_not_called()         # nothing charged
+    # honest refusal to the friend (BEFORE any swap) + admin visibility ping
+    assert any(str(c.args[0]) == "123" and "🚫" in c.args[1] for c in snd.call_args_list)
+    assert any(c.args[0] == "999" for c in snd.call_args_list), "admin must be notified"
+
+
+def test_under_limit_passes_gate_into_paid_stages():
+    """Under limit → check_limit True → proceeds into the paid stages (D5)."""
+    bot = _get_bot_module()
+    _arm_swap_pending(bot)
+    with patch.object(bot, "_check_limit", return_value=(True, "")), \
+         patch.object(bot, "_videoref_swapanim_stages") as stages, \
+         patch.object(bot, "send"):
+        bot._videoref_swapanim_run("123", "/tmp/face.jpg")
+
+    stages.assert_called_once()     # gate open → swap+animate stages run
+
+
+def test_gate_est_is_single_source_quoted_equals_charged():
+    """The gate estimate is _videoref_swapanim_est() — the SAME number the button
+    quoted (no hardcoded $0.52 in the gate)."""
+    bot = _get_bot_module()
+    _arm_swap_pending(bot)
+    with patch.object(bot, "_check_limit", return_value=(True, "")) as cl, \
+         patch.object(bot, "_videoref_swapanim_stages"), \
+         patch.object(bot, "send"):
+        bot._videoref_swapanim_run("123", "/tmp/face.jpg")
+
+    assert cl.call_args.kwargs["estimated_usd"] == bot._videoref_swapanim_est()
+
+
+def test_no_pending_stale_worker_refuses_before_gate():
+    """Stale worker (no swap-pending) → refuse before even quoting the limit."""
+    bot = _get_bot_module()
+    assert 123 not in bot._VIDEOREF_SWAP_PENDING
+    with patch.object(bot, "_check_limit") as cl, \
+         patch.object(bot, "_videoref_swapanim_stages") as stages, \
+         patch.object(bot, "send") as snd:
+        bot._videoref_swapanim_run("123", "/tmp/face.jpg")
+
+    cl.assert_not_called()
+    stages.assert_not_called()
+    assert snd.called
