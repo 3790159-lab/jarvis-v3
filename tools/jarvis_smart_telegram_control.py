@@ -1675,6 +1675,23 @@ def _videoref_do_animate(chat_id_int, handler, swapped, motion_prompt,
     return results[0] if results else None
 
 
+def _videoref_do_smooth(video_path):
+    """Stage-3 raw call (reuse 1:1): RIFE-smooth one video to 48fps.
+
+    Thin wrapper over WaveSpeedRifeClient.interpolate (num_frames=1 = ×2 fps).
+    Returns the smoothed Path; may RAISE on RIFE/HTTP failure — the caller wraps
+    this so a failure delivers the ORIGINAL video (RIFE is an enhancement, never
+    a blocker), mirroring swapbatch _interpolate_batch.
+    """
+    import asyncio as _aio
+    from pathlib import Path as _P
+    from app.services.block_m2_video.engines.wavespeed_rife_client import (
+        WaveSpeedRifeClient,
+    )
+    client = WaveSpeedRifeClient()
+    return _aio.run(client.interpolate(_P(video_path), num_frames=1))
+
+
 def _videoref_swapanim_stages(chat_id, source_face, pend, est) -> None:
     """Веха D paid stages (after the D4 gate): swap → animate → video.
 
@@ -1728,8 +1745,29 @@ def _videoref_swapanim_stages(chat_id, source_face, pend, est) -> None:
     except Exception as _e:  # noqa: BLE001 - billing must not break the reply
         print(f"[cost] videoref animate record failed: {_e}", flush=True)
 
-    # ── Both stages succeeded — deliver the video. ──
-    _send_local_video(chat_id, str(video))
+    # ── Stage 3 (opt-in): RIFE smooth. Money-safe — a RIFE failure NEVER loses
+    #    the video (deliver the un-smoothed original), and RIFE is recorded ONLY
+    #    on success (mirror of swapbatch _interpolate_batch). Closes quoted ==
+    #    charged on the smooth axis: success → swap+anim+RIFE == est(smooth=True).
+    delivered = video
+    if pend.get("smooth"):
+        try:
+            smoothed = _videoref_do_smooth(video)
+        except Exception as exc:  # noqa: BLE001 — RIFE must never drop the video
+            smoothed = None
+            print(f"[videoref] RIFE smooth failed chat={chat_id_int}: {exc}", flush=True)
+        if smoothed is not None:
+            delivered = smoothed
+            from app.handlers.face_swap_handler import rife_surcharge_usd
+            try:
+                _cost.record_cost(chat_id_int, _uname, rife_surcharge_usd(1, seconds))
+            except Exception as _e:  # noqa: BLE001 - billing must not break the reply
+                print(f"[cost] videoref RIFE record failed: {_e}", flush=True)
+        else:
+            send(chat_id, "🪶 Плавность не удалась — отдаю видео без неё.")
+
+    # ── Deliver the video (smoothed if RIFE succeeded, else the original). ──
+    _send_local_video(chat_id, str(delivered))
     send(chat_id, f"✅ Готово. Свап+аним ~${est:.2f}.")
 
 

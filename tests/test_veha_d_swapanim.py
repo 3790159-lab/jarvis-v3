@@ -719,3 +719,74 @@ def test_gate_reads_est_with_both_seconds_and_smooth():
         bot._videoref_swapanim_run("123", "/tmp/face.jpg")
     assert cl.call_args.kwargs["estimated_usd"] == bot._videoref_swapanim_est(10, smooth=True)
     assert cl.call_args.kwargs["estimated_usd"] != bot._videoref_swapanim_est(10, smooth=False)
+
+
+# ── I3.2: real RIFE call in the worker, money-safe (closes the smooth axis) ────
+
+
+def _smooth_pend(seconds=10):
+    return {"best_frame": Path("f.jpg"), "motion_prompt": "x",
+            "seconds": seconds, "smooth": True}
+
+
+def test_smooth_on_success_charges_rife_and_delivers_smoothed():
+    """smooth ok → record swap+anim+RIFE == est(smooth=True); smoothed delivered."""
+    bot = _get_bot_module()
+    handler = MagicMock()
+    from app.services.block_m2_video.engines.capabilities import caps_for
+    with patch.object(bot, "_videoref_do_swap", return_value=Path("/tmp/s.jpg")), \
+         patch.object(bot, "_swapbatch_get_handler", return_value=(handler, None)), \
+         patch.object(bot, "_videoref_do_animate", return_value=Path("/tmp/v.mp4")), \
+         patch.object(bot, "_videoref_do_smooth", return_value=Path("/tmp/v48.mp4")) as sm, \
+         patch.object(bot._cost, "record_cost") as rec, \
+         patch.object(bot, "_send_local_video") as vid, patch.object(bot, "send"):
+        bot._videoref_swapanim_stages(
+            "123", "/tmp/face.jpg", _smooth_pend(10),
+            bot._videoref_swapanim_est(10, smooth=True),
+        )
+    sm.assert_called_once()
+    amounts = [c.args[2] for c in rec.call_args_list]
+    assert amounts == [bot.VIDEOREF_SWAP_USD,
+                       caps_for("spicy").cost_for(10, "720p"),
+                       _rife(bot, 10)]
+    assert round(sum(amounts), 6) == round(bot._videoref_swapanim_est(10, smooth=True), 6)
+    assert "v48.mp4" in str(vid.call_args.args[1])     # smoothed delivered
+
+
+def test_smooth_on_rife_fail_delivers_original_and_no_rife_charge():
+    """TEETH: RIFE fail → ORIGINAL video delivered (never lost), RIFE NOT charged."""
+    bot = _get_bot_module()
+    handler = MagicMock()
+    from app.services.block_m2_video.engines.capabilities import caps_for
+    with patch.object(bot, "_videoref_do_swap", return_value=Path("/tmp/s.jpg")), \
+         patch.object(bot, "_swapbatch_get_handler", return_value=(handler, None)), \
+         patch.object(bot, "_videoref_do_animate", return_value=Path("/tmp/v.mp4")), \
+         patch.object(bot, "_videoref_do_smooth", side_effect=RuntimeError("RIFE 500")), \
+         patch.object(bot._cost, "record_cost") as rec, \
+         patch.object(bot, "_send_local_video") as vid, patch.object(bot, "send"):
+        bot._videoref_swapanim_stages(
+            "123", "/tmp/face.jpg", _smooth_pend(10),
+            bot._videoref_swapanim_est(10, smooth=True),
+        )
+    amounts = [c.args[2] for c in rec.call_args_list]
+    assert amounts == [bot.VIDEOREF_SWAP_USD, caps_for("spicy").cost_for(10, "720p")]  # no RIFE
+    vid.assert_called_once()
+    assert "v.mp4" in str(vid.call_args.args[1])       # ORIGINAL delivered, not lost
+
+
+def test_smooth_off_never_calls_rife():
+    bot = _get_bot_module()
+    handler = MagicMock()
+    pend = {"best_frame": Path("f.jpg"), "motion_prompt": "x", "seconds": 10, "smooth": False}
+    with patch.object(bot, "_videoref_do_swap", return_value=Path("/tmp/s.jpg")), \
+         patch.object(bot, "_swapbatch_get_handler", return_value=(handler, None)), \
+         patch.object(bot, "_videoref_do_animate", return_value=Path("/tmp/v.mp4")), \
+         patch.object(bot, "_videoref_do_smooth") as sm, \
+         patch.object(bot._cost, "record_cost") as rec, \
+         patch.object(bot, "_send_local_video") as vid, patch.object(bot, "send"):
+        bot._videoref_swapanim_stages(
+            "123", "/tmp/face.jpg", pend, bot._videoref_swapanim_est(10, smooth=False),
+        )
+    sm.assert_not_called()
+    assert len(rec.call_args_list) == 2                 # swap + anim only
+    assert "v.mp4" in str(vid.call_args.args[1])
