@@ -128,6 +128,7 @@ def test_success_charges_once_and_shows_frame_and_prompt(tmp_path):
          patch.object(bot, "generate_video_motion_prompt", return_value=ok), \
          patch.object(bot._cost, "record_cost") as rec, \
          patch.object(bot, "_send_local_photo") as photo, \
+         patch.object(bot, "send_with_keyboard") as skb, \
          patch.object(bot, "send") as snd:
         bot._videoref_motion_run("123")
 
@@ -141,8 +142,9 @@ def test_success_charges_once_and_shows_frame_and_prompt(tmp_path):
     photo.assert_called_once()
     assert str(best) in str(photo.call_args.args[1])
     assert prompt in (photo.call_args.kwargs.get("caption", "") or "".join(map(str, photo.call_args.args)))
-    # a "next: Веха D (скоро)" stub is sent
-    assert any("скоро" in c.args[1].lower() for c in snd.call_args_list)
+    # Веха D handoff: the swap+animate button is offered (replaces the old stub)
+    skb.assert_called_once()
+    assert skb.call_args.args[2][0][0]["callback_data"] == "vref:swapanim"
 
 
 # ── 5. friend gate: vref: allowed for friends ────────────────────────────────

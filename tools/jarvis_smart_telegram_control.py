@@ -1274,6 +1274,26 @@ from app.services.block_m2_video.motion_prompt_ai import (  # noqa: E402
 VIDEOREF_MOTION_USD = 0.35  # money-safe fixed estimate (covers worst-case ~17 frames)
 _VIDEOREF_PENDING: Dict[int, Dict[str, Any]] = {}
 
+# Веха D: swap+animate bridge on the videoref output. These constants are the
+# SINGLE source for the quote == charge — _videoref_swapanim_est() feeds the
+# button label, the check_limit gate, AND the per-stage record_cost sum, so a
+# friend is never quoted one number and charged another. Spicy 5s/720p is the
+# cheapest spicy clip (5s is its floor duration).
+VIDEOREF_SWAP_USD = 0.02          # face swap, single best frame
+VIDEOREF_ANIM_SECONDS = 5
+VIDEOREF_ANIM_RESOLUTION = "720p"
+_VIDEOREF_SWAP_PENDING: Dict[int, Dict[str, Any]] = {}
+_VIDEOREF_FACE_AWAITING: set = set()
+
+
+def _videoref_swapanim_est() -> float:
+    """Single source for the Веха D quote == charge: swap + spicy animate."""
+    from app.services.block_m2_video.engines.capabilities import caps_for
+    caps = caps_for("spicy")
+    return VIDEOREF_SWAP_USD + caps.cost_for(
+        VIDEOREF_ANIM_SECONDS, VIDEOREF_ANIM_RESOLUTION
+    )
+
 
 def _videoref_start(chat_id: str) -> None:
     """/videoref — arm this chat to slice the next video into frames."""
@@ -1419,7 +1439,19 @@ def _videoref_motion_run(chat_id) -> None:
     except Exception as _e:  # noqa: BLE001 - billing must not break the reply
         print(f"[cost] videoref motion record failed: {_e}", flush=True)
     _send_local_photo(chat_id, str(best), caption=result.prompt)
-    send(chat_id, "🔜 Дальше — свап лица (Веха D, скоро).")
+    # Веха D handoff: stash best frame + motion prompt and offer the swap+animate
+    # button. The price comes from the single-source est, so the number on the
+    # button is exactly what check_limit will gate and record_cost will sum.
+    _VIDEOREF_SWAP_PENDING[chat_id_int] = {
+        "best_frame": best, "motion_prompt": result.prompt,
+    }
+    _est = _videoref_swapanim_est()
+    send_with_keyboard(
+        chat_id,
+        "🔜 Дальше — свап лица + анимация по движению.",
+        [[{"text": f"🎭 Свап + анимация (~${_est:.2f})",
+           "callback_data": "vref:swapanim"}]],
+    )
 
 
 # ── standalone /animate (Task 11): one photo -> engine menu -> one video ──────
