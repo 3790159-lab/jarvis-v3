@@ -650,3 +650,72 @@ def test_chosen_length_not_proposed_flows_into_billing():
 
     assert cl.call_args.kwargs["estimated_usd"] == bot._videoref_swapanim_est(15)
     assert cl.call_args.kwargs["estimated_usd"] != bot._videoref_swapanim_est(10)
+
+
+# ── I3.1: smooth est + toggle (the RIFE call itself is I3.2) ───────────────────
+
+
+def _rife(bot, seconds):
+    from app.handlers.face_swap_handler import rife_surcharge_usd
+    return rife_surcharge_usd(1, seconds)
+
+
+def test_est_includes_rife_surcharge_only_when_smooth():
+    bot = _get_bot_module()
+    # smooth=False is the same as the I2 price (no RIFE)
+    assert bot._videoref_swapanim_est(5, smooth=False) == bot._videoref_swapanim_est(5)
+    # smooth=True adds the RIFE surcharge for that length
+    assert round(bot._videoref_swapanim_est(5, smooth=True), 4) == round(0.52 + _rife(bot, 5), 4)
+    from app.services.block_m2_video.engines.capabilities import caps_for
+    expected10 = (bot.VIDEOREF_SWAP_USD + caps_for("spicy").cost_for(10, "720p")
+                  + _rife(bot, 10))
+    assert bot._videoref_swapanim_est(10, smooth=True) == expected10
+
+
+def test_handoff_default_smooth_off_with_toggle_button(tmp_path):
+    bot = _get_bot_module()
+    skb = _run_handoff(bot, tmp_path / "d10", 10)
+    assert bot._VIDEOREF_SWAP_PENDING[123]["smooth"] is False    # money-safe default
+    rows = skb.call_args.args[2]
+    toggle = rows[1][0]                                          # row under durations
+    assert "Плавность" in toggle["text"]
+    assert toggle["callback_data"] == "vref:smooth:on"          # currently off → offers on
+
+
+def test_smooth_toggle_writes_pending_flag():
+    bot = _get_bot_module()
+    bot._VIDEOREF_SWAP_PENDING[123] = {
+        "best_frame": Path("f.jpg"), "motion_prompt": "x", "seconds": 10, "smooth": False,
+    }
+    with patch.object(bot, "send_with_keyboard"), patch.object(bot, "send"):
+        bot._videoref_smooth_toggle("123", True)
+    assert bot._VIDEOREF_SWAP_PENDING[123]["smooth"] is True
+    with patch.object(bot, "send_with_keyboard"), patch.object(bot, "send"):
+        bot._videoref_smooth_toggle("123", False)
+    assert bot._VIDEOREF_SWAP_PENDING[123]["smooth"] is False
+
+
+def test_toggle_redraws_duration_buttons_with_smooth_price():
+    bot = _get_bot_module()
+    bot._VIDEOREF_SWAP_PENDING[123] = {
+        "best_frame": Path("f.jpg"), "motion_prompt": "x", "seconds": 10, "smooth": False,
+    }
+    with patch.object(bot, "send_with_keyboard") as skb, patch.object(bot, "send"):
+        bot._videoref_smooth_toggle("123", True)
+    rows = skb.call_args.args[2]
+    b10 = [b for b in rows[0] if b["callback_data"] == "vref:sa:10"][0]
+    assert f"{bot._videoref_swapanim_est(10, smooth=True):.2f}" in b10["text"]   # RIFE-aware
+    assert rows[1][0]["callback_data"] == "vref:smooth:off"                      # now offers off
+
+
+def test_gate_reads_est_with_both_seconds_and_smooth():
+    """TEETH: pending smooth=True → gate quotes est(seconds, smooth=True)."""
+    bot = _get_bot_module()
+    bot._VIDEOREF_SWAP_PENDING[123] = {
+        "best_frame": Path("f.jpg"), "motion_prompt": "x", "seconds": 10, "smooth": True,
+    }
+    with patch.object(bot, "_check_limit", return_value=(True, "")) as cl, \
+         patch.object(bot, "_videoref_swapanim_stages"), patch.object(bot, "send"):
+        bot._videoref_swapanim_run("123", "/tmp/face.jpg")
+    assert cl.call_args.kwargs["estimated_usd"] == bot._videoref_swapanim_est(10, smooth=True)
+    assert cl.call_args.kwargs["estimated_usd"] != bot._videoref_swapanim_est(10, smooth=False)

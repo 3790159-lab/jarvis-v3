@@ -1287,17 +1287,52 @@ _VIDEOREF_FACE_AWAITING: set = set()
 
 
 def _videoref_swapanim_est(seconds: int = VIDEOREF_ANIM_SECONDS,
-                           resolution: str = VIDEOREF_ANIM_RESOLUTION) -> float:
-    """Single source for the Веха D quote == charge, now parameterized by length.
+                           resolution: str = VIDEOREF_ANIM_RESOLUTION,
+                           smooth: bool = False) -> float:
+    """Single source for the Веха D quote == charge — parameterized by length AND
+    smooth.
 
-    swap ($0.02, length-independent) + spicy animate caps.cost_for(seconds, res).
-    EVERYTHING reads the price through here: the button label, the check_limit
-    gate, and the animate record_cost — so quoted == charged holds for ANY chosen
-    duration (5с=$0.52, 10с=$1.02, 15с=$1.52).
+    swap ($0.02, length-independent) + spicy animate caps.cost_for(seconds, res)
+    + (RIFE rife_surcharge_usd(1, seconds) when ``smooth``). EVERYTHING reads the
+    price through here: the button labels, the check_limit gate, and the per-stage
+    record_cost — so quoted == charged holds for ANY chosen duration and smooth
+    choice (e.g. 10с=$1.02, 10с+smooth≈$1.12).
     """
     from app.services.block_m2_video.engines.capabilities import caps_for
-    caps = caps_for("spicy")
-    return VIDEOREF_SWAP_USD + caps.cost_for(seconds, resolution)
+    total = VIDEOREF_SWAP_USD + caps_for("spicy").cost_for(seconds, resolution)
+    if smooth:
+        from app.handlers.face_swap_handler import rife_surcharge_usd
+        total += rife_surcharge_usd(1, seconds)
+    return total
+
+
+def _videoref_duration_keyboard(chat_id_int: int) -> list:
+    """Build the swap+animate keyboard for a chat's pending choice (I2.2 + I3.1).
+
+    Row 1: one button per allowed length, each labelled with est(THAT length,
+    current smooth) — the proposed length starred. Row 2: the RIFE smooth toggle.
+    A single builder feeds both the initial handoff and the toggle redraw, so
+    every price on screen is the single-source est for the current (seconds,
+    smooth) — quoted stays == charged.
+    """
+    from app.services.block_m2_video.engines.capabilities import caps_for
+    pend = _VIDEOREF_SWAP_PENDING.get(chat_id_int, {})
+    proposed = pend.get("seconds", VIDEOREF_ANIM_SECONDS)
+    smooth = pend.get("smooth", False)
+
+    def _dur_btn(sec: int) -> dict:
+        mark = "⭐ " if sec == proposed else "🎬 "
+        return {
+            "text": f"{mark}{sec}с ~${_videoref_swapanim_est(sec, smooth=smooth):.2f}",
+            "callback_data": f"vref:sa:{sec}",
+        }
+
+    smooth_state = "ВКЛ" if smooth else "ВЫКЛ"
+    smooth_cb = "vref:smooth:off" if smooth else "vref:smooth:on"
+    return [
+        [_dur_btn(s) for s in caps_for("spicy").allowed_durations],
+        [{"text": f"🪶 Плавность 48fps: {smooth_state}", "callback_data": smooth_cb}],
+    ]
 
 
 def _videoref_start(chat_id: str) -> None:
@@ -1460,22 +1495,16 @@ def _videoref_motion_run(chat_id) -> None:
         if _ref_dur else VIDEOREF_ANIM_SECONDS
     )
     _VIDEOREF_SWAP_PENDING[chat_id_int] = {
-        "best_frame": best, "motion_prompt": result.prompt, "seconds": _proposed,
+        "best_frame": best, "motion_prompt": result.prompt,
+        "seconds": _proposed, "smooth": False,   # smooth default OFF (money-safe)
     }
-    # I2.2: one-tap duration choice — a button per allowed length, each labelled
-    # with est(THAT length), the proposed one starred. Tapping picks the length
-    # AND requests the face in a single tap (callback vref:sa:<sec>).
-    def _dur_btn(_sec: int) -> dict:
-        _mark = "⭐ " if _sec == _proposed else "🎬 "
-        return {
-            "text": f"{_mark}{_sec}с ~${_videoref_swapanim_est(_sec):.2f}",
-            "callback_data": f"vref:sa:{_sec}",
-        }
-    _durs = _caps_for("spicy").allowed_durations
+    # I2.2 + I3.1: one-tap duration choice + smooth toggle (shared builder, so
+    # every price is est(seconds, smooth) — quoted == charged).
     send_with_keyboard(
         chat_id,
-        f"🔜 Свап + анимация — выбери длину (реф ≈ {_proposed}с предложен ⭐):",
-        [[_dur_btn(s) for s in _durs]],
+        f"🔜 Свап + анимация — выбери длину (реф ≈ {_proposed}с предложен ⭐) "
+        f"и плавность:",
+        _videoref_duration_keyboard(chat_id_int),
     )
 
 
@@ -1497,6 +1526,28 @@ def _videoref_swapanim_arm(chat_id, seconds=None) -> None:
         pend["seconds"] = int(seconds)   # chosen length wins over the proposal
     _VIDEOREF_FACE_AWAITING.add(chat_id_int)
     send(chat_id, "🎭 Пришли фото-лицо для свапа.")
+
+
+def _videoref_smooth_toggle(chat_id, enabled) -> None:
+    """Веха D / I3.1 button (vref:smooth:on|off): flip the RIFE smooth flag and
+    redraw the duration keyboard with smooth-aware prices.
+
+    Money-safe default is OFF (set at handoff). Toggling only rewrites
+    pending["smooth"] and re-renders the per-length prices via the single-source
+    est — no spend, no RIFE call here (that is I3.2). Without pending → soft hint.
+    """
+    chat_id_int = int(chat_id)
+    pend = _VIDEOREF_SWAP_PENDING.get(chat_id_int)
+    if pend is None:
+        send(chat_id, "⚠️ Кнопка устарела — пришли видео заново: /videoref")
+        return
+    pend["smooth"] = bool(enabled)
+    state = "ВКЛ" if enabled else "ВЫКЛ"
+    send_with_keyboard(
+        chat_id,
+        f"🪶 Плавность 48fps: {state}. Выбери длину (цена учитывает плавность):",
+        _videoref_duration_keyboard(chat_id_int),
+    )
 
 
 def _videoref_face_intercept(chat_id: str, msg: Dict[str, Any]) -> bool:
@@ -1566,7 +1617,10 @@ def _videoref_swapanim_run(chat_id, source_face) -> None:
 
     # Money gate FIRST: full est before any spend. Single source == button quote,
     # priced at the chosen clip length (pending["seconds"]) so quoted == charged.
-    est = _videoref_swapanim_est(pend.get("seconds", VIDEOREF_ANIM_SECONDS))
+    est = _videoref_swapanim_est(
+        pend.get("seconds", VIDEOREF_ANIM_SECONDS),
+        smooth=pend.get("smooth", False),
+    )
     allowed, reason = _check_limit(chat_id_int, estimated_usd=est)
     if not allowed:
         send(chat_id, f"🚫 {reason}")
@@ -3448,6 +3502,12 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
             answer_callback_query(cq_id)
             _sec = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
             _videoref_swapanim_arm(chat_id, _sec)
+            return
+        if action == "smooth":
+            # Веха D / I3.1: flip RIFE smooth + redraw prices (no spend, no arm).
+            answer_callback_query(cq_id)
+            _on = (len(parts) > 2 and parts[2] == "on")
+            _videoref_smooth_toggle(chat_id, _on)
             return
         answer_callback_query(cq_id)
         return
