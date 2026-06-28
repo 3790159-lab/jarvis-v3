@@ -1462,27 +1462,39 @@ def _videoref_motion_run(chat_id) -> None:
     _VIDEOREF_SWAP_PENDING[chat_id_int] = {
         "best_frame": best, "motion_prompt": result.prompt, "seconds": _proposed,
     }
-    _est = _videoref_swapanim_est(_proposed)
+    # I2.2: one-tap duration choice — a button per allowed length, each labelled
+    # with est(THAT length), the proposed one starred. Tapping picks the length
+    # AND requests the face in a single tap (callback vref:sa:<sec>).
+    def _dur_btn(_sec: int) -> dict:
+        _mark = "⭐ " if _sec == _proposed else "🎬 "
+        return {
+            "text": f"{_mark}{_sec}с ~${_videoref_swapanim_est(_sec):.2f}",
+            "callback_data": f"vref:sa:{_sec}",
+        }
+    _durs = _caps_for("spicy").allowed_durations
     send_with_keyboard(
         chat_id,
-        f"🔜 Дальше — свап лица + анимация по движению ({_proposed}с).",
-        [[{"text": f"🎭 Свап + анимация (~${_est:.2f})",
-           "callback_data": "vref:swapanim"}]],
+        f"🔜 Свап + анимация — выбери длину (реф ≈ {_proposed}с предложен ⭐):",
+        [[_dur_btn(s) for s in _durs]],
     )
 
 
-def _videoref_swapanim_arm(chat_id) -> None:
-    """Веха D button (vref:swapanim): arm the wait for a source-face photo.
+def _videoref_swapanim_arm(chat_id, seconds=None) -> None:
+    """Веха D button (vref:sa:<sec>): pick the clip length + arm the face wait.
 
-    Without a live swap-pending (stale button after a restart, or a double-click
-    that already consumed it) we send a soft hint and DO NOT arm — so a later
-    unrelated photo is never hijacked by D3's face intercept. Arming only here,
-    gated by pending, keeps the isolation invariant clean.
+    ``seconds`` (the chosen length from the tapped button) OVERRIDES the proposed
+    default in pending, so a friend who changes the length pays for the length
+    they actually picked (quoted == charged on the chosen value). Without a live
+    swap-pending (stale button / already consumed) we send a soft hint and DO NOT
+    arm — so a later unrelated photo is never hijacked by D3's face intercept.
     """
     chat_id_int = int(chat_id)
-    if chat_id_int not in _VIDEOREF_SWAP_PENDING:
+    pend = _VIDEOREF_SWAP_PENDING.get(chat_id_int)
+    if pend is None:
         send(chat_id, "⚠️ Кнопка устарела — пришли видео заново: /videoref")
         return
+    if seconds is not None:
+        pend["seconds"] = int(seconds)   # chosen length wins over the proposal
     _VIDEOREF_FACE_AWAITING.add(chat_id_int)
     send(chat_id, "🎭 Пришли фото-лицо для свапа.")
 
@@ -3430,10 +3442,12 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
                 name=f"videoref_motion_{chat_id}",
             ).start()
             return
-        if action == "swapanim":
-            # Веха D: ack + arm the source-face wait (instant, no worker).
+        if action == "sa":
+            # Веха D / I2.2: pick clip length (parts[2]) + arm the face wait,
+            # one tap. Instant (no worker).
             answer_callback_query(cq_id)
-            _videoref_swapanim_arm(chat_id)
+            _sec = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
+            _videoref_swapanim_arm(chat_id, _sec)
             return
         answer_callback_query(cq_id)
         return

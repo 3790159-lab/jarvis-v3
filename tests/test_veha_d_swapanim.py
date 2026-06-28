@@ -86,12 +86,12 @@ def test_motion_success_stashes_swap_pending_and_shows_button(tmp_path):
     pend = bot._VIDEOREF_SWAP_PENDING[123]
     assert pend["best_frame"] == best
     assert pend["motion_prompt"] == prompt
-    # button '🎭 Свап + анимация (~$est)' with callback vref:swapanim
+    # I2.2: three duration buttons (no ref duration → propose 5с, starred)
     skb.assert_called_once()
-    kb = skb.call_args.args[2]
-    btn = kb[0][0]
-    assert btn["callback_data"] == "vref:swapanim"
-    assert f"{bot._videoref_swapanim_est():.2f}" in btn["text"]
+    btns = skb.call_args.args[2][0]
+    assert [b["callback_data"] for b in btns] == ["vref:sa:5", "vref:sa:10", "vref:sa:15"]
+    assert "⭐" in btns[0]["text"]                       # proposed 5с
+    assert f"{bot._videoref_swapanim_est(5):.2f}" in btns[0]["text"]
 
 
 def test_motion_refusal_does_not_stash_swap_pending(tmp_path):
@@ -531,9 +531,10 @@ def test_handoff_no_duration_falls_back_to_5s(tmp_path):
 def test_handoff_button_label_uses_proposed_duration_est(tmp_path):
     bot = _get_bot_module()
     skb = _run_handoff(bot, tmp_path / "d10", 10)      # ref 10 -> propose 10
-    btn = skb.call_args.args[2][0][0]
-    assert f"{bot._videoref_swapanim_est(10):.2f}" in btn["text"]   # "1.02"
-    assert "0.52" not in btn["text"]                    # not the fixed-5s quote
+    btns = skb.call_args.args[2][0]
+    proposed = [b for b in btns if "⭐" in b["text"]][0]
+    assert proposed["callback_data"] == "vref:sa:10"
+    assert f"{bot._videoref_swapanim_est(10):.2f}" in proposed["text"]   # 1.02
 
 
 def test_gate_reads_est_of_pending_seconds_not_hardcoded():
@@ -591,3 +592,61 @@ def test_quoted_equals_charged_for_seconds_10():
     charged = sum(c.args[2] for c in rec.call_args_list)
     assert gate["v"] == bot._videoref_swapanim_est(10)   # quoted (the gate)
     assert gate["v"] == charged                          # == charged (stage sum)
+
+
+# ── I2.2: duration-choice buttons (one-tap) ───────────────────────────────────
+
+
+def test_handoff_shows_three_duration_buttons_with_per_length_prices(tmp_path):
+    bot = _get_bot_module()
+    skb = _run_handoff(bot, tmp_path / "d10", 10)        # ref 10 -> propose 10
+    btns = skb.call_args.args[2][0]
+    assert [b["callback_data"] for b in btns] == ["vref:sa:5", "vref:sa:10", "vref:sa:15"]
+    # each button quotes est(its own length)
+    assert f"{bot._videoref_swapanim_est(5):.2f}" in btns[0]["text"]
+    assert f"{bot._videoref_swapanim_est(10):.2f}" in btns[1]["text"]
+    assert f"{bot._videoref_swapanim_est(15):.2f}" in btns[2]["text"]
+    # only the proposed (10) is starred
+    assert "⭐" in btns[1]["text"]
+    assert "⭐" not in btns[0]["text"]
+    assert "⭐" not in btns[2]["text"]
+
+
+def test_choose_duration_sets_pending_seconds_and_arms_face():
+    """One-tap: vref:sa:15 → pending seconds=15 + face-awaiting armed."""
+    bot = _get_bot_module()
+    bot._VIDEOREF_SWAP_PENDING[123] = {
+        "best_frame": Path("f.jpg"), "motion_prompt": "x", "seconds": 10,
+    }
+    with patch.object(bot, "send") as snd:
+        bot._videoref_swapanim_arm("123", 15)
+
+    assert bot._VIDEOREF_SWAP_PENDING[123]["seconds"] == 15   # chosen overrides proposed
+    assert 123 in bot._VIDEOREF_FACE_AWAITING
+    assert any("лицо" in c.args[1].lower() for c in snd.call_args_list)
+
+
+def test_choose_without_pending_is_soft_and_does_not_arm():
+    bot = _get_bot_module()
+    with patch.object(bot, "send") as snd:
+        bot._videoref_swapanim_arm("123", 10)
+    assert 123 not in bot._VIDEOREF_FACE_AWAITING
+    assert snd.called
+
+
+def test_chosen_length_not_proposed_flows_into_billing():
+    """TEETH: proposed 10 but user picks 15 → gate/charge use est(15)=$1.52,
+    not est(10). The chosen length must win end-to-end."""
+    bot = _get_bot_module()
+    bot._VIDEOREF_SWAP_PENDING[123] = {
+        "best_frame": Path("f.jpg"), "motion_prompt": "x", "seconds": 10,
+    }
+    with patch.object(bot, "send"):
+        bot._videoref_swapanim_arm("123", 15)            # change 10 -> 15
+    with patch.object(bot, "_check_limit", return_value=(True, "")) as cl, \
+         patch.object(bot, "_videoref_swapanim_stages"), \
+         patch.object(bot, "send"):
+        bot._videoref_swapanim_run("123", "/tmp/face.jpg")
+
+    assert cl.call_args.kwargs["estimated_usd"] == bot._videoref_swapanim_est(15)
+    assert cl.call_args.kwargs["estimated_usd"] != bot._videoref_swapanim_est(10)

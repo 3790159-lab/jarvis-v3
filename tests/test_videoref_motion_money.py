@@ -142,9 +142,10 @@ def test_success_charges_once_and_shows_frame_and_prompt(tmp_path):
     photo.assert_called_once()
     assert str(best) in str(photo.call_args.args[1])
     assert prompt in (photo.call_args.kwargs.get("caption", "") or "".join(map(str, photo.call_args.args)))
-    # Веха D handoff: the swap+animate button is offered (replaces the old stub)
+    # Веха D handoff: duration-choice buttons offered (replaces the old stub).
+    # No ref duration in this test → proposed 5с is the first button.
     skb.assert_called_once()
-    assert skb.call_args.args[2][0][0]["callback_data"] == "vref:swapanim"
+    assert skb.call_args.args[2][0][0]["callback_data"] == "vref:sa:5"
 
 
 # ── 5. friend gate: vref: allowed for friends ────────────────────────────────
