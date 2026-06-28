@@ -309,3 +309,126 @@ def test_no_pending_stale_worker_refuses_before_gate():
     cl.assert_not_called()
     stages.assert_not_called()
     assert snd.called
+
+
+# ── D5: the bridge — real swap+animate with PER-STAGE billing ─────────────────
+
+_PEND = {"best_frame": Path("frame_001.jpg"), "motion_prompt": "turns head left"}
+
+
+def _spicy_anim_cost(bot):
+    from app.services.block_m2_video.engines.capabilities import caps_for
+    return caps_for("spicy").cost_for(bot.VIDEOREF_ANIM_SECONDS, bot.VIDEOREF_ANIM_RESOLUTION)
+
+
+def test_both_stages_succeed_charges_per_stage_sum_equals_est_and_sends_video():
+    """swap ok + animate ok → record $0.02 then $0.50, sum == est, video sent."""
+    bot = _get_bot_module()
+    bot._USERNAME_BY_CHAT["123"] = "frienduser"
+    handler = MagicMock()
+    est = bot._videoref_swapanim_est()
+    with patch.object(bot, "_videoref_do_swap", return_value=Path("/tmp/swapped.jpg")) as sw, \
+         patch.object(bot, "_swapbatch_get_handler", return_value=(handler, None)), \
+         patch.object(bot, "_videoref_do_animate", return_value=Path("/tmp/video.mp4")) as an, \
+         patch.object(bot._cost, "record_cost") as rec, \
+         patch.object(bot, "_send_local_video") as vid, \
+         patch.object(bot, "send"):
+        bot._videoref_swapanim_stages("123", "/tmp/face.jpg", _PEND, est)
+
+    sw.assert_called_once()
+    an.assert_called_once()
+    amounts = [c.args[2] for c in rec.call_args_list]
+    assert amounts == [bot.VIDEOREF_SWAP_USD, _spicy_anim_cost(bot)]
+    assert round(sum(amounts), 6) == round(est, 6)      # quoted == charged, closed loop
+    vid.assert_called_once()
+    assert "video.mp4" in str(vid.call_args.args[1])
+
+
+def test_swap_ok_animate_fail_charges_only_swap_and_sends_no_video():
+    """swap ok + animate fail → record ONLY $0.02 (never for the failed animation)."""
+    bot = _get_bot_module()
+    handler = MagicMock()
+    with patch.object(bot, "_videoref_do_swap", return_value=Path("/tmp/swapped.jpg")), \
+         patch.object(bot, "_swapbatch_get_handler", return_value=(handler, None)), \
+         patch.object(bot, "_videoref_do_animate", return_value=None), \
+         patch.object(bot._cost, "record_cost") as rec, \
+         patch.object(bot, "_send_local_video") as vid, \
+         patch.object(bot, "send") as snd:
+        bot._videoref_swapanim_stages("123", "/tmp/face.jpg", _PEND, bot._videoref_swapanim_est())
+
+    assert rec.call_count == 1
+    assert rec.call_args_list[0].args[2] == bot.VIDEOREF_SWAP_USD    # swap only
+    vid.assert_not_called()
+    assert any("❌" in c.args[1] for c in snd.call_args_list)
+
+
+def test_swap_fail_charges_nothing_and_never_animates():
+    """swap fail → $0 charged, animate never attempted, no video."""
+    bot = _get_bot_module()
+    with patch.object(bot, "_videoref_do_swap", return_value=None), \
+         patch.object(bot, "_videoref_do_animate") as an, \
+         patch.object(bot._cost, "record_cost") as rec, \
+         patch.object(bot, "_send_local_video") as vid, \
+         patch.object(bot, "send") as snd:
+        bot._videoref_swapanim_stages("123", "/tmp/face.jpg", _PEND, bot._videoref_swapanim_est())
+
+    rec.assert_not_called()
+    an.assert_not_called()      # never animate a failed swap
+    vid.assert_not_called()
+    assert any("❌" in c.args[1] for c in snd.call_args_list)
+
+
+def test_do_swap_reuses_swap_batch_as_batch_of_one(monkeypatch):
+    """Reuse 1:1: _videoref_do_swap calls get_swap_engine().swap_batch([best])."""
+    bot = _get_bot_module()
+    import app.services.block_m2_face_swap.engines.factory as fac
+
+    async def fake_swap(source, targets):
+        fake_swap.seen = (source, targets)
+        return [Path("/tmp/swapped.jpg")]
+
+    engine = MagicMock()
+    engine.swap_batch = fake_swap
+    monkeypatch.setattr(fac, "get_swap_engine", lambda: engine)
+
+    out = bot._videoref_do_swap("/tmp/face.jpg", Path("frame_001.jpg"))
+    assert out == Path("/tmp/swapped.jpg")
+    _src, targets = fake_swap.seen
+    assert len(targets) == 1        # batch-of-1
+
+
+def test_do_animate_reuses_pattern_with_spicy_5s_720p(monkeypatch):
+    """Reuse 1:1 + engine_mode='spicy' explicit: build_single_animate_request +
+    animate_batch via EngineRouter, spicy/5s/720p, motion passed through."""
+    bot = _get_bot_module()
+    import app.services.block_m2_video.engines.router as router_mod
+    import app.services.block_m2_video.batch_animate as ba_mod
+
+    handler = MagicMock()
+    handler.build_single_animate_request.return_value = "REQ"
+
+    async def fake_select(mode):
+        fake_select.mode = mode
+        return "ENGINE"
+
+    async def fake_animate(engine, reqs, concurrency=1):
+        fake_animate.seen = (engine, reqs, concurrency)
+        return [Path("/tmp/video.mp4")]
+
+    class FakeRouter:
+        def select(self, mode):
+            return fake_select(mode)
+
+    monkeypatch.setattr(router_mod, "EngineRouter", FakeRouter)
+    monkeypatch.setattr(ba_mod, "animate_batch", fake_animate)
+
+    out = bot._videoref_do_animate(123, handler, Path("/tmp/swapped.jpg"), "motion text")
+
+    assert out == Path("/tmp/video.mp4")
+    kw = handler.build_single_animate_request.call_args.kwargs
+    assert kw["engine_mode"] == "spicy"
+    assert kw["seconds"] == bot.VIDEOREF_ANIM_SECONDS
+    assert kw["resolution"] == bot.VIDEOREF_ANIM_RESOLUTION
+    assert kw["motion"] == "motion text"
+    assert fake_select.mode == "spicy"
+    assert fake_animate.seen[2] == 1        # concurrency=1

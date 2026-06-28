@@ -1551,13 +1551,97 @@ def _videoref_swapanim_run(chat_id, source_face) -> None:
     _videoref_swapanim_stages(chat_id, source_face, pend, est)
 
 
-def _videoref_swapanim_stages(chat_id, source_face, pend, est) -> None:
-    """Веха D paid stages: swap (record $0.02) → animate (record caps) → video.
+def _videoref_do_swap(source_face, best_frame):
+    """Stage-1 raw call (reuse 1:1): face-swap one frame via swap_batch (batch-of-1).
 
-    STUB until D5. The single money gate in _videoref_swapanim_run guards every
-    call in here, so a friend over the limit never reaches this point.
+    Returns the swapped Path or None. No logic beyond unwrapping the single
+    result — the swap itself is the existing engine, not rewritten here.
     """
-    return None
+    import asyncio as _aio
+    from pathlib import Path as _P
+    from app.services.block_m2_face_swap.engines.factory import get_swap_engine
+
+    engine = get_swap_engine()
+    results = _aio.run(engine.swap_batch(_P(source_face), [_P(best_frame)]))
+    return results[0] if results else None
+
+
+def _videoref_do_animate(chat_id_int, handler, swapped, motion_prompt):
+    """Stage-2 raw call (reuse 1:1, the _animate_run_single pattern): animate the
+    swapped frame on WaveSpeed spicy (5s/720p) by the motion prompt.
+
+    engine_mode is explicitly "spicy" (uncensored — the point of the arc).
+    Returns the video Path or None.
+    """
+    import asyncio as _aio
+    from app.services.block_m2_video.engines.router import EngineRouter
+    from app.services.block_m2_video.batch_animate import animate_batch
+
+    req = handler.build_single_animate_request(
+        chat_id_int, image_path=swapped, motion=motion_prompt,
+        engine_mode="spicy",
+        seconds=VIDEOREF_ANIM_SECONDS, resolution=VIDEOREF_ANIM_RESOLUTION,
+    )
+    engine = _aio.run(EngineRouter().select("spicy"))
+    results = _aio.run(animate_batch(engine, [req], concurrency=1))
+    return results[0] if results else None
+
+
+def _videoref_swapanim_stages(chat_id, source_face, pend, est) -> None:
+    """Веха D paid stages (after the D4 gate): swap → animate → video.
+
+    PER-STAGE billing: each stage records ONLY on its OWN success. swap ok +
+    animate fail → only $0.02 charged (never for the failed animation); swap fail
+    → $0. The successful-stage sum equals _videoref_swapanim_est() (quoted ==
+    charged). Reuses the existing line 1:1 via _videoref_do_swap /
+    _videoref_do_animate — no swap/animate logic is rewritten here.
+    """
+    chat_id_int = int(chat_id)
+    _uname = _USERNAME_BY_CHAT.get(str(chat_id))
+    best_frame = pend["best_frame"]
+    motion_prompt = pend["motion_prompt"]
+
+    # ── Stage 1: face swap (batch-of-1). Record $0.02 ONLY on success. ──
+    try:
+        swapped = _videoref_do_swap(source_face, best_frame)
+    except Exception as exc:  # noqa: BLE001
+        swapped = None
+        print(f"[videoref] swap failed chat={chat_id_int}: {exc}", flush=True)
+    if swapped is None:
+        send(chat_id, "❌ Свап лица не удался — видео не делаю.")
+        return
+    try:
+        _cost.record_cost(chat_id_int, _uname, VIDEOREF_SWAP_USD)
+    except Exception as _e:  # noqa: BLE001 - billing must not break the flow
+        print(f"[cost] videoref swap record failed: {_e}", flush=True)
+
+    handler, _ = _swapbatch_get_handler()
+    if handler is None:
+        send(chat_id, "⚠️ Модуль анимации недоступен (свап готов, видео нет).")
+        return
+
+    # ── Stage 2: animate (spicy 5s/720p). Record caps ONLY on success. ──
+    try:
+        video = _videoref_do_animate(chat_id_int, handler, swapped, motion_prompt)
+    except Exception as exc:  # noqa: BLE001
+        video = None
+        print(f"[videoref] animate failed chat={chat_id_int}: {exc}", flush=True)
+    if video is None:
+        # Swap already charged ($0.02); we do NOT charge for the failed animation.
+        send(chat_id, "❌ Анимация не удалась (свап готов, видео нет).")
+        return
+    from app.services.block_m2_video.engines.capabilities import caps_for
+    anim_cost = caps_for("spicy").cost_for(
+        VIDEOREF_ANIM_SECONDS, VIDEOREF_ANIM_RESOLUTION
+    )
+    try:
+        _cost.record_cost(chat_id_int, _uname, anim_cost)
+    except Exception as _e:  # noqa: BLE001 - billing must not break the reply
+        print(f"[cost] videoref animate record failed: {_e}", flush=True)
+
+    # ── Both stages succeeded — deliver the video. ──
+    _send_local_video(chat_id, str(video))
+    send(chat_id, f"✅ Готово. Свап+аним ~${est:.2f}.")
 
 
 # ── standalone /animate (Task 11): one photo -> engine menu -> one video ──────
