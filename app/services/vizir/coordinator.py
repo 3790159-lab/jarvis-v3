@@ -18,6 +18,13 @@ from .models import Plan, Policy, Report, Step, StepStatus, Task
 logger = logging.getLogger(__name__)
 
 
+class StepBudgetExceeded(Exception):
+    """Raised by ctx['report_cost'] when a chunk would exceed the step's max_usd
+    or the task budget / actor limit. Reserve-before-spend: the chunk is NOT
+    spent. Agents may catch it to clean up, then it propagates to the Coordinator
+    which blocks the step and charges only what was already approved."""
+
+
 class Coordinator:
     def __init__(
         self,
@@ -61,6 +68,22 @@ class Coordinator:
         # 3) In-memory per-actor cap (test/standalone fallback).
         actor_limit = self._actor_limits.get(task.actor)   # None => unlimited
         if actor_limit is not None and prospective > actor_limit:
+            return False, f"actor '{task.actor}' per-user limit would be exceeded"
+        return True, ""
+
+    def _chunk_allowed(self, task: Task, total_cost: float, step_spent: float,
+                       amount: float, step: Step) -> tuple[bool, str]:
+        """Mid-flight reserve-before-spend check for ONE chunk. Reuses the same
+        budget/actor numbers as the pre-check (no duplication), plus the per-step
+        cap. Returns (allowed, reason); report_cost raises when not allowed."""
+        prospective_step = step_spent + amount
+        prospective_total = total_cost + prospective_step
+        if step.max_usd and prospective_step > step.max_usd:
+            return False, f"step cap ${step.max_usd:.4f} would be exceeded"
+        if prospective_total > task.budget_usd:
+            return False, "per-task budget would be exceeded"
+        actor_limit = self._actor_limits.get(task.actor)
+        if actor_limit is not None and prospective_total > actor_limit:
             return False, f"actor '{task.actor}' per-user limit would be exceeded"
         return True, ""
 
@@ -129,12 +152,17 @@ class Coordinator:
                     self._emit("run_stopped", status=status)
                     continue
 
-            # Mid-flight cost meter (T-A foundation): the handler may stream its
-            # spend via ctx["report_cost"] and notes via ctx["report_progress"].
-            # T-A only ACCUMULATES + emits for visibility — no enforcement yet.
+            # Mid-flight cost meter: the handler streams its spend via
+            # ctx["report_cost"] (reserve-before-spend) and notes via
+            # ctx["report_progress"]. T-B: report_cost ENFORCES the per-step cap /
+            # budget, raising StepBudgetExceeded so a breaching chunk is never spent.
             meter = {"spent": 0.0}
 
-            def report_cost(amount, _kind=step.kind):
+            def report_cost(amount, _kind=step.kind, _step=step):
+                allowed, reason = self._chunk_allowed(
+                    task, total_cost, meter["spent"], amount, _step)
+                if not allowed:
+                    raise StepBudgetExceeded(reason)     # chunk NOT spent
                 meter["spent"] += amount
                 self._emit("cost_progress", kind=_kind,
                            spent=meter["spent"], delta=amount)
@@ -147,7 +175,26 @@ class Coordinator:
                 "task": task, "results": results,
                 "report_cost": report_cost, "report_progress": report_progress,
             }
-            result: HandlerResult = await handler(step, ctx)
+            try:
+                result: HandlerResult = await handler(step, ctx)
+            except StepBudgetExceeded as exc:
+                # Mid-flight cap breach: charge ONLY the already-approved spend
+                # (partial, real money already burned), block, and stop the run.
+                spent = meter["spent"]
+                step.status = StepStatus.BLOCKED
+                step.cost_usd = spent
+                step.error = str(exc)
+                total_cost += spent
+                if spent > 0:
+                    if self._charge_logger is not None:
+                        await self._charge_logger(task.actor, step.kind, spent)
+                    self._emit("charged", kind=step.kind, cost_usd=spent)
+                blocked.append(step)
+                stopped = True
+                status = "stopped_cost_cap"
+                self._emit("step_blocked", kind=step.kind, reason=str(exc))
+                self._emit("run_stopped", status=status)
+                continue
 
             if not result.ok:
                 # Refusal / failure -> NOT charged (proven rule 'refusal не списан').

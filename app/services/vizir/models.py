@@ -32,6 +32,7 @@ class Step:
     params: dict = field(default_factory=dict)
     policy: Policy = Policy.AUTO
     estimated_usd: float = 0.0
+    max_usd: float = 0.0          # mid-flight per-step cost cap (0 = no cap)
     status: StepStatus = StepStatus.PENDING
     result: Any = None
     cost_usd: float = 0.0
