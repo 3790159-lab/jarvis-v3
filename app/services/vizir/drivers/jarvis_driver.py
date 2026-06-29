@@ -40,6 +40,10 @@ class JarvisDriver(BaseDriver):
         if t == "step_needs_approval":
             # The seam the live bot fills with real inline buttons.
             return f"*approval needed*: {k}   [Approve] [Reject]"
+        if t == "cost_progress":
+            return f"_spend_ {k} +${event['delta']:.4f} (= ${event['spent']:.4f})"
+        if t == "progress":
+            return f"_note_ {k}: {event.get('note')}"
         if t == "run_completed":
             return f"*finished* total ${event['total_cost_usd']:.4f}"
         if t == "run_stopped":

@@ -129,8 +129,25 @@ class Coordinator:
                     self._emit("run_stopped", status=status)
                     continue
 
+            # Mid-flight cost meter (T-A foundation): the handler may stream its
+            # spend via ctx["report_cost"] and notes via ctx["report_progress"].
+            # T-A only ACCUMULATES + emits for visibility — no enforcement yet.
+            meter = {"spent": 0.0}
+
+            def report_cost(amount, _kind=step.kind):
+                meter["spent"] += amount
+                self._emit("cost_progress", kind=_kind,
+                           spent=meter["spent"], delta=amount)
+
+            def report_progress(note, _kind=step.kind):
+                self._emit("progress", kind=_kind, note=note)
+
             handler = self._registry.get(step.kind)
-            result: HandlerResult = await handler(step, {"task": task, "results": results})
+            ctx = {
+                "task": task, "results": results,
+                "report_cost": report_cost, "report_progress": report_progress,
+            }
+            result: HandlerResult = await handler(step, ctx)
 
             if not result.ok:
                 # Refusal / failure -> NOT charged (proven rule 'refusal не списан').

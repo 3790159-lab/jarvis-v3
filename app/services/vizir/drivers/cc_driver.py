@@ -35,6 +35,10 @@ class CCDriver(BaseDriver):
             return f"  blocked: {k} - {event.get('reason')}"
         if t == "step_needs_approval":
             return f"  needs-approval: {k}"
+        if t == "cost_progress":
+            return f"  ..spend: {k} +${event['delta']:.4f} (so far ${event['spent']:.4f})"
+        if t == "progress":
+            return f"  ..{k}: {event.get('note')}"
         if t == "run_completed":
             return f"= run completed, total ${event['total_cost_usd']:.4f}"
         if t == "run_stopped":
