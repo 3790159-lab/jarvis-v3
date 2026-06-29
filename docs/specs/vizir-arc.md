@@ -87,17 +87,52 @@ The wrapping contract (what the handler protocol must guarantee):
 5. **Reportable, never auto-resumed.** Per-step persistence already captures an
    interrupted run; a hung/crashed agent is reported, not silently resumed.
 
-Small core additions to add (each TDD'd) BEFORE wrapping a variable-cost agent:
-- **per-step cost cap** — abort the agent if its running spend exceeds the step
-  cap (today the gate is pre-check only; powerful agents need mid-flight stop).
-- **progress/cost callback in ctx** — let a long agent stream incremental spend
-  so the gate can stop it mid-flight, and surface progress to the driver.
-- **timeout + cancellation token in ctx** — so a hung agent can't stall the run.
-- **quote phase** — for agents whose cost isn't known upfront, a cheap estimate
-  call feeds `estimated_usd` before the real run.
-
 With these, any agent (Hermes-class) clips onto the same spine: gated, coordinated,
 approval-bounded, money-safe — power added without losing control.
+
+## Mid-flight safeguards contract (IMPLEMENTED — T-A…T-E)
+
+The pre-check gate (`estimated_usd` before, charge `cost_usd` after) is the
+foundation. On top of it, four opt-in mid-flight layers control a powerful agent
+WHILE it runs. A handler that uses none of them behaves exactly as before
+(backward-compatible).
+
+**ctx callbacks** (the agent calls these as it works):
+- `ctx["report_cost"](amount)` — RESERVE-BEFORE-SPEND. Call it BEFORE spending a
+  chunk. It accumulates `step_spent` and, if `step_spent+amount` would exceed
+  `Step.max_usd` / the task budget / the actor limit, RAISES `StepBudgetExceeded`
+  so the chunk is never spent. (An atomic single-call handler like `grok_motion`
+  instead reports its cost AFTER the call and swallows the exception — the money
+  is already spent, so charge-after still records it.)
+- `ctx["report_progress"](note)` — human-visible progress; never raises.
+
+**Step fields:** `max_usd` (per-step cost ceiling), `timeout_s` (wall-clock
+ceiling), `needs_quote` (run a cheap quote to fill `estimated_usd` first).
+
+**Charge semantics — how much is charged in each outcome:**
+
+| Outcome | step status | charged | run |
+|---|---|---|---|
+| clean success (`ok=True`) | DONE | `result.cost_usd` | continues |
+| refusal (`ok=False`, 0 spent) | FAILED | 0 (refusal не списан) | continues |
+| cost-cap breach (`report_cost` raises) | BLOCKED | `step_spent` (approved chunks, partial) | **STOPS** (`stopped_cost_cap`) |
+| timeout (hung) | FAILED | `step_spent` (spent before hang) | **continues** |
+
+The partial charge on abort is exactly `step_spent` — the real money already
+burned, never the full estimate, never zero.
+
+**Asymmetry (deliberate):** a cost-cap breach is a money event → STOP the run
+(conservative). A timeout is a per-step reliability failure → mark the step
+FAILED and CONTINUE (one stuck agent doesn't kill the others).
+
+**Three layers for variable cost:** `quote` (estimate before → pre-check) →
+`max_usd` (mid-flight ceiling → cap catches an under-quote) → `charge` (actual
+≤ cap). Under-quote is backstopped by the cap; over-quote blocks conservatively
+at the pre-check (an estimate above budget should not start).
+
+**Cancellation:** `timeout_s` wraps the handler in `asyncio.wait_for`; on timeout
+the agent receives `CancelledError` — agents MUST be cancellation-safe (clean up
+then let it propagate).
 
 ## Safeguards & rollback
 

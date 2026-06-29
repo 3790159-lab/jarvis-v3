@@ -17,6 +17,7 @@ real path lazily so importing this module never pulls heavy deps until used.
 """
 from __future__ import annotations
 
+from .coordinator import StepBudgetExceeded
 from .handlers import HandlerResult
 from .models import Step
 
@@ -48,6 +49,13 @@ def make_grok_motion_handler(analyze_fn=None, question=None):
 
     async def grok_motion(step: Step, ctx: dict) -> HandlerResult:
         image = step.params["image_path"]
+        # Mid-flight contract (optional): use the ctx callbacks when a coordinator
+        # provides them; absent (direct unit calls) -> behaves exactly as before.
+        report_progress = ctx.get("report_progress")
+        report_cost = ctx.get("report_cost")
+        if report_progress:
+            report_progress("grok: requesting motion prompt")
+
         res = afn([image], q)
         cost = float(getattr(res, "cost_usd", None) or 0.0)
         text = (getattr(res, "text", "") or "").strip()
@@ -56,6 +64,16 @@ def make_grok_motion_handler(analyze_fn=None, question=None):
         cleaned, is_refusal = _clean_and_check(text)
         if is_refusal:
             return HandlerResult(ok=False, error="grok refusal", cost_usd=cost)
+
+        # Grok is a SINGLE atomic call — the money is already spent, so a cap
+        # breach here cannot un-spend it. Report for visibility but swallow
+        # StepBudgetExceeded; the Coordinator still charges via charge-after
+        # (result.cost_usd) so an already-incurred cost is never lost.
+        if report_cost and cost > 0:
+            try:
+                report_cost(cost)
+            except StepBudgetExceeded:
+                pass
         return HandlerResult(ok=True, result=cleaned, cost_usd=cost)
 
     return grok_motion
