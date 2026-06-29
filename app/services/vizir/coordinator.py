@@ -37,6 +37,18 @@ class Coordinator:
     def _emit(self, type_: str, **fields) -> None:
         self._on_event({"type": type_, **fields})
 
+    def _money_gate_allows(self, task: Task, spent: float, step: Step) -> tuple[bool, str]:
+        """Strict pre-check: would this paid step exceed the per-task budget or the
+        actor's per-user limit? Extracted so it is a single, testable seam (Phase 3
+        swaps in access_control.check_limit here)."""
+        actor_limit = self._actor_limits.get(task.actor)   # None => unlimited
+        prospective = spent + step.estimated_usd
+        if prospective > task.budget_usd:
+            return False, "per-task budget would be exceeded"
+        if actor_limit is not None and prospective > actor_limit:
+            return False, f"actor '{task.actor}' per-user limit would be exceeded"
+        return True, ""
+
     def _persist(self, task: Task, plan: Plan, status: str, total_cost: float) -> None:
         """Durable snapshot (mirror batch_orchestrator). Written before each step
         and at the end, so a crash mid-step leaves a reportable record. We never
@@ -91,19 +103,12 @@ class Coordinator:
                 self._emit("gate_checked", kind=step.kind,
                            spent=total_cost, estimated=step.estimated_usd,
                            budget=task.budget_usd)
-                actor_limit = self._actor_limits.get(task.actor)  # None => unlimited
-                over_budget = total_cost + step.estimated_usd > task.budget_usd
-                over_actor = (
-                    actor_limit is not None
-                    and total_cost + step.estimated_usd > actor_limit
-                )
-                if over_budget or over_actor:
+                allowed, reason = self._money_gate_allows(task, total_cost, step)
+                if not allowed:
                     step.status = StepStatus.BLOCKED
                     blocked.append(step)
                     stopped = True
                     status = "stopped_budget"
-                    reason = ("per-task budget would be exceeded" if over_budget
-                              else f"actor '{task.actor}' per-user limit would be exceeded")
                     self._emit("step_blocked", kind=step.kind, reason=reason)
                     self._emit("run_stopped", status=status)
                     continue
