@@ -7,6 +7,7 @@ driver renders) and the returned ``Report``. Knows nothing about CC/Telegram.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -86,6 +87,14 @@ class Coordinator:
         if actor_limit is not None and prospective_total > actor_limit:
             return False, f"actor '{task.actor}' per-user limit would be exceeded"
         return True, ""
+
+    async def _run_handler(self, handler, step: Step, ctx: dict) -> HandlerResult:
+        """Run the handler, wrapped in a wall-clock timeout when step.timeout_s>0.
+        A hung agent is cancelled (CancelledError reaches it for cleanup) and
+        asyncio.TimeoutError propagates to the run loop. Single seam (spy-able)."""
+        if step.timeout_s:
+            return await asyncio.wait_for(handler(step, ctx), step.timeout_s)
+        return await handler(step, ctx)
 
     def _persist(self, task: Task, plan: Plan, status: str, total_cost: float) -> None:
         """Durable snapshot (mirror batch_orchestrator). Written before each step
@@ -176,10 +185,11 @@ class Coordinator:
                 "report_cost": report_cost, "report_progress": report_progress,
             }
             try:
-                result: HandlerResult = await handler(step, ctx)
+                result: HandlerResult = await self._run_handler(handler, step, ctx)
             except StepBudgetExceeded as exc:
                 # Mid-flight cap breach: charge ONLY the already-approved spend
-                # (partial, real money already burned), block, and stop the run.
+                # (partial, real money already burned), block, and STOP the run
+                # (money breach = conservative stop).
                 spent = meter["spent"]
                 step.status = StepStatus.BLOCKED
                 step.cost_usd = spent
@@ -194,6 +204,22 @@ class Coordinator:
                 status = "stopped_cost_cap"
                 self._emit("step_blocked", kind=step.kind, reason=str(exc))
                 self._emit("run_stopped", status=status)
+                continue
+            except asyncio.TimeoutError:
+                # Hung agent: charge what it spent before hanging (partial), mark
+                # the step FAILED, but CONTINUE — a hang is a per-step failure, not
+                # a money breach (asymmetry with the cost-cap stop above).
+                spent = meter["spent"]
+                step.status = StepStatus.FAILED
+                step.cost_usd = spent
+                step.error = f"timeout after {step.timeout_s}s"
+                total_cost += spent
+                if spent > 0:
+                    if self._charge_logger is not None:
+                        await self._charge_logger(task.actor, step.kind, spent)
+                    self._emit("charged", kind=step.kind, cost_usd=spent)
+                self._emit("step_timeout", kind=step.kind, timeout_s=step.timeout_s)
+                self._emit("step_failed", kind=step.kind, error=step.error)
                 continue
 
             if not result.ok:

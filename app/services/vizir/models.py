@@ -33,6 +33,7 @@ class Step:
     policy: Policy = Policy.AUTO
     estimated_usd: float = 0.0
     max_usd: float = 0.0          # mid-flight per-step cost cap (0 = no cap)
+    timeout_s: float = 0.0        # per-step wall-clock cap (0 = no timeout)
     status: StepStatus = StepStatus.PENDING
     result: Any = None
     cost_usd: float = 0.0
