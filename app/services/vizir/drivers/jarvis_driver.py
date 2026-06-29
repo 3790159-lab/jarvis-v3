@@ -36,7 +36,7 @@ class JarvisDriver(BaseDriver):
         if t == "step_failed":
             return f"*FAIL* {k}: {event.get('error')}"
         if t == "step_blocked":
-            return f"*BLOCKED* {k} — {event.get('reason')}"
+            return f"*BLOCKED* {k} - {event.get('reason')}"
         if t == "step_needs_approval":
             # The seam the live bot fills with real inline buttons.
             return f"*approval needed*: {k}   [Approve] [Reject]"
