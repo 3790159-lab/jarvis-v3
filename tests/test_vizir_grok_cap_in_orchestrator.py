@@ -18,12 +18,15 @@ def _run(coro):
 
 
 def _grok_plan_and_reg(call_counter):
-    def fake_motion(frames):
+    def fake_analyze(paths, question):
         call_counter.append(1)                      # one real (mock) Grok call
-        return SimpleNamespace(prompt="slow head turn, locked static camera", cost_usd=0.01)
+        return SimpleNamespace(
+            text="slow head turn, soft blinking, locked static camera, photorealistic",
+            cost_usd=0.01,
+        )
 
     reg = HandlerRegistry()
-    reg.register("grok_motion", make_grok_motion_handler(motion_fn=fake_motion))
+    reg.register("grok_motion", make_grok_motion_handler(analyze_fn=fake_analyze))
     plan = Plan(steps=[
         Step(kind="grok_motion", params={"image_path": f"{i}.jpg"}, estimated_usd=0.01)
         for i in range(6)

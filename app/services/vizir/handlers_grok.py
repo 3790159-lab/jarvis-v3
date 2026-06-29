@@ -1,16 +1,19 @@
 # -*- coding: utf-8 -*-
-"""Vizir paid StepHandler — Grok motion-prompt.
+"""Vizir paid StepHandler — Grok motion-prompt for ONE static photo.
 
-Reuses the PROVEN money-aware Grok path (run #2 / Веха C):
-``motion_prompt_ai.generate_video_motion_prompt`` returns a prompt (or None on
-refusal/empty/no-key) plus the real reported cost from the SAME call.
+Reuses the proven money-aware Grok path (run #2): ``grok_vision
+.analyze_images_detailed`` returns text + the real reported cost from the SAME
+call. The SINGLE-image motion question (``MOTION_VISION_QUESTION``) is the right
+tool for one static photo — the video-motion question expects multiple frames
+and unreliably refuses a single image. Refusal detection reuses the proven
+``motion_prompt_ai`` heuristics.
 
-Money rule mirrored: a refusal (prompt is None) returns ``ok=False`` so the
+Money rule mirrored: a refusal / empty reply returns ``ok=False`` so the
 Coordinator does NOT charge it ('refusal не списан'). The Coordinator owns the
 budget gate (check-before) and the charge-after — this handler only does work.
 
-``motion_fn`` is injectable for $0 unit tests; the default binds the real path
-lazily so importing this module never pulls heavy video deps until used.
+``analyze_fn`` / ``question`` are injectable for $0 unit tests; defaults bind the
+real path lazily so importing this module never pulls heavy deps until used.
 """
 from __future__ import annotations
 
@@ -18,24 +21,41 @@ from .handlers import HandlerResult
 from .models import Step
 
 
-def _default_motion_fn(frames):
-    from app.services.block_m2_video.motion_prompt_ai import generate_video_motion_prompt
-    return generate_video_motion_prompt(frames)
+def _default_analyze(image_paths, question):
+    from app.services.grok_vision import analyze_images_detailed
+    return analyze_images_detailed(image_paths, question)
 
 
-def make_grok_motion_handler(motion_fn=None):
-    """Return an async StepHandler that turns one image into a motion prompt via
-    Grok. ``motion_fn(frames) -> obj`` with ``.prompt`` (str|None) and
-    ``.cost_usd`` (float|None). Defaults to the real proven path."""
-    fn = motion_fn or _default_motion_fn
+def _default_question():
+    from app.services.block_m2_video.motion_prompt_ai import MOTION_VISION_QUESTION
+    return MOTION_VISION_QUESTION
+
+
+def _clean_and_check(text: str):
+    """Return (cleaned_prompt, is_refusal) using the proven motion_prompt_ai logic."""
+    from app.services.block_m2_video.motion_prompt_ai import _clean, _looks_like_refusal
+    cleaned = _clean(text)
+    return cleaned, _looks_like_refusal(cleaned)
+
+
+def make_grok_motion_handler(analyze_fn=None, question=None):
+    """Return an async StepHandler turning one image into a motion prompt via Grok.
+
+    ``analyze_fn(image_paths, question) -> obj`` with ``.text`` (str) and
+    ``.cost_usd`` (float|None). Defaults to the real proven single-image path."""
+    afn = analyze_fn or _default_analyze
+    q = question if question is not None else _default_question()
 
     async def grok_motion(step: Step, ctx: dict) -> HandlerResult:
         image = step.params["image_path"]
-        res = fn([image])
+        res = afn([image], q)
         cost = float(getattr(res, "cost_usd", None) or 0.0)
-        if getattr(res, "prompt", None) is None:
-            # Refusal / empty / no-key: not usable -> ok=False -> NOT charged.
-            return HandlerResult(ok=False, error="grok refusal/empty", cost_usd=cost)
-        return HandlerResult(ok=True, result=res.prompt, cost_usd=cost)
+        text = (getattr(res, "text", "") or "").strip()
+        if not text:
+            return HandlerResult(ok=False, error="grok empty/no-key", cost_usd=cost)
+        cleaned, is_refusal = _clean_and_check(text)
+        if is_refusal:
+            return HandlerResult(ok=False, error="grok refusal", cost_usd=cost)
+        return HandlerResult(ok=True, result=cleaned, cost_usd=cost)
 
     return grok_motion
