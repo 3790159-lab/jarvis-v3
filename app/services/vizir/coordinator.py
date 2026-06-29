@@ -61,6 +61,13 @@ class Coordinator:
             handler = self._registry.get(step.kind)
             result: HandlerResult = await handler(step, {"task": task})
 
+            if not result.ok:
+                # Refusal / failure -> NOT charged (proven rule 'refusal не списан').
+                step.status = StepStatus.FAILED
+                step.error = result.error
+                self._emit("step_failed", kind=step.kind, error=result.error)
+                continue
+
             step.status = StepStatus.DONE
             step.result = result.result
             step.cost_usd = result.cost_usd
