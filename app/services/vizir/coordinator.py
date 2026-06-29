@@ -26,6 +26,7 @@ class Coordinator:
         actor_limits: dict[str, float] | None = None,
         state_dir: Path | None = None,
         charge_logger: Callable[[str, str, float], object] | None = None,
+        check_limit_fn: Callable[[str, float], tuple[bool, str]] | None = None,
     ) -> None:
         self._registry = registry
         self._on_event = on_event or (lambda e: None)
@@ -33,6 +34,9 @@ class Coordinator:
         # Optional async charge sink, called (actor, operation, amount) AFTER a
         # successful paid step. Wired to an isolated CostTracker in Phase 3 live.
         self._charge_logger = charge_logger
+        # Optional per-user pre-check (actor, estimated)->(allowed, reason). In
+        # prod this is access_control.check_limit (admin unlimited / friend capped).
+        self._check_limit_fn = check_limit_fn
         # Per-user cap, additional to the universal per-task budget. An actor
         # not present here (e.g. "admin") is unlimited per-user. Phase 3 wires
         # this to the proven access_control.check_limit.
@@ -45,10 +49,17 @@ class Coordinator:
         """Strict pre-check: would this paid step exceed the per-task budget or the
         actor's per-user limit? Extracted so it is a single, testable seam (Phase 3
         swaps in access_control.check_limit here)."""
-        actor_limit = self._actor_limits.get(task.actor)   # None => unlimited
         prospective = spent + step.estimated_usd
+        # 1) Per-task budget — universal hard cap (applies even to admin).
         if prospective > task.budget_usd:
             return False, "per-task budget would be exceeded"
+        # 2) Production per-user gate (access_control.check_limit) if injected.
+        if self._check_limit_fn is not None:
+            allowed, reason = self._check_limit_fn(task.actor, step.estimated_usd)
+            if not allowed:
+                return False, reason or f"actor '{task.actor}' per-user limit reached"
+        # 3) In-memory per-actor cap (test/standalone fallback).
+        actor_limit = self._actor_limits.get(task.actor)   # None => unlimited
         if actor_limit is not None and prospective > actor_limit:
             return False, f"actor '{task.actor}' per-user limit would be exceeded"
         return True, ""
