@@ -21,9 +21,14 @@ class Coordinator:
         self,
         registry: HandlerRegistry,
         on_event: Callable[[dict], None] | None = None,
+        actor_limits: dict[str, float] | None = None,
     ) -> None:
         self._registry = registry
         self._on_event = on_event or (lambda e: None)
+        # Per-user cap, additional to the universal per-task budget. An actor
+        # not present here (e.g. "admin") is unlimited per-user. Phase 3 wires
+        # this to the proven access_control.check_limit.
+        self._actor_limits = actor_limits or {}
 
     def _emit(self, type_: str, **fields) -> None:
         self._on_event({"type": type_, **fields})
@@ -60,13 +65,20 @@ class Coordinator:
                 self._emit("gate_checked", kind=step.kind,
                            spent=total_cost, estimated=step.estimated_usd,
                            budget=task.budget_usd)
-                if total_cost + step.estimated_usd > task.budget_usd:
+                actor_limit = self._actor_limits.get(task.actor)  # None => unlimited
+                over_budget = total_cost + step.estimated_usd > task.budget_usd
+                over_actor = (
+                    actor_limit is not None
+                    and total_cost + step.estimated_usd > actor_limit
+                )
+                if over_budget or over_actor:
                     step.status = StepStatus.BLOCKED
                     blocked.append(step)
                     stopped = True
                     status = "stopped_budget"
-                    self._emit("step_blocked", kind=step.kind,
-                               reason="per-task budget would be exceeded")
+                    reason = ("per-task budget would be exceeded" if over_budget
+                              else f"actor '{task.actor}' per-user limit would be exceeded")
+                    self._emit("step_blocked", kind=step.kind, reason=reason)
                     self._emit("run_stopped", status=status)
                     continue
 
