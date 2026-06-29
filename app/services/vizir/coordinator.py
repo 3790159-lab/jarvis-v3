@@ -11,7 +11,7 @@ import logging
 from typing import Callable
 
 from .handlers import HandlerRegistry, HandlerResult
-from .models import Plan, Report, Step, StepStatus, Task
+from .models import Plan, Policy, Report, Step, StepStatus, Task
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +33,7 @@ class Coordinator:
         stopped = False
         status = "completed"
         blocked: list[Step] = []
+        approvals: list[Step] = []
 
         for step in plan.steps:
             if stopped:
@@ -41,6 +42,17 @@ class Coordinator:
 
             paid = step.estimated_usd > 0
             self._emit("step_started", kind=step.kind)
+
+            # Policy gate BEFORE the money gate: a requires_approval step is never
+            # auto-run — Jarvis/CC must surface it to Daniil (product boundary).
+            if step.policy is Policy.REQUIRES_APPROVAL:
+                step.status = StepStatus.NEEDS_APPROVAL
+                approvals.append(step)
+                stopped = True
+                status = "stopped_for_approval"
+                self._emit("step_needs_approval", kind=step.kind)
+                self._emit("run_stopped", status=status)
+                continue
 
             if paid:
                 # GATE *BEFORE* spend: strict per-task budget pre-check (universal,
@@ -80,7 +92,7 @@ class Coordinator:
         report = Report(
             task_id=task.task_id, goal=task.goal, actor=task.actor,
             steps=plan.steps, total_cost_usd=total_cost, status=status,
-            blocked=blocked,
+            blocked=blocked, approvals_needed=approvals,
         )
         if not stopped:
             self._emit("run_completed", total_cost_usd=total_cost)
