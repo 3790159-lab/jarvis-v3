@@ -23,12 +23,18 @@ class CCDriver:
         sink: Callable[[str], None] | None = None,
         state_dir: Path | None = None,
         actor_limits: dict[str, float] | None = None,
+        charge_logger: Callable[[str, str, float], object] | None = None,
+        check_limit_fn: Callable[[str, float], tuple[bool, str]] | None = None,
     ) -> None:
         self._registry = registry
         self._journal: list[str] = []
         self._sink = sink or self._journal.append
         self._state_dir = state_dir
         self._actor_limits = actor_limits
+        # Forwarded to the Coordinator — the driver holds no gate logic, only
+        # passes the wiring through (so a JarvisDriver can do the same).
+        self._charge_logger = charge_logger
+        self._check_limit_fn = check_limit_fn
 
     @property
     def journal(self) -> list[str]:
@@ -73,6 +79,7 @@ class CCDriver:
         coord = Coordinator(
             self._registry, on_event=self.render,
             actor_limits=self._actor_limits, state_dir=self._state_dir,
+            charge_logger=self._charge_logger, check_limit_fn=self._check_limit_fn,
         )
         report = await coord.run(task, plan)
         self._sink(self._summary(report))
