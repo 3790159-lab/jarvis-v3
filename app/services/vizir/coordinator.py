@@ -25,10 +25,14 @@ class Coordinator:
         on_event: Callable[[dict], None] | None = None,
         actor_limits: dict[str, float] | None = None,
         state_dir: Path | None = None,
+        charge_logger: Callable[[str, str, float], object] | None = None,
     ) -> None:
         self._registry = registry
         self._on_event = on_event or (lambda e: None)
         self._state_dir = Path(state_dir) if state_dir is not None else None
+        # Optional async charge sink, called (actor, operation, amount) AFTER a
+        # successful paid step. Wired to an isolated CostTracker in Phase 3 live.
+        self._charge_logger = charge_logger
         # Per-user cap, additional to the universal per-task budget. An actor
         # not present here (e.g. "admin") is unlimited per-user. Phase 3 wires
         # this to the proven access_control.check_limit.
@@ -130,7 +134,9 @@ class Coordinator:
             results[step.kind] = result.result
             total_cost += result.cost_usd
             if paid:
-                # CHARGE *AFTER* success.
+                # CHARGE *AFTER* success: record to the isolated ledger, then emit.
+                if self._charge_logger is not None:
+                    await self._charge_logger(task.actor, step.kind, result.cost_usd)
                 self._emit("charged", kind=step.kind, cost_usd=result.cost_usd)
             self._emit("step_done", kind=step.kind, cost_usd=step.cost_usd)
 
