@@ -34,6 +34,7 @@ class Step:
     estimated_usd: float = 0.0
     max_usd: float = 0.0          # mid-flight per-step cost cap (0 = no cap)
     timeout_s: float = 0.0        # per-step wall-clock cap (0 = no timeout)
+    needs_quote: bool = False     # if set, a quote fills estimated_usd before the pre-check
     status: StepStatus = StepStatus.PENDING
     result: Any = None
     cost_usd: float = 0.0

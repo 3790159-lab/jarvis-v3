@@ -34,12 +34,21 @@ class HandlerRegistry:
 
     def __init__(self) -> None:
         self._handlers: dict[str, StepHandler] = {}
+        self._quotes: dict[str, StepHandler] = {}
 
-    def register(self, kind: str, handler: StepHandler) -> None:
+    def register(self, kind: str, handler: StepHandler, quote=None) -> None:
+        """Register a handler for ``kind``. ``quote`` is an optional cheap async
+        estimator ``(step, ctx) -> float`` consulted before the pre-check for
+        steps with ``needs_quote=True`` (variable-cost agents)."""
         self._handlers[kind] = handler
+        if quote is not None:
+            self._quotes[kind] = quote
 
     def get(self, kind: str) -> StepHandler | None:
         return self._handlers.get(kind)
+
+    def get_quote(self, kind: str):
+        return self._quotes.get(kind)
 
     def has(self, kind: str) -> bool:
         return kind in self._handlers

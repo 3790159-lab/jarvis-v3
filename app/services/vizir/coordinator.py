@@ -88,6 +88,19 @@ class Coordinator:
             return False, f"actor '{task.actor}' per-user limit would be exceeded"
         return True, ""
 
+    async def _apply_quote(self, step: Step, ctx: dict) -> None:
+        """For a needs_quote step, consult its CHEAP registered quote (a local
+        heuristic, not a paid call) and set step.estimated_usd before the
+        pre-check. Single seam (spy-able). Under-quotes are backstopped by the
+        per-step cost cap; over-quotes block conservatively at the pre-check."""
+        if not step.needs_quote:
+            return
+        quote_fn = self._registry.get_quote(step.kind)
+        if quote_fn is None:
+            return
+        step.estimated_usd = float(await quote_fn(step, ctx))
+        self._emit("quoted", kind=step.kind, estimated=step.estimated_usd)
+
     async def _run_handler(self, handler, step: Step, ctx: dict) -> HandlerResult:
         """Run the handler, wrapped in a wall-clock timeout when step.timeout_s>0.
         A hung agent is cancelled (CancelledError reaches it for cleanup) and
@@ -131,7 +144,6 @@ class Coordinator:
                 step.status = StepStatus.SKIPPED
                 continue
 
-            paid = step.estimated_usd > 0
             self._emit("step_started", kind=step.kind)
 
             # Policy gate BEFORE the money gate: a requires_approval step is never
@@ -144,6 +156,11 @@ class Coordinator:
                 self._emit("step_needs_approval", kind=step.kind)
                 self._emit("run_stopped", status=status)
                 continue
+
+            # QUOTE before the pre-check: for a variable-cost agent, a cheap quote
+            # fills estimated_usd so the pre-check below is meaningful.
+            await self._apply_quote(step, {"task": task, "results": results})
+            paid = step.estimated_usd > 0
 
             if paid:
                 # GATE *BEFORE* spend: strict per-task budget pre-check (universal,
