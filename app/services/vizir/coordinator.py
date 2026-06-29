@@ -76,6 +76,7 @@ class Coordinator:
         status = "completed"
         blocked: list[Step] = []
         approvals: list[Step] = []
+        results: dict = {}        # kind -> result, so later steps build on earlier ones
 
         for step in plan.steps:
             self._persist(task, plan, "running", total_cost)  # durable before each step
@@ -114,7 +115,7 @@ class Coordinator:
                     continue
 
             handler = self._registry.get(step.kind)
-            result: HandlerResult = await handler(step, {"task": task})
+            result: HandlerResult = await handler(step, {"task": task, "results": results})
 
             if not result.ok:
                 # Refusal / failure -> NOT charged (proven rule 'refusal не списан').
@@ -126,6 +127,7 @@ class Coordinator:
             step.status = StepStatus.DONE
             step.result = result.result
             step.cost_usd = result.cost_usd
+            results[step.kind] = result.result
             total_cost += result.cost_usd
             if paid:
                 # CHARGE *AFTER* success.
