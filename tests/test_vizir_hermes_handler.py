@@ -96,6 +96,22 @@ def test_toolset_lockdown_and_grok_engine_passed_to_hermes():
     assert cap["max_iterations"] >= 1
 
 
+def test_handler_awaits_async_run_fn():
+    # the real subprocess adapter is async -> the handler must await it
+    async def async_run(prompt, *, model, enabled_toolsets, disabled_toolsets,
+                        max_iterations, on_step):
+        on_step(0.01, note="i1")
+        return dict(final_response="<html>async</html>", cost_usd=0.01,
+                    iterations=1, stopped_reason="completed", tokens=5)
+
+    handler = make_hermes_handler(run_fn=async_run)
+    res = _run(handler(Step(kind="hermes", params={"prompt": "x"}),
+                       {"task": None, "results": {}}))
+    assert res.ok is True
+    assert res.result["final_response"] == "<html>async</html>"
+    assert abs(res.cost_usd - 0.01) < 1e-9
+
+
 def test_step_params_override_toolsets_and_model():
     cap = {}
     handler = make_hermes_handler(run_fn=_fake_run(capture=cap,

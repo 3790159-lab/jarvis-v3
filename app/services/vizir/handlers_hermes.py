@@ -20,6 +20,11 @@ Acceptance ("did Hermes do it right?") is Vizir's job, kept SEPARATE — see
 """
 from __future__ import annotations
 
+import asyncio
+import inspect
+import json
+import os
+
 from .handlers import HandlerResult
 from .models import Step
 
@@ -35,39 +40,100 @@ DEFAULT_DISABLED = ["terminal", "code_execution", "delegation", "computer_use", 
 DEFAULT_MAX_ITERATIONS = 30          # conservative ceiling for knee #1 (was 90)
 
 
-def _default_run(prompt, *, model, enabled_toolsets, disabled_toolsets,
-                 max_iterations, on_step):
+def _hermes_paths():
+    """Locate the installed Hermes venv python + our child entry point.
+    Validated on disk (STEP 2): HERMES_HOME=%LOCALAPPDATA%\\hermes, venv python at
+    hermes-agent\\venv\\Scripts\\python.exe, run_agent.AIAgent importable there."""
+    home = os.environ.get("HERMES_HOME") or os.path.join(
+        os.environ.get("LOCALAPPDATA", ""), "hermes")
+    py = os.path.join(home, "hermes-agent", "venv", "Scripts", "python.exe")
+    child = os.path.join(os.path.dirname(__file__), "hermes_child.py")
+    cwd = os.path.join(home, "hermes-agent")
+    return py, child, cwd
+
+
+async def _stream_subprocess(py_exe, args, cfg, on_step):
+    """Run a child process that streams JSON cost lines then a result line, and
+    translate the result to our normalized shape. The PARENT enforces the
+    cost-cap: ``on_step(cumulative_cost, note)`` may RAISE StepBudgetExceeded;
+    when it (or a cancellation, or any error) propagates, the child is KILLED in
+    ``finally`` so Hermes can never keep spending after the cap. A child that
+    self-exits without a result line (e.g. os._exit) is reported as
+    ``child_no_result`` — Vizir survives regardless (#8049 defence)."""
+    proc = await asyncio.create_subprocess_exec(
+        py_exe, *args,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        cwd=cfg.get("cwd") or None,
+    )
+    result_obj = None
+    try:
+        proc.stdin.write(json.dumps(cfg).encode("utf-8"))
+        await proc.stdin.drain()
+        proc.stdin.close()
+        async for raw in proc.stdout:
+            line = raw.decode("utf-8", errors="replace").strip()
+            if not line:
+                continue
+            try:
+                msg = json.loads(line)
+            except ValueError:
+                continue                      # ignore non-JSON noise from the child
+            if msg.get("type") == "cost":
+                cum = float(msg.get("cost") or 0.0)
+                on_step(cum, note=f"hermes iter {msg.get('iter')}: ${cum:.4f}")
+            elif msg.get("type") == "result":
+                result_obj = msg
+        await proc.wait()
+    finally:
+        if proc.returncode is None:           # cap breach / cancel / error / hang
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+            try:
+                await proc.wait()
+            except Exception:
+                pass
+
+    if result_obj is None:
+        return dict(final_response="", cost_usd=0.0, iterations=0,
+                    stopped_reason="child_no_result", tokens=0,
+                    artifact_path=cfg.get("artifact_path"))
+    completed = bool(result_obj.get("completed"))
+    stopped = "completed" if completed else (
+        result_obj.get("turn_exit_reason") or "incomplete")
+    return dict(
+        final_response=result_obj.get("final_response") or "",
+        cost_usd=float(result_obj.get("cost") or 0.0),
+        iterations=result_obj.get("iterations"),
+        stopped_reason=stopped,
+        tokens=result_obj.get("tokens"),
+        artifact_path=cfg.get("artifact_path"),
+    )
+
+
+async def _default_run(prompt, *, model, enabled_toolsets, disabled_toolsets,
+                       max_iterations, on_step):
     """Real Hermes adapter — SUBPROCESS-ISOLATED (lazy; NEVER runs in mocks -> $0).
 
-    ⚠️ Why a subprocess, not an in-process call: Hermes issue #8049 —
-    ``AIAgent.run_conversation`` runs a cleanup chain (run_agent.py:9410-9416:
-    ``_save_trajectory`` / ``_cleanup_task_resources`` / ``_persist_session``) that
-    can ``os._exit(0)`` the interpreter when ``max_iterations`` is exhausted
-    (no exception, no traceback, exit 0). Calling it in-process would KILL the
-    Vizir coordinator (and, live, the bot link). So we run Hermes in a child
-    process; if it self-exits we only see a dead child + exit code — Vizir lives.
-
-    Contract of the child (``hermes_child.py``, wired+validated against on-disk
-    run_agent.py at install, STEP 2, BEFORE any paid run, STEP 3):
-      stdin  <- JSON {prompt, model, enabled_toolsets, disabled_toolsets, max_iterations}
-      stdout -> one JSON line per iteration: {"cost": <cumulative session_estimated_cost_usd>,
-                "tokens": <session_total_tokens>, "iter": n}
-             -> final JSON line: {"final_response", "completed": bool, "partial": bool,
-                "error", "turn_exit_reason", "cost", "tokens", "iterations",
-                "artifact_path"}   (real Hermes keys: final_response/completed/partial/
-                error/turn_exit_reason — see issues #22496/#17248)
-
-    Parent (here): async subprocess; read each cost line -> on_step(cum, note).
-    on_step calls ctx['report_cost'] which RAISES StepBudgetExceeded on a cap
-    breach -> we KILL the child and re-raise (-> coordinator: stopped_cost_cap).
-    Coordinator timeout (Step.timeout_s -> asyncio.wait_for) cancels us -> we KILL
-    the child too (cancellation-safe). Translate the child's final line to our
-    normalized shape: stopped_reason = "completed" if completed else
-    (turn_exit_reason or "max_iterations"); cost_usd = final cost.
-    """
-    raise NotImplementedError(
-        "real Hermes adapter (subprocess) is wired + source-validated at install "
-        "(STEP 2) before any paid run; inject run_fn for tests")
+    Spawns ``hermes_child.py`` in the installed Hermes venv; the child constructs
+    ``AIAgent`` (confirmed kwargs: model/enabled_toolsets/disabled_toolsets/
+    max_iterations/quiet_mode/step_callback) and runs ``run_conversation``,
+    streaming cumulative ``session_estimated_cost_usd`` per iteration. The parent
+    (``_stream_subprocess``) applies the cost-cap and kills the child on breach."""
+    py, child, cwd = _hermes_paths()
+    cfg = {
+        "prompt": prompt,
+        "model": model,
+        "enabled_toolsets": enabled_toolsets,
+        "disabled_toolsets": disabled_toolsets,
+        "max_iterations": max_iterations,
+        "cwd": cwd,
+        # api creds / artifact_path may be injected by the live caller via env/params
+    }
+    return await _stream_subprocess(py, [child], cfg, on_step)
 
 
 def make_hermes_handler(run_fn=None, model=None, enabled_toolsets=None,
@@ -103,6 +169,8 @@ def make_hermes_handler(run_fn=None, model=None, enabled_toolsets=None,
         out = rfn(prompt, model=p_model, enabled_toolsets=p_enabled,
                   disabled_toolsets=p_disabled, max_iterations=p_max_iter,
                   on_step=on_step)
+        if inspect.isawaitable(out):          # real subprocess adapter is async
+            out = await out                   # mocks return a plain dict (sync)
 
         cost = float(out.get("cost_usd") or 0.0)
         final = (out.get("final_response") or "").strip()
