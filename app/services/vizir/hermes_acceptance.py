@@ -28,16 +28,29 @@ class AcceptanceResult:
 _DARK_BG = re.compile(r"background(-color)?\s*:\s*#[01][0-9a-f]", re.I)
 _DARK_TOKENS = ("#000", "#010", "#0a0a", "#0d0d", "#0f0f", "#111", "#121212",
                 "#1a1a", "rgb(0,0,0", "rgb(10,10")
+# A 6-digit near-black hex (first channel 0x/1x) defined ANYWHERE — covers themes
+# that route the colour through a CSS custom property (background:var(--bg)).
+_DARK_HEX6 = re.compile(r"#[01][0-9a-f]{5}\b", re.I)
+_BG_VAR = re.compile(r"background[^;{}]*var\(", re.I)
+
 _NEON_TOKENS = ("cyan", "aqua", "#0ff", "#00ffff", "#0ef", "#0df", "#0fe",
                 "#22d3ee", "#00e5ff", "#06b6d4", "#00bcd4", "rgb(0,255,255")
+# Cyan / electric-blue range: hex with low red + high blue (e.g. #00d4ff, #0099cc),
+# or rgb/rgba with red=0 and a high blue channel (e.g. rgba(0,212,255,...)).
+_NEON_HEX = re.compile(r"#0[0-9a-f][0-9a-f]{2}[c-f][0-9a-f]\b", re.I)
+_NEON_RGB = re.compile(r"rgba?\(\s*0\s*,\s*\d{1,3}\s*,\s*(1[5-9]\d|2[0-5]\d)", re.I)
 
 
 def _has_dark_background(low: str) -> bool:
-    return any(t in low for t in _DARK_TOKENS) or bool(_DARK_BG.search(low))
+    if any(t in low for t in _DARK_TOKENS) or _DARK_BG.search(low):
+        return True
+    # CSS-variable themes: a near-black hex defined + backgrounds set via var()
+    return bool(_DARK_HEX6.search(low) and _BG_VAR.search(low))
 
 
 def _has_neon_accent(low: str) -> bool:
-    return any(t in low for t in _NEON_TOKENS)
+    return (any(t in low for t in _NEON_TOKENS)
+            or bool(_NEON_HEX.search(low)) or bool(_NEON_RGB.search(low)))
 
 
 def check_chat_acceptance(html: str) -> AcceptanceResult:

@@ -88,6 +88,31 @@ def test_max_iterations_run_is_not_accepted_even_with_good_html():
     assert any("did not complete" in r for r in res.reasons)
 
 
+def test_dark_neon_via_css_variables_is_accepted():
+    # Regression from the first LIVE run: Hermes produced a genuinely dark +
+    # neon-cyan chat using CSS custom properties (background:var(--bg-deep)) and
+    # cyan-range colors (#00d4ff / rgba(0,212,255,...)). The checker must not
+    # FALSE-REJECT it (a false reject in a loop = wasted retries = wasted money).
+    html = """<!doctype html><html><head><style>
+      :root { --bg-deep:#020b14; --accent:#00d4ff; --accent-glow:rgba(0,212,255,0.18);
+              --online:#00ff9d; --offline:#ff3366; --text:#d6f4ff; }
+      body { background: var(--bg-deep); color: var(--text); }
+      .accent { color: var(--accent); box-shadow: 0 0 8px var(--accent-glow); }
+      #messages { overflow-y:auto; }
+    </style></head><body>
+      <header>JARVIS <span id="status">online</span></header>
+      <div id="messages" class="chat"></div>
+      <textarea id="input"></textarea><button id="send">Send</button>
+      <script>
+        const API_URL = "http://localhost:8010";
+        async function s(t){ try{ await fetch(API_URL,{method:"POST",body:t}); }
+          catch(e){ document.getElementById("status").textContent="offline"; } }
+        document.getElementById("input").addEventListener("keydown", e=>{});
+      </script></body></html>"""
+    res = check_chat_acceptance(html)
+    assert res.accepted is True, res.reasons
+
+
 def test_cost_cap_run_is_not_accepted():
     value = {"final_response": GOOD_HTML, "stopped_reason": "cost_cap",
              "artifact_path": None}

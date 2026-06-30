@@ -32,12 +32,24 @@ from .models import Step
 # orchestrator_enabled:false (no Docker subagents yet) is set in Hermes config.
 # enabled_toolsets is a WHITELIST -> only these are on; the disabled list is
 # defence-in-depth. Names verified against Hermes toolsets.py (TOOLSETS keys).
-DEFAULT_MODEL = "xai/grok-4-fast-reasoning"          # our Grok via XAI_API_KEY
+DEFAULT_MODEL = "claude-sonnet-4-6"                  # Claude brain (stronger at code)
 DEFAULT_ENABLED = ["file", "web", "search"]          # write artifact + look at refs
 #   file -> read_file/write_file/patch/search_files ; web ; search -> web_search
 DEFAULT_DISABLED = ["terminal", "code_execution", "delegation", "computer_use", "cronjob"]
 #   terminal/process, execute_code, delegate_task, computer_use, cron — all OFF
 DEFAULT_MAX_ITERATIONS = 30          # conservative ceiling for knee #1 (was 90)
+
+
+def _derive_provider(model):
+    """Hermes resolves cost pricing only when the provider is explicit (verified:
+    estimate_usage_cost returns 'unknown' with provider=None for claude-sonnet-4-6).
+    Map the model name to its native provider so the cost-cap is never blind."""
+    m = (model or "").lower()
+    if "claude" in m or "anthropic" in m:
+        return "anthropic"
+    if "grok" in m or "xai" in m:
+        return "xai"
+    return None
 
 
 def _hermes_paths():
@@ -68,6 +80,18 @@ async def _stream_subprocess(py_exe, args, cfg, on_step):
         cwd=cfg.get("cwd") or None,
     )
     result_obj = None
+    err_chunks: list[str] = []
+
+    async def _drain_err():
+        # Drain stderr concurrently so a chatty child can't fill the pipe buffer
+        # and deadlock our stdout read; also captures tracebacks for diagnostics.
+        try:
+            async for eraw in proc.stderr:
+                err_chunks.append(eraw.decode("utf-8", errors="replace"))
+        except Exception:
+            pass
+
+    err_task = asyncio.ensure_future(_drain_err())
     try:
         proc.stdin.write(json.dumps(cfg).encode("utf-8"))
         await proc.stdin.drain()
@@ -96,11 +120,20 @@ async def _stream_subprocess(py_exe, args, cfg, on_step):
                 await proc.wait()
             except Exception:
                 pass
+        err_task.cancel()
+        try:
+            await err_task
+        except (asyncio.CancelledError, Exception):
+            pass
 
     if result_obj is None:
+        # Child died/exited without a result line — Vizir survives (#8049 defence).
+        # Surface a stderr tail so a live operator can see WHY (auth, import, crash).
+        tail = ("".join(err_chunks))[-1500:]
         return dict(final_response="", cost_usd=0.0, iterations=0,
                     stopped_reason="child_no_result", tokens=0,
-                    artifact_path=cfg.get("artifact_path"))
+                    artifact_path=cfg.get("artifact_path"),
+                    stderr_tail=tail)
     completed = bool(result_obj.get("completed"))
     stopped = "completed" if completed else (
         result_obj.get("turn_exit_reason") or "incomplete")
@@ -127,11 +160,13 @@ async def _default_run(prompt, *, model, enabled_toolsets, disabled_toolsets,
     cfg = {
         "prompt": prompt,
         "model": model,
+        "provider": _derive_provider(model),   # REQUIRED for cost tracking / cap
         "enabled_toolsets": enabled_toolsets,
         "disabled_toolsets": disabled_toolsets,
         "max_iterations": max_iterations,
         "cwd": cwd,
-        # api creds / artifact_path may be injected by the live caller via env/params
+        # api creds via inherited env (ANTHROPIC_API_KEY/XAI_API_KEY); artifact_path
+        # set by the live caller via a custom run_fn when a file output is needed.
     }
     return await _stream_subprocess(py, [child], cfg, on_step)
 

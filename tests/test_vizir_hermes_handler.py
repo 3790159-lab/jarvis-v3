@@ -10,7 +10,16 @@ Hermes and spend $0 (mirrors handlers_grok's ``analyze_fn`` seam)."""
 import asyncio
 
 from app.services.vizir.models import Step
-from app.services.vizir.handlers_hermes import make_hermes_handler
+from app.services.vizir.handlers_hermes import make_hermes_handler, _derive_provider
+
+
+def test_derive_provider_maps_model_to_native_provider():
+    # cost pricing only resolves with an explicit provider -> must never be blind
+    assert _derive_provider("claude-sonnet-4-6") == "anthropic"
+    assert _derive_provider("anthropic/claude-opus-4-8") == "anthropic"
+    assert _derive_provider("grok-4.3") == "xai"
+    assert _derive_provider("xai/grok-4") == "xai"
+    assert _derive_provider("some-unknown-model") is None
 
 
 def _run(coro):
@@ -81,14 +90,14 @@ def test_report_cost_and_progress_emitted_each_iteration():
     assert len(notes) == 3                               # one progress note per iteration
 
 
-def test_toolset_lockdown_and_grok_engine_passed_to_hermes():
+def test_toolset_lockdown_and_default_engine_passed_to_hermes():
     cap = {}
     handler = make_hermes_handler(run_fn=_fake_run(capture=cap,
                                                    final_response="<html></html>"))
     _run(handler(Step(kind="hermes", params={"prompt": "x"}), {"task": None, "results": {}}))
 
-    # engine = our Grok (XAI_API_KEY); dangerous toolsets locked out for knee #1
-    assert "grok" in cap["model"]
+    # default engine = Claude (stronger at code); dangerous toolsets locked out
+    assert cap["model"] == "claude-sonnet-4-6"
     for forbidden in ("terminal", "code_execution", "delegation"):
         assert forbidden in cap["disabled_toolsets"]
         assert forbidden not in cap["enabled_toolsets"]
