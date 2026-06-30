@@ -39,6 +39,17 @@ DEFAULT_DISABLED = ["terminal", "code_execution", "delegation", "computer_use", 
 #   terminal/process, execute_code, delegate_task, computer_use, cron — all OFF
 DEFAULT_MAX_ITERATIONS = 30          # conservative ceiling for knee #1 (was 90)
 
+# --- knee #2 (docker_exec) defaults: Hermes EXECUTES inside an ephemeral Docker
+# container reached over DOCKER_HOST (Ubuntu-WSL dockerd, localhost-only). These
+# apply ONLY when make_hermes_handler(docker_exec=True); knee #1 is untouched.
+DOCKER_EXEC_TOOLSETS = ["terminal", "code_execution"]   # lifted from DISABLED, added to ENABLED
+DEFAULT_DOCKER_IMAGE = "python:3.11-slim"               # pre-pulled Linux-side (no cred vault)
+DEFAULT_CONTAINER_MEMORY_MB = 1024                      # container RAM under the 2.5GB WSL cap
+DEFAULT_DOCKER_HOST = "tcp://127.0.0.1:2375"            # Ubuntu dockerd, STRICTLY localhost
+#   Windows docker.exe (Docker Desktop's CLI, kept on disk) talks to the Ubuntu
+#   daemon over tcp; ephemeral images are pre-pulled so no registry auth fires.
+DEFAULT_DOCKER_BINARY = r"C:\Program Files\Docker\Docker\resources\bin\docker.exe"
+
 
 def _derive_provider(model):
     """Hermes resolves cost pricing only when the provider is explicit (verified:
@@ -64,7 +75,7 @@ def _hermes_paths():
     return py, child, cwd
 
 
-async def _stream_subprocess(py_exe, args, cfg, on_step):
+async def _stream_subprocess(py_exe, args, cfg, on_step, env_overlay=None):
     """Run a child process that streams JSON cost lines then a result line, and
     translate the result to our normalized shape. The PARENT enforces the
     cost-cap: ``on_step(cumulative_cost, note)`` may RAISE StepBudgetExceeded;
@@ -72,12 +83,18 @@ async def _stream_subprocess(py_exe, args, cfg, on_step):
     ``finally`` so Hermes can never keep spending after the cap. A child that
     self-exits without a result line (e.g. os._exit) is reported as
     ``child_no_result`` — Vizir survives regardless (#8049 defence)."""
+    # env_overlay (knee #2) selects the Docker terminal backend for the child
+    # (TERMINAL_ENV=docker + DOCKER_HOST + image/caps). When None (knee #1) we
+    # pass env=None so the child INHERITS our environment unchanged — the cost
+    # cap and api creds (ANTHROPIC_API_KEY) ride that inheritance.
+    child_env = {**os.environ, **env_overlay} if env_overlay else None
     proc = await asyncio.create_subprocess_exec(
         py_exe, *args,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         cwd=cfg.get("cwd") or None,
+        env=child_env,
     )
     result_obj = None
     err_chunks: list[str] = []
@@ -148,7 +165,7 @@ async def _stream_subprocess(py_exe, args, cfg, on_step):
 
 
 async def _default_run(prompt, *, model, enabled_toolsets, disabled_toolsets,
-                       max_iterations, on_step):
+                       max_iterations, on_step, env_overlay=None):
     """Real Hermes adapter — SUBPROCESS-ISOLATED (lazy; NEVER runs in mocks -> $0).
 
     Spawns ``hermes_child.py`` in the installed Hermes venv; the child constructs
@@ -168,18 +185,50 @@ async def _default_run(prompt, *, model, enabled_toolsets, disabled_toolsets,
         # api creds via inherited env (ANTHROPIC_API_KEY/XAI_API_KEY); artifact_path
         # set by the live caller via a custom run_fn when a file output is needed.
     }
-    return await _stream_subprocess(py, [child], cfg, on_step)
+    return await _stream_subprocess(py, [child], cfg, on_step, env_overlay=env_overlay)
 
 
 def make_hermes_handler(run_fn=None, model=None, enabled_toolsets=None,
-                        disabled_toolsets=None, max_iterations=None):
+                        disabled_toolsets=None, max_iterations=None,
+                        docker_exec=False, docker_image=None,
+                        container_memory_mb=None, docker_host=None,
+                        docker_binary=None):
     """Return an async StepHandler that runs Hermes for one task and normalizes
-    its result. Per-step overrides may come via ``step.params``."""
+    its result. Per-step overrides may come via ``step.params``.
+
+    ``docker_exec`` (knee #2, OPT-IN) makes Hermes run terminal/code_execution
+    INSIDE an ephemeral Docker container (``TERMINAL_ENV=docker``) reached via
+    ``DOCKER_HOST`` over the Ubuntu-WSL dockerd. It ADDS terminal+code_execution
+    to the whitelist, lifts them from the blocklist, and builds an ``env_overlay``
+    injected into the child's process env. When False (the DEFAULT) NOTHING about
+    knee #1 (generation) changes — including the run_fn call shape, which stays
+    ``env_overlay``-free so existing handlers/mocks are untouched. The mid-flight
+    contract (cost-cap / timeout / acceptance) is held by Vizir either way."""
     rfn = run_fn or _default_run
     default_model = model or DEFAULT_MODEL
-    default_enabled = enabled_toolsets if enabled_toolsets is not None else list(DEFAULT_ENABLED)
-    default_disabled = disabled_toolsets if disabled_toolsets is not None else list(DEFAULT_DISABLED)
     default_max_iter = max_iterations if max_iterations is not None else DEFAULT_MAX_ITERATIONS
+
+    if docker_exec:
+        # ADD (not replace) the exec toolsets to knee #1's whitelist, and lift
+        # them from the blocklist (a toolset can't be both enabled and disabled).
+        base_enabled = list(DEFAULT_ENABLED) + [
+            t for t in DOCKER_EXEC_TOOLSETS if t not in DEFAULT_ENABLED]
+        base_disabled = [t for t in DEFAULT_DISABLED if t not in DOCKER_EXEC_TOOLSETS]
+        env_overlay = {
+            "TERMINAL_ENV": "docker",
+            "TERMINAL_DOCKER_IMAGE": docker_image or DEFAULT_DOCKER_IMAGE,
+            "TERMINAL_CONTAINER_MEMORY": str(container_memory_mb or DEFAULT_CONTAINER_MEMORY_MB),
+            "DOCKER_HOST": docker_host or DEFAULT_DOCKER_HOST,
+            "HERMES_DOCKER_BINARY": docker_binary or DEFAULT_DOCKER_BINARY,
+            "HERMES_DOCKER_PERSIST_ACROSS_PROCESSES": "false",   # ephemeral: stop+rm on cleanup
+        }
+    else:
+        base_enabled = list(DEFAULT_ENABLED)
+        base_disabled = list(DEFAULT_DISABLED)
+        env_overlay = None
+
+    default_enabled = enabled_toolsets if enabled_toolsets is not None else base_enabled
+    default_disabled = disabled_toolsets if disabled_toolsets is not None else base_disabled
 
     async def hermes(step: Step, ctx: dict) -> HandlerResult:
         prompt = step.params["prompt"]
@@ -201,9 +250,14 @@ def make_hermes_handler(run_fn=None, model=None, enabled_toolsets=None,
                     report_cost(delta)            # may RAISE StepBudgetExceeded -> stop
                     reported["total"] = float(cumulative_cost)
 
-        out = rfn(prompt, model=p_model, enabled_toolsets=p_enabled,
-                  disabled_toolsets=p_disabled, max_iterations=p_max_iter,
-                  on_step=on_step)
+        # knee #1 keeps the exact pre-existing call shape (no env_overlay kwarg)
+        # so existing run_fns/mocks are untouched; only knee #2 passes the overlay.
+        call_kwargs = dict(model=p_model, enabled_toolsets=p_enabled,
+                           disabled_toolsets=p_disabled, max_iterations=p_max_iter,
+                           on_step=on_step)
+        if env_overlay is not None:
+            call_kwargs["env_overlay"] = env_overlay
+        out = rfn(prompt, **call_kwargs)
         if inspect.isawaitable(out):          # real subprocess adapter is async
             out = await out                   # mocks return a plain dict (sync)
 
