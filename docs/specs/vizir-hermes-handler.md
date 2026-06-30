@@ -108,9 +108,39 @@ layout. `enabled_toolsets = ["file","web","search"]`;
 - **Loop — only AFTER** the live connection is proven (now: mocks + one manual
   live run).
 
-## Open items for Phase L
+## Phase L · STEP 1 — adapter confirmed by source ($0, no install)
 
-- Confirm exact `run_conversation()` signature & result keys, and that
-  `step_callback` exceptions propagate (else use `pre_tool_call` block to stop).
-- Finalize `enabled_toolsets` against the real Hermes toolset names.
-- Ledger reconciliation of the one-iteration tipping cost on a cap breach.
+**⚠️ Architecture change (fact-driven): run Hermes in a SUBPROCESS, not in-process.**
+Hermes issue #8049: `AIAgent.run_conversation` runs a cleanup chain
+(`run_agent.py:9410-9416` — `_save_trajectory`/`_cleanup_task_resources`/
+`_persist_session`) that can `os._exit(0)` the interpreter when `max_iterations`
+is exhausted (no exception, no traceback, exit 0). In-process that would KILL the
+Vizir coordinator (and, live, the bot link). → `_default_run` is subprocess-
+isolated (`hermes_child.py`): child streams cumulative `session_estimated_cost_usd`
+per iteration on stdout; parent maps each to `report_cost(delta)`; a cap breach
+RAISES → parent KILLS the child → `stopped_cost_cap`. This makes the cost-cap
+MORE robust (no reliance on Hermes propagating callback exceptions) and keeps the
+Phase-M handler/tests unchanged (only `_default_run` is Hermes-coupled).
+
+**Confirmed call shape:** `AIAgent(model, enabled_toolsets, disabled_toolsets,
+max_iterations, quiet_mode=True, …)` with live counters `session_estimated_cost_usd`
+/ `session_total_tokens`. `run_conversation(user_message, system_message=None,
+conversation_history=None, task_id=None)`.
+
+**Confirmed result keys** (issues #22496/#17248): `final_response`, `completed`
+(bool; `False` when `max_iterations` hit), `partial` (bool), `error`,
+`turn_exit_reason`, plus `messages`/usage. Truncation/abandon is real (#22496
+returns truncation as "success"; #9400/#34452 empty/partial) → Vizir acceptance
+maps `completed is True` → `stopped_reason="completed"`, else the `turn_exit_reason`.
+
+**Toolsets finalized** (verified vs `toolsets.py` TOOLSETS keys): enabled
+`["file","web","search"]` (file=read_file/write_file/patch/search_files;
+search=web_search); disabled `["terminal","code_execution","delegation",
+"computer_use","cronjob"]` (delegate_task / terminal,process / execute_code off).
+`max_iterations` lowered to **30** for knee #1.
+
+**Still validated against on-disk source right after install (STEP 2), before any
+paid run (STEP 3):** exact `AIAgent.__init__` kwarg names + the per-iteration
+streaming hook (`step_callback` arg vs a plugin hook), and the `hermes_child.py`
+stdout contract. Plus: ledger reconciliation of the one-iteration tipping cost on
+a cap breach (read final `session_estimated_cost_usd` on the killed child).

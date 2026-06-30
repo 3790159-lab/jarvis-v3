@@ -24,33 +24,50 @@ from .handlers import HandlerResult
 from .models import Step
 
 # Leaf-executor defaults for the FIRST knee (Path A — generation, not execution).
-# orchestrator_enabled:false (no Docker subagents yet) is set in Hermes config;
-# here we additionally lock down the toolset to the minimum the task needs and
-# exclude shell/exec/delegation for safety.
+# orchestrator_enabled:false (no Docker subagents yet) is set in Hermes config.
+# enabled_toolsets is a WHITELIST -> only these are on; the disabled list is
+# defence-in-depth. Names verified against Hermes toolsets.py (TOOLSETS keys).
 DEFAULT_MODEL = "xai/grok-4-fast-reasoning"          # our Grok via XAI_API_KEY
 DEFAULT_ENABLED = ["file", "web", "search"]          # write artifact + look at refs
-DEFAULT_DISABLED = ["terminal", "code_execution", "delegation", "cronjob", "messaging"]
-DEFAULT_MAX_ITERATIONS = 90
+#   file -> read_file/write_file/patch/search_files ; web ; search -> web_search
+DEFAULT_DISABLED = ["terminal", "code_execution", "delegation", "computer_use", "cronjob"]
+#   terminal/process, execute_code, delegate_task, computer_use, cron — all OFF
+DEFAULT_MAX_ITERATIONS = 30          # conservative ceiling for knee #1 (was 90)
 
 
 def _default_run(prompt, *, model, enabled_toolsets, disabled_toolsets,
                  max_iterations, on_step):
-    """Real Hermes adapter (lazy import; NEVER runs in mock tests -> $0).
+    """Real Hermes adapter — SUBPROCESS-ISOLATED (lazy; NEVER runs in mocks -> $0).
 
-    NOTE (live phase): the exact AIAgent callback wiring is confirmed against
-    run_agent.py source before the first live run. Shape intended:
-        from run_agent import AIAgent
-        agent = AIAgent(model=model, enabled_toolsets=enabled_toolsets,
-                        disabled_toolsets=disabled_toolsets,
-                        max_iterations=max_iterations, quiet_mode=True,
-                        step_callback=lambda *_: on_step(agent.session_estimated_cost_usd))
-        out = agent.run_conversation(user_message=prompt)
-        return dict(final_response=out.get("final_response"),
-                    cost_usd=agent.session_estimated_cost_usd,
-                    iterations=..., stopped_reason=..., tokens=agent.session_total_tokens)
+    ⚠️ Why a subprocess, not an in-process call: Hermes issue #8049 —
+    ``AIAgent.run_conversation`` runs a cleanup chain (run_agent.py:9410-9416:
+    ``_save_trajectory`` / ``_cleanup_task_resources`` / ``_persist_session``) that
+    can ``os._exit(0)`` the interpreter when ``max_iterations`` is exhausted
+    (no exception, no traceback, exit 0). Calling it in-process would KILL the
+    Vizir coordinator (and, live, the bot link). So we run Hermes in a child
+    process; if it self-exits we only see a dead child + exit code — Vizir lives.
+
+    Contract of the child (``hermes_child.py``, wired+validated against on-disk
+    run_agent.py at install, STEP 2, BEFORE any paid run, STEP 3):
+      stdin  <- JSON {prompt, model, enabled_toolsets, disabled_toolsets, max_iterations}
+      stdout -> one JSON line per iteration: {"cost": <cumulative session_estimated_cost_usd>,
+                "tokens": <session_total_tokens>, "iter": n}
+             -> final JSON line: {"final_response", "completed": bool, "partial": bool,
+                "error", "turn_exit_reason", "cost", "tokens", "iterations",
+                "artifact_path"}   (real Hermes keys: final_response/completed/partial/
+                error/turn_exit_reason — see issues #22496/#17248)
+
+    Parent (here): async subprocess; read each cost line -> on_step(cum, note).
+    on_step calls ctx['report_cost'] which RAISES StepBudgetExceeded on a cap
+    breach -> we KILL the child and re-raise (-> coordinator: stopped_cost_cap).
+    Coordinator timeout (Step.timeout_s -> asyncio.wait_for) cancels us -> we KILL
+    the child too (cancellation-safe). Translate the child's final line to our
+    normalized shape: stopped_reason = "completed" if completed else
+    (turn_exit_reason or "max_iterations"); cost_usd = final cost.
     """
     raise NotImplementedError(
-        "real Hermes adapter is wired in the live phase; inject run_fn for tests")
+        "real Hermes adapter (subprocess) is wired + source-validated at install "
+        "(STEP 2) before any paid run; inject run_fn for tests")
 
 
 def make_hermes_handler(run_fn=None, model=None, enabled_toolsets=None,
