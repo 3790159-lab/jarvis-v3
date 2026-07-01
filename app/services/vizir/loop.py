@@ -82,7 +82,8 @@ class LoopController:
         return status != "completed"
 
     def _is_stalled(self, reasons: list, prev_reasons) -> bool:
-        return False
+        # identical failure signature two attempts running => not converging.
+        return prev_reasons is not None and reasons == prev_reasons
 
     def _deadline_exceeded(self, start: float, cfg: LoopConfig) -> bool:
         return False

@@ -161,3 +161,18 @@ def test_cost_cap_breach_in_attempt_stops_loop_immediately_no_retry():
     assert rep.accepted is False
     assert rep.needs_escalation is True
     assert abs(rep.loop_spent_usd - 0.03) < 1e-9   # partial charge (step_spent), not full
+
+
+def test_identical_reasons_two_attempts_stops_stalled_before_max():
+    async def handler(step, ctx):
+        return HandlerResult(ok=True, result={"stopped_reason": "completed"}, cost_usd=0.0)
+    coord = _coord_with(handler)
+    # SAME reasons every attempt -> not converging
+    accept_fn = lambda d: AcceptanceResult(accepted=False, reasons=["no dark theme background"])
+    loop = _loop(coord, accept_fn, cfg=LoopConfig(max_attempts=5))
+    task = Task("t", "g", budget_usd=1.0, actor="admin")
+    rep = _run(loop.run(task, "base"))
+
+    assert rep.attempts == 2                     # stalled at 2, NOT run to max_attempts=5
+    assert rep.stopped_reason == "stopped_stalled"
+    assert rep.needs_escalation is True
