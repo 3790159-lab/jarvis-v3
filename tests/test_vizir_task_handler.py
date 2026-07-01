@@ -152,3 +152,21 @@ def test_escalation_carries_honest_refusal_reason(tmp_path):
     assert "content policy" in rep.text                 # FIX 1 honest reason surfaced
     assert "не завершена" in rep.text or "не завершен" in rep.text
     assert "$" in rep.text                               # spent + cap shown
+
+
+def test_generic_acceptance_completed_accepts_first_try(tmp_path):
+    hermes = _mock_hermes(final_response="<html>done</html>", stopped_reason="completed", cost=0.05)
+    h, _ = _handler(tmp_path, hermes)
+    rep = _run(h.run_task_phase(chat_id=1, base_prompt="anything",
+                                progress_cb=lambda s, p: None, user_id=1, username="daniil"))
+    assert rep.escalated is False and rep.document_path is not None
+
+
+def test_generic_acceptance_always_truncated_retries_then_escalates(tmp_path):
+    hermes = _mock_hermes(final_response="<html>x</html>", stopped_reason="max_iterations", cost=0.05)
+    h, _ = _handler(tmp_path, hermes, max_attempts=2)
+    rep = _run(h.run_task_phase(chat_id=1, base_prompt="anything",
+                                progress_cb=lambda s, p: None, user_id=1, username="daniil"))
+    assert rep.escalated is True
+    assert rep.stopped_reason if hasattr(rep, "stopped_reason") else True  # reply text form
+    assert "did not complete" in rep.text
