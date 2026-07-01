@@ -10,10 +10,16 @@ FaceSwapHandler's long-running shape. See docs/specs/2026-07-02-vizir-bot-integr
 """
 from __future__ import annotations
 
+import itertools
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.services.vizir.coordinator import Coordinator
+from app.services.vizir.handlers import HandlerRegistry
+from app.services.vizir.handlers_hermes import DEFAULT_DISABLED, make_hermes_handler
 from app.services.vizir.hermes_acceptance import AcceptanceResult
+from app.services.vizir.loop import LoopConfig, LoopController
+from app.services.vizir.models import Plan, Step, Task
 
 
 @dataclass
@@ -36,14 +42,6 @@ def accept_generic(value: dict) -> AcceptanceResult:
         reasons.append("empty output (no final_response/artifact produced)")
     return AcceptanceResult(accepted=not reasons, reasons=reasons)
 
-
-import itertools
-
-from app.services.vizir.coordinator import Coordinator
-from app.services.vizir.handlers import HandlerRegistry
-from app.services.vizir.handlers_hermes import DEFAULT_DISABLED, make_hermes_handler
-from app.services.vizir.loop import LoopConfig, LoopController
-from app.services.vizir.models import Plan, Step, Task
 
 _TASK_COUNTER = itertools.count(1)
 
@@ -102,13 +100,25 @@ class VizirTaskHandler:
                               loop_deadline_s=tmo),
             on_event=on_event)
 
+    def _bridge(self, progress_cb):
+        def on_event(e):
+            t = e.get("type")
+            if t == "loop_attempt_started":
+                progress_cb("attempt_started", {"attempt": e.get("attempt")})
+            elif t == "loop_attempt_rejected":
+                progress_cb("attempt_rejected",
+                            {"attempt": e.get("attempt"), "reasons": e.get("reasons", [])})
+            elif t == "progress":
+                progress_cb("working", {"note": e.get("note")})
+        return on_event
+
     async def run_task_phase(self, chat_id, base_prompt, progress_cb, *,
                              user_id=None, username=None) -> VizirTaskReply:
         actor = str(chat_id)
         task_id = "task-%s-%d" % (chat_id, next(_TASK_COUNTER))
-        loop = self._build_loop(actor, username, on_event=lambda e: None)
+        on_event = self._bridge(progress_cb)
+        loop = self._build_loop(actor, username, on_event=on_event)
         task = Task(task_id=task_id, goal=base_prompt[:80], actor=actor,
                     budget_usd=self._budget_usd)
         rep = await loop.run(task, base_prompt)
-        # minimal: escalate unless accepted (event mapping + artifact in later tasks)
         return VizirTaskReply(text="", document_path=None, escalated=not rep.accepted)

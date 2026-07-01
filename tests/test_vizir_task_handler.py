@@ -103,3 +103,27 @@ def test_money_wiring_check_limit_denial_blocks_spend(tmp_path):
     # denied by the limit gate -> nothing charged, escalated
     assert calls["record_cost"] == []
     assert rep.escalated is True
+
+
+def test_progress_maps_attempts_and_rejection_reasons(tmp_path):
+    # attempt 1 truncated (retry), attempt 2 completes -> we should SEE:
+    # attempt_started x2, attempt_rejected with the reason, then accepted.
+    seq = [("<html>x</html>", "max_iterations"), ("<html>ok</html>", "completed")]
+    it = iter(seq)
+    async def hermes(step, ctx):
+        rc = ctx.get("report_cost")
+        if rc:
+            rc(0.05)
+        fr, sr = next(it)
+        return HandlerResult(ok=True, cost_usd=0.05,
+                             result={"final_response": fr, "stopped_reason": sr})
+    stages = []
+    h, _ = _handler(tmp_path, hermes)
+    _run(h.run_task_phase(chat_id=237616472, base_prompt="make page",
+                          progress_cb=lambda s, p: stages.append((s, p)),
+                          user_id=237616472, username="daniil"))
+    kinds = [s for s, _ in stages]
+    assert kinds.count("attempt_started") == 2
+    rej = [p for s, p in stages if s == "attempt_rejected"]
+    assert len(rej) == 1
+    assert any("did not complete" in r for r in rej[0]["reasons"])  # feedback shown
