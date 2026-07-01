@@ -20,3 +20,26 @@ def test_progress_text_attempt_and_rejection():
     txt = mod._task_progress_text("attempt_rejected",
                                   {"attempt": 1, "reasons": ["run did not complete"]})
     assert "did not complete" in txt and ("фидбек" in txt.lower() or "feedback" in txt.lower())
+
+
+def test_task_is_admin_only_not_in_friend_lists():
+    # /task must NOT be friend-allowed, and task: callbacks must NOT be friend-allowed
+    friend_cmds = getattr(mod, "FRIEND_ALLOWED_COMMANDS", None)
+    assert friend_cmds is not None
+    assert "/task" not in friend_cmds
+    # friend-allowed callback prefixes (tuple) must not include task:
+    prefixes = getattr(mod, "FRIEND_ALLOWED_CALLBACK_PREFIXES", None) \
+        or getattr(mod, "_FRIEND_ALLOWED_CALLBACK_PREFIXES", None)
+    assert prefixes is not None
+    assert not any(str(p).startswith("task:") or "task:".startswith(str(p)) for p in prefixes)
+
+
+def test_existing_commands_still_present_isolation_regression():
+    # the dispatcher glue for existing paid commands must be intact (we only added)
+    for name in ("_swapbatch_dispatch", "_send_local_document", "_get_video_lock",
+                 "handle_command", "handle_callback_query"):
+        assert hasattr(mod, name), f"existing symbol {name} missing — integration broke the bot"
+    # our additive symbols exist alongside them
+    for name in ("_task_dispatch", "_task_run_phase", "_task_apply_reply",
+                 "_task_confirm_keyboard", "_task_progress_text"):
+        assert hasattr(mod, name)
