@@ -35,3 +35,80 @@ def accept_generic(value: dict) -> AcceptanceResult:
     if not output:
         reasons.append("empty output (no final_response/artifact produced)")
     return AcceptanceResult(accepted=not reasons, reasons=reasons)
+
+
+import itertools
+
+from app.services.vizir.coordinator import Coordinator
+from app.services.vizir.handlers import HandlerRegistry
+from app.services.vizir.handlers_hermes import DEFAULT_DISABLED, make_hermes_handler
+from app.services.vizir.loop import LoopConfig, LoopController
+from app.services.vizir.models import Plan, Step, Task
+
+_TASK_COUNTER = itertools.count(1)
+
+
+class VizirTaskHandler:
+    """Runs the autonomous LOOP for one /task. Injectable deps keep it $0-testable
+    (real Coordinator + LoopController + a mock Hermes handler)."""
+
+    def __init__(
+        self, *, hermes_handler=None, check_limit=None, record_cost=None,
+        artifact_dir, budget_usd=0.90, min_attempt_usd=0.20, max_usd=0.40,
+        estimated_per_attempt_usd=0.15, max_attempts=3, loop_deadline_s=600.0,
+        accept_fn=None,
+    ) -> None:
+        # default Hermes = knee#1 generation, NO tools -> full artifact inline in
+        # final_response (proven live). Tests inject a mock handler.
+        self._hermes = hermes_handler or make_hermes_handler(
+            docker_exec=False, enabled_toolsets=[],
+            disabled_toolsets=list(DEFAULT_DISABLED) + ["file", "web", "search"],
+            max_iterations=6)
+        self._check_limit = check_limit
+        self._record_cost = record_cost
+        self._artifact_dir = Path(artifact_dir)
+        self._budget_usd = float(budget_usd)
+        self._min_attempt_usd = float(min_attempt_usd)
+        self._max_usd = float(max_usd)
+        self._estimated = float(estimated_per_attempt_usd)
+        self._max_attempts = int(max_attempts)
+        self._loop_deadline_s = float(loop_deadline_s)
+        self._accept_fn = accept_fn or accept_generic
+
+    def _build_loop(self, actor: str, username, on_event):
+        reg = HandlerRegistry()
+        reg.register("hermes", self._hermes)
+        check_limit_fn = None
+        if self._check_limit is not None:
+            check_limit_fn = (lambda act, est:
+                              self._check_limit(int(act), estimated_usd=est))
+        charge_logger = None
+        if self._record_cost is not None:
+            async def charge_logger(act, op, amt):
+                self._record_cost(int(act), username, amt)
+        coord = Coordinator(
+            reg, on_event=on_event, charge_logger=charge_logger,
+            check_limit_fn=check_limit_fn, state_dir=self._artifact_dir / "state")
+        est, cap, tmo = self._estimated, self._max_usd, self._loop_deadline_s
+
+        def build_plan(prompt):
+            return Plan(steps=[Step(kind="hermes", params={"prompt": prompt},
+                                    estimated_usd=est, max_usd=cap, timeout_s=180.0)])
+
+        return LoopController(
+            coord, build_plan=build_plan, accept_fn=self._accept_fn,
+            config=LoopConfig(max_attempts=self._max_attempts,
+                              min_attempt_usd=self._min_attempt_usd,
+                              loop_deadline_s=tmo),
+            on_event=on_event)
+
+    async def run_task_phase(self, chat_id, base_prompt, progress_cb, *,
+                             user_id=None, username=None) -> VizirTaskReply:
+        actor = str(chat_id)
+        task_id = "task-%s-%d" % (chat_id, next(_TASK_COUNTER))
+        loop = self._build_loop(actor, username, on_event=lambda e: None)
+        task = Task(task_id=task_id, goal=base_prompt[:80], actor=actor,
+                    budget_usd=self._budget_usd)
+        rep = await loop.run(task, base_prompt)
+        # minimal: escalate unless accepted (event mapping + artifact in later tasks)
+        return VizirTaskReply(text="", document_path=None, escalated=not rep.accepted)
