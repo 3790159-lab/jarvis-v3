@@ -299,3 +299,58 @@ def test_spy_broken_compose_drops_base_proving_goaldrift_teeth():
     assert "BASE_GOAL" not in seen[1]
     real_immutable_assertion_holds = ("BASE_GOAL" in seen[1])
     assert not real_immutable_assertion_holds
+
+
+_GOOD_HTML = (
+    "<html><head><style>body{background:#0a0a0a;} .a{color:#00ffff;}</style></head>"
+    "<body><div id=\"messages\" class=\"chat\"></div>"
+    "<input id=\"msg\"><button onclick=\"send()\">Send</button>"
+    "<span id=\"status\">online</span>"
+    "<script>const API_URL=\"http://localhost:8010\";"
+    "function send(){fetch(API_URL,{method:\"POST\"});}</script></body></html>"
+)
+# same but neon accent removed -> acceptance rejects with "no neon cyan/blue accent"
+_BAD_HTML = _GOOD_HTML.replace("#00ffff", "#ffffff")
+
+
+def test_make_loop_with_real_acceptance_retries_then_accepts():
+    from app.services.vizir.loop import make_loop
+    seen = []
+    n = {"i": 0}
+    async def hermes_fake(step, ctx):
+        seen.append(step.params["prompt"])
+        n["i"] += 1
+        html = _BAD_HTML if n["i"] == 1 else _GOOD_HTML
+        return HandlerResult(ok=True,
+                             result={"final_response": html, "stopped_reason": "completed"},
+                             cost_usd=0.0)
+    reg = HandlerRegistry()
+    reg.register("hermes", hermes_fake)
+    coord = Coordinator(reg)
+    loop = make_loop(coord, kind="hermes", estimated_usd=0.0, max_usd=0.0, max_attempts=3)
+    task = Task("t", "make jarvis chat", budget_usd=0.50, actor="admin")
+    rep = _run(loop.run(task, "Generate a Jarvis dark-neon web chat."))
+
+    assert rep.accepted is True and rep.stopped_reason == "completed"
+    assert rep.attempts == 2
+    # attempt 2 prompt carried the real acceptance reason from attempt 1
+    assert "neon" in seen[1]
+
+
+def test_make_loop_truncated_run_is_rejected_up_front():
+    from app.services.vizir.loop import make_loop
+    async def hermes_fake(step, ctx):
+        # good HTML but run did NOT complete (hit max_iterations) -> acceptance rejects
+        return HandlerResult(ok=True,
+                             result={"final_response": _GOOD_HTML, "stopped_reason": "max_iterations"},
+                             cost_usd=0.0)
+    reg = HandlerRegistry()
+    reg.register("hermes", hermes_fake)
+    coord = Coordinator(reg)
+    loop = make_loop(coord, kind="hermes", estimated_usd=0.0, max_usd=0.0, max_attempts=2)
+    task = Task("t", "g", budget_usd=0.50, actor="admin")
+    rep = _run(loop.run(task, "base"))
+
+    assert rep.accepted is False
+    assert rep.stopped_reason in ("stopped_stalled", "stopped_max_attempts")
+    assert any("did not complete" in r for r in rep.reasons)

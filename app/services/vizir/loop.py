@@ -184,3 +184,39 @@ class LoopController:
                 return self._stopped(task, "stopped_stalled", attempt,
                                      loop_spent, last_result, reasons, reasons_history)
             prev_reasons = reasons
+
+
+def make_loop(
+    coordinator,
+    *,
+    kind: str = "hermes",
+    estimated_usd: float = 0.0,
+    max_usd: float = 0.0,
+    timeout_s: float = 0.0,
+    max_attempts: int = 3,
+    min_attempt_usd: float = 0.0,
+    loop_deadline_s: float = 0.0,
+    accept_fn=None,
+    on_event=None,
+    now_fn=None,
+) -> "LoopController":
+    """Wire a LoopController for a Hermes-shaped single-step plan under Vizir's
+    real deterministic acceptance. Each attempt is ONE `kind` step carrying the
+    (feedback-augmented) prompt; money is metered by `coordinator`."""
+    from .models import Plan, Step
+    from .hermes_acceptance import accept_hermes_chat
+
+    def build_plan(prompt: str) -> "Plan":
+        return Plan(steps=[Step(
+            kind=kind, params={"prompt": prompt},
+            estimated_usd=estimated_usd, max_usd=max_usd, timeout_s=timeout_s,
+        )])
+
+    return LoopController(
+        coordinator,
+        build_plan=build_plan,
+        accept_fn=accept_fn or accept_hermes_chat,
+        config=LoopConfig(max_attempts=max_attempts, min_attempt_usd=min_attempt_usd,
+                          loop_deadline_s=loop_deadline_s),
+        on_event=on_event, now_fn=now_fn,
+    )
