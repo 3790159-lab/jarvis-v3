@@ -29,6 +29,7 @@ Validated on disk (STEP 2, $0):
   session_estimated_cost_usd accumulates per API call (conversation_loop.py:1973)
 """
 import json
+import os
 import sys
 
 
@@ -37,8 +38,41 @@ def _emit(obj):
     sys.stdout.flush()
 
 
+def _require_docker_backend(env):
+    """Isolation defence-in-depth (knee #2, Variant A): refuse to run unless the
+    Docker terminal backend is actually selected, so Hermes can NEVER silently
+    execute on the host — the exact failure of live #1. ``TERMINAL_ENV`` is what
+    Hermes' own ``_get_env_config`` reads (terminal_tool.py:1244), so asserting it
+    here is equivalent to asserting the backend without importing Hermes."""
+    if env.get("TERMINAL_ENV") != "docker":
+        raise RuntimeError(
+            "isolation guard: TERMINAL_ENV=%r != 'docker' — refusing to run on "
+            "the host (knee #2 must execute inside a container)."
+            % env.get("TERMINAL_ENV"))
+
+
 def main():
     cfg = json.loads(sys.stdin.read())
+
+    # Variant A: a WSL child cannot inherit the Windows parent env, so the
+    # env_overlay rides inside cfg and is applied here BEFORE importing Hermes
+    # (so _get_env_config sees TERMINAL_ENV/image/etc.). No-op for knee #1
+    # (Windows child, no env_overlay key) — inherited env is untouched.
+    for k, v in (cfg.get("env_overlay") or {}).items():
+        os.environ[str(k)] = str(v)
+    if cfg.get("child_cwd"):
+        os.chdir(cfg["child_cwd"])
+    if cfg.get("require_docker"):
+        try:
+            _require_docker_backend(os.environ)
+        except RuntimeError as exc:
+            # Never run on host: emit a non-completed result and exit so the
+            # parent records a refusal (not charged) instead of host execution.
+            _emit({"type": "result", "final_response": "", "completed": False,
+                   "turn_exit_reason": "isolation_guard_block", "partial": False,
+                   "failed": True, "cost": 0.0, "tokens": 0, "iterations": 0,
+                   "error": str(exc)})
+            return
 
     from run_agent import AIAgent
 

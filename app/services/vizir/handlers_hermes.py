@@ -39,16 +39,20 @@ DEFAULT_DISABLED = ["terminal", "code_execution", "delegation", "computer_use", 
 #   terminal/process, execute_code, delegate_task, computer_use, cron — all OFF
 DEFAULT_MAX_ITERATIONS = 30          # conservative ceiling for knee #1 (was 90)
 
-# --- knee #2 (docker_exec) defaults: Hermes EXECUTES inside an ephemeral Docker
-# container reached over DOCKER_HOST (Ubuntu-WSL dockerd, localhost-only). These
-# apply ONLY when make_hermes_handler(docker_exec=True); knee #1 is untouched.
+# --- knee #2 (docker_exec) = Variant A: Hermes EXECUTES inside an ephemeral
+# Docker container, and Hermes ITSELF runs INSIDE WSL Ubuntu (Linux venv) so the
+# docker client+daemon+paths+mounts are all Linux (unix socket, no tcp, no Win→
+# /mnt/c path translation). This removes the whole Win↔Linux failure class that
+# broke live #1. Applies ONLY when make_hermes_handler(docker_exec=True); knee #1
+# (generation, Windows-native Hermes) is untouched.
 DOCKER_EXEC_TOOLSETS = ["terminal", "code_execution"]   # lifted from DISABLED, added to ENABLED
 DEFAULT_DOCKER_IMAGE = "python:3.11-slim"               # pre-pulled Linux-side (no cred vault)
 DEFAULT_CONTAINER_MEMORY_MB = 1024                      # container RAM under the 2.5GB WSL cap
-DEFAULT_DOCKER_HOST = "tcp://127.0.0.1:2375"            # Ubuntu dockerd, STRICTLY localhost
-#   Windows docker.exe (Docker Desktop's CLI, kept on disk) talks to the Ubuntu
-#   daemon over tcp; ephemeral images are pre-pulled so no registry auth fires.
-DEFAULT_DOCKER_BINARY = r"C:\Program Files\Docker\Docker\resources\bin\docker.exe"
+# Variant A spawn target: the child runs in the Ubuntu Hermes venv over `wsl`.
+WSL_DISTRO = "Ubuntu"
+WSL_USER = "root"
+WSL_HERMES_PYTHON = "/root/hermes-agent/.venv/bin/python"   # uv-provisioned CPython 3.11
+WSL_HERMES_CWD = "/root/hermes-agent"                       # Hermes import root (Linux)
 
 
 def _derive_provider(model):
@@ -73,6 +77,49 @@ def _hermes_paths():
     child = os.path.join(os.path.dirname(__file__), "hermes_child.py")
     cwd = os.path.join(home, "hermes-agent")
     return py, child, cwd
+
+
+def _win_to_wsl_path(p):
+    """``C:\\a\\b`` -> ``/mnt/c/a/b`` so a WSL child can read a Windows-side file."""
+    p = str(p)
+    if len(p) >= 2 and p[1] == ":":
+        rest = p[2:].replace("\\", "/")
+        if not rest.startswith("/"):
+            rest = "/" + rest
+        return "/mnt/" + p[0].lower() + rest
+    return p.replace("\\", "/")
+
+
+async def _default_guard(*, image, distro=WSL_DISTRO, user=WSL_USER):
+    """ISOLATION-SAFETY GUARD (Variant A) — REALLY run a throwaway container in
+    WSL and prove isolation BEFORE Hermes is allowed to spawn. Returns
+    ``{ok, reason, container_host, host_host}``. ``ok=False`` => the handler MUST
+    block (Hermes never spawns, never falls back to the host — the live #1 lesson).
+    This is a real ``docker run``, not just ``docker version``: it proves the
+    daemon is up AND that code runs in a container with a distinct hostname.
+    NEVER exercised in unit tests (guard_fn is injected there) -> $0."""
+    async def _wsl(*argv):
+        proc = await asyncio.create_subprocess_exec(
+            "wsl", "-d", distro, "-u", user, "--", *argv,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        out, err = await proc.communicate()
+        return proc.returncode, out.decode("utf-8", "replace").strip(), \
+            err.decode("utf-8", "replace").strip()
+
+    try:
+        hrc, host_host, _ = await _wsl("hostname")
+        crc, cont_host, cerr = await _wsl(
+            "docker", "run", "--rm", image, "hostname")
+    except OSError as exc:
+        return {"ok": False, "reason": f"wsl/docker not launchable: {exc}"}
+    if crc != 0 or not cont_host:
+        return {"ok": False,
+                "reason": f"throwaway container failed (rc={crc}): {cerr[:300]}"}
+    if cont_host == host_host:
+        return {"ok": False,
+                "reason": "container hostname == host hostname (no isolation)"}
+    return {"ok": True, "reason": "", "container_host": cont_host,
+            "host_host": host_host}
 
 
 async def _stream_subprocess(py_exe, args, cfg, on_step, env_overlay=None):
@@ -181,32 +228,50 @@ async def _default_run(prompt, *, model, enabled_toolsets, disabled_toolsets,
         "enabled_toolsets": enabled_toolsets,
         "disabled_toolsets": disabled_toolsets,
         "max_iterations": max_iterations,
-        "cwd": cwd,
-        # api creds via inherited env (ANTHROPIC_API_KEY/XAI_API_KEY); artifact_path
-        # set by the live caller via a custom run_fn when a file output is needed.
     }
+    if env_overlay and env_overlay.get("TERMINAL_ENV") == "docker":
+        # Variant A: spawn the child INSIDE WSL Ubuntu (Linux Hermes venv). A WSL
+        # child cannot inherit the Windows parent env, so the overlay rides inside
+        # cfg (the child applies it before importing Hermes) and the api key is
+        # injected explicitly. require_docker makes the child refuse to run on host.
+        linux_child = _win_to_wsl_path(child)
+        cfg["child_cwd"] = WSL_HERMES_CWD
+        cfg["require_docker"] = True
+        cfg["env_overlay"] = dict(env_overlay)
+        for key in ("ANTHROPIC_API_KEY", "XAI_API_KEY"):
+            val = os.environ.get(key)
+            if val:
+                cfg["env_overlay"][key] = val
+        args = ["-d", WSL_DISTRO, "-u", WSL_USER, WSL_HERMES_PYTHON, linux_child]
+        return await _stream_subprocess("wsl", args, cfg, on_step, env_overlay=None)
+    # knee #1 (Windows-native Hermes): inherited env carries ANTHROPIC_API_KEY etc.
+    cfg["cwd"] = cwd
     return await _stream_subprocess(py, [child], cfg, on_step, env_overlay=env_overlay)
 
 
 def make_hermes_handler(run_fn=None, model=None, enabled_toolsets=None,
                         disabled_toolsets=None, max_iterations=None,
                         docker_exec=False, docker_image=None,
-                        container_memory_mb=None, docker_host=None,
-                        docker_binary=None):
+                        container_memory_mb=None, guard_fn=None):
     """Return an async StepHandler that runs Hermes for one task and normalizes
     its result. Per-step overrides may come via ``step.params``.
 
-    ``docker_exec`` (knee #2, OPT-IN) makes Hermes run terminal/code_execution
-    INSIDE an ephemeral Docker container (``TERMINAL_ENV=docker``) reached via
-    ``DOCKER_HOST`` over the Ubuntu-WSL dockerd. It ADDS terminal+code_execution
-    to the whitelist, lifts them from the blocklist, and builds an ``env_overlay``
-    injected into the child's process env. When False (the DEFAULT) NOTHING about
-    knee #1 (generation) changes — including the run_fn call shape, which stays
-    ``env_overlay``-free so existing handlers/mocks are untouched. The mid-flight
-    contract (cost-cap / timeout / acceptance) is held by Vizir either way."""
+    ``docker_exec`` (knee #2, OPT-IN, Variant A) makes Hermes run terminal/
+    code_execution INSIDE an ephemeral Docker container, with Hermes itself running
+    inside WSL Ubuntu (all-Linux: unix socket, no tcp/path-translation). It ADDS
+    terminal+code_execution to the whitelist, lifts them from the blocklist, builds
+    the Variant A ``env_overlay`` (carried to the WSL child via cfg), and — before
+    Hermes is EVER spawned — runs an ISOLATION GUARD that really starts a throwaway
+    container; if that fails the step is BLOCKED (Hermes never runs, never on host).
+    When False (the DEFAULT) NOTHING about knee #1 (generation) changes — no guard,
+    no overlay, unchanged run_fn call shape — so existing handlers/mocks are
+    untouched. The mid-flight contract (cost-cap / timeout / acceptance) is held by
+    Vizir either way. ``guard_fn`` is injectable for $0 tests."""
     rfn = run_fn or _default_run
+    gfn = guard_fn or _default_guard
     default_model = model or DEFAULT_MODEL
     default_max_iter = max_iterations if max_iterations is not None else DEFAULT_MAX_ITERATIONS
+    guard_image = docker_image or DEFAULT_DOCKER_IMAGE
 
     if docker_exec:
         # ADD (not replace) the exec toolsets to knee #1's whitelist, and lift
@@ -218,9 +283,12 @@ def make_hermes_handler(run_fn=None, model=None, enabled_toolsets=None,
             "TERMINAL_ENV": "docker",
             "TERMINAL_DOCKER_IMAGE": docker_image or DEFAULT_DOCKER_IMAGE,
             "TERMINAL_CONTAINER_MEMORY": str(container_memory_mb or DEFAULT_CONTAINER_MEMORY_MB),
-            "DOCKER_HOST": docker_host or DEFAULT_DOCKER_HOST,
-            "HERMES_DOCKER_BINARY": docker_binary or DEFAULT_DOCKER_BINARY,
-            "HERMES_DOCKER_PERSIST_ACROSS_PROCESSES": "false",   # ephemeral: stop+rm on cleanup
+            # FIX (mock-phase bug): Hermes reads TERMINAL_DOCKER_PERSIST_ACROSS_
+            # PROCESSES (terminal_tool.py:1351); the old HERMES_DOCKER_… name was
+            # ignored so containers silently persisted. "false" => ephemeral.
+            "TERMINAL_DOCKER_PERSIST_ACROSS_PROCESSES": "false",
+            # No DOCKER_HOST (unix socket) / no HERMES_DOCKER_BINARY (docker on the
+            # Linux PATH) — Variant A is all-Linux.
         }
     else:
         base_enabled = list(DEFAULT_ENABLED)
@@ -249,6 +317,18 @@ def make_hermes_handler(run_fn=None, model=None, enabled_toolsets=None,
                 if delta > 0:
                     report_cost(delta)            # may RAISE StepBudgetExceeded -> stop
                     reported["total"] = float(cumulative_cost)
+
+        # ISOLATION GUARD (knee #2 only, BEFORE Hermes is spawned): prove a real
+        # container starts and is isolated. If not, BLOCK — return ok=False so the
+        # step is not charged and, crucially, rfn is NEVER called (Hermes can never
+        # fall back to host execution). This is the direct fix for live #1.
+        if docker_exec:
+            guard = await gfn(image=guard_image, distro=WSL_DISTRO, user=WSL_USER)
+            if not guard.get("ok"):
+                return HandlerResult(
+                    ok=False, cost_usd=0.0,
+                    error="isolation guard blocked (Hermes not spawned): %s"
+                          % guard.get("reason"))
 
         # knee #1 keeps the exact pre-existing call shape (no env_overlay kwarg)
         # so existing run_fns/mocks are untouched; only knee #2 passes the overlay.

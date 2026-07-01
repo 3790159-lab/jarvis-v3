@@ -19,7 +19,6 @@ from app.services.vizir.handlers_hermes import (
     _stream_subprocess,
     DEFAULT_ENABLED,
     DEFAULT_DISABLED,
-    DEFAULT_DOCKER_BINARY,
 )
 from app.services.vizir.models import Step
 from app.services.vizir.coordinator import StepBudgetExceeded
@@ -27,6 +26,12 @@ from app.services.vizir.coordinator import StepBudgetExceeded
 
 def _run(coro):
     return asyncio.run(coro)
+
+
+async def _ok_guard(**kw):
+    # docker_exec=True now runs the isolation guard before Hermes; inject a
+    # passing stub so these wiring units stay $0 (no real WSL/docker).
+    return {"ok": True, "reason": ""}
 
 
 def _spy_run_fn(record):
@@ -49,36 +54,8 @@ def _invoke(handler, prompt="do x", ctx=None):
     return _run(handler(step, ctx or {}))
 
 
-# ---------------------------------------------------------------- env overlay
-
-def test_docker_exec_builds_env_overlay():
-    rec = {}
-    handler = make_hermes_handler(run_fn=_spy_run_fn(rec), docker_exec=True)
-    _invoke(handler)
-    env = rec["env_overlay"]
-    assert env is not None, "docker_exec=True must pass an env_overlay to the child"
-    assert env["TERMINAL_ENV"] == "docker"
-    assert env["TERMINAL_DOCKER_IMAGE"] == "python:3.11-slim"
-    assert env["TERMINAL_CONTAINER_MEMORY"] == "1024"     # under the 2.5GB WSL cap
-    assert env["DOCKER_HOST"] == "tcp://127.0.0.1:2375"   # Ubuntu dockerd, localhost-only
-    assert env["HERMES_DOCKER_BINARY"] == DEFAULT_DOCKER_BINARY
-    assert env["HERMES_DOCKER_PERSIST_ACROSS_PROCESSES"] == "false"   # ephemeral
-
-
-def test_docker_exec_overrides_are_honored():
-    rec = {}
-    handler = make_hermes_handler(
-        run_fn=_spy_run_fn(rec), docker_exec=True,
-        docker_image="python:3.12-slim", container_memory_mb=512,
-        docker_host="tcp://127.0.0.1:9999", docker_binary="C:/x/docker.exe",
-    )
-    _invoke(handler)
-    env = rec["env_overlay"]
-    assert env["TERMINAL_DOCKER_IMAGE"] == "python:3.12-slim"
-    assert env["TERMINAL_CONTAINER_MEMORY"] == "512"
-    assert env["DOCKER_HOST"] == "tcp://127.0.0.1:9999"
-    assert env["HERMES_DOCKER_BINARY"] == "C:/x/docker.exe"
-
+# NOTE: the env_overlay SHAPE for Variant A (WSL, unix socket, no DOCKER_HOST/
+# binary, correct persist var name) is asserted in test_vizir_hermes_docker_wsl.py.
 
 # ---------------------------------------------------------- knee #1 untouched
 
@@ -96,7 +73,8 @@ def test_default_knee1_has_no_docker_env_and_keeps_toolsets():
 
 def test_docker_exec_enables_terminal_and_code_execution_toolsets():
     rec = {}
-    handler = make_hermes_handler(run_fn=_spy_run_fn(rec), docker_exec=True)
+    handler = make_hermes_handler(run_fn=_spy_run_fn(rec), docker_exec=True,
+                                  guard_fn=_ok_guard)
     _invoke(handler)
     assert "terminal" in rec["enabled"]
     assert "code_execution" in rec["enabled"]
