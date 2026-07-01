@@ -220,3 +220,82 @@ def test_loop_emits_structured_events():
     assert stopped["reason"] == "completed" and stopped["attempts"] == 2
     rejected = [e for e in events if e["type"] == "loop_attempt_rejected"][0]
     assert rejected["reasons"] == ["bad-1"]
+
+
+def test_spy_broken_reserve_lets_loop_overspend_proving_budget_teeth():
+    async def handler(step, ctx):
+        return HandlerResult(ok=True, result={"stopped_reason": "completed"}, cost_usd=0.01)
+    coord = _coord_with(handler)
+    accept_fn = lambda d: AcceptanceResult(accepted=False, reasons=["x-%s" % id(object())])
+    cfg = LoopConfig(max_attempts=10, min_attempt_usd=0.015)
+    loop = _loop(coord, accept_fn, cfg=cfg)
+    # SABOTAGE reserve: always allow starting an attempt
+    loop._reserve_allows = lambda remaining, c: True
+    task = Task("t", "g", budget_usd=0.02, actor="admin")
+    rep = _run(loop.run(task, "base"))
+    # broken reserve -> the per-attempt Task budget backstop (Coordinator) still
+    # bounds it, but the LOOP no longer stops with stopped_budget at attempt 1.
+    # The real budget test asserts (attempts==1, stopped_budget); a broken reserve
+    # violates it -> that assertion has teeth.
+    real_budget_assertion_holds = (rep.attempts == 1 and rep.stopped_reason == "stopped_budget")
+    assert not real_budget_assertion_holds
+
+
+def test_spy_broken_stall_runs_to_max_proving_stall_teeth():
+    async def handler(step, ctx):
+        return HandlerResult(ok=True, result={"stopped_reason": "completed"}, cost_usd=0.0)
+    coord = _coord_with(handler)
+    accept_fn = lambda d: AcceptanceResult(accepted=False, reasons=["same reason"])
+    loop = _loop(coord, accept_fn, cfg=LoopConfig(max_attempts=4))
+    # SABOTAGE stall detector: never stalled
+    loop._is_stalled = lambda reasons, prev: False
+    task = Task("t", "g", budget_usd=1.0, actor="admin")
+    rep = _run(loop.run(task, "base"))
+    # identical reasons no longer stop at 2 -> runs to max_attempts=4
+    assert rep.attempts == 4 and rep.stopped_reason == "stopped_max_attempts"
+    real_stall_assertion_holds = (rep.attempts == 2 and rep.stopped_reason == "stopped_stalled")
+    assert not real_stall_assertion_holds
+
+
+def test_spy_broken_hardstop_retries_breach_proving_costcap_teeth():
+    async def overspender(step, ctx):
+        for c in [0.01, 0.01, 0.01, 0.01]:
+            ctx["report_cost"](c)
+        return HandlerResult(ok=True, result={"stopped_reason": "completed"}, cost_usd=0.04)
+    coord = _coord_with(overspender)
+    def build_plan(prompt):
+        return Plan(steps=[Step(kind="gen", params={"prompt": prompt},
+                                estimated_usd=0.03, max_usd=0.03)])
+    accept_fn = lambda d: AcceptanceResult(accepted=False, reasons=["r-%s" % id(object())])
+    loop = _loop(coord, accept_fn, cfg=LoopConfig(max_attempts=3), build_plan=build_plan)
+    # SABOTAGE hard-stop: pretend every run "completed"
+    loop._is_hard_stop = lambda status: False
+    task = Task("t", "g", budget_usd=1.0, actor="admin")
+    rep = _run(loop.run(task, "base"))
+    # broken hard-stop -> a breached attempt is treated as completed and RETRIED
+    assert rep.attempts > 1
+    real_costcap_assertion_holds = (rep.attempts == 1 and rep.stopped_reason == "stopped_cost_cap")
+    assert not real_costcap_assertion_holds
+
+
+def test_spy_broken_compose_drops_base_proving_goaldrift_teeth():
+    seen = []
+    def build_plan(prompt):
+        seen.append(prompt)
+        return Plan(steps=[Step(kind="gen", params={"prompt": prompt}, estimated_usd=0.0)])
+    n = {"i": 0}
+    async def handler(step, ctx):
+        n["i"] += 1
+        return HandlerResult(ok=True, result={"n": n["i"], "stopped_reason": "completed"}, cost_usd=0.0)
+    coord = _coord_with(handler)
+    accept_fn = lambda d: AcceptanceResult(accepted=(d.get("n", 0) >= 2),
+                                           reasons=[] if d.get("n", 0) >= 2 else ["fix me"])
+    loop = _loop(coord, accept_fn, build_plan=build_plan)
+    # SABOTAGE compose: overwrite the goal with only the feedback (drift)
+    loop._compose_prompt = lambda base, reasons: ("; ".join(reasons) if reasons else base)
+    task = Task("t", "g", budget_usd=1.0, actor="admin")
+    _run(loop.run(task, "BASE_GOAL"))
+    # broken compose -> attempt 2 prompt LOST the base goal
+    assert "BASE_GOAL" not in seen[1]
+    real_immutable_assertion_holds = ("BASE_GOAL" in seen[1])
+    assert not real_immutable_assertion_holds
