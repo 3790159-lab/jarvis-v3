@@ -1176,6 +1176,28 @@ def _swapbatch_run_phase(
     ).start()
 
 
+# ── Vizir /task wiring (additive; autonomous LOOP over the bot) ──────────────
+
+
+def _task_confirm_keyboard(cap_usd: float) -> dict:
+    return {"inline_keyboard": [[
+        {"text": "▶️ Запустить (до $%.2f)" % cap_usd, "callback_data": "task:run"},
+        {"text": "Отмена", "callback_data": "task:cancel"},
+    ]]}
+
+
+def _task_progress_text(stage: str, payload: dict) -> str:
+    if stage == "attempt_started":
+        return "🔄 Попытка %s…" % payload.get("attempt")
+    if stage == "attempt_rejected":
+        reasons = "; ".join(payload.get("reasons", []))
+        return ("❌ Попытка %s не прошла приёмку: %s. Впрыскиваю фидбек в следующую попытку."
+                % (payload.get("attempt"), reasons))
+    if stage == "working":
+        return "⚙️ Hermes работает… %s" % payload.get("note", "")
+    return ""
+
+
 def _swapbatch_text_intercept(chat_id: str, text: str) -> bool:
     """Route a plain-text numbered-prompt message into the custom-prompts flow.
 
