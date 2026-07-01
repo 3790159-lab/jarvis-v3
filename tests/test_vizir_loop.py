@@ -24,3 +24,66 @@ def test_loopreport_fields():
     )
     assert r.accepted is True and r.stopped_reason == "completed"
     assert r.needs_escalation is False and r.attempts == 1
+
+
+from app.services.vizir.models import Task, Step, Plan
+from app.services.vizir.handlers import HandlerRegistry, HandlerResult
+from app.services.vizir.coordinator import Coordinator
+from app.services.vizir.loop import LoopController, LoopConfig
+from app.services.vizir.hermes_acceptance import AcceptanceResult
+
+
+def _coord_with(handler, kind="gen", **coord_kw):
+    reg = HandlerRegistry()
+    reg.register(kind, handler)
+    return Coordinator(reg, **coord_kw)
+
+
+def _gen_handler(result_dict, cost=0.0, kind="gen"):
+    """A mock generation handler returning a fixed result dict, charging `cost`."""
+    async def handler(step, ctx):
+        return HandlerResult(ok=True, result=result_dict, cost_usd=cost)
+    return handler
+
+
+def _build_plan_gen(prompt):
+    # single-step plan, kind "gen"; estimated_usd=0 so pre-check treats it free
+    return Plan(steps=[Step(kind="gen", params={"prompt": prompt}, estimated_usd=0.0)])
+
+
+def _loop(coord, accept_fn, cfg=None, on_event=None, now_fn=None, build_plan=_build_plan_gen):
+    return LoopController(coord, build_plan=build_plan, accept_fn=accept_fn,
+                          config=cfg or LoopConfig(), on_event=on_event, now_fn=now_fn)
+
+
+def test_completed_on_first_attempt_stops_and_not_escalated():
+    coord = _coord_with(_gen_handler({"final_response": "<html></html>",
+                                      "stopped_reason": "completed"}))
+    accept_fn = lambda d: AcceptanceResult(accepted=True, reasons=[])
+    loop = _loop(coord, accept_fn)
+    task = Task("t", "make chat", budget_usd=1.0, actor="admin")
+    rep = _run(loop.run(task, "base goal"))
+
+    assert rep.accepted is True
+    assert rep.stopped_reason == "completed"
+    assert rep.attempts == 1
+    assert rep.needs_escalation is False
+
+
+def test_never_accepted_stops_at_max_attempts_and_escalates():
+    n = {"i": 0}
+    async def handler(step, ctx):
+        n["i"] += 1
+        return HandlerResult(ok=True, result={"n": n["i"], "stopped_reason": "completed"}, cost_usd=0.0)
+    coord = _coord_with(handler)
+    # different reasons each attempt (no stall), never accepted
+    accept_fn = lambda d: AcceptanceResult(accepted=False, reasons=["reason-%d" % d.get("n", 0)])
+    loop = _loop(coord, accept_fn, cfg=LoopConfig(max_attempts=3))
+    task = Task("t", "g", budget_usd=1.0, actor="admin")
+    rep = _run(loop.run(task, "base"))
+
+    assert rep.attempts == 3
+    assert rep.stopped_reason == "stopped_max_attempts"
+    assert rep.accepted is False
+    assert rep.needs_escalation is True
+    assert len(rep.reasons_history) == 3
