@@ -269,8 +269,10 @@ class VizirTaskHandler:
                               self._check_limit(int(act), estimated_usd=est))
         charge_logger = None
         if self._record_cost is not None:
-            charge_logger = (lambda act, op, amt:
-                             self._record_cost(int(act), username, amt))
+            # Coordinator AWAITS charge_logger (coordinator.py:257) -> it must be
+            # an async callable. record_cost itself is sync, so wrap it.
+            async def charge_logger(act, op, amt):
+                self._record_cost(int(act), username, amt)
         coord = Coordinator(
             reg, on_event=on_event, charge_logger=charge_logger,
             check_limit_fn=check_limit_fn, state_dir=self._artifact_dir / "state")
