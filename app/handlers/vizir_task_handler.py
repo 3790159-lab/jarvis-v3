@@ -131,4 +131,9 @@ class VizirTaskHandler:
             text = ("✅ Готово за %d попыток. Потрачено $%.4f (кап $%.2f). Приёмка пройдена."
                     % (rep.attempts, rep.loop_spent_usd, self._budget_usd))
             return VizirTaskReply(text=text, document_path=out, escalated=False)
-        return VizirTaskReply(text="", document_path=None, escalated=True)
+        reasons = "; ".join(rep.reasons) if rep.reasons else "(без деталей)"
+        text = ("⚠️ Задача не завершена: %s. Причина: %s. "
+                "Потрачено $%.4f / кап $%.2f. Попыток: %d."
+                % (rep.stopped_reason, reasons, rep.loop_spent_usd,
+                   self._budget_usd, rep.attempts))
+        return VizirTaskReply(text=text, document_path=None, escalated=True)

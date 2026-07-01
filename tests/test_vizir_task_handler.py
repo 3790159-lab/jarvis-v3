@@ -140,3 +140,15 @@ def test_accepted_writes_and_returns_artifact(tmp_path):
     assert rep.document_path is not None and rep.document_path.exists()
     assert rep.document_path.read_text(encoding="utf-8") == html
     assert "Готово" in rep.text and "$" in rep.text
+
+
+def test_escalation_carries_honest_refusal_reason(tmp_path):
+    hermes = _mock_hermes(ok=False, error="Claude отказался: content policy", cost=0.0)
+    h, _ = _handler(tmp_path, hermes, max_attempts=1)
+    rep = _run(h.run_task_phase(chat_id=237616472, base_prompt="spicy thing",
+                                progress_cb=lambda s, p: None,
+                                user_id=237616472, username="daniil"))
+    assert rep.escalated is True
+    assert "content policy" in rep.text                 # FIX 1 honest reason surfaced
+    assert "не завершена" in rep.text or "не завершен" in rep.text
+    assert "$" in rep.text                               # spent + cap shown
