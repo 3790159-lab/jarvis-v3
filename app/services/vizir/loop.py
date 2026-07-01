@@ -15,7 +15,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from .models import Task
+from .hermes_acceptance import accept_hermes_chat
+from .models import Plan, Step, Task
 
 
 @dataclass
@@ -203,8 +204,6 @@ def make_loop(
     """Wire a LoopController for a Hermes-shaped single-step plan under Vizir's
     real deterministic acceptance. Each attempt is ONE `kind` step carrying the
     (feedback-augmented) prompt; money is metered by `coordinator`."""
-    from .models import Plan, Step
-    from .hermes_acceptance import accept_hermes_chat
 
     def build_plan(prompt: str) -> "Plan":
         return Plan(steps=[Step(
