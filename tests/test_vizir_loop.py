@@ -195,3 +195,28 @@ def test_loop_deadline_stops_timeout_between_attempts():
     assert rep.stopped_reason == "stopped_timeout"
     assert rep.attempts == 1                     # 1 attempt ran, deadline hit before attempt 2
     assert rep.needs_escalation is True
+
+
+def test_loop_emits_structured_events():
+    events = []
+    n = {"i": 0}
+    async def handler(step, ctx):
+        n["i"] += 1
+        return HandlerResult(ok=True, result={"n": n["i"], "stopped_reason": "completed"}, cost_usd=0.0)
+    coord = _coord_with(handler)
+    def accept_fn(d):
+        return AcceptanceResult(accepted=(d.get("n", 0) >= 2),
+                                reasons=[] if d.get("n", 0) >= 2 else ["bad-%d" % d.get("n", 0)])
+    loop = _loop(coord, accept_fn, on_event=events.append)
+    task = Task("t", "g", budget_usd=1.0, actor="admin")
+    rep = _run(loop.run(task, "base"))
+
+    types = [e["type"] for e in events]
+    assert rep.accepted is True and rep.attempts == 2
+    assert types.count("loop_attempt_started") == 2
+    assert types.count("loop_attempt_rejected") == 1
+    assert types[-1] == "loop_stopped"
+    stopped = events[-1]
+    assert stopped["reason"] == "completed" and stopped["attempts"] == 2
+    rejected = [e for e in events if e["type"] == "loop_attempt_rejected"][0]
+    assert rejected["reasons"] == ["bad-1"]
