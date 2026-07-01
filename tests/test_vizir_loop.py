@@ -354,3 +354,91 @@ def test_make_loop_truncated_run_is_rejected_up_front():
     assert rep.accepted is False
     assert rep.stopped_reason in ("stopped_stalled", "stopped_max_attempts")
     assert any("did not complete" in r for r in rep.reasons)
+
+
+# ============================================================================
+# FIX 1 — honest reason on refusal/timeout (a FAILED step must not be reported
+# with generic HTML-acceptance complaints about an empty result). The step's
+# real error (Hermes refusal / per-step timeout) must reach report.reasons so
+# escalation is truthful. Uses the REAL acceptance to reproduce the generic
+# reasons that the bug would emit. $0 (mocks).
+# ============================================================================
+from app.services.vizir.hermes_acceptance import accept_hermes_chat
+
+
+def test_fix1_refusal_surfaces_real_error_not_generic_html():
+    # Hermes refuses (ok=False): Coordinator marks the step FAILED with the real
+    # error but keeps report.status="completed" and step.result=None. WITHOUT the
+    # fix, loop.py runs acceptance on {} -> generic "not an HTML document" reasons,
+    # hiding the refusal. WITH the fix, the real error is surfaced instead.
+    async def refuser(step, ctx):
+        return HandlerResult(ok=False, result=None,
+                             error="Claude отказался: content policy", cost_usd=0.0)
+    coord = _coord_with(refuser)
+    loop = _loop(coord, accept_hermes_chat, cfg=LoopConfig(max_attempts=1))
+    task = Task("t", "make chat", budget_usd=1.0, actor="admin")
+    rep = _run(loop.run(task, "base goal"))
+
+    assert rep.accepted is False
+    assert any("content policy" in r for r in rep.reasons)          # real error surfaced
+    assert not any("not an HTML document" in r for r in rep.reasons)  # NOT generic HTML noise
+
+
+def test_fix1_timeout_surfaces_timeout_reason_not_generic_html():
+    # Handler hangs past the per-step timeout_s -> Coordinator sets step FAILED
+    # with error="timeout after Xs", result stays None. The loop must report the
+    # timeout, not generic HTML complaints.
+    async def hanger(step, ctx):
+        await asyncio.sleep(0.5)
+        return HandlerResult(ok=True, result={"final_response": _GOOD_HTML,
+                                              "stopped_reason": "completed"}, cost_usd=0.0)
+
+    def build_plan(prompt):
+        return Plan(steps=[Step(kind="gen", params={"prompt": prompt},
+                                estimated_usd=0.0, timeout_s=0.05)])
+    coord = _coord_with(hanger)
+    loop = _loop(coord, accept_hermes_chat, cfg=LoopConfig(max_attempts=1), build_plan=build_plan)
+    task = Task("t", "make chat", budget_usd=1.0, actor="admin")
+    rep = _run(loop.run(task, "base goal"))
+
+    assert rep.accepted is False
+    assert any("timeout after" in r for r in rep.reasons)             # timeout surfaced
+    assert not any("not an HTML document" in r for r in rep.reasons)  # NOT generic HTML noise
+
+
+def test_fix1_two_refusals_stall_with_honest_reason():
+    # Identical refusals two attempts running -> stopped_stalled (converging-check
+    # tooth), and the surfaced reasons are the REAL error (honest escalation), not
+    # generic HTML noise.
+    async def refuser(step, ctx):
+        return HandlerResult(ok=False, result=None,
+                             error="Claude отказался: content policy", cost_usd=0.0)
+    coord = _coord_with(refuser)
+    loop = _loop(coord, accept_hermes_chat, cfg=LoopConfig(max_attempts=5))
+    task = Task("t", "make chat", budget_usd=1.0, actor="admin")
+    rep = _run(loop.run(task, "base goal"))
+
+    assert rep.stopped_reason == "stopped_stalled"
+    assert rep.attempts == 2                                          # stalled at 2, not run to 5
+    assert rep.needs_escalation is True
+    assert any("content policy" in r for r in rep.reasons)           # honest escalation reason
+    assert not any("not an HTML document" in r for r in rep.reasons)
+
+
+def test_fix1_regression_normal_acceptance_reasons_preserved():
+    # REGRESSION GUARD: a DONE step with real HTML that merely fails acceptance
+    # (missing port 8010) must still produce the normal generic reason. The fix
+    # must NOT swallow the normal acceptance path or treat DONE steps as failures.
+    html_no_8010 = _GOOD_HTML.replace("8010", "9999")
+    async def gen(step, ctx):
+        return HandlerResult(ok=True,
+                             result={"final_response": html_no_8010, "stopped_reason": "completed"},
+                             cost_usd=0.0)
+    coord = _coord_with(gen)
+    loop = _loop(coord, accept_hermes_chat, cfg=LoopConfig(max_attempts=1))
+    task = Task("t", "make chat", budget_usd=1.0, actor="admin")
+    rep = _run(loop.run(task, "base goal"))
+
+    assert rep.accepted is False
+    assert any("does not target backend port 8010" in r for r in rep.reasons)  # normal path intact
+    assert not any("Hermes" in r for r in rep.reasons)               # fix did NOT hijack normal path

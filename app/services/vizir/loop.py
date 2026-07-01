@@ -15,8 +15,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from .hermes_acceptance import accept_hermes_chat
-from .models import Plan, Step, Task
+from .hermes_acceptance import AcceptanceResult, accept_hermes_chat
+from .models import Plan, Step, StepStatus, Task
 
 
 @dataclass
@@ -89,6 +89,12 @@ class LoopController:
     def _deadline_exceeded(self, start: float, cfg: LoopConfig) -> bool:
         return bool(cfg.loop_deadline_s) and (self._now() - start) >= cfg.loop_deadline_s
 
+    def _failure_reason(self, step) -> str:
+        # A FAILED step (Hermes refusal / per-step timeout) leaves result=None, so
+        # generic acceptance would complain about "empty HTML" and hide the REAL
+        # cause. Surface the step's own error so escalation to Daniil is truthful.
+        return "Hermes не выполнил шаг: %s" % (step.error or "неизвестная ошибка")
+
     def _compose_prompt(self, base_prompt: str, reasons: list) -> str:
         # IMMUTABLE base + APPENDED feedback (never overwrite the goal): bounds
         # goal-drift and gives directed convergence across attempts.
@@ -159,12 +165,19 @@ class LoopController:
                                      loop_spent, last_result, reasons, reasons_history)
 
             last_step = report.steps[-1] if report.steps else None
-            result_dict = (last_step.result
-                           if (last_step is not None and isinstance(last_step.result, dict))
-                           else {})
-            last_result = result_dict
-
-            acc = self._accept_fn(result_dict)
+            if last_step is not None and last_step.status == StepStatus.FAILED:
+                # refusal/timeout: never "accepted"; report the honest error and
+                # skip generic acceptance on the empty result. Retry semantics are
+                # preserved (the deterministic stop-teeth still bound the loop).
+                last_result = {}
+                acc = AcceptanceResult(accepted=False,
+                                       reasons=[self._failure_reason(last_step)])
+            else:
+                result_dict = (last_step.result
+                               if (last_step is not None and isinstance(last_step.result, dict))
+                               else {})
+                last_result = result_dict
+                acc = self._accept_fn(result_dict)
             if acc.accepted:
                 self._emit("loop_stopped", reason="completed",
                            spent=loop_spent, attempts=attempt)
