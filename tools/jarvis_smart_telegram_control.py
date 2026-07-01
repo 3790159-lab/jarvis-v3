@@ -1198,6 +1198,82 @@ def _task_progress_text(stage: str, payload: dict) -> str:
     return ""
 
 
+_TASK_PENDING: Dict[str, str] = {}          # chat_id_str -> pending task description
+_TASK_HANDLER = None
+
+
+def _task_get_handler():
+    global _TASK_HANDLER
+    if _TASK_HANDLER is None:
+        from app.handlers.vizir_task_handler import VizirTaskHandler
+        from pathlib import Path as _Path
+        _TASK_HANDLER = VizirTaskHandler(artifact_dir=_Path("state/vizir_tasks"))
+    return _TASK_HANDLER
+
+
+def _task_dispatch(chat_id, description: str) -> None:
+    chat_id_s = str(chat_id)
+    desc = (description or "").strip()
+    if not desc:
+        send(chat_id_s, "Использование: /task <описание задачи>")
+        return
+    _TASK_PENDING[chat_id_s] = desc
+    cap = float(os.environ.get("VIZIR_TASK_BUDGET_USD", "0.90"))
+    send_with_keyboard(
+        chat_id_s,
+        "🧠 Задача принята:\n%s\n\nЗапустить автономно (Vizir loop)?" % desc,
+        _task_confirm_keyboard(cap)["inline_keyboard"],
+    )
+
+
+def _task_run_phase(chat_id) -> None:
+    import asyncio as _aio
+
+    from app.services.block_m2_video.generation_lock import GenerationLockBusy
+
+    chat_id_s = str(chat_id)
+    chat_id_int = int(chat_id)
+    desc = _TASK_PENDING.pop(chat_id_s, None)
+    if not desc:
+        send(chat_id_s, "Нет задачи. Начни с /task <описание>.")
+        return
+    lock = _get_video_lock()
+    try:
+        token = lock.acquire(chat_id_int)
+    except GenerationLockBusy:
+        send(chat_id_s, "⏳ Уже выполняется задача. Подожди завершения.")
+        return
+
+    def _progress(stage: str, payload: dict) -> None:
+        text = _task_progress_text(stage, payload)
+        if text:
+            send(chat_id_s, text)
+
+    def _run() -> None:
+        try:
+            handler = _task_get_handler()
+            username = _USERNAME_BY_CHAT.get(chat_id_s)
+            reply = _aio.run(handler.run_task_phase(
+                chat_id_int, desc, _progress, user_id=chat_id_int, username=username))
+            _task_apply_reply(chat_id_s, reply)
+        except Exception as exc:  # never let the thread die silently
+            send(chat_id_s, "❌ Vizir упал: %s" % exc)
+        finally:
+            lock.release(token)
+
+    send(chat_id_s, "🚀 Запускаю Vizir…")
+    threading.Thread(
+        target=_run, daemon=True, name="vizir_task_%d" % chat_id_int,
+    ).start()
+
+
+def _task_apply_reply(chat_id_s, reply) -> None:
+    if reply.text:
+        send(chat_id_s, reply.text)
+    if reply.document_path is not None:
+        _send_local_document(chat_id_s, str(reply.document_path))
+
+
 def _swapbatch_text_intercept(chat_id: str, text: str) -> bool:
     """Route a plain-text numbered-prompt message into the custom-prompts flow.
 
@@ -3541,6 +3617,17 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
             _users_store.add_blocked(target_id, uname, added_by=str(_cq_uid))
             answer_callback_query(cq_id, "Отклонён")
             send(chat_id, f"❌ Запрос @{uname or target_id} отклонён.")
+        return
+
+    # ── Vizir /task confirm/cancel (admin-only; not in friend prefixes) ───────
+    if data == "task:run":
+        answer_callback_query(cq_id, "Запускаю…")
+        _task_run_phase(chat_id)
+        return
+    if data == "task:cancel":
+        answer_callback_query(cq_id, "Отменено")
+        _TASK_PENDING.pop(str(chat_id), None)
+        send(str(chat_id), "Отменено.")
         return
 
     # ── Videoref motion analysis (Веха C / Task 4) — paid, opt-in ─────────────
@@ -5895,6 +5982,10 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
         return
     if cmd == "/swapbatch_status":
         _swapbatch_dispatch(chat_id, "status")
+        return
+
+    if cmd == "/task":
+        _task_dispatch(chat_id, query)   # `query` = text after the command
         return
 
     if cmd == "/persona_redo":
