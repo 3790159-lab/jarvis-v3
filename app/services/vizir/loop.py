@@ -76,7 +76,10 @@ class LoopController:
         return True
 
     def _is_hard_stop(self, status: str) -> bool:
-        return False
+        # Any non-"completed" Coordinator outcome is a money/approval event
+        # (stopped_budget / stopped_cost_cap / stopped_for_approval) => stop the
+        # whole loop conservatively; do NOT retry a run that burned toward a cap.
+        return status != "completed"
 
     def _is_stalled(self, reasons: list, prev_reasons) -> bool:
         return False

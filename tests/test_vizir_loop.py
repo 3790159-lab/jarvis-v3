@@ -136,3 +136,28 @@ def test_reserve_before_attempt_stops_budget_without_running_handler():
     assert rep.attempts == 1
     assert rep.loop_spent_usd <= task.budget_usd
     assert rep.needs_escalation is True
+
+
+def test_cost_cap_breach_in_attempt_stops_loop_immediately_no_retry():
+    # handler overspends via report_cost beyond the step cap -> Coordinator
+    # returns stopped_cost_cap (proven mechanism, see test_vizir_cost_cap.py).
+    async def overspender(step, ctx):
+        for c in [0.01, 0.01, 0.01, 0.01]:   # 4 x 0.01 vs max_usd 0.03
+            ctx["report_cost"](c)             # 4th raises StepBudgetExceeded
+        return HandlerResult(ok=True, result={"stopped_reason": "completed"}, cost_usd=0.04)
+    coord = _coord_with(overspender)
+
+    def build_plan(prompt):
+        return Plan(steps=[Step(kind="gen", params={"prompt": prompt},
+                                estimated_usd=0.03, max_usd=0.03)])
+
+    accept_fn = lambda d: AcceptanceResult(accepted=True, reasons=[])  # would accept if reached
+    loop = _loop(coord, accept_fn, cfg=LoopConfig(max_attempts=3), build_plan=build_plan)
+    task = Task("t", "g", budget_usd=1.0, actor="admin")
+    rep = _run(loop.run(task, "base"))
+
+    assert rep.attempts == 1                       # did NOT retry a breached attempt
+    assert rep.stopped_reason == "stopped_cost_cap"
+    assert rep.accepted is False
+    assert rep.needs_escalation is True
+    assert abs(rep.loop_spent_usd - 0.03) < 1e-9   # partial charge (step_spent), not full
