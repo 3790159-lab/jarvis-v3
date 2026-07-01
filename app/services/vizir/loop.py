@@ -86,7 +86,7 @@ class LoopController:
         return prev_reasons is not None and reasons == prev_reasons
 
     def _deadline_exceeded(self, start: float, cfg: LoopConfig) -> bool:
-        return False
+        return bool(cfg.loop_deadline_s) and (self._now() - start) >= cfg.loop_deadline_s
 
     def _compose_prompt(self, base_prompt: str, reasons: list) -> str:
         # IMMUTABLE base + APPENDED feedback (never overwrite the goal): bounds

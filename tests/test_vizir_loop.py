@@ -176,3 +176,22 @@ def test_identical_reasons_two_attempts_stops_stalled_before_max():
     assert rep.attempts == 2                     # stalled at 2, NOT run to max_attempts=5
     assert rep.stopped_reason == "stopped_stalled"
     assert rep.needs_escalation is True
+
+
+def test_loop_deadline_stops_timeout_between_attempts():
+    async def handler(step, ctx):
+        return HandlerResult(ok=True, result={"stopped_reason": "completed"}, cost_usd=0.0)
+    coord = _coord_with(handler)
+    accept_fn = lambda d: AcceptanceResult(accepted=False, reasons=["reason-%s" % id(d)])
+
+    # fake monotonic clock: 0 at start, then jumps past the 10s deadline
+    ticks = iter([0.0, 0.0, 100.0, 100.0, 100.0])
+    now_fn = lambda: next(ticks)
+    cfg = LoopConfig(max_attempts=10, loop_deadline_s=10.0)
+    loop = _loop(coord, accept_fn, cfg=cfg, now_fn=now_fn)
+    task = Task("t", "g", budget_usd=1.0, actor="admin")
+    rep = _run(loop.run(task, "base"))
+
+    assert rep.stopped_reason == "stopped_timeout"
+    assert rep.attempts == 1                     # 1 attempt ran, deadline hit before attempt 2
+    assert rep.needs_escalation is True
