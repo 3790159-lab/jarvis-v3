@@ -115,3 +115,24 @@ def test_feedback_reasons_injected_into_next_prompt_base_preserved():
     assert "BASE_GOAL" in seen_prompts[1]                     # base preserved (immutable)
     assert "no neon cyan/blue accent" in seen_prompts[1]      # reason injected
     assert rep.reasons_history == [["no neon cyan/blue accent"]]
+
+
+def test_reserve_before_attempt_stops_budget_without_running_handler():
+    calls = {"n": 0}
+    async def handler(step, ctx):
+        calls["n"] += 1
+        return HandlerResult(ok=True, result={"stopped_reason": "completed"}, cost_usd=0.01)
+    coord = _coord_with(handler)
+    accept_fn = lambda d: AcceptanceResult(accepted=False, reasons=["still bad"])
+    cfg = LoopConfig(max_attempts=5, min_attempt_usd=0.015)  # need >= $0.015 to start
+    loop = _loop(coord, accept_fn, cfg=cfg)
+    task = Task("t", "g", budget_usd=0.02, actor="admin")
+    rep = _run(loop.run(task, "base"))
+
+    # attempt1: remaining 0.02 >= 0.015 -> runs, spends 0.01. attempt2: remaining
+    # 0.01 < 0.015 -> reserve REFUSES to start (handler not called again).
+    assert calls["n"] == 1
+    assert rep.stopped_reason == "stopped_budget"
+    assert rep.attempts == 1
+    assert rep.loop_spent_usd <= task.budget_usd
+    assert rep.needs_escalation is True

@@ -68,7 +68,12 @@ class LoopController:
 
     # ---- spy-able seams (permissive stubs; made real in later tasks) ----
     def _reserve_allows(self, remaining: float, cfg: LoopConfig) -> bool:
-        return remaining > 0
+        # never start an attempt you cannot pay for within the shared budget
+        if remaining <= 0:
+            return False
+        if cfg.min_attempt_usd and remaining < cfg.min_attempt_usd:
+            return False
+        return True
 
     def _is_hard_stop(self, status: str) -> bool:
         return False
