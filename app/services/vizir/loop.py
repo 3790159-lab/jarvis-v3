@@ -15,6 +15,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from .models import Task
+
 
 @dataclass
 class LoopConfig:
@@ -93,7 +95,6 @@ class LoopController:
         )
 
     async def run(self, task, base_prompt: str) -> LoopReport:
-        from .models import Task  # local import: avoid a hard module-load cycle
         cfg = self._config
         loop_spent = 0.0
         reasons_history: list = []
