@@ -80,7 +80,14 @@ class LoopController:
         return False
 
     def _compose_prompt(self, base_prompt: str, reasons: list) -> str:
-        return base_prompt
+        # IMMUTABLE base + APPENDED feedback (never overwrite the goal): bounds
+        # goal-drift and gives directed convergence across attempts.
+        if not reasons:
+            return base_prompt
+        joined = "; ".join(reasons)
+        return (base_prompt
+                + "\n\n[FEEDBACK] Предыдущая попытка провалила проверки: "
+                + joined + ". Исправь их, остальное сохрани.")
 
     # ---- helpers ----
     def _stopped(self, task, reason, attempt, loop_spent, last_result,

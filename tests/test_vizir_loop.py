@@ -87,3 +87,31 @@ def test_never_accepted_stops_at_max_attempts_and_escalates():
     assert rep.accepted is False
     assert rep.needs_escalation is True
     assert len(rep.reasons_history) == 3
+
+
+def test_feedback_reasons_injected_into_next_prompt_base_preserved():
+    seen_prompts = []
+    def build_plan(prompt):
+        seen_prompts.append(prompt)
+        return Plan(steps=[Step(kind="gen", params={"prompt": prompt}, estimated_usd=0.0)])
+
+    n = {"i": 0}
+    async def handler(step, ctx):
+        n["i"] += 1
+        return HandlerResult(ok=True, result={"n": n["i"], "stopped_reason": "completed"}, cost_usd=0.0)
+    coord = _coord_with(handler)
+    # attempt 1 rejected with a specific reason; attempt 2 accepted
+    def accept_fn(d):
+        if d.get("n", 0) >= 2:
+            return AcceptanceResult(accepted=True, reasons=[])
+        return AcceptanceResult(accepted=False, reasons=["no neon cyan/blue accent"])
+    loop = _loop(coord, accept_fn, build_plan=build_plan)
+    task = Task("t", "g", budget_usd=1.0, actor="admin")
+    rep = _run(loop.run(task, "BASE_GOAL"))
+
+    assert rep.accepted is True and rep.attempts == 2
+    # attempt 1 prompt = base only; attempt 2 prompt = base + injected reason
+    assert seen_prompts[0] == "BASE_GOAL"
+    assert "BASE_GOAL" in seen_prompts[1]                     # base preserved (immutable)
+    assert "no neon cyan/blue accent" in seen_prompts[1]      # reason injected
+    assert rep.reasons_history == [["no neon cyan/blue accent"]]
