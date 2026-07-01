@@ -127,3 +127,16 @@ def test_progress_maps_attempts_and_rejection_reasons(tmp_path):
     rej = [p for s, p in stages if s == "attempt_rejected"]
     assert len(rej) == 1
     assert any("did not complete" in r for r in rej[0]["reasons"])  # feedback shown
+
+
+def test_accepted_writes_and_returns_artifact(tmp_path):
+    html = "<html><body>hello jarvis</body></html>"
+    hermes = _mock_hermes(final_response=html, cost=0.08)
+    h, _ = _handler(tmp_path, hermes)
+    rep = _run(h.run_task_phase(chat_id=237616472, base_prompt="make page",
+                                progress_cb=lambda s, p: None,
+                                user_id=237616472, username="daniil"))
+    assert rep.escalated is False
+    assert rep.document_path is not None and rep.document_path.exists()
+    assert rep.document_path.read_text(encoding="utf-8") == html
+    assert "Готово" in rep.text and "$" in rep.text

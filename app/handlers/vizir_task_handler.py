@@ -121,4 +121,14 @@ class VizirTaskHandler:
         task = Task(task_id=task_id, goal=base_prompt[:80], actor=actor,
                     budget_usd=self._budget_usd)
         rep = await loop.run(task, base_prompt)
-        return VizirTaskReply(text="", document_path=None, escalated=not rep.accepted)
+        if rep.accepted:
+            html = ""
+            if isinstance(rep.last_result, dict):
+                html = rep.last_result.get("final_response") or ""
+            self._artifact_dir.mkdir(parents=True, exist_ok=True)
+            out = self._artifact_dir / ("%s.html" % task_id)
+            out.write_text(html, encoding="utf-8")
+            text = ("✅ Готово за %d попыток. Потрачено $%.4f (кап $%.2f). Приёмка пройдена."
+                    % (rep.attempts, rep.loop_spent_usd, self._budget_usd))
+            return VizirTaskReply(text=text, document_path=out, escalated=False)
+        return VizirTaskReply(text="", document_path=None, escalated=True)
