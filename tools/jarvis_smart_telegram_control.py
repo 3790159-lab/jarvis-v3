@@ -1766,6 +1766,7 @@ def _videoref_swapanim_run(chat_id, source_face) -> None:
     est = _videoref_swapanim_est(
         pend.get("seconds", VIDEOREF_ANIM_SECONDS),
         smooth=pend.get("smooth", False),
+        engine_mode=pend.get("engine_mode", "spicy"),
     )
     allowed, reason = _check_limit(chat_id_int, estimated_usd=est)
     if not allowed:
