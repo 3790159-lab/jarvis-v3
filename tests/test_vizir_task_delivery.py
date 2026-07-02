@@ -63,3 +63,78 @@ def test_tooth4_text_task_accepted_not_false_build(tmp_path):
     rep = _run(h.run_task_phase(chat_id=1, base_prompt="что ты умеешь?",
                                 progress_cb=lambda s, p: None, user_id=1, username="d"))
     assert rep.escalated is False, rep.text
+
+
+from app.handlers.vizir_task_handler import _extract_artifact
+
+
+# --- unit: _extract_artifact снимает fence и определяет html vs text ---
+def test_extract_fenced_html_stripped():
+    fr = ("Готово, вот игра:\n```html\n<!doctype html><html><body>"
+          "<script>function move(i){return i}</script></body></html>\n```\nОткрой в браузере.")
+    kind, content = _extract_artifact(fr)
+    assert kind == "html"
+    assert content.lower().startswith("<!doctype html")
+    assert "```" not in content
+    assert content.rstrip().endswith("</html>")
+
+
+def test_extract_raw_html_no_fence():
+    fr = "<!doctype html><html><body>hi</body></html>"
+    kind, content = _extract_artifact(fr)
+    assert kind == "html" and "```" not in content
+
+
+def test_extract_plain_text_is_text():
+    fr = "Я умею писать код, отвечать на вопросы и решать задачи."
+    kind, content = _extract_artifact(fr)
+    assert kind == "text"
+    assert content == fr
+
+
+# --- Зуб 2 (КРИТИЧНО): fenced HTML -> записанный .html чист (без ```), открываем ---
+def test_tooth2_written_html_is_clean(tmp_path):
+    fr = "Вот:\n```html\n<!doctype html><html><body>X</body></html>\n```"
+    hermes = _mock_text(fr)
+    h = _mk(tmp_path, hermes)
+    rep = _run(h.run_task_phase(chat_id=1, base_prompt="сделай веб страницу",
+                                progress_cb=lambda s, p: None, user_id=1, username="d"))
+    assert rep.document_path is not None
+    body = Path(rep.document_path).read_text(encoding="utf-8")
+    assert body.lower().startswith("<!doctype html")
+    assert "```" not in body
+
+
+# --- Зуб 3: build-task + инлайн HTML -> .html документ ---
+def test_tooth3_code_task_delivers_html_document(tmp_path):
+    fr = "```html\n<!doctype html><html><body>game</body></html>\n```"
+    hermes = _mock_text(fr)
+    h = _mk(tmp_path, hermes)
+    rep = _run(h.run_task_phase(chat_id=1, base_prompt="сделай веб игру крестики нолики",
+                                progress_cb=lambda s, p: None, user_id=1, username="d"))
+    assert rep.escalated is False
+    assert rep.document_path is not None
+    assert str(rep.document_path).endswith(".html")
+
+
+# --- Зуб 4b: текст-ответ -> сообщение, .html документ НЕ плодится ---
+def test_tooth4b_text_answer_message_not_document(tmp_path):
+    answer = "Я умею писать код, отвечать на вопросы, работать с файлами."
+    hermes = _mock_text(answer)
+    h = _mk(tmp_path, hermes)
+    rep = _run(h.run_task_phase(chat_id=1, base_prompt="что ты умеешь?",
+                                progress_cb=lambda s, p: None, user_id=1, username="d"))
+    assert rep.escalated is False
+    assert rep.document_path is None
+    assert "умею" in rep.text.lower()
+
+
+# --- Зуб 5: галлюцинация-указатель -> честная эскалация, без файла ---
+def test_tooth5_hallucination_escalates_no_file(tmp_path):
+    fr = "Готово! Игра создана по адресу C:\\Users\\Admin\\Desktop\\ttt\\index.html"
+    hermes = _mock_text(fr)
+    h = _mk(tmp_path, hermes, max_attempts=2)
+    rep = _run(h.run_task_phase(chat_id=1, base_prompt="сделай веб игру крестики нолики",
+                                progress_cb=lambda s, p: None, user_id=1, username="d"))
+    assert rep.escalated is True
+    assert rep.document_path is None

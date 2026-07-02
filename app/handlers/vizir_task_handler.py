@@ -11,6 +11,7 @@ FaceSwapHandler's long-running shape. See docs/specs/2026-07-02-vizir-bot-integr
 from __future__ import annotations
 
 import itertools
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -37,6 +38,32 @@ def _compose_hermes_prompt(base_prompt: str) -> str:
     the raw base_prompt (see run_task_phase) so build-task detection is not polluted
     by the contract's words (создавать/код/файл)."""
     return OUTPUT_CONTRACT + "\n\n" + base_prompt
+
+
+_FENCE_RE = re.compile(r"```[a-zA-Z0-9]*\n(.*?)```", re.S)
+_HTML_MARK = ("<!doctype html", "<html", "<script", "<body", "<div", "<style")
+
+
+def _slice_html(s: str) -> str:
+    """Trim prose around the HTML: from the first html marker to </html> (or end)."""
+    low = s.lower()
+    starts = [low.find(m) for m in ("<!doctype html", "<html") if low.find(m) != -1]
+    start = min(starts) if starts else 0
+    end_idx = low.rfind("</html>")
+    end = end_idx + len("</html>") if end_idx != -1 else len(s)
+    return s[start:end].strip()
+
+
+def _extract_artifact(final_response: str):
+    """(kind, content). 'html' -> clean HTML for a .html file (code-fence stripped,
+    prose trimmed); 'text' -> deliver inline as a message. See design §5."""
+    raw = (final_response or "").strip()
+    for body in _FENCE_RE.findall(raw):            # prefer a fenced HTML block
+        if any(m in body.lower() for m in _HTML_MARK):
+            return ("html", _slice_html(body))
+    if any(m in raw.lower() for m in _HTML_MARK):  # raw inline HTML (legacy path)
+        return ("html", _slice_html(raw))
+    return ("text", raw)                            # plain text answer
 
 
 @dataclass
@@ -140,15 +167,20 @@ class VizirTaskHandler:
                     budget_usd=self._budget_usd)
         rep = await loop.run(task, _compose_hermes_prompt(base_prompt))
         if rep.accepted:
-            html = ""
+            final = ""
             if isinstance(rep.last_result, dict):
-                html = rep.last_result.get("final_response") or ""
-            self._artifact_dir.mkdir(parents=True, exist_ok=True)
-            out = self._artifact_dir / ("%s.html" % task_id)
-            out.write_text(html, encoding="utf-8")
-            text = ("✅ Готово за %d попыток. Потрачено $%.4f (кап $%.2f). Приёмка пройдена."
-                    % (rep.attempts, rep.loop_spent_usd, self._budget_usd))
-            return VizirTaskReply(text=text, document_path=out, escalated=False)
+                final = rep.last_result.get("final_response") or ""
+            kind, content = _extract_artifact(final)
+            summary = ("✅ Готово за %d попыток. Потрачено $%.4f (кап $%.2f). Приёмка пройдена."
+                       % (rep.attempts, rep.loop_spent_usd, self._budget_usd))
+            if kind == "html":
+                self._artifact_dir.mkdir(parents=True, exist_ok=True)
+                out = self._artifact_dir / ("%s.html" % task_id)
+                out.write_text(content, encoding="utf-8")
+                return VizirTaskReply(text=summary, document_path=out, escalated=False)
+            # текст-ответ -> сообщением, без .html документа
+            return VizirTaskReply(text=summary + "\n\n" + content,
+                                  document_path=None, escalated=False)
         reasons = "; ".join(rep.reasons) if rep.reasons else "(без деталей)"
         text = ("⚠️ Задача не завершена: %s. Причина: %s. "
                 "Потрачено $%.4f / кап $%.2f. Попыток: %d."
