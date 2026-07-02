@@ -1445,11 +1445,16 @@ def _videoref_duration_keyboard(chat_id_int: int) -> list:
     smooth_state = "ВКЛ" if smooth else "ВЫКЛ"
     smooth_cb = "vref:smooth:off" if smooth else "vref:smooth:on"
     other_engine = "seedance" if engine_mode == "spicy" else "spicy"
+    wardrobe_mode = pend.get("wardrobe_mode", "preserve")
+    ward_state = "ВКЛ" if wardrobe_mode == "preserve" else "ВЫКЛ"
+    other_wardrobe = "spicy" if wardrobe_mode == "preserve" else "preserve"
     return [
         [_dur_btn(s) for s in caps.allowed_durations],
         [{"text": f"🪶 Плавность 48fps: {smooth_state}", "callback_data": smooth_cb}],
         [{"text": f"🎬 Движок: {caps.display_name}",
           "callback_data": f"vref:eng:{other_engine}"}],
+        [{"text": f"🩱 Не раздевать: {ward_state}",
+          "callback_data": f"vref:ward:{other_wardrobe}"}],
     ]
 
 
@@ -1694,6 +1699,33 @@ def _videoref_engine_toggle(chat_id, mode: str) -> None:
     send_with_keyboard(
         chat_id,
         f"🎬 Движок: {caps.display_name}. Выбери длину:",
+        _videoref_duration_keyboard(chat_id_int),
+    )
+
+
+def _videoref_wardrobe_toggle(chat_id, mode: str) -> None:
+    """Wardrobe toggle (vref:ward:<mode>): flip preserve/spicy + redraw.
+
+    Mirrors _videoref_engine_toggle / _videoref_smooth_toggle. Only "preserve" and
+    "spicy" are reachable via this button (mirrors the /swapbatch 🩱 button, which also
+    never targets "safe" — that mode stays in WARDROBE_MODES but is not a button state).
+    Invalid input falls back to "preserve" (the SAFE direction), not "spicy" — unlike
+    the engine toggle's fallback, an unrecognized wardrobe value must never widen
+    exposure. No spend here — same money-safe shape as every other Веха D toggle.
+    Without pending → soft hint (mirrors the stale-button handling used everywhere else).
+    """
+    chat_id_int = int(chat_id)
+    pend = _VIDEOREF_SWAP_PENDING.get(chat_id_int)
+    if pend is None:
+        send(chat_id, "⚠️ Кнопка устарела — пришли видео заново: /videoref")
+        return
+    if mode not in ("preserve", "spicy"):
+        mode = "preserve"
+    pend["wardrobe_mode"] = mode
+    state = "ВКЛ" if mode == "preserve" else "ВЫКЛ"
+    send_with_keyboard(
+        chat_id,
+        f"🩱 Не раздевать: {state}. Выбери длину:",
         _videoref_duration_keyboard(chat_id_int),
     )
 
@@ -3716,6 +3748,12 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
             answer_callback_query(cq_id)
             _mode = parts[2] if len(parts) > 2 else "spicy"
             _videoref_engine_toggle(chat_id, _mode)
+            return
+        if action == "ward":
+            # Wardrobe toggle: flip preserve/spicy + redraw (no spend).
+            answer_callback_query(cq_id)
+            _mode = parts[2] if len(parts) > 2 else "preserve"
+            _videoref_wardrobe_toggle(chat_id, _mode)
             return
         answer_callback_query(cq_id)
         return
