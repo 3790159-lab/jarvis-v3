@@ -1835,13 +1835,15 @@ def _videoref_do_swap(source_face, best_frame):
 
 
 def _videoref_do_animate(chat_id_int, handler, swapped, motion_prompt,
-                         seconds=VIDEOREF_ANIM_SECONDS, engine_mode="spicy"):
+                         seconds=VIDEOREF_ANIM_SECONDS, engine_mode="spicy",
+                         wardrobe_mode="preserve"):
     """Stage-2 raw call (reuse 1:1, the _animate_run_single pattern): animate the
     swapped frame on the chosen engine (``seconds``/720p) by the motion prompt.
 
     engine_mode defaults to "spicy" (uncensored — the original point of the arc)
-    but is now selectable per-run (second-engine arc, Seedance). Returns the video
-    Path or None.
+    but is now selectable per-run (second-engine arc, Seedance). wardrobe_mode
+    defaults to "preserve" (safety fix — was accidentally "safe" via omission before
+    this arc). The two are independent axes. Returns the video Path or None.
     """
     import asyncio as _aio
     from app.services.block_m2_video.engines.router import EngineRouter
@@ -1849,7 +1851,7 @@ def _videoref_do_animate(chat_id_int, handler, swapped, motion_prompt,
 
     req = handler.build_single_animate_request(
         chat_id_int, image_path=swapped, motion=motion_prompt,
-        engine_mode=engine_mode,
+        engine_mode=engine_mode, wardrobe=wardrobe_mode,
         seconds=seconds, resolution=VIDEOREF_ANIM_RESOLUTION,
     )
     engine = _aio.run(EngineRouter().select(engine_mode))
@@ -1889,6 +1891,7 @@ def _videoref_swapanim_stages(chat_id, source_face, pend, est) -> None:
     motion_prompt = pend["motion_prompt"]
     seconds = pend.get("seconds", VIDEOREF_ANIM_SECONDS)   # chosen clip length (I2)
     engine_mode = pend.get("engine_mode", "spicy")         # chosen engine (second-engine arc)
+    wardrobe_mode = pend.get("wardrobe_mode", "preserve")  # chosen wardrobe (safety fix)
 
     # ── Stage 1: face swap (batch-of-1). Record $0.02 ONLY on success. ──
     try:
@@ -1914,7 +1917,7 @@ def _videoref_swapanim_stages(chat_id, source_face, pend, est) -> None:
     try:
         video = _videoref_do_animate(
             chat_id_int, handler, swapped, motion_prompt, seconds,
-            engine_mode=engine_mode,
+            engine_mode=engine_mode, wardrobe_mode=wardrobe_mode,
         )
     except Exception as exc:  # noqa: BLE001
         video = None
