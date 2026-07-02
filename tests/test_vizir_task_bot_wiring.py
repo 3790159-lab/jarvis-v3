@@ -34,6 +34,16 @@ def test_task_is_admin_only_not_in_friend_lists():
     assert not any(str(p).startswith("task:") or "task:".startswith(str(p)) for p in prefixes)
 
 
+def test_prod_task_handler_wired_with_money_hooks():
+    # Variant B: the prod /task handler must carry BOTH money hooks — the
+    # pre-spend check_limit gate and the record_cost ledger sink — so spend is
+    # gated and recorded (once, on acceptance). A None hook = money blind spot.
+    h = mod._task_get_handler()
+    assert h._check_limit is not None, "check_limit gate not wired into prod /task handler"
+    assert h._record_cost is not None, "record_cost ledger not wired into prod /task handler"
+    assert h._record_cost is mod._cost.record_cost  # the isolated visibility ledger sink
+
+
 def test_existing_commands_still_present_isolation_regression():
     # the dispatcher glue for existing paid commands must be intact (we only added)
     for name in ("_swapbatch_dispatch", "_send_local_document", "_get_video_lock",

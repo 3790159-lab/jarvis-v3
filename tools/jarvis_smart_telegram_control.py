@@ -1212,7 +1212,11 @@ def _task_get_handler():
     if _TASK_HANDLER is None:
         from app.handlers.vizir_task_handler import VizirTaskHandler
         from pathlib import Path as _Path
-        _TASK_HANDLER = VizirTaskHandler(artifact_dir=_Path("state/vizir_tasks"))
+        _TASK_HANDLER = VizirTaskHandler(
+            artifact_dir=_Path("state/vizir_tasks"),
+            check_limit=_check_limit,       # pre-spend per-user gate (admin unlimited / friend capped)
+            record_cost=_cost.record_cost,  # Variant B: record once on accepted loop (loop total)
+        )
     return _TASK_HANDLER
 
 

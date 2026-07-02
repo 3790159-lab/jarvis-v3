@@ -125,12 +125,13 @@ class VizirTaskHandler:
         if self._check_limit is not None:
             check_limit_fn = (lambda act, est:
                               self._check_limit(int(act), estimated_usd=est))
-        charge_logger = None
-        if self._record_cost is not None:
-            async def charge_logger(act, op, amt):
-                self._record_cost(int(act), username, amt)
+        # Variant B: money is recorded to the visibility ledger ONCE at the end of
+        # run_task_phase, and ONLY if the whole loop is accepted (amount =
+        # rep.loop_spent_usd). So the Coordinator's per-step charge sink is NOT
+        # wired to the ledger — a rejected/escalated loop must record nothing.
+        # The pre-spend check_limit gate (check_limit_fn) stays wired below.
         coord = Coordinator(
-            reg, on_event=on_event, charge_logger=charge_logger,
+            reg, on_event=on_event, charge_logger=None,
             check_limit_fn=check_limit_fn, state_dir=self._artifact_dir / "state")
         est, cap, tmo = self._estimated, self._max_usd, self._loop_deadline_s
 
@@ -168,6 +169,13 @@ class VizirTaskHandler:
                     budget_usd=self._budget_usd)
         rep = await loop.run(task, _compose_hermes_prompt(base_prompt))
         if rep.accepted:
+            # Variant B ledger record: exactly once, only on acceptance, for the
+            # whole-loop total (== the number shown in Telegram). Escalations below
+            # never reach this and so record nothing.
+            if self._record_cost is not None:
+                self._record_cost(
+                    int(user_id if user_id is not None else chat_id),
+                    username, rep.loop_spent_usd)
             final = ""
             if isinstance(rep.last_result, dict):
                 final = rep.last_result.get("final_response") or ""
