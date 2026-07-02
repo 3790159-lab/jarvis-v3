@@ -162,6 +162,23 @@ def test_generic_acceptance_completed_accepts_first_try(tmp_path):
     assert rep.escalated is False and rep.document_path is not None
 
 
+def test_task_acceptance_rejects_hallucination_and_feeds_back(tmp_path):
+    # build-task, Hermes returns description+path WITHOUT code twice -> reject ->
+    # escalation, and the "сам артефакт" feedback is injected into retry
+    # (visible in attempt_rejected).
+    hallu = "Готово! Игра создана по адресу C:\\Users\\Admin\\Desktop\\ttt\\index.html"
+    hermes = _mock_hermes(final_response=hallu, stopped_reason="completed", cost=0.05)
+    stages = []
+    h, _ = _handler(tmp_path, hermes, max_attempts=2)
+    rep = _run(h.run_task_phase(chat_id=1, base_prompt="сделай веб игру крестики нолики",
+                                progress_cb=lambda s, p: stages.append((s, p)),
+                                user_id=1, username="daniil"))
+    assert rep.escalated is True
+    assert rep.document_path is None                    # NO false artifact
+    rej = [p for s, p in stages if s == "attempt_rejected"]
+    assert rej and any("артефакт" in r for pr in rej for r in pr["reasons"])
+
+
 def test_generic_acceptance_always_truncated_retries_then_escalates(tmp_path):
     hermes = _mock_hermes(final_response="<html>x</html>", stopped_reason="max_iterations", cost=0.05)
     h, _ = _handler(tmp_path, hermes, max_attempts=2)

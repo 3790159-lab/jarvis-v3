@@ -20,6 +20,7 @@ from app.services.vizir.handlers_hermes import DEFAULT_DISABLED, make_hermes_han
 from app.services.vizir.hermes_acceptance import AcceptanceResult
 from app.services.vizir.loop import LoopConfig, LoopController
 from app.services.vizir.models import Plan, Step, Task
+from app.services.vizir.task_acceptance import accept_task
 
 
 @dataclass
@@ -71,9 +72,9 @@ class VizirTaskHandler:
         self._estimated = float(estimated_per_attempt_usd)
         self._max_attempts = int(max_attempts)
         self._loop_deadline_s = float(loop_deadline_s)
-        self._accept_fn = accept_fn or accept_generic
+        self._accept_fn = accept_fn   # None => goal-bound accept_task, bound in run_task_phase
 
-    def _build_loop(self, actor: str, username, on_event):
+    def _build_loop(self, actor: str, username, on_event, accept_fn):
         reg = HandlerRegistry()
         reg.register("hermes", self._hermes)
         check_limit_fn = None
@@ -94,7 +95,7 @@ class VizirTaskHandler:
                                     estimated_usd=est, max_usd=cap, timeout_s=180.0)])
 
         return LoopController(
-            coord, build_plan=build_plan, accept_fn=self._accept_fn,
+            coord, build_plan=build_plan, accept_fn=accept_fn,
             config=LoopConfig(max_attempts=self._max_attempts,
                               min_attempt_usd=self._min_attempt_usd,
                               loop_deadline_s=tmo),
@@ -117,7 +118,8 @@ class VizirTaskHandler:
         actor = str(chat_id)
         task_id = "task-%s-%d" % (chat_id, next(_TASK_COUNTER))
         on_event = self._bridge(progress_cb)
-        loop = self._build_loop(actor, username, on_event=on_event)
+        accept_fn = self._accept_fn or (lambda v: accept_task(v, goal=base_prompt))
+        loop = self._build_loop(actor, username, on_event=on_event, accept_fn=accept_fn)
         task = Task(task_id=task_id, goal=base_prompt[:80], actor=actor,
                     budget_usd=self._budget_usd)
         rep = await loop.run(task, base_prompt)
