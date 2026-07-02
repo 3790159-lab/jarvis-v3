@@ -76,3 +76,39 @@ def test_gate1_empty_rejected():
     acc = accept_task(_val(""), goal="что ты умеешь?")
     assert acc.accepted is False
     assert any("empty output" in r for r in acc.reasons)
+
+
+# --- Зуб B: build-task БЕЗ кода (task-4 проза) → reject по Слою 2 [двойное покрытие] ---
+def test_toothB_build_task_without_code_rejected():
+    # чистая проза без пути/фразы (изолируем именно Слой 2): убираем pointer, оставляем "нет кода"
+    prose = ("Я подумал над игрой крестики-нолики. Это будет поле 3x3, "
+             "два игрока ходят по очереди, есть проверка победы и ничьи.")
+    acc = accept_task(_val(prose), goal=GOAL_TASK4)
+    assert acc.accepted is False
+    assert any("реального кода" in r or "сам артефакт" in r for r in acc.reasons)
+
+
+# --- Зуб E: build-task С реальным кодом → ПРОХОДИТ (честный успех не ломаем) ---
+def test_toothE_build_task_with_real_code_accepted():
+    code = ("<!doctype html><html><head><style>.cell{}</style></head>"
+            "<body><div id='board'></div><script>"
+            "function move(i){return i}</script></body></html>")
+    acc = accept_task(_val(code), goal=GOAL_TASK4)
+    assert acc.accepted is True, acc.reasons
+
+
+# --- Зуб build-detect precision: НЕ build-task (совет/анализ) → Слой 2 пропущен ---
+def test_build_detection_precision_non_build_skips_layer2():
+    # goal просит АНАЛИЗ+советы (нет artifact-существительного) → проза о советах проходит Слой 2
+    tips = "Вот 5 советов: 1) добавьте кэш 2) логируйте 3) тесты 4) типы 5) CI."
+    acc = accept_task(_val(tips), goal="проанализируй проект и дай 5 советов")
+    assert acc.accepted is True, acc.reasons
+
+
+# --- Зуб B2: task-4 реальный (double coverage) — pointer И no-code вместе ---
+def test_toothB2_real_task4_double_coverage():
+    acc = accept_task(_val(FIX_TASK4), goal=GOAL_TASK4)
+    assert acc.accepted is False
+    # обе причины присутствуют: и указатель (1a), и нет кода (Слой 2)
+    joined = " ".join(acc.reasons)
+    assert ("ссылк" in joined or "путь" in joined) and "кода" in joined

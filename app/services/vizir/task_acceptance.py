@@ -30,6 +30,28 @@ _DEFERRAL = ("не могу найти", "не удалось найти", "не
              "could not find", "couldn't find", "unable to locate", "where is",
              "where should i", "provide the path")
 
+# ---- Слой 2: build-task (из goal) требует реальный код в ответе ----
+_BUILD_VERBS = ("сдела", "созда", "напиши", "сгенерир", "свёрстай", "сверстай",
+                "собери", "запили", "build", "make", "create", "write",
+                "generate", "code", "implement")
+_ARTIFACT_NOUNS = ("игр", "сайт", "страниц", "html", "css", "скрипт", "код",
+                   "приложени", "компонент", "виджет", "форм", "калькулятор",
+                   "таблиц", "бот", "лендинг", "game", "app", "page", "site",
+                   "script", "component", "widget", "form", "landing", "file")
+_CODE_MARKERS = ("<html", "<!doctype html", "<script", "<style", "<body", "<div",
+                 "</", "function ", "def ", "class ", "=>", "const ", "let ",
+                 "var ", "import ", "return ")
+_CODE_FENCE = re.compile(r"```[^\n]*\n.+?```", re.S)
+
+
+def _is_build_task(goal_low: str) -> bool:
+    return (any(v in goal_low for v in _BUILD_VERBS)
+            and any(n in goal_low for n in _ARTIFACT_NOUNS))
+
+
+def _has_code(low: str, raw: str) -> bool:
+    return any(m in low for m in _CODE_MARKERS) or bool(_CODE_FENCE.search(raw))
+
 
 def _text(value: dict) -> str:
     html = value.get("final_response") or ""
@@ -67,4 +89,8 @@ def accept_task(value: dict, goal: str) -> AcceptanceResult:
     low = raw.lower()
     # Gate 2 — Слой 1
     _layer1(low, raw, reasons)
+    # Gate 3 — Слой 2: если задача просит артефакт, ответ обязан содержать реальный код
+    if _is_build_task((goal or "").lower()) and not _has_code(low, raw):
+        reasons.append("вернул описание/текст вместо реального кода — "
+                       "верни сам артефакт (полный код) инлайн в ответе")
     return AcceptanceResult(accepted=not reasons, reasons=reasons)
