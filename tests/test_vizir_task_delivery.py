@@ -146,3 +146,50 @@ def test_tooth5_hallucination_escalates_no_file(tmp_path):
                                 progress_cb=lambda s, p: None, user_id=1, username="d"))
     assert rep.escalated is True
     assert rep.document_path is None
+
+
+import importlib.util, os, sys
+from unittest.mock import patch, MagicMock
+
+_ROOT = Path(__file__).parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+
+def _bot_module():
+    spec = importlib.util.spec_from_file_location(
+        "jarvis_tg_ctrl_delivery", _ROOT / "tools" / "jarvis_smart_telegram_control.py")
+    mod = importlib.util.module_from_spec(spec)
+    with patch.dict(os.environ, {"TELEGRAM_BOT_TOKEN": "test",
+                                 "TELEGRAM_ALLOWED_CHAT_ID": "123"}):
+        spec.loader.exec_module(mod)
+    return mod
+
+
+def bot_reply(**kw):
+    from app.handlers.vizir_task_handler import VizirTaskReply
+    return VizirTaskReply(**kw)
+
+
+# --- Зуб 6a: /task-путь шлёт .html документ с MIME text/html ---
+def test_tooth6_task_apply_reply_sends_html_mime(tmp_path):
+    bot = _bot_module()
+    f = tmp_path / "task-1.html"; f.write_text("<!doctype html><html></html>", encoding="utf-8")
+    reply = bot_reply(text="ok", document_path=f, escalated=False)
+    with patch.object(bot, "_send_local_document") as sld, patch.object(bot, "send"):
+        bot._task_apply_reply("123", reply)
+    sld.assert_called_once()
+    assert sld.call_args.kwargs.get("mime") == "text/html"
+
+
+# --- Зуб 6b (обратно-совместимость): _send_local_document без mime -> application/zip ---
+def test_tooth6_send_document_default_mime_zip(tmp_path):
+    bot = _bot_module()
+    f = tmp_path / "r.zip"; f.write_bytes(b"PK\x03\x04zip")
+    captured = {}
+    def _fake_post(url, data=None, files=None, timeout=None):
+        captured["mime"] = files["document"][2]
+        return MagicMock()
+    with patch("requests.post", _fake_post):
+        bot._send_local_document("123", str(f))          # no mime -> default
+    assert captured["mime"] == "application/zip"

@@ -298,8 +298,13 @@ def _send_local_video(chat_id, path, caption: str = "") -> None:
         )
 
 
-def _send_local_document(chat_id, path, caption: str = "") -> None:
-    """Upload a local file (e.g. a results zip) via multipart sendDocument."""
+def _send_local_document(chat_id, path, caption: str = "", mime: str = "application/zip") -> None:
+    """Upload a local file (e.g. a results zip) via multipart sendDocument.
+
+    ``mime`` defaults to ``application/zip`` so existing zip callers stay
+    byte-identical; the /task path passes ``text/html`` so a delivered game
+    opens directly in a phone browser instead of downloading as a blob.
+    """
     import requests as _req
     from pathlib import Path as _Path
     p = _Path(path)
@@ -310,7 +315,7 @@ def _send_local_document(chat_id, path, caption: str = "") -> None:
         _req.post(
             f"{TG}/sendDocument",
             data={"chat_id": str(chat_id), "caption": caption[:1024] if caption else ""},
-            files={"document": (p.name, fh, "application/zip")},
+            files={"document": (p.name, fh, mime)},
             timeout=300,
         )
 
@@ -1271,7 +1276,7 @@ def _task_apply_reply(chat_id_s, reply) -> None:
     if reply.text:
         send(chat_id_s, reply.text)
     if reply.document_path is not None:
-        _send_local_document(chat_id_s, str(reply.document_path))
+        _send_local_document(chat_id_s, str(reply.document_path), mime="text/html")
 
 
 def _swapbatch_text_intercept(chat_id: str, text: str) -> bool:
