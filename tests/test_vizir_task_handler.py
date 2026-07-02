@@ -187,3 +187,121 @@ def test_generic_acceptance_always_truncated_retries_then_escalates(tmp_path):
     assert rep.escalated is True
     assert rep.stopped_reason if hasattr(rep, "stopped_reason") else True  # reply text form
     assert "did not complete" in rep.text
+
+
+# =====================================================================
+# Variant B money-ledger spy-teeth (CP-1 RED phase). See
+# docs/specs/2026-07-02-vizir-bot-integration-design.md.
+# TARGET: record to the visibility ledger ONCE, only on an ACCEPTED loop,
+# amount == rep.loop_spent_usd (the sum shown in Telegram). A rejected /
+# escalated loop records NOTHING.
+# =====================================================================
+
+from app.services.vizir.hermes_acceptance import AcceptanceResult
+
+
+def _accept_all(v):
+    return AcceptanceResult(accepted=True, reasons=[])
+
+
+def test_ledger_tooth1_accepted_records_once_with_loop_total(tmp_path):
+    # Mutation: never calling record_cost on rep.accepted (or recording the wrong
+    # amount/uid/username) turns this red.
+    # ANCHOR: a single accepted attempt records once under BOTH per-step (current)
+    # and Variant-B semantics; it pins uid/username/amount, not B-vs-A.
+    hermes = _mock_hermes(final_response="<html>ok</html>", stopped_reason="completed", cost=0.10)
+    h, calls = _handler(tmp_path, hermes, accept_fn=_accept_all)
+    _run(h.run_task_phase(chat_id=237616472, base_prompt="make a page",
+                          progress_cb=lambda s, p: None, user_id=237616472, username="daniil"))
+    assert len(calls["record_cost"]) == 1
+    uid, username, amount = calls["record_cost"][0]
+    assert uid == 237616472
+    assert username == "daniil"
+    assert abs(amount - 0.10) < 1e-9
+
+
+def test_ledger_tooth2_refusal_records_nothing(tmp_path):
+    # Mutation: recording on a non-accepted loop (or charging a refusal) turns this red.
+    # ANCHOR: a refusal is unpaid, so per-step (current) also records nothing.
+    hermes = _mock_hermes(ok=False, error="content policy", cost=0.0)
+    h, calls = _handler(tmp_path, hermes, max_attempts=1)
+    rep = _run(h.run_task_phase(chat_id=237616472, base_prompt="spicy thing",
+                                progress_cb=lambda s, p: None, user_id=237616472, username="daniil"))
+    assert calls["record_cost"] == []
+    assert rep.escalated is True
+
+
+def test_ledger_tooth3_check_limit_denial_blocks_before_spend(tmp_path):
+    # Mutation: recording despite a denied gate — or removing the pre-spend
+    # check_limit wiring — turns this red.
+    hermes = _mock_hermes(cost=0.10)
+    h, calls = _handler(tmp_path, hermes,
+                        check_limit=lambda u, estimated_usd: (False, "Дневной лимит исчерпан"))
+    rep = _run(h.run_task_phase(chat_id=999, base_prompt="x",
+                                progress_cb=lambda s, p: None, user_id=999, username="artem"))
+    # gate consulted BEFORE any spend, denied -> $0 recorded, escalated
+    assert calls["check_limit"], "check_limit must be consulted before spending"
+    assert calls["record_cost"] == []
+    assert rep.escalated is True
+
+
+def test_ledger_tooth4_multiattempt_accepted_records_sum_once(tmp_path):
+    # CRITICAL B-vs-A discriminator.
+    # Mutation: reverting to per-step charge_logger makes this red (would be called
+    # twice — once per paid attempt — instead of once with the loop total).
+    # attempt 1 PAID (0.10) but REJECTED by acceptance; attempt 2 PAID (0.06) ACCEPTED.
+    # Variant B records ONCE with the sum (0.16 == rep.loop_spent_usd); per-step
+    # (current) records TWICE (0.10, then 0.06).
+    seq = [("<html>a</html>", "completed", 0.10), ("<html>b</html>", "completed", 0.06)]
+    it = iter(seq)
+    async def hermes(step, ctx):
+        fr, sr, cost = next(it)
+        rc = ctx.get("report_cost")
+        if rc:
+            rc(cost)  # reserve-before-spend
+        return HandlerResult(ok=True, cost_usd=cost,
+                             result={"final_response": fr, "stopped_reason": sr})
+    accept_state = {"n": 0}
+    def accept_fn(v):
+        accept_state["n"] += 1
+        if accept_state["n"] == 1:
+            return AcceptanceResult(accepted=False, reasons=["retry once"])
+        return AcceptanceResult(accepted=True, reasons=[])
+    h, calls = _handler(tmp_path, hermes, accept_fn=accept_fn)
+    _run(h.run_task_phase(chat_id=237616472, base_prompt="make a page",
+                          progress_cb=lambda s, p: None, user_id=237616472, username="daniil"))
+    assert len(calls["record_cost"]) == 1, calls["record_cost"]   # NOT two per-attempt charges
+    uid, username, amount = calls["record_cost"][0]
+    assert uid == 237616472 and username == "daniil"
+    assert abs(amount - 0.16) < 1e-9                               # the SUM == loop_spent_usd
+
+
+def test_ledger_tooth5_paid_but_rejected_loop_records_nothing(tmp_path):
+    # Regression / additive-boundary tooth: a loop that SPENDS real money but is
+    # ultimately REJECTED (escalated) records NOTHING (Variant B — record only on
+    # rep.accepted). Mutation: per-step charge_logger makes this red (two paid
+    # attempts -> two ledger records on an escalated loop).
+    #
+    # Regression note: the existing videoref/swapbatch `_cost.record_cost` callers
+    # are untouched by this change — the /task ledger record is ADDITIVE and fires
+    # only inside run_task_phase on an accepted loop, never wrapping/intercepting
+    # other callers. Their true coverage is the videoref/swapbatch suites
+    # (run: python -m pytest tests/ -q -k "videoref or swapbatch").
+    seq = [("<html>a</html>", "completed", 0.10), ("<html>b</html>", "completed", 0.10)]
+    it = iter(seq)
+    async def hermes(step, ctx):
+        fr, sr, cost = next(it)
+        rc = ctx.get("report_cost")
+        if rc:
+            rc(cost)
+        return HandlerResult(ok=True, cost_usd=cost,
+                             result={"final_response": fr, "stopped_reason": sr})
+    reject_state = {"n": 0}
+    def accept_fn(v):
+        reject_state["n"] += 1
+        return AcceptanceResult(accepted=False, reasons=["reason-%d" % reject_state["n"]])
+    h, calls = _handler(tmp_path, hermes, accept_fn=accept_fn, max_attempts=2)
+    rep = _run(h.run_task_phase(chat_id=237616472, base_prompt="make a page",
+                                progress_cb=lambda s, p: None, user_id=237616472, username="daniil"))
+    assert rep.escalated is True                                   # loop rejected/escalated
+    assert calls["record_cost"] == []                             # paid, but nothing recorded
