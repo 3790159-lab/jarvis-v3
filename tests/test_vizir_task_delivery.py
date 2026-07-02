@@ -85,6 +85,14 @@ def test_extract_raw_html_no_fence():
     assert kind == "html" and "```" not in content
 
 
+def test_extract_prose_mentioning_tag_is_text():
+    # a text answer that merely MENTIONS a tag (no fence, no full document) -> text, not html
+    fr = "Чтобы обернуть контент, используй тег <div>. Это блочный элемент."
+    kind, content = _extract_artifact(fr)
+    assert kind == "text", (kind, content)
+    assert content == fr
+
+
 def test_extract_plain_text_is_text():
     fr = "Я умею писать код, отвечать на вопросы и решать задачи."
     kind, content = _extract_artifact(fr)

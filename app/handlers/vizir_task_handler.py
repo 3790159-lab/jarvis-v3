@@ -42,6 +42,7 @@ def _compose_hermes_prompt(base_prompt: str) -> str:
 
 _FENCE_RE = re.compile(r"```[a-zA-Z0-9]*\n(.*?)```", re.S)
 _HTML_MARK = ("<!doctype html", "<html", "<script", "<body", "<div", "<style")
+_HTML_DOC = ("<!doctype html", "<html")   # structural markers for RAW (unfenced) HTML
 
 
 def _slice_html(s: str) -> str:
@@ -61,7 +62,7 @@ def _extract_artifact(final_response: str):
     for body in _FENCE_RE.findall(raw):            # prefer a fenced HTML block
         if any(m in body.lower() for m in _HTML_MARK):
             return ("html", _slice_html(body))
-    if any(m in raw.lower() for m in _HTML_MARK):  # raw inline HTML (legacy path)
+    if any(m in raw.lower() for m in _HTML_DOC):   # raw inline HTML: require doc marker
         return ("html", _slice_html(raw))
     return ("text", raw)                            # plain text answer
 
