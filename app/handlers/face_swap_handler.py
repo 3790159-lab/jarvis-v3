@@ -669,12 +669,14 @@ class FaceSwapHandler:
     def build_single_animate_request(
         self, chat_id: int, *, image_path, motion: str,
         engine_mode: str | None = None, seconds: int | None = None,
-        resolution: str | None = None,
+        resolution: str | None = None, wardrobe: str | None = None,
     ):
         """Собрать один VideoRequest для standalone /animate.
 
         Engine/quality читаются из активной сессии, если есть; для чисто
         standalone-потока (без батча) их можно передать явно через оверрайды.
+        ``wardrobe`` defaults to "preserve" (safer than assemble_animate_prompt's own
+        internal "safe" default) when the caller (e.g. /videoref) doesn't pass one.
         """
         from pathlib import Path
         from app.services.block_m2_video.engines.engine_protocol import (
@@ -685,9 +687,10 @@ class FaceSwapHandler:
         engine_mode = engine_mode or (sess.video_engine if sess else "spicy")
         seconds = seconds or (sess.duration_sec if sess else 5)
         resolution = resolution or (sess.resolution if sess else "720p")
+        wardrobe = wardrobe or "preserve"
         prompt, negative = assemble_animate_prompt(
             (sess.motion_prompt if sess else "") or motion,
-            add_realism=True, add_negative=True,
+            add_realism=True, add_negative=True, wardrobe=wardrobe,
         )
         return VideoRequest(
             persona_id=f"animate_{chat_id}", persona_name="animate",
