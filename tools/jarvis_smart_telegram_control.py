@@ -1669,6 +1669,33 @@ def _videoref_smooth_toggle(chat_id, enabled) -> None:
     )
 
 
+def _videoref_engine_toggle(chat_id, mode: str) -> None:
+    """Second-engine toggle (vref:eng:<mode>): switch engine + snap length + redraw.
+
+    Mirrors _videoref_smooth_toggle. Snaps pend["seconds"] to the NEW engine's
+    allowed_durations via caps_for(mode).snap_duration(...) so the redrawn keyboard
+    never proposes/prices a length the new engine can't do (e.g. 15с WaveSpeed ->
+    10с Seedance, its max). No spend here — same money-safe shape as the smooth
+    toggle. Without pending → soft hint (mirrors the stale-button handling used by
+    every other Веха D button).
+    """
+    from app.services.block_m2_video.engines.capabilities import caps_for
+    chat_id_int = int(chat_id)
+    pend = _VIDEOREF_SWAP_PENDING.get(chat_id_int)
+    if pend is None:
+        send(chat_id, "⚠️ Кнопка устарела — пришли видео заново: /videoref")
+        return
+    pend["engine_mode"] = mode
+    pend["seconds"] = caps_for(mode).snap_duration(
+        pend.get("seconds", VIDEOREF_ANIM_SECONDS)
+    )
+    send_with_keyboard(
+        chat_id,
+        f"🎬 Движок: {caps_for(mode).display_name}. Выбери длину:",
+        _videoref_duration_keyboard(chat_id_int),
+    )
+
+
 def _videoref_face_intercept(chat_id: str, msg: Dict[str, Any]) -> bool:
     """Веха D: consume the source-face photo for the swap+animate step.
 
@@ -3676,6 +3703,12 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
             answer_callback_query(cq_id)
             _on = (len(parts) > 2 and parts[2] == "on")
             _videoref_smooth_toggle(chat_id, _on)
+            return
+        if action == "eng":
+            # Second-engine toggle: switch engine + snap length + redraw (no spend).
+            answer_callback_query(cq_id)
+            _mode = parts[2] if len(parts) > 2 else "spicy"
+            _videoref_engine_toggle(chat_id, _mode)
             return
         answer_callback_query(cq_id)
         return
