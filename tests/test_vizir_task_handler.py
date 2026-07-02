@@ -276,6 +276,23 @@ def test_ledger_tooth4_multiattempt_accepted_records_sum_once(tmp_path):
     assert abs(amount - 0.16) < 1e-9                               # the SUM == loop_spent_usd
 
 
+def test_ledger_tooth6_billing_failure_does_not_break_reply(tmp_path):
+    # Mutation: an UNGUARDED record_cost call lets a ledger throw propagate out of
+    # run_task_phase, losing the completed artifact and reporting a crash on a
+    # successful paid task. The guarded call swallows it (billing must not break
+    # the reply/artifact). RED before the try/except, GREEN after.
+    def boom(uid, username, amount):
+        raise RuntimeError("disk full")
+    html = "<html><body>hello jarvis</body></html>"
+    hermes = _mock_hermes(final_response=html, stopped_reason="completed", cost=0.08)
+    h, _ = _handler(tmp_path, hermes, accept_fn=_accept_all, record_cost=boom)
+    rep = _run(h.run_task_phase(chat_id=237616472, base_prompt="make page",
+                                progress_cb=lambda s, p: None,
+                                user_id=237616472, username="daniil"))
+    assert rep.escalated is False                                  # still a success
+    assert rep.document_path is not None and rep.document_path.exists()  # artifact delivered
+
+
 def test_ledger_tooth5_paid_but_rejected_loop_records_nothing(tmp_path):
     # Regression / additive-boundary tooth: a loop that SPENDS real money but is
     # ultimately REJECTED (escalated) records NOTHING (Variant B — record only on

@@ -172,10 +172,13 @@ class VizirTaskHandler:
             # Variant B ledger record: exactly once, only on acceptance, for the
             # whole-loop total (== the number shown in Telegram). Escalations below
             # never reach this and so record nothing.
-            if self._record_cost is not None:
-                self._record_cost(
-                    int(user_id if user_id is not None else chat_id),
-                    username, rep.loop_spent_usd)
+            if self._record_cost is not None and rep.loop_spent_usd > 0:
+                try:
+                    self._record_cost(
+                        int(user_id if user_id is not None else chat_id),
+                        username, rep.loop_spent_usd)
+                except Exception as exc:  # billing must not break the reply/artifact
+                    print("[cost] /task record_cost failed: %s" % exc, flush=True)
             final = ""
             if isinstance(rep.last_result, dict):
                 final = rep.last_result.get("final_response") or ""
