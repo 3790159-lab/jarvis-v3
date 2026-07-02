@@ -23,6 +23,22 @@ from app.services.vizir.models import Plan, Step, Task
 from app.services.vizir.task_acceptance import accept_task
 
 
+OUTPUT_CONTRACT = (
+    "У тебя НЕТ инструментов file/terminal/web — ты НЕ можешь создавать файлы на диске. "
+    "Верни ПОЛНЫЙ результат ИНЛАЙН прямо в ответе. Если задача просит код/артефакт — "
+    "верни весь рабочий код одним блоком ```. Если задача просит текст/ответ — просто "
+    "ответь инлайн. НИКОГДА не пиши «файл создан по адресу …» / «сохранил в …» — ты "
+    "этого не можешь, это будет ложь."
+)
+
+
+def _compose_hermes_prompt(base_prompt: str) -> str:
+    """Prepend the output-contract to the user's request. The ACCEPTANCE goal stays
+    the raw base_prompt (see run_task_phase) so build-task detection is not polluted
+    by the contract's words (создавать/код/файл)."""
+    return OUTPUT_CONTRACT + "\n\n" + base_prompt
+
+
 @dataclass
 class VizirTaskReply:
     text: str
@@ -122,7 +138,7 @@ class VizirTaskHandler:
         loop = self._build_loop(actor, username, on_event=on_event, accept_fn=accept_fn)
         task = Task(task_id=task_id, goal=base_prompt[:80], actor=actor,
                     budget_usd=self._budget_usd)
-        rep = await loop.run(task, base_prompt)
+        rep = await loop.run(task, _compose_hermes_prompt(base_prompt))
         if rep.accepted:
             html = ""
             if isinstance(rep.last_result, dict):
