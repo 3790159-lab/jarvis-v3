@@ -171,6 +171,20 @@ def test_engine_toggle_without_pending_is_soft_and_does_not_crash():
     assert snd.called
 
 
+def test_engine_toggle_invalid_mode_falls_back_to_spicy_and_does_not_raise():
+    bot = _get_bot_module()
+    bot._VIDEOREF_SWAP_PENDING[123] = {
+        "best_frame": Path("f.jpg"), "motion_prompt": "x", "seconds": 10,
+        "engine_mode": "spicy",
+    }
+    with patch.object(bot, "send_with_keyboard") as skb, patch.object(bot, "send"):
+        bot._videoref_engine_toggle("123", "not_a_real_engine")
+    pend = bot._VIDEOREF_SWAP_PENDING[123]
+    assert pend["engine_mode"] == "spicy"       # invalid input never corrupts pending
+    assert pend["seconds"] == 10                # spicy's own durations include 10 -> unchanged
+    skb.assert_called_once()
+
+
 # ── vref:eng: dispatch — isolated from sbeng:/anim: ────────────────────────────
 
 

@@ -1679,19 +1679,20 @@ def _videoref_engine_toggle(chat_id, mode: str) -> None:
     toggle. Without pending → soft hint (mirrors the stale-button handling used by
     every other Веха D button).
     """
-    from app.services.block_m2_video.engines.capabilities import caps_for
+    from app.services.block_m2_video.engines.capabilities import caps_for, CAPS_BY_MODE
     chat_id_int = int(chat_id)
     pend = _VIDEOREF_SWAP_PENDING.get(chat_id_int)
     if pend is None:
         send(chat_id, "⚠️ Кнопка устарела — пришли видео заново: /videoref")
         return
+    if mode not in CAPS_BY_MODE:
+        mode = "spicy"
+    caps = caps_for(mode)
     pend["engine_mode"] = mode
-    pend["seconds"] = caps_for(mode).snap_duration(
-        pend.get("seconds", VIDEOREF_ANIM_SECONDS)
-    )
+    pend["seconds"] = caps.snap_duration(pend.get("seconds", VIDEOREF_ANIM_SECONDS))
     send_with_keyboard(
         chat_id,
-        f"🎬 Движок: {caps_for(mode).display_name}. Выбери длину:",
+        f"🎬 Движок: {caps.display_name}. Выбери длину:",
         _videoref_duration_keyboard(chat_id_int),
     )
 
