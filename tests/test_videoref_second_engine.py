@@ -110,7 +110,7 @@ def test_keyboard_default_engine_row_offers_seedance(tmp_path):
     bot = _get_bot_module()
     _run_handoff(bot, tmp_path / "eng_row", 10)
     rows = bot._videoref_duration_keyboard(123)
-    assert len(rows) == 3
+    assert len(rows) == 4  # wardrobe toggle (vref-ward arc) added a fourth row
     eng_row = rows[2][0]
     assert "WaveSpeed" in eng_row["text"]
     assert eng_row["callback_data"] == "vref:eng:seedance"
