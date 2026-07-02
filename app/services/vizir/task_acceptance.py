@@ -39,8 +39,13 @@ _ARTIFACT_NOUNS = ("игр", "сайт", "страниц", "html", "css", "ск�
                    "таблиц", "бот", "лендинг", "game", "app", "page", "site",
                    "script", "component", "widget", "form", "landing", "file")
 _CODE_MARKERS = ("<html", "<!doctype html", "<script", "<style", "<body", "<div",
-                 "</", "function ", "def ", "class ", "=>", "const ", "let ",
-                 "var ", "import ", "return ")
+                 "</", "=>")
+# код-ключевые слова засчитываются ТОЛЬКО в код-контексте (за словом следует код-пунктуация),
+# иначе они ложно-матчат англо-прозу ("Let me…", "world class…", "the function of…") → false-accept
+_CODE_KEYWORD_RE = re.compile(
+    r"\b(?:function|def|class|const|let|var|return|import)\b[ \t]*[\w.$]*[ \t]*[(){\[:=]",
+    re.I,
+)
 _CODE_FENCE = re.compile(r"```[^\n]*\n.+?```", re.S)
 
 
@@ -50,7 +55,9 @@ def _is_build_task(goal_low: str) -> bool:
 
 
 def _has_code(low: str, raw: str) -> bool:
-    return any(m in low for m in _CODE_MARKERS) or bool(_CODE_FENCE.search(raw))
+    return (any(m in low for m in _CODE_MARKERS)         # structural tags/arrow
+            or bool(_CODE_KEYWORD_RE.search(raw))         # keyword in code context
+            or bool(_CODE_FENCE.search(raw)))             # fenced code block
 
 
 def _text(value: dict) -> str:

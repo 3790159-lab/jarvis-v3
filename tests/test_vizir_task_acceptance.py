@@ -112,3 +112,27 @@ def test_toothB2_real_task4_double_coverage():
     # обе причины присутствуют: и указатель (1a), и нет кода (Слой 2)
     joined = " ".join(acc.reasons)
     assert ("ссылк" in joined or "путь" in joined) and "кода" in joined
+
+
+# --- Зуб I (false-ACCEPT guard): build-task + англо-ПРОЗА с "Let me…"/"class"/"function" → reject ---
+def test_toothI_english_prose_keywords_do_not_pass_as_code():
+    # эти фразы содержат "let ", "class ", "function ", "return " как ПРОЗУ, не код
+    for prose in (
+        "Let me create a tic-tac-toe game. 3x3 grid, players take turns, win check.",
+        "This is a world class game design for tic-tac-toe with a smart opponent.",
+        "The main function of the game is to let two players compete in return for fun.",
+    ):
+        acc = accept_task(_val(prose), goal=GOAL_TASK4)
+        assert acc.accepted is False, (prose, acc.reasons)
+        assert any("реального кода" in r or "сам артефакт" in r for r in acc.reasons)
+
+
+# --- Зуб J: реальный код в код-контексте (без HTML-тегов/fence) всё равно ПРОХОДИТ ---
+def test_toothJ_real_code_via_keyword_context_accepted():
+    for code in (
+        "function move(i){ return i * 2 }",   # JS, no <script>, no fence, no =>
+        "def solve(board):\n    return best_move(board)",  # Python
+        "const board = [[0,0,0],[0,0,0]];",   # JS const with =
+    ):
+        acc = accept_task(_val(code), goal=GOAL_TASK4)
+        assert acc.accepted is True, (code, acc.reasons)
