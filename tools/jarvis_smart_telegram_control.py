@@ -1395,18 +1395,20 @@ _VIDEOREF_FACE_AWAITING: set = set()
 
 def _videoref_swapanim_est(seconds: int = VIDEOREF_ANIM_SECONDS,
                            resolution: str = VIDEOREF_ANIM_RESOLUTION,
-                           smooth: bool = False) -> float:
-    """Single source for the Веха D quote == charge — parameterized by length AND
-    smooth.
+                           smooth: bool = False,
+                           engine_mode: str = "spicy") -> float:
+    """Single source for the Веха D quote == charge — parameterized by length,
+    smooth, AND engine (second-engine arc).
 
-    swap ($0.02, length-independent) + spicy animate caps.cost_for(seconds, res)
+    swap ($0.02, length-independent) + caps_for(engine_mode).cost_for(seconds, res)
     + (RIFE rife_surcharge_usd(1, seconds) when ``smooth``). EVERYTHING reads the
     price through here: the button labels, the check_limit gate, and the per-stage
-    record_cost — so quoted == charged holds for ANY chosen duration and smooth
-    choice (e.g. 10с=$1.02, 10с+smooth≈$1.12).
+    record_cost — so quoted == charged holds for ANY chosen duration, smooth choice,
+    AND engine (e.g. spicy 10с=$1.02, seedance 10с=<seedance cost>).
+    engine_mode defaults to "spicy" — unchanged for any caller that doesn't pass it.
     """
     from app.services.block_m2_video.engines.capabilities import caps_for
-    total = VIDEOREF_SWAP_USD + caps_for("spicy").cost_for(seconds, resolution)
+    total = VIDEOREF_SWAP_USD + caps_for(engine_mode).cost_for(seconds, resolution)
     if smooth:
         from app.handlers.face_swap_handler import rife_surcharge_usd
         total += rife_surcharge_usd(1, seconds)
