@@ -334,7 +334,7 @@ def test_stages_regression_no_wardrobe_mode_key_defaults_to_preserve():
 def test_dispatch_sbward_does_not_touch_videoref_wardrobe_toggle():
     bot = _get_bot_module()
     handler = MagicMock()
-    handler.handle_wardrobe_button.return_value = "ok"
+    handler.handle_wardrobe_button.return_value = {"inline_keyboard": []}
     cq = {
         "id": "cqid", "data": "sbward:on",
         "message": {"chat": {"id": 123}, "message_id": 1},
