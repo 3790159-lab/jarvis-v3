@@ -1800,12 +1800,13 @@ def _videoref_do_swap(source_face, best_frame):
 
 
 def _videoref_do_animate(chat_id_int, handler, swapped, motion_prompt,
-                         seconds=VIDEOREF_ANIM_SECONDS):
+                         seconds=VIDEOREF_ANIM_SECONDS, engine_mode="spicy"):
     """Stage-2 raw call (reuse 1:1, the _animate_run_single pattern): animate the
-    swapped frame on WaveSpeed spicy (``seconds``/720p) by the motion prompt.
+    swapped frame on the chosen engine (``seconds``/720p) by the motion prompt.
 
-    engine_mode is explicitly "spicy" (uncensored — the point of the arc).
-    Returns the video Path or None.
+    engine_mode defaults to "spicy" (uncensored — the original point of the arc)
+    but is now selectable per-run (second-engine arc, Seedance). Returns the video
+    Path or None.
     """
     import asyncio as _aio
     from app.services.block_m2_video.engines.router import EngineRouter
@@ -1813,10 +1814,10 @@ def _videoref_do_animate(chat_id_int, handler, swapped, motion_prompt,
 
     req = handler.build_single_animate_request(
         chat_id_int, image_path=swapped, motion=motion_prompt,
-        engine_mode="spicy",
+        engine_mode=engine_mode,
         seconds=seconds, resolution=VIDEOREF_ANIM_RESOLUTION,
     )
-    engine = _aio.run(EngineRouter().select("spicy"))
+    engine = _aio.run(EngineRouter().select(engine_mode))
     results = _aio.run(animate_batch(engine, [req], concurrency=1))
     return results[0] if results else None
 
