@@ -1606,6 +1606,7 @@ def _videoref_motion_run(chat_id) -> None:
     _VIDEOREF_SWAP_PENDING[chat_id_int] = {
         "best_frame": best, "motion_prompt": result.prompt,
         "seconds": _proposed, "smooth": False,   # smooth default OFF (money-safe)
+        "engine_mode": "spicy",                  # default engine unchanged (money-safe)
     }
     # I2.2 + I3.1: one-tap duration choice + smooth toggle (shared builder, so
     # every price is est(seconds, smooth) — quoted == charged).
