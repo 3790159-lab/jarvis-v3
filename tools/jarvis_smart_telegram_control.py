@@ -1616,6 +1616,7 @@ def _videoref_motion_run(chat_id) -> None:
         "best_frame": best, "motion_prompt": result.prompt,
         "seconds": _proposed, "smooth": False,   # smooth default OFF (money-safe)
         "engine_mode": "spicy",                  # default engine unchanged (money-safe)
+        "wardrobe_mode": "preserve",             # default safe (fixes accidental exposure)
     }
     # I2.2 + I3.1: one-tap duration choice + smooth toggle (shared builder, so
     # every price is est(seconds, smooth) — quoted == charged).
