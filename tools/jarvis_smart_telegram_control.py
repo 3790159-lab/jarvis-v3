@@ -1416,31 +1416,40 @@ def _videoref_swapanim_est(seconds: int = VIDEOREF_ANIM_SECONDS,
 
 
 def _videoref_duration_keyboard(chat_id_int: int) -> list:
-    """Build the swap+animate keyboard for a chat's pending choice (I2.2 + I3.1).
+    """Build the swap+animate keyboard for a chat's pending choice (I2.2 + I3.1 +
+    second-engine).
 
-    Row 1: one button per allowed length, each labelled with est(THAT length,
-    current smooth) — the proposed length starred. Row 2: the RIFE smooth toggle.
-    A single builder feeds both the initial handoff and the toggle redraw, so
-    every price on screen is the single-source est for the current (seconds,
-    smooth) — quoted stays == charged.
+    Row 1: one button per allowed length for the CURRENT engine, each labelled
+    with est(THAT length, current smooth, current engine) — the proposed length
+    starred. Row 2: the RIFE smooth toggle. Row 3: the engine toggle (label shows
+    the current engine, tap switches to the other one). A single builder feeds
+    every redraw (initial handoff, duration pick, smooth toggle, engine toggle),
+    so every price on screen is the single-source est for the current (seconds,
+    smooth, engine_mode) — quoted stays == charged.
     """
     from app.services.block_m2_video.engines.capabilities import caps_for
     pend = _VIDEOREF_SWAP_PENDING.get(chat_id_int, {})
     proposed = pend.get("seconds", VIDEOREF_ANIM_SECONDS)
     smooth = pend.get("smooth", False)
+    engine_mode = pend.get("engine_mode", "spicy")
+    caps = caps_for(engine_mode)
 
     def _dur_btn(sec: int) -> dict:
         mark = "⭐ " if sec == proposed else "🎬 "
+        est = _videoref_swapanim_est(sec, smooth=smooth, engine_mode=engine_mode)
         return {
-            "text": f"{mark}{sec}с ~${_videoref_swapanim_est(sec, smooth=smooth):.2f}",
+            "text": f"{mark}{sec}с ~${est:.2f}",
             "callback_data": f"vref:sa:{sec}",
         }
 
     smooth_state = "ВКЛ" if smooth else "ВЫКЛ"
     smooth_cb = "vref:smooth:off" if smooth else "vref:smooth:on"
+    other_engine = "seedance" if engine_mode == "spicy" else "spicy"
     return [
-        [_dur_btn(s) for s in caps_for("spicy").allowed_durations],
+        [_dur_btn(s) for s in caps.allowed_durations],
         [{"text": f"🪶 Плавность 48fps: {smooth_state}", "callback_data": smooth_cb}],
+        [{"text": f"🎬 Движок: {caps.display_name}",
+          "callback_data": f"vref:eng:{other_engine}"}],
     ]
 
 
