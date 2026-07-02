@@ -1854,6 +1854,7 @@ def _videoref_swapanim_stages(chat_id, source_face, pend, est) -> None:
     best_frame = pend["best_frame"]
     motion_prompt = pend["motion_prompt"]
     seconds = pend.get("seconds", VIDEOREF_ANIM_SECONDS)   # chosen clip length (I2)
+    engine_mode = pend.get("engine_mode", "spicy")         # chosen engine (second-engine arc)
 
     # ── Stage 1: face swap (batch-of-1). Record $0.02 ONLY on success. ──
     try:
@@ -1874,10 +1875,12 @@ def _videoref_swapanim_stages(chat_id, source_face, pend, est) -> None:
         send(chat_id, "⚠️ Модуль анимации недоступен (свап готов, видео нет).")
         return
 
-    # ── Stage 2: animate (spicy <seconds>/720p). Record caps ONLY on success. ──
+    # ── Stage 2: animate (chosen engine, <seconds>/720p). Record caps ONLY on
+    #    success. ──
     try:
         video = _videoref_do_animate(
-            chat_id_int, handler, swapped, motion_prompt, seconds
+            chat_id_int, handler, swapped, motion_prompt, seconds,
+            engine_mode=engine_mode,
         )
     except Exception as exc:  # noqa: BLE001
         video = None
@@ -1887,7 +1890,7 @@ def _videoref_swapanim_stages(chat_id, source_face, pend, est) -> None:
         send(chat_id, "❌ Анимация не удалась (свап готов, видео нет).")
         return
     from app.services.block_m2_video.engines.capabilities import caps_for
-    anim_cost = caps_for("spicy").cost_for(seconds, VIDEOREF_ANIM_RESOLUTION)
+    anim_cost = caps_for(engine_mode).cost_for(seconds, VIDEOREF_ANIM_RESOLUTION)
     try:
         _cost.record_cost(chat_id_int, _uname, anim_cost)
     except Exception as _e:  # noqa: BLE001 - billing must not break the reply
