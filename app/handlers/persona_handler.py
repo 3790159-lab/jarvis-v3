@@ -49,6 +49,10 @@ def _persona_photo_est() -> float:
 
 def _persona_redo_est() -> float:
     return _env_usd("PERSONA_REDO_USD", 0.05)
+
+
+def _persona_batch_est(count: int) -> float:
+    return _env_usd("PERSONA_BATCH_USD", 0.05) * count
 from app.services.block_m_common.cost_tracker import CostTracker, DailyLimitExceeded
 from app.services.block_m_common.logging_setup import get_logger, setup_block_m_logging
 from app.services.block_m_common.persona_storage import PersonaStorage
@@ -1109,6 +1113,13 @@ def handle_persona_batch(chat_id: int, args: str) -> None:
             raise ValueError
     except ValueError:
         _safe_send(chat_id, "Количество должно быть числом от 1 до 20.")
+        return
+
+    # Пре-гейт дневного лимита СТРОГО до старта платной batch-генерации (дыра a).
+    # Оценка масштабируется числом фото (est = per-photo × N).
+    allowed, reason = check_limit(chat_id, estimated_usd=_persona_batch_est(count))
+    if not allowed:
+        _safe_send(chat_id, f"🚫 {reason}")
         return
 
     logger.info("handle_persona_batch chat=%s persona=%s count=%d", chat_id, persona_id, count)

@@ -123,3 +123,26 @@ def test_persona_redo_pregate_allows_uses_est(monkeypatch):
     ph.handle_persona_redo(237616472, "rec123 new prompt")
     assert started
     assert store["est"] == 0.05              # PERSONA_REDO_USD default
+
+
+# ── Task 4: /persona_batch (est = per-photo × N) ──────────────────────────
+def test_persona_batch_pregate_blocks(monkeypatch):
+    sent = []
+    started = []
+    monkeypatch.setattr(ph, "check_limit", _deny)
+    monkeypatch.setattr(ph, "_safe_send", lambda cid, t, *a, **k: sent.append(t))
+    monkeypatch.setattr(ph.threading, "Thread", _thread_spy(started))
+    ph.handle_persona_batch(237616472, "mypersona 5 a cool prompt")
+    assert not started
+    assert any("🚫" in s for s in sent)
+
+
+def test_persona_batch_est_scales_with_count(monkeypatch):
+    store = {}
+    started = []
+    monkeypatch.setattr(ph, "check_limit", _allow_capturing(store))
+    monkeypatch.setattr(ph, "_safe_send", lambda *a, **k: None)
+    monkeypatch.setattr(ph.threading, "Thread", _thread_spy(started))
+    ph.handle_persona_batch(237616472, "mypersona 5 a cool prompt")
+    assert started
+    assert abs(store["est"] - 0.25) < 1e-9   # PERSONA_BATCH_USD 0.05 × 5
