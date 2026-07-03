@@ -107,3 +107,71 @@ def test_event_photo_over_limit_never_generates(monkeypatch):
     ps.handle_event_photo("42", "банкетный зал", lambda cid, t, **k: sent.append(t), lambda *a, **k: None)
     assert gen["n"] == 0
     assert any("🚫" in s or "лимит" in s.lower() for s in sent)
+
+
+# ── T4 personal_mode me-creative (me_as/me_in/me_with/me_style) ────────────────
+# Note: у этих хендлеров есть free-гейт _check_lora_available ДО генерации —
+# в тестах мокаем его True, чтобы проверять именно money-гейт.
+
+def _lora_ok(monkeypatch):
+    monkeypatch.setattr(ps, "_check_lora_available", lambda cid: True)
+
+
+def test_me_as_over_limit_never_generates(monkeypatch):
+    _lora_ok(monkeypatch)
+    gen = {"n": 0}
+    monkeypatch.setattr(ps, "guard_spend", lambda uid, un, est, do: (None, "лимит"))
+    monkeypatch.setattr("app.services.personal_mode.generate_me_as",
+                        lambda *a, **k: gen.__setitem__("n", gen["n"] + 1) or {"url": "x"})
+    sent = []
+    ps.handle_me_as("42", "пилот", lambda cid, t, **k: sent.append(t), lambda *a, **k: None)
+    assert gen["n"] == 0
+    assert any("🚫" in s or "лимит" in s.lower() for s in sent)
+
+
+def test_me_as_success_routes_through_guard(monkeypatch):
+    _lora_ok(monkeypatch)
+    seen = {}
+    monkeypatch.setattr(ps, "guard_spend",
+                        lambda uid, un, est, do: seen.update(est=est) or (do(), None))
+    monkeypatch.setattr("app.services.personal_mode.generate_me_as", lambda *a, **k: {"url": "http://i"})
+    photos = []
+    ps.handle_me_as("42", "пилот", lambda *a, **k: None, lambda cid, url, **k: photos.append(url))
+    assert seen["est"] > 0 and photos == ["http://i"]
+
+
+def test_me_in_over_limit_never_generates(monkeypatch):
+    _lora_ok(monkeypatch)
+    gen = {"n": 0}
+    monkeypatch.setattr(ps, "guard_spend", lambda uid, un, est, do: (None, "лимит"))
+    monkeypatch.setattr("app.services.personal_mode.generate_me_in",
+                        lambda *a, **k: gen.__setitem__("n", gen["n"] + 1) or {"url": "x"})
+    sent = []
+    ps.handle_me_in("42", "мальдивы", lambda cid, t, **k: sent.append(t), lambda *a, **k: None)
+    assert gen["n"] == 0
+    assert any("🚫" in s or "лимит" in s.lower() for s in sent)
+
+
+def test_me_with_over_limit_never_generates(monkeypatch):
+    _lora_ok(monkeypatch)
+    gen = {"n": 0}
+    monkeypatch.setattr(ps, "guard_spend", lambda uid, un, est, do: (None, "лимит"))
+    # me_with тоже идёт через generate_me_in
+    monkeypatch.setattr("app.services.personal_mode.generate_me_in",
+                        lambda *a, **k: gen.__setitem__("n", gen["n"] + 1) or {"url": "x"})
+    sent = []
+    ps.handle_me_with("42", "Lambo", lambda cid, t, **k: sent.append(t), lambda *a, **k: None)
+    assert gen["n"] == 0
+    assert any("🚫" in s or "лимит" in s.lower() for s in sent)
+
+
+def test_me_style_over_limit_never_generates(monkeypatch):
+    _lora_ok(monkeypatch)
+    gen = {"n": 0}
+    monkeypatch.setattr(ps, "guard_spend", lambda uid, un, est, do: (None, "лимит"))
+    monkeypatch.setattr("app.services.personal_mode.generate_me_in_style",
+                        lambda *a, **k: gen.__setitem__("n", gen["n"] + 1) or {"url": "x"})
+    sent = []
+    ps.handle_me_style("42", "cyberpunk", lambda cid, t, **k: sent.append(t), lambda *a, **k: None)
+    assert gen["n"] == 0
+    assert any("🚫" in s or "лимит" in s.lower() for s in sent)

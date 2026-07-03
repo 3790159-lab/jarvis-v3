@@ -860,17 +860,28 @@ def handle_me_as(
         send_fn(chat_id, _lora_needed_msg())
         return
     role = query.strip().lower()
-    send_fn(chat_id, f"🎭 Генерирую тебя как {role}...")
-    try:
-        from app.services.personal_mode import generate_me_as
-        result = generate_me_as(chat_id, role)
-        url = result.get("url") or result.get("image_url")
-        if url:
-            send_photo_fn(chat_id, url, caption=f"Ты как {role}")
-        else:
-            send_fn(chat_id, f"❌ Не удалось создать изображение: {result}")
-    except Exception as exc:
-        send_fn(chat_id, f"❌ Ошибка: {exc}")
+
+    def _do():
+        send_fn(chat_id, f"🎭 Генерирую тебя как {role}...")
+        try:
+            from app.services.personal_mode import generate_me_as
+            res = generate_me_as(chat_id, role)
+            if res and (res.get("url") or res.get("image_url")):
+                return res
+            send_fn(chat_id, f"❌ Не удалось создать изображение: {res}")
+            return None
+        except Exception as exc:
+            send_fn(chat_id, f"❌ Ошибка: {exc}")
+            return None
+
+    result, err = guard_spend(chat_id, None, _envf("ME_CREATIVE_USD", 0.04), _do)
+    if err:
+        send_fn(chat_id, f"🚫 {err}")
+        return
+    if not result:
+        return
+    url = result.get("url") or result.get("image_url")
+    send_photo_fn(chat_id, url, caption=f"Ты как {role}")
 
 
 def handle_me_in(
@@ -886,17 +897,28 @@ def handle_me_in(
         send_fn(chat_id, _lora_needed_msg())
         return
     place = query.strip().lower()
-    send_fn(chat_id, f"🌍 Помещаю тебя в {place}...")
-    try:
-        from app.services.personal_mode import generate_me_in
-        result = generate_me_in(chat_id, place)
-        url = result.get("url") or result.get("image_url")
-        if url:
-            send_photo_fn(chat_id, url, caption=f"Ты в {place}")
-        else:
-            send_fn(chat_id, f"❌ Не удалось создать: {result}")
-    except Exception as exc:
-        send_fn(chat_id, f"❌ Ошибка: {exc}")
+
+    def _do():
+        send_fn(chat_id, f"🌍 Помещаю тебя в {place}...")
+        try:
+            from app.services.personal_mode import generate_me_in
+            res = generate_me_in(chat_id, place)
+            if res and (res.get("url") or res.get("image_url")):
+                return res
+            send_fn(chat_id, f"❌ Не удалось создать: {res}")
+            return None
+        except Exception as exc:
+            send_fn(chat_id, f"❌ Ошибка: {exc}")
+            return None
+
+    result, err = guard_spend(chat_id, None, _envf("ME_CREATIVE_USD", 0.04), _do)
+    if err:
+        send_fn(chat_id, f"🚫 {err}")
+        return
+    if not result:
+        return
+    url = result.get("url") or result.get("image_url")
+    send_photo_fn(chat_id, url, caption=f"Ты в {place}")
 
 
 def handle_me_with(
@@ -912,17 +934,28 @@ def handle_me_with(
         send_fn(chat_id, _lora_needed_msg())
         return
     item = query.strip()
-    send_fn(chat_id, f"🤳 Генерирую тебя с {item}...")
-    try:
-        from app.services.personal_mode import generate_me_in
-        result = generate_me_in(chat_id, f"{item} background, with {item}")
-        url = result.get("url") or result.get("image_url")
-        if url:
-            send_photo_fn(chat_id, url, caption=f"Ты с {item}")
-        else:
-            send_fn(chat_id, f"❌ Не удалось создать: {result}")
-    except Exception as exc:
-        send_fn(chat_id, f"❌ Ошибка: {exc}")
+
+    def _do():
+        send_fn(chat_id, f"🤳 Генерирую тебя с {item}...")
+        try:
+            from app.services.personal_mode import generate_me_in
+            res = generate_me_in(chat_id, f"{item} background, with {item}")
+            if res and (res.get("url") or res.get("image_url")):
+                return res
+            send_fn(chat_id, f"❌ Не удалось создать: {res}")
+            return None
+        except Exception as exc:
+            send_fn(chat_id, f"❌ Ошибка: {exc}")
+            return None
+
+    result, err = guard_spend(chat_id, None, _envf("ME_CREATIVE_USD", 0.04), _do)
+    if err:
+        send_fn(chat_id, f"🚫 {err}")
+        return
+    if not result:
+        return
+    url = result.get("url") or result.get("image_url")
+    send_photo_fn(chat_id, url, caption=f"Ты с {item}")
 
 
 def handle_me_style(
@@ -938,17 +971,28 @@ def handle_me_style(
         send_fn(chat_id, _lora_needed_msg())
         return
     style = query.strip().lower()
-    send_fn(chat_id, f"🎨 Создаю тебя в стиле {style}...")
-    try:
-        from app.services.personal_mode import generate_me_in_style
-        result = generate_me_in_style(chat_id, style)
-        url = result.get("url") or result.get("image_url")
-        if url:
-            send_photo_fn(chat_id, url, caption=f"Ты в стиле {style}")
-        else:
-            send_fn(chat_id, f"❌ Не удалось создать: {result}")
-    except Exception as exc:
-        send_fn(chat_id, f"❌ Ошибка: {exc}")
+
+    def _do():
+        send_fn(chat_id, f"🎨 Создаю тебя в стиле {style}...")
+        try:
+            from app.services.personal_mode import generate_me_in_style
+            res = generate_me_in_style(chat_id, style)
+            if res and (res.get("url") or res.get("image_url")):
+                return res
+            send_fn(chat_id, f"❌ Не удалось создать: {res}")
+            return None
+        except Exception as exc:
+            send_fn(chat_id, f"❌ Ошибка: {exc}")
+            return None
+
+    result, err = guard_spend(chat_id, None, _envf("ME_CREATIVE_USD", 0.04), _do)
+    if err:
+        send_fn(chat_id, f"🚫 {err}")
+        return
+    if not result:
+        return
+    url = result.get("url") or result.get("image_url")
+    send_photo_fn(chat_id, url, caption=f"Ты в стиле {style}")
 
 
 def handle_me_roles(chat_id: str, send_fn: Callable) -> None:
