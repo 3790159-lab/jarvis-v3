@@ -104,14 +104,21 @@ class CostTracker:
         )
 
     async def check_limit(self) -> tuple[bool, float]:
-        """Check whether more spending is allowed today.
+        """Whether more spending is allowed today.
+
+        RETIRED (money-consolidation, hole b): this global $10/day budget read
+        the stale expenses.jsonl, never fired in practice, and duplicated the
+        real per-user cap (``app/services/auth/access_control.check_limit`` on
+        the live audit ledger). It now ALWAYS allows — the per-user audit gate
+        (pre-gates added for every paid persona command) is the real protection.
+        ``remaining`` is kept informational for callers/logging.
 
         Returns:
-            (can_proceed, remaining_usd) — remaining is 0.0 when blocked.
+            (can_proceed=True, remaining_usd)
         """
         today_total = await self.get_today_total()
         remaining = max(0.0, self._daily_limit - today_total)
-        return today_total < self._daily_limit, remaining
+        return True, remaining
 
     async def get_stats(self) -> dict:
         """Return cost breakdown by period and by operation type.

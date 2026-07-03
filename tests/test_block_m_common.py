@@ -971,25 +971,28 @@ class TestCostTracker:
         assert remaining == pytest.approx(7.0)
 
     @pytest.mark.anyio
-    async def test_check_limit_remaining_at_zero_when_over(self, tracker):
+    async def test_check_limit_always_allows_budget_retired(self, tracker):
+        # money-consolidation hole b: global block_m budget RETIRED -> check_limit
+        # always allows (real cap = per-user audit gate). remaining stays 0.0.
         await tracker.log_expense("op", 10.0, None)
         can_proceed, remaining = await tracker.check_limit()
-        assert can_proceed is False
+        assert can_proceed is True
         assert remaining == 0.0
 
     @pytest.mark.anyio
-    async def test_log_expense_raises_when_limit_exceeded(self, tracker):
-        from app.services.block_m_common.cost_tracker import DailyLimitExceeded
+    async def test_log_expense_does_not_raise_budget_retired(self, tracker):
+        # Retired: log_expense must NOT raise even far over the old cap.
         await tracker.log_expense("big_op", 10.0, None)
-        with pytest.raises(DailyLimitExceeded, match="Daily limit"):
-            await tracker.log_expense("extra", 0.01, None)
+        await tracker.log_expense("extra", 0.01, None)
+        stats = await tracker.get_stats()
+        assert stats["daily"] == pytest.approx(10.01)
 
     @pytest.mark.anyio
-    async def test_daily_limit_exceeded_message_includes_operation(self, tracker):
-        from app.services.block_m_common.cost_tracker import DailyLimitExceeded
+    async def test_log_expense_over_cap_still_appends_budget_retired(self, tracker):
         await tracker.log_expense("fill", 10.0, None)
-        with pytest.raises(DailyLimitExceeded, match="blocked_op"):
-            await tracker.log_expense("blocked_op", 1.0, None)
+        await tracker.log_expense("blocked_op", 1.0, None)   # appends, no raise
+        stats = await tracker.get_stats()
+        assert "blocked_op" in stats["by_operation"]
 
     @pytest.mark.anyio
     async def test_get_total_for_persona(self, tracker):
@@ -1059,12 +1062,14 @@ class TestCostTracker:
         assert DAILY_LIMIT_USD == 10.0
 
     @pytest.mark.anyio
-    async def test_custom_daily_limit(self, tmp_path):
-        from app.services.block_m_common.cost_tracker import CostTracker, DailyLimitExceeded
+    async def test_custom_daily_limit_also_retired(self, tmp_path):
+        from app.services.block_m_common.cost_tracker import CostTracker
         tracker = CostTracker(expenses_file=tmp_path / "exp.jsonl", daily_limit=1.0)
         await tracker.log_expense("op", 1.0, None)
-        with pytest.raises(DailyLimitExceeded):
-            await tracker.log_expense("extra", 0.01, None)
+        # Retired: even a tiny custom limit no longer blocks.
+        await tracker.log_expense("extra", 0.01, None)
+        stats = await tracker.get_stats()
+        assert stats["daily"] == pytest.approx(1.01)
 
     @pytest.mark.anyio
     async def test_check_limit_remaining_correct_midway(self, tracker):

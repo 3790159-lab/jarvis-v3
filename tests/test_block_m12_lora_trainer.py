@@ -163,7 +163,9 @@ async def test_start_training_creates_videojob(trainer, storage, persona_with_ph
 # ──────────────────────────────────────────────────────────────────────────────
 
 @pytest.mark.anyio
-async def test_start_training_respects_daily_limit(mock_client, storage, queue, state_file, persona_with_photos):
+async def test_start_training_no_longer_blocked_by_retired_budget(mock_client, storage, queue, state_file, persona_with_photos):
+    # money-consolidation hole b: the global block_m budget is retired, so an
+    # "exhausted" tracker no longer blocks training (real cap = per-user audit).
     exhausted_tracker = CostTracker(
         expenses_file=storage._file.parent / "exp.jsonl",
         daily_limit=1.0,
@@ -171,9 +173,9 @@ async def test_start_training_respects_daily_limit(mock_client, storage, queue, 
     await exhausted_tracker.log_expense("fill", 1.0, None)
 
     t = LoRATrainer(mock_client, storage, exhausted_tracker, queue, state_file=state_file)
-    with pytest.raises(DailyLimitExceeded):
-        with patch("threading.Thread"):
-            await t.start_training(persona_with_photos.persona_id)
+    with patch("threading.Thread"):
+        job_id = await t.start_training(persona_with_photos.persona_id)
+    assert job_id is not None                      # training proceeds, no raise
 
 
 # ──────────────────────────────────────────────────────────────────────────────
