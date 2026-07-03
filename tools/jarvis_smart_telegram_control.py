@@ -1311,9 +1311,11 @@ def _swapbatch_text_intercept(chat_id: str, text: str) -> bool:
 def _prompt_intake_dispatch(chat_id: str, result) -> None:
     """Применить съеденную ручную motion-строку по kind.
 
-    Обработчик /videoref подключается в T4."""
+    """
     if result.kind == "animate":
         _animate_apply_custom_motion(chat_id, result)
+    elif result.kind == "videoref":
+        _videoref_apply_custom_motion(chat_id, result)
 
 
 def _prompt_intake_intercept(chat_id: str, text: str) -> bool:
@@ -1556,10 +1558,77 @@ def _videoref_intercept(chat_id: str, msg: Dict[str, Any]) -> bool:
     send_with_keyboard(
         chat_id,
         f"✂️ Нарезано {len(frames)} кадров.",
-        [[{"text": f"🎬 Анализ движения (~${VIDEOREF_MOTION_USD:.2f})",
-           "callback_data": "vref:motion"}]],
+        _videoref_offer_keyboard(),
     )
     return True
+
+
+def _videoref_offer_keyboard() -> list:
+    """Две опции после нарезки: платный Grok-анализ ИЛИ бесплатный свой промт.
+    Обе сосуществуют (решение a) — можно переключаться между ними."""
+    return [
+        [{"text": f"🎬 Анализ движения (~${VIDEOREF_MOTION_USD:.2f})",
+          "callback_data": "vref:motion"}],
+        [{"text": "✍️ Свой промт (бесплатно)", "callback_data": "vref:custom"}],
+    ]
+
+
+def _videoref_custom_toggle(chat_id: str) -> None:
+    """Тоггл vref:custom: первый тап — включить ожидание ручной строки; повторный
+    — снять (сброс, возврат к Grok-режиму: кнопка 🎬 Анализ остаётся на экране)."""
+    from app.services.block_m2_video import prompt_intake as _pi
+    if _pi.is_awaiting(int(chat_id)):
+        _pi.disarm(int(chat_id))
+        send(chat_id, "✍️ Ручной промт отменён — можно нажать «🎬 Анализ движения».")
+    else:
+        _pi.arm(int(chat_id), "videoref")
+        send(chat_id, "✍️ Пришли одну строку — что должно двигаться в кадре.")
+
+
+def _videoref_apply_custom_motion(chat_id, result) -> None:
+    """T4: ручной motion-промт для /videoref — БЕСПЛАТНЫЙ путь.
+
+    Зеркало _videoref_motion_run БЕЗ шагов 1(limit-gate)/3(Grok)/4(record_cost):
+    только free best-frame + handoff на duration-клавиатуру. Grok не зовётся →
+    VIDEOREF_MOTION_USD НЕ списывается (motion взят от пользователя).
+    """
+    from pathlib import Path as _P
+    chat_id_int = int(chat_id)
+    pend = _VIDEOREF_PENDING.pop(chat_id_int, None)
+    if not pend:
+        send(chat_id, "⚠️ Кадры не найдены — пришли видео заново: /videoref")
+        return
+    frames_dir = pend.get("frames_dir")
+    frames = (
+        sorted(str(p) for p in _P(frames_dir).glob("frame_*.jpg"))
+        if frames_dir else []
+    )
+    # Best frame (free, local). Нет лица -> свапать нечего, платного вызова нет.
+    from app.services.block_m2_face_swap.face_validator import FaceValidator
+    best = select_best_frame(frames, FaceValidator())
+    if best is None:
+        send(chat_id, "❌ Не нашёл лицо в кадрах — свапать нечего.")
+        return
+    # НИКАКОГО Grok / record_cost / check_limit — ручной путь бесплатный.
+    from app.services.block_m2_video.engines.capabilities import caps_for as _caps_for
+    _ref_dur = pend.get("duration")
+    _proposed = (
+        _caps_for("spicy").snap_duration(int(_ref_dur))
+        if _ref_dur else VIDEOREF_ANIM_SECONDS
+    )
+    _VIDEOREF_SWAP_PENDING[chat_id_int] = {
+        "best_frame": best, "motion_prompt": result.motion,
+        "seconds": _proposed, "smooth": False,   # money-safe defaults (зеркало платного)
+        "engine_mode": "spicy",
+        "wardrobe_mode": "preserve",
+    }
+    _send_local_photo(chat_id, str(best), caption=f"✍️ Свой промт: {result.motion}")
+    send_with_keyboard(
+        chat_id,
+        f"🔜 Свап + анимация — выбери длину (реф ≈ {_proposed}с предложен ⭐) "
+        f"и плавность:",
+        _videoref_duration_keyboard(chat_id_int),
+    )
 
 
 def _videoref_motion_run(chat_id) -> None:
@@ -1573,8 +1642,12 @@ def _videoref_motion_run(chat_id) -> None:
     it is unit-testable; the callback dispatch runs it in a worker thread.
     """
     from pathlib import Path as _P
+    from app.services.block_m2_video import prompt_intake as _pi
 
     chat_id_int = int(chat_id)
+    # Switching to paid Grok cancels any pending manual-prompt wait, so text
+    # typed afterwards doesn't get eaten by the (now abandoned) manual path.
+    _pi.disarm(chat_id_int)
     pend = _VIDEOREF_PENDING.pop(chat_id_int, None)
     if not pend:
         send(chat_id, "⚠️ Кадры не найдены — пришли видео заново: /videoref")
@@ -3800,6 +3873,11 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
                 target=_videoref_motion_run, args=(chat_id,), daemon=True,
                 name=f"videoref_motion_{chat_id}",
             ).start()
+            return
+        if action == "custom":
+            # T4: тоггл ручного промта (бесплатно). Сосуществует с Grok-анализом.
+            answer_callback_query(cq_id, "✍️")
+            _videoref_custom_toggle(chat_id)
             return
         if action == "sa":
             # Веха D / I2.2: pick clip length (parts[2]) + arm the face wait,
