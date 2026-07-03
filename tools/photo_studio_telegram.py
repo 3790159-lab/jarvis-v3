@@ -17,6 +17,21 @@ from typing import Any, Callable, Dict, List, Optional
 _ROOT = Path(__file__).parent.parent
 _CONV_DIR = _ROOT / "state" / "conversations"
 
+# Money-гейт: платные Photo Studio команды тратят деньги → check_limit ДО,
+# record_cost ПОСЛЕ успеха. Импорт на уровне модуля (root уже на sys.path,
+# т.к. модуль импортируется как tools.photo_studio_telegram) и монкипатчабелен.
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+from app.services.auth.spend_guard import guard_spend  # noqa: E402
+
+
+def _envf(name: str, default: float) -> float:
+    """Оценка стоимости из env (единый источник quote==charge)."""
+    try:
+        return float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
 
 def _add_root() -> None:
     r = str(_ROOT)
@@ -119,16 +134,23 @@ def handle_menu_photo(
         dish = parts[0].strip()
         style = parts[1].strip().split()[0].lower()
 
-    send_fn(chat_id, f"📸 Генерирую фото «{dish}» в стиле {style}...")
-    try:
-        from app.services.restaurant_mode import generate_dish_photo
-        photo_url = generate_dish_photo(dish, style)
-        if not photo_url:
-            send_fn(chat_id, "❌ Не удалось сгенерировать фото")
-            return
-        send_photo_fn(chat_id, photo_url, caption=dish)
-    except Exception as exc:
-        send_fn(chat_id, f"❌ Ошибка генерации: {exc}")
+    def _do():
+        send_fn(chat_id, f"📸 Генерирую фото «{dish}» в стиле {style}...")
+        try:
+            from app.services.restaurant_mode import generate_dish_photo
+            return generate_dish_photo(dish, style)
+        except Exception as exc:
+            send_fn(chat_id, f"❌ Ошибка генерации: {exc}")
+            return None
+
+    photo_url, err = guard_spend(chat_id, None, _envf("PHOTO_DISH_USD", 0.04), _do)
+    if err:
+        send_fn(chat_id, f"🚫 {err}")
+        return
+    if not photo_url:
+        send_fn(chat_id, "❌ Не удалось сгенерировать фото")
+        return
+    send_photo_fn(chat_id, photo_url, caption=dish)
 
 
 def handle_social_post(
@@ -142,26 +164,41 @@ def handle_social_post(
         return
 
     dish = query.strip()
-    send_fn(chat_id, f"📱 Создаю Instagram-пост для «{dish}»...")
-    try:
-        from app.services.restaurant_mode import generate_social_post
-        result = generate_social_post(dish)
-        url = result.get("url") or result.get("image_url")
-        caption = result.get("caption", dish)
-        hashtags = result.get("hashtags", "")
-        full_caption = f"{caption}\n\n{hashtags}" if hashtags else caption
-        if url:
-            from tools.jarvis_smart_telegram_control import tg_call
-            tg_call("sendPhoto", {
-                "chat_id": chat_id,
-                "photo": url,
-                "caption": full_caption[:1024],
-                "reply_markup": _social_post_keyboard(dish),
-            })
-        else:
-            send_fn(chat_id, f"❌ Не удалось получить фото: {result}")
-    except Exception as exc:
-        send_fn(chat_id, f"❌ Ошибка: {exc}")
+
+    def _do():
+        send_fn(chat_id, f"📱 Создаю Instagram-пост для «{dish}»...")
+        try:
+            from app.services.restaurant_mode import generate_social_post
+            res = generate_social_post(dish)
+            # успех = валидный url; urlless dict = сбой → None (не списываем, Risk #4)
+            if res and (res.get("url") or res.get("image_url")):
+                return res
+            send_fn(chat_id, f"❌ Не удалось получить фото: {res}")
+            return None
+        except Exception as exc:
+            send_fn(chat_id, f"❌ Ошибка: {exc}")
+            return None
+
+    result, err = guard_spend(chat_id, None, _envf("PHOTO_DISH_USD", 0.04), _do)
+    if err:
+        send_fn(chat_id, f"🚫 {err}")
+        return
+    if not result:
+        return  # ошибку уже сообщили внутри _do
+    url = result.get("url") or result.get("image_url")
+    caption = result.get("caption", dish)
+    hashtags = result.get("hashtags", "")
+    full_caption = f"{caption}\n\n{hashtags}" if hashtags else caption
+    if url:
+        from tools.jarvis_smart_telegram_control import tg_call
+        tg_call("sendPhoto", {
+            "chat_id": chat_id,
+            "photo": url,
+            "caption": full_caption[:1024],
+            "reply_markup": _social_post_keyboard(dish),
+        })
+    else:
+        send_fn(chat_id, f"❌ Не удалось получить фото: {result}")
 
 
 def handle_menu_book(
@@ -179,20 +216,36 @@ def handle_menu_book(
         send_fn(chat_id, "Укажи блюда через запятую.")
         return
 
-    send_fn(chat_id, f"📚 Создаю серию фото для {len(dishes)} блюд...")
-    try:
-        from app.services.restaurant_mode import generate_menu_series
-        results = generate_menu_series(dishes)
-        ok = 0
-        for r in results:
-            url = r.get("url") or r.get("image_url")
-            dish = r.get("dish", "")
-            if url:
-                send_photo_fn(chat_id, url, caption=dish)
-                ok += 1
-        send_fn(chat_id, f"✅ Готово: {ok}/{len(dishes)} фото создано.")
-    except Exception as exc:
-        send_fn(chat_id, f"❌ Ошибка: {exc}")
+    def _do():
+        send_fn(chat_id, f"📚 Создаю серию фото для {len(dishes)} блюд...")
+        try:
+            from app.services.restaurant_mode import generate_menu_series
+            results = generate_menu_series(dishes)
+            # успех = хотя бы один валидный url в серии
+            if results and any(r.get("url") or r.get("image_url") for r in results):
+                return results
+            return None
+        except Exception as exc:
+            send_fn(chat_id, f"❌ Ошибка: {exc}")
+            return None
+
+    # оценка = цена за блюдо × число блюд (гейт на всю серию ДО генерации)
+    est = _envf("PHOTO_MENU_BOOK_USD", 0.04) * len(dishes)
+    results, err = guard_spend(chat_id, None, est, _do)
+    if err:
+        send_fn(chat_id, f"🚫 {err}")
+        return
+    if not results:
+        send_fn(chat_id, "❌ Не удалось создать серию.")
+        return
+    ok = 0
+    for r in results:
+        url = r.get("url") or r.get("image_url")
+        dish = r.get("dish", "")
+        if url:
+            send_photo_fn(chat_id, url, caption=dish)
+            ok += 1
+    send_fn(chat_id, f"✅ Готово: {ok}/{len(dishes)} фото создано.")
 
 
 def handle_dish_styles(chat_id: str, send_fn: Callable) -> None:

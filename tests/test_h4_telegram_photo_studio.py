@@ -60,6 +60,17 @@ CHAT = "test_chat_42"
 
 
 @pytest.fixture(autouse=True)
+def _allow_money_gate(monkeypatch):
+    """Photo Studio команды теперь за money-гейтом (Арка 1). Тесты ниже проверяют
+    ПОВЕДЕНИЕ генерации/доставки, поэтому гейт пропускаем (allow, pass-through).
+    Сам гейт (отказ при over-limit, запись в леджер) проверяется отдельно в
+    tests/test_money_gate_photo_studio.py."""
+    import tools.photo_studio_telegram as _ps
+    if hasattr(_ps, "guard_spend"):
+        monkeypatch.setattr(_ps, "guard_spend", lambda uid, un, est, do: (do(), None))
+
+
+@pytest.fixture(autouse=True)
 def clean_conv():
     """Clear conversation state before/after each test."""
     clear_conv(CHAT)
