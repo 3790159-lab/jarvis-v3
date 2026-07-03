@@ -5868,9 +5868,22 @@ def cmd_simple_game(chat_id: str, query: str) -> None:
         send(chat_id, f"❌ Ошибка: {translate_exception(exc)}")
 
 
+def _menu_role(chat_id) -> str:
+    """Роль для меню: 'admin' или 'friend' (никогда None) — легаси-админ по
+    ALLOWED_CHAT_ID покрыт как в handle()."""
+    r = _role_for_chat(chat_id) or ("admin" if str(chat_id) == ALLOWED_CHAT_ID else "friend")
+    return "admin" if r == "admin" else "friend"
+
+
 def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) -> None:
     if cmd in ["/start", "/smart", "/smart_help", "/help"]:
         send(chat_id, HELP_TEXT)
+        return
+
+    if cmd == "/menu":
+        from tools import jarvis_menu as jmenu
+        _text, _kb = jmenu.render_root(_menu_role(chat_id))
+        send_with_keyboard(chat_id, _text, _kb)
         return
 
     if cmd == "/capabilities":
@@ -7047,6 +7060,7 @@ def _check_backend_startup() -> None:
 # Генеративный набор: лицевой своп + анимация + persona (+ video_face_swap идёт
 # через interceptor, не команду). Личная статистика. Default-deny.
 FRIEND_ALLOWED_COMMANDS: frozenset = frozenset({
+    # ── Base 28 (pre-menu-arc) ────────────────────────────────────────────
     "/animate", "/animate_batch", "/animate_batch_go",
     "/swapbatch", "/swapbatch_source", "/swapbatch_batch",
     "/swapbatch_go", "/swapbatch_set_quality", "/swapbatch_set_prompt",
@@ -7057,12 +7071,23 @@ FRIEND_ALLOWED_COMMANDS: frozenset = frozenset({
     "/persona_engine", "/persona_batch", "/me_swap_photo", "/me_swap_video",
     "/videoref",
     "/my_stats", "/start", "/help",
+    # ── /menu infrastructure (unified-menu arc) ──────────────────────────
+    "/menu",
+    # ── Group A: free (lists/status/cancel) — unified-menu diff ──────────
+    "/cancel_persona", "/lora_status", "/list_loras", "/cancel_lora",
+    "/me_roles", "/me_places", "/me_styles", "/party_themes", "/dish_styles",
+    # ── Group B: paid — LEGAL only because Арка 1 (money-gate @375a7a4)
+    #    gates every spend-site below with check_limit/record_cost. ─────────
+    "/create_persona", "/train_lora",
+    "/me_into", "/me_as", "/me_in", "/me_with", "/me_style",
+    "/menu_photo", "/social_post", "/menu_book", "/pro_food", "/smart_photo",
+    "/party_promo", "/invite_card", "/event_photo", "/faceswap", "/enhance",
 })
 # video_face_swap (фото+видео пара) идёт через _video_face_swap_intercept,
 # уже member-gated в process_update — отдельная команда не нужна.
 
 # Префиксы callback_data, разрешённые friend (генеративные кнопки). Остальное — admin.
-FRIEND_ALLOWED_CALLBACK_PREFIXES = ("sbeng:", "sbq:", "sbsmooth:", "sbward:", "anim:", "aq:", "asmooth:", "sbgen:", "vref:")
+FRIEND_ALLOWED_CALLBACK_PREFIXES = ("sbeng:", "sbq:", "sbsmooth:", "sbward:", "anim:", "aq:", "asmooth:", "sbgen:", "vref:", "menu:")
 
 
 def _role_for_chat(chat_id) -> Optional[str]:
