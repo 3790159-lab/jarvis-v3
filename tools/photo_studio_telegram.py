@@ -494,36 +494,52 @@ def handle_faceswap_photo_step(
 
     if step == "enhance_upload":
         clear_conv(chat_id)
-        send_fn(chat_id, "✨ Улучшаю фото через GFPGAN...")
-        try:
-            from app.services.face_swap import enhance_face
-            result_url = enhance_face(photo_url)
+
+        def _do():
+            send_fn(chat_id, "✨ Улучшаю фото через GFPGAN...")
+            try:
+                from app.services.face_swap import enhance_face
+                return enhance_face(photo_url)
+            except Exception as exc:
+                send_fn(chat_id, f"❌ Ошибка GFPGAN: {exc}")
+                return None
+
+        result_url, err = guard_spend(chat_id, None, _envf("ENHANCE_USD", 0.01), _do)
+        if err:
+            send_fn(chat_id, f"🚫 {err}")
+            return True
+        if result_url:
             send_photo_fn(chat_id, result_url, caption="✨ Улучшенное фото")
-        except Exception as exc:
-            send_fn(chat_id, f"❌ Ошибка GFPGAN: {exc}")
         return True
 
     if step == "meinto_target":
         clear_conv(chat_id)
-        # Use last known source face from lora training or prior faceswap
-        # For now we need a source — ask them to use /faceswap instead
-        send_fn(chat_id, "⏳ Вставляю твоё лицо в target фото...")
-        try:
-            # Try to get saved source from state/my_face.txt
-            face_path = _ROOT / "state" / "my_face_url.txt"
-            if face_path.exists():
-                source_url = face_path.read_text(encoding="utf-8").strip()
+        # Требуется ранее сохранённое лицо (из /faceswap). Проверка бесплатна → ДО гейта.
+        face_path = _ROOT / "state" / "my_face_url.txt"
+        if not face_path.exists():
+            send_fn(chat_id, (
+                "❌ Нет сохранённого лица.\n"
+                "Используй /faceswap и загрузи своё лицо как source.\n"
+                "Оно сохранится для будущих /me_into."
+            ))
+            return True
+        source_url = face_path.read_text(encoding="utf-8").strip()
+
+        def _do():
+            send_fn(chat_id, "⏳ Вставляю твоё лицо в target фото...")
+            try:
                 from app.services.face_swap import face_swap_basic
-                result_url = face_swap_basic(source_url, photo_url)
-                send_photo_fn(chat_id, result_url, caption="🔄 Твоё лицо вставлено")
-            else:
-                send_fn(chat_id, (
-                    "❌ Нет сохранённого лица.\n"
-                    "Используй /faceswap и загрузи своё лицо как source.\n"
-                    "Оно сохранится для будущих /me_into."
-                ))
-        except Exception as exc:
-            send_fn(chat_id, f"❌ Ошибка: {exc}")
+                return face_swap_basic(source_url, photo_url)
+            except Exception as exc:
+                send_fn(chat_id, f"❌ Ошибка: {exc}")
+                return None
+
+        result_url, err = guard_spend(chat_id, None, _envf("FACESWAP_USD", 0.005), _do)
+        if err:
+            send_fn(chat_id, f"🚫 {err}")
+            return True
+        if result_url:
+            send_photo_fn(chat_id, result_url, caption="🔄 Твоё лицо вставлено")
         return True
 
     if step == "lora_collecting":
@@ -567,31 +583,36 @@ def handle_faceswap_callback(
             return True
 
         cost = "$0.005"  # lucataco/faceswap stopgap (uncensored); ComfyUI graph in reserve
-        send_fn(chat_id, f"🔄 Запускаю face swap ({cost})...")
-        try:
-            if quality == "basic":
-                from app.services.face_swap import face_swap_basic
-                result_url = face_swap_basic(source, target)
-            else:
+
+        def _do():
+            send_fn(chat_id, f"🔄 Запускаю face swap ({cost})...")
+            try:
+                if quality == "basic":
+                    from app.services.face_swap import face_swap_basic
+                    return face_swap_basic(source, target)
                 from app.services.face_swap import face_swap_with_polish
-                result_url = face_swap_with_polish(source, target)
+                return face_swap_with_polish(source, target)
+            except Exception as exc:
+                from app.services.face_swap import NSFWFiltered
+                if isinstance(exc, NSFWFiltered):
+                    send_fn(chat_id, (
+                        "⚠️ Фото отклонено NSFW-фильтром модели "
+                        "(он бывает ложно срабатывает на обычных фото). "
+                        "Попробуй другое фото."
+                    ))
+                else:
+                    send_fn(chat_id, f"❌ Ошибка face swap: {exc}")
+                return None
 
+        result_url, err = guard_spend(chat_id, None, _envf("FACESWAP_USD", 0.005), _do)
+        if err:
+            send_fn(chat_id, f"🚫 {err}")
+            return True
+        if result_url:
             send_photo_fn(chat_id, result_url, caption="🔄 Face Swap готов!")
-
             # Save source as "my face" for future /me_into
             face_path = _ROOT / "state" / "my_face_url.txt"
             face_path.write_text(source, encoding="utf-8")
-
-        except Exception as exc:
-            from app.services.face_swap import NSFWFiltered
-            if isinstance(exc, NSFWFiltered):
-                send_fn(chat_id, (
-                    "⚠️ Фото отклонено NSFW-фильтром модели "
-                    "(он бывает ложно срабатывает на обычных фото). "
-                    "Попробуй другое фото."
-                ))
-            else:
-                send_fn(chat_id, f"❌ Ошибка face swap: {exc}")
         return True
 
     return False
