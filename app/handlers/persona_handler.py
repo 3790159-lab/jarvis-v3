@@ -45,6 +45,10 @@ def _create_persona_est() -> float:
 # пре-гейт только проверяет лимит ДО платного вызова (без двойного списания).
 def _persona_photo_est() -> float:
     return _env_usd("PERSONA_PHOTO_USD", 0.05)
+
+
+def _persona_redo_est() -> float:
+    return _env_usd("PERSONA_REDO_USD", 0.05)
 from app.services.block_m_common.cost_tracker import CostTracker, DailyLimitExceeded
 from app.services.block_m_common.logging_setup import get_logger, setup_block_m_logging
 from app.services.block_m_common.persona_storage import PersonaStorage
@@ -661,6 +665,12 @@ def handle_persona_redo(chat_id: int, args: str) -> None:
 
     record_id = parts[0]
     new_prompt = parts[1].strip() if len(parts) > 1 else None
+
+    # Пре-гейт дневного лимита СТРОГО до старта платной перегенерации (дыра a).
+    allowed, reason = check_limit(chat_id, estimated_usd=_persona_redo_est())
+    if not allowed:
+        _safe_send(chat_id, f"🚫 {reason}")
+        return
 
     logger.info("handle_persona_redo chat=%s record=%s", chat_id, record_id)
     _safe_send(chat_id, f"Перегенерирую видео по записи {record_id}...")

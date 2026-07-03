@@ -100,3 +100,26 @@ def test_persona_video_bare_help_not_gated(monkeypatch):
     except Exception:
         pass  # downstream help import may fail in test env — irrelevant here
     assert called == []                      # check_limit NOT consulted for help
+
+
+# ── Task 3: /persona_redo ─────────────────────────────────────────────────
+def test_persona_redo_pregate_blocks(monkeypatch):
+    sent = []
+    started = []
+    monkeypatch.setattr(ph, "check_limit", _deny)
+    monkeypatch.setattr(ph, "_safe_send", lambda cid, t, *a, **k: sent.append(t))
+    monkeypatch.setattr(ph.threading, "Thread", _thread_spy(started))
+    ph.handle_persona_redo(237616472, "rec123 new prompt")
+    assert not started
+    assert any("🚫" in s for s in sent)
+
+
+def test_persona_redo_pregate_allows_uses_est(monkeypatch):
+    store = {}
+    started = []
+    monkeypatch.setattr(ph, "check_limit", _allow_capturing(store))
+    monkeypatch.setattr(ph, "_safe_send", lambda *a, **k: None)
+    monkeypatch.setattr(ph.threading, "Thread", _thread_spy(started))
+    ph.handle_persona_redo(237616472, "rec123 new prompt")
+    assert started
+    assert store["est"] == 0.05              # PERSONA_REDO_USD default
