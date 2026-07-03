@@ -8110,6 +8110,22 @@ def webhook_reader_thread() -> None:
         time.sleep(1)
 
 
+def register_native_commands() -> None:
+    """Register the native ☰ command lists (setMyCommands) per role scope.
+
+    default scope = friend list (seen by everyone incl. new friends), admin
+    scope = BotCommandScopeChat(admin). Never raises — a menu-registration
+    failure must not crash bot startup."""
+    try:
+        from tools import jarvis_menu as jmenu
+        payloads = jmenu.build_native_payloads(admin_chat_id=ALLOWED_CHAT_ID)
+        for key in ("default", "admin"):
+            tg_call("setMyCommands", payloads[key])
+        print("[menu] native commands registered", flush=True)
+    except Exception as e:  # noqa: BLE001 — registration must not down the bot
+        print(f"[menu] setMyCommands failed: {e}", flush=True)
+
+
 def main() -> None:
     if not _check_single_instance():
         sys.exit(1)
@@ -8136,6 +8152,9 @@ def _main_inner() -> None:
     print("✅ Bot heartbeat thread started.", flush=True)
 
     _check_backend_startup()
+
+    # Register the native ☰ menu once, before either dispatch mode starts.
+    register_native_commands()
 
     if webhook_url:
         print(f"[Webhook] Mode active — URL: {webhook_url}", flush=True)

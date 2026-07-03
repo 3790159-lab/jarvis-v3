@@ -122,3 +122,24 @@ def test_menu_root_edits_in_place(monkeypatch):
     monkeypatch.setattr(mod, "_role_for_chat", lambda cid: "friend")
     mod.handle_callback_query(_cq("menu:root"), {})
     assert sent.get("edit") == ("999", 5) and "new" not in sent
+
+
+# ── Task 7: native registration on startup ────────────────────────────────
+def test_register_native_commands_calls_set_my_commands(monkeypatch):
+    seen = []
+    monkeypatch.setattr(mod, "tg_call", lambda method, payload: seen.append((method, payload)) or {})
+    monkeypatch.setattr(mod, "ALLOWED_CHAT_ID", "42", raising=False)
+    mod.register_native_commands()
+    methods = [m_ for m_, _ in seen]
+    assert methods.count("setMyCommands") == 2                # default + admin scope
+    scopes = [p["scope"]["type"] for m_, p in seen if m_ == "setMyCommands"]
+    assert set(scopes) == {"default", "chat"}
+
+
+def test_register_native_commands_never_raises(monkeypatch):
+    # Menu registration must not be able to crash bot startup.
+    def _boom(*a, **k):
+        raise RuntimeError("telegram down")
+    monkeypatch.setattr(mod, "tg_call", _boom)
+    monkeypatch.setattr(mod, "ALLOWED_CHAT_ID", "42", raising=False)
+    mod.register_native_commands()   # must return, not raise
