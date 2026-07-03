@@ -15,13 +15,29 @@ from app.services.audit import cost_tracker as _user_cost
 from app.services.auth.access_control import check_limit
 
 
+def _env_usd(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
 def _me_swap_est() -> float:
     """Консервативная оценка для пре-гейта me_swap (фактическая стоимость
     пишется в леджер после успеха отдельно)."""
-    try:
-        return float(os.getenv("ME_SWAP_USD", "0.04"))
-    except (TypeError, ValueError):
-        return 0.04
+    return _env_usd("ME_SWAP_USD", 0.04)
+
+
+# Оценки для пре-гейта T6 (записываем ФАКТ на успешном завершении — вариант B).
+_CREATE_PERSONA_SEED_COUNT = 20
+
+
+def _train_lora_est() -> float:
+    return _env_usd("TRAIN_LORA_USD", 2.00)
+
+
+def _create_persona_est() -> float:
+    return _env_usd("CREATE_PERSONA_SEED_USD", 0.04) * _CREATE_PERSONA_SEED_COUNT
 from app.services.block_m_common.cost_tracker import CostTracker, DailyLimitExceeded
 from app.services.block_m_common.logging_setup import get_logger, setup_block_m_logging
 from app.services.block_m_common.persona_storage import PersonaStorage
@@ -257,6 +273,11 @@ def handle_persona_answer(chat_id: int, text: str) -> bool:
 
 def _start_generation(chat_id: int, dialog: PersonaDialog) -> None:
     """Transition dialog to GENERATING and launch a daemon background thread."""
+    # Пре-гейт дневного лимита СТРОГО до старта платной seed-генерации (T6).
+    allowed, reason = check_limit(chat_id, estimated_usd=_create_persona_est())
+    if not allowed:
+        _safe_send(chat_id, f"🚫 {reason}")
+        return
     dialog.confirm()
     _safe_send(
         chat_id,
@@ -291,7 +312,8 @@ def _start_generation(chat_id: int, dialog: PersonaDialog) -> None:
                     _safe_send(chat_id, f"Генерация: {done}/{total} фото готово...")
 
             return await creator.generate_seed_photos(
-                persona, count=20, progress_cb=progress_cb
+                persona, count=20, progress_cb=progress_cb,
+                on_success_cost=lambda amt: _record_user_cost(chat_id, amt),
             )
 
         try:
@@ -334,6 +356,11 @@ def _run_async(coro):
 
 def _do_train_lora(chat_id: int, persona_id: str) -> None:
     """Start LoRA training and notify chat_id on completion."""
+    # Пре-гейт дневного лимита СТРОГО до старта платной тренировки (T6, ~$2).
+    allowed, reason = check_limit(chat_id, estimated_usd=_train_lora_est())
+    if not allowed:
+        _safe_send(chat_id, f"🚫 {reason}")
+        return
     _safe_send(
         chat_id,
         f"Тренировка запущена!\n"
@@ -355,6 +382,9 @@ def _do_train_lora(chat_id: int, persona_id: str) -> None:
                 persona_id,
                 user_chat_id=chat_id,
                 notify_fn=lambda cid, msg: _safe_send(cid, msg),
+                # Вариант B: ФАКТИЧЕСКАЯ стоимость в friend-леджер на успешном
+                # завершении (провал/прерывание → не списываем).
+                on_success_cost=lambda amt: _record_user_cost(chat_id, amt),
             )
 
         try:

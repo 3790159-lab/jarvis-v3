@@ -68,6 +68,7 @@ class LoRATrainer:
         steps: int = 1000,
         user_chat_id: int = 0,
         notify_fn: Callable[[int, str], None] | None = None,
+        on_success_cost: Callable[[float], None] | None = None,
     ) -> str:
         """Submit a LoRA training job and launch a background worker thread.
 
@@ -127,7 +128,10 @@ class LoRATrainer:
 
         t = threading.Thread(
             target=lambda: asyncio.run(
-                self._run_training(job_id, persona, photos, steps, user_chat_id, notify_fn)
+                self._run_training(
+                    job_id, persona, photos, steps, user_chat_id, notify_fn,
+                    on_success_cost=on_success_cost,
+                )
             ),
             daemon=True,
         )
@@ -143,6 +147,7 @@ class LoRATrainer:
         steps: int,
         user_chat_id: int,
         notify_fn: Callable[[int, str], None] | None,
+        on_success_cost: Callable[[float], None] | None = None,
     ) -> None:
         """Execute LoRA training and update queue + storage on completion."""
         try:
@@ -162,12 +167,21 @@ class LoRATrainer:
             await self._storage.set_lora_weights(
                 persona.persona_id, weights_url, persona.trigger_word
             )
+            actual_cost = result.get("cost_usd", COST_ESTIMATE_USD)
             await self._tracker.log_expense(
                 "lora_training",
-                result.get("cost_usd", COST_ESTIMATE_USD),
+                actual_cost,
                 persona.persona_id,
             )
             await self._queue._mark_done(job_id, {"weights_url": weights_url})
+
+            # Вариант B: пишем ФАКТИЧЕСКУЮ стоимость в friend-леджер ТОЛЬКО на успехе
+            # (провал/прерывание → not reached → не платим).
+            if on_success_cost is not None:
+                try:
+                    on_success_cost(actual_cost)
+                except Exception as _exc:  # noqa: BLE001 — учёт не должен ронять тренировку
+                    logger.warning("on_success_cost failed: %s", _exc)
 
             logger.info(
                 "LoRA training complete: persona=%s weights=%s",

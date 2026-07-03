@@ -466,3 +466,40 @@ def test_handler_lora_status_displays_progress(monkeypatch):
 
     full = " ".join(sent)
     assert "50" in full or "процессе" in full.lower() or "training" in full.lower()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# T6 (Арка 1): _run_training reports ACTUAL cost via on_success_cost — вариант B
+# ──────────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.anyio
+async def test_run_training_reports_actual_cost_on_success(trainer, queue, persona_with_photos):
+    job_id = f"lora_{uuid.uuid4().hex[:8]}"
+    await queue.submit(VideoJob(
+        job_id=job_id, job_type="lora_training",
+        persona_id=persona_with_photos.persona_id, params={},
+        status=STATUS_PENDING, user_chat_id=0, created_at=datetime.utcnow(),
+    ))
+    recorded = []
+    await trainer._run_training(
+        job_id, persona_with_photos, persona_with_photos.seed_photos, 1000, 0, None,
+        on_success_cost=lambda amt: recorded.append(amt),
+    )
+    assert recorded == [pytest.approx(2.00)]   # ФАКТИЧЕСКАЯ стоимость из mock_client
+
+
+@pytest.mark.anyio
+async def test_run_training_no_cost_callback_on_failure(trainer, queue, persona_with_photos, mock_client):
+    mock_client.train_flux_lora = AsyncMock(side_effect=RuntimeError("boom"))
+    job_id = f"lora_{uuid.uuid4().hex[:8]}"
+    await queue.submit(VideoJob(
+        job_id=job_id, job_type="lora_training",
+        persona_id=persona_with_photos.persona_id, params={},
+        status=STATUS_PENDING, user_chat_id=0, created_at=datetime.utcnow(),
+    ))
+    recorded = []
+    await trainer._run_training(
+        job_id, persona_with_photos, persona_with_photos.seed_photos, 1000, 0, None,
+        on_success_cost=lambda amt: recorded.append(amt),
+    )
+    assert recorded == []                       # провал → не пишем в леджер

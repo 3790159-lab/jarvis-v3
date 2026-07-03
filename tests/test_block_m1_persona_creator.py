@@ -508,3 +508,35 @@ class TestPersonaHandler:
         result = self._handler.handle_persona_answer(6001, "anything")
         assert result is True
         assert any("Идёт генерация" in t for _, t in self._send_calls)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# T6 (Арка 1): generate_seed_photos reports ACTUAL total cost via on_success_cost
+# ──────────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.anyio
+async def test_generate_seed_photos_reports_total_actual_cost(mock_client, storage, tracker, sample_persona, tmp_path):
+    storage._file = tmp_path / "personas.json"
+    storage._dir.mkdir(parents=True, exist_ok=True)
+    creator = PersonaCreator(mock_client, storage, tracker)
+    recorded = []
+    with patch.object(storage, "update_persona", new_callable=AsyncMock):
+        urls = await creator.generate_seed_photos(
+            sample_persona, count=3, on_success_cost=lambda amt: recorded.append(amt)
+        )
+    assert len(urls) == 3
+    assert recorded == [pytest.approx(0.12)]    # 3 × $0.04 фактически
+
+
+@pytest.mark.anyio
+async def test_generate_seed_photos_no_cost_on_all_fail(mock_client, storage, tracker, sample_persona, tmp_path):
+    from unittest.mock import AsyncMock as _AM
+    mock_client.generate_flux_pro = _AM(side_effect=RuntimeError("boom"))
+    storage._file = tmp_path / "personas.json"
+    storage._dir.mkdir(parents=True, exist_ok=True)
+    creator = PersonaCreator(mock_client, storage, tracker)
+    recorded = []
+    urls = await creator.generate_seed_photos(
+        sample_persona, count=3, on_success_cost=lambda amt: recorded.append(amt)
+    )
+    assert urls == [] and recorded == []        # всё упало → не пишем

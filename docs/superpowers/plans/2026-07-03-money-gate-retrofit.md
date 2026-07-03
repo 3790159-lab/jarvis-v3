@@ -354,6 +354,12 @@ def test_me_swap_photo_blocked_over_limit(monkeypatch):
 
 ---
 
+## Реализация T6 (вариант B, выбран Daniil)
+
+Пре-гейт `check_limit` СТРОГО до старта (train_lora est=`TRAIN_LORA_USD` 2.00; create_persona est=`CREATE_PERSONA_SEED_USD`×20). Запись — **ФАКТИЧЕСКОЙ** стоимости на успешном завершении через новый колбэк `on_success_cost` (образец `persona_photo:518`): в `LoRATrainer._run_training` (реальный `result["cost_usd"]`) и в `PersonaCreator.generate_seed_photos` (сумма по успешным фото под `if urls`). Провал/прерывание → колбэк не вызывается → не списываем.
+
+> **Известное ограничение (факт из кода, НЕ чиним):** тренировка/seed-ген идут в **daemon-потоке** (`start_training` спавнит `threading.Thread(..., daemon=True)`). Если бот рестартует посреди 15-25-мин тренировки, поток умирает → ветка успеха `_run_training` (где `on_success_cost` пишет в friend-леджер) и `log_expense` block_m **не выполняются**, хотя Replicate уже списал ~$2 → эта трата остаётся невидимой обоим леджерам (пре-гейт уже прошёл, ничего не записав). Персистентности/резюма прерванной тренировки нет (VideoQueue помечает job RUNNING, но воркер не переподхватывает). Помечено как известное ограничение — отдельный техдолг, в области Арки 1 не чиним.
+
 ## Риски
 
 1. **Задвоение записи стоимости.** `me_swap_*` и persona-пути уже пишут реальный `cost_usd`. Для них добавляем ТОЛЬКО пре-гейт `check_limit`, `record_cost` не дублируем (Task 7 явно это фиксирует). Для полностью-дырявых — `guard_spend` пишет оценку (est==charge).

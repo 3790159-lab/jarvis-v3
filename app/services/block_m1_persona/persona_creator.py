@@ -48,6 +48,7 @@ class PersonaCreator:
         persona: Persona,
         count: int = 20,
         progress_cb: Callable[[int, int, str], None] | None = None,
+        on_success_cost: Callable[[float], None] | None = None,
     ) -> list[str]:
         """Generate ``count`` seed photos with capped concurrency.
 
@@ -76,8 +77,10 @@ class PersonaCreator:
 
         sem = asyncio.Semaphore(_MAX_CONCURRENT)
         urls: list[str] = []
+        total_cost = 0.0  # сумма ФАКТИЧЕСКИХ трат по успешным фото (вариант B)
 
         async def _task(idx: int, prompt: str) -> str | Exception:
+            nonlocal total_cost
             async with sem:
                 await asyncio.sleep(1.5)  # spacing to stay within FLUX 1.1 Pro rate limit
                 logger.debug(
@@ -88,6 +91,7 @@ class PersonaCreator:
                     await self._tracker.log_expense(
                         "flux_pro_seed", result["cost_usd"], persona.persona_id
                     )
+                    total_cost += float(result["cost_usd"])
                     url = result["image_url"]
                     logger.info(
                         "Photo %d/%d OK: cost=$%.4f url=%.60s",
@@ -128,5 +132,12 @@ class PersonaCreator:
                 seed_photos=urls,
                 total_generations=persona.total_generations + len(urls),
             )
+            # Вариант B: ФАКТИЧЕСКАЯ суммарная стоимость в friend-леджер только если
+            # хоть одно фото сгенерировано (полный провал → не платим).
+            if on_success_cost is not None:
+                try:
+                    on_success_cost(total_cost)
+                except Exception as _exc:  # noqa: BLE001
+                    logger.warning("on_success_cost failed: %s", _exc)
 
         return urls
