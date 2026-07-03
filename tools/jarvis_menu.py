@@ -245,3 +245,54 @@ def lookup_item(cmd, role):
             if it.cmd == norm and (role == "admin" or it.friend):
                 return it
     return None
+
+
+# ── Нативное меню ☰ (setMyCommands) ────────────────────────────────────────
+# (имя_без_слеша, описание). Топ ~10-15 на scope. default=friend-список (его
+# видят все, включая новых friend); admin-scope поверх default по chat_id.
+# Тексты — черновик из спеки (Даниил редактирует после живого теста).
+NATIVE_ADMIN_COMMANDS = [
+    ("menu", "Каталог всех команд"),
+    ("status", "Статус AI-провайдеров"),
+    ("stats", "Статистика за сегодня"),
+    ("costs", "Траты за сегодня"),
+    ("smart_health", "Здоровье систем"),
+    ("swapbatch", "Пакетный свап лиц"),
+    ("animate", "Анимировать фото"),
+    ("videoref", "Референс-видео → свап"),
+    ("persona_photo", "Фото по LoRA-персоне"),
+    ("persona_video", "Видео по LoRA-персоне"),
+    ("agents", "Статус агентов"),
+    ("tasks", "Задачи Vizir"),
+    ("logs", "Читать логи"),
+    ("my_stats", "Личная статистика"),
+    ("help", "Справка"),
+]
+
+NATIVE_FRIEND_COMMANDS = [
+    ("menu", "Меню команд"),
+    ("swapbatch_source", "Задать исходное лицо"),
+    ("animate", "Анимировать фото"),
+    ("videoref", "Референс-видео → свап"),
+    ("persona_photo", "Фото по персоне"),
+    ("persona_video", "Видео по персоне"),
+    ("my_stats", "Моя статистика и лимит"),
+    ("help", "Справка"),
+]
+
+
+def _cmds(pairs):
+    return [{"command": n, "description": d} for n, d in pairs]
+
+
+def build_native_payloads(admin_chat_id):
+    """Payload'ы для setMyCommands: default=friend-список, admin-scope по chat.
+
+    Зуб нативного слоя: default (его видят все) содержит только friend-команды;
+    admin-команды — лишь в scope конкретного admin chat_id."""
+    return {
+        "default": {"commands": _cmds(NATIVE_FRIEND_COMMANDS),
+                    "scope": {"type": "default"}},
+        "admin": {"commands": _cmds(NATIVE_ADMIN_COMMANDS),
+                  "scope": {"type": "chat", "chat_id": str(admin_chat_id)}},
+    }

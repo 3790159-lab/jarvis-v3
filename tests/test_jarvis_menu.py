@@ -91,3 +91,24 @@ def test_lookup_admin_sees_admin_cmd():
 def test_lookup_accepts_cmd_with_or_without_slash():
     assert m.lookup_item("/persona_photo", "friend") is not None
     assert m.lookup_item("persona_photo", "friend") is not None
+
+
+# ── Task 4: native setMyCommands payloads ─────────────────────────────────
+def test_native_commands_shape_valid():
+    for name, desc in m.NATIVE_ADMIN_COMMANDS + m.NATIVE_FRIEND_COMMANDS:
+        assert not name.startswith("/") and name == name.lower()
+        assert 1 <= len(name) <= 32 and len(desc) <= 256
+
+
+def test_friend_native_has_no_admin_commands():
+    admin_only = {"status", "agents", "tasks", "logs", "restart_bot", "smart_health"}
+    friend_names = {n for n, _ in m.NATIVE_FRIEND_COMMANDS}
+    assert friend_names.isdisjoint(admin_only)      # зуб нативного слоя
+
+
+def test_build_native_payloads_scopes():
+    p = m.build_native_payloads(admin_chat_id="123")
+    assert p["default"]["scope"]["type"] == "default"
+    assert {c["command"] for c in p["default"]["commands"]} == {n for n, _ in m.NATIVE_FRIEND_COMMANDS}
+    assert p["admin"]["scope"] == {"type": "chat", "chat_id": "123"}
+    assert {c["command"] for c in p["admin"]["commands"]} == {n for n, _ in m.NATIVE_ADMIN_COMMANDS}
