@@ -212,23 +212,17 @@ def _init_handler_m23():
 
 
 def test_handle_costs_shows_summary():
+    # /costs теперь читает audit-леджер (Вариант A), а не block_m Analytics —
+    # делегирует в format_admin_costs_message. См. tests/test_costs_audit_reader.py
+    # для интеграционного write→read зуба.
     import app.handlers.persona_handler as ph
     send, _ = _init_handler_m23()
 
-    with patch("app.handlers.persona_handler._run_async") as mock_run:
-        mock_run.return_value = {
-            "today_cost_usd": 1.50,
-            "today_count": 5,
-            "remaining_budget_usd": 8.50,
-            "by_operation": {"flux": 0.50},
-            "date": "2026-05-06",
-        }
+    with patch.object(ph._user_cost, "format_admin_costs_message", return_value="AUDIT-COSTS-MSG"):
         ph.handle_costs(42)
 
     send.assert_called_once()
-    msg = send.call_args[0][1]
-    assert "1.5" in msg or "1,5" in msg or "$1.5000" in msg
-    assert "8.5" in msg or "$8.5000" in msg
+    assert "AUDIT-COSTS-MSG" in send.call_args[0][1]
 
 
 def test_handle_history_shows_records():

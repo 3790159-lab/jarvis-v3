@@ -1010,34 +1010,20 @@ def handle_photo_message(chat_id: int, photo_url: str) -> bool:
 # ── Polish — costs, history, batch ─────────────────────────────────────────────
 
 def handle_costs(chat_id: int) -> None:
-    """/costs — show today's spending summary."""
+    """/costs — сводка трат из audit-леджера (тот же стор, куда пишет
+    record_cost/guard_spend и читает /my_stats).
+
+    Раньше читал block_m-леджер (state/personas/expenses.jsonl), заморожен с
+    2026-05, → траты guard_spend/record_cost были невидимы. Вариант A: audit-only
+    поля (сегодня/месяц/всего по пользователям + тоталы) через
+    format_admin_costs_message; by_operation/remaining_budget не показываем (audit
+    их не хранит).
+    """
     logger.info("handle_costs chat=%s", chat_id)
-
     try:
-        from app.services.block_m23_polish.analytics import Analytics
-        from app.services.block_m2_video.generation_history import GenerationHistory
-
-        async def _async() -> dict:
-            tracker = CostTracker()
-            history = GenerationHistory()
-            analytics = Analytics(tracker, history)
-            return await analytics.daily_summary()
-
-        summary = _run_async(_async())
+        _safe_send(chat_id, _user_cost.format_admin_costs_message())
     except Exception as exc:
         _safe_send(chat_id, f"Ошибка получения статистики: {translate_exception(exc)}")
-        return
-
-    lines = [
-        f"Расходы сегодня: ${summary['today_cost_usd']:.4f}",
-        f"Генераций: {summary['today_count']}",
-        f"Остаток бюджета: ${summary['remaining_budget_usd']:.4f}",
-    ]
-    if summary.get("by_operation"):
-        lines.append("\nПо операциям:")
-        for op, cost in summary["by_operation"].items():
-            lines.append(f"  {op}: ${cost:.4f}")
-    _safe_send(chat_id, "\n".join(lines))
 
 
 def handle_history(chat_id: int, args: str) -> None:
