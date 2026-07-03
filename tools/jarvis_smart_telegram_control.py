@@ -1480,7 +1480,7 @@ def _videoref_duration_keyboard(chat_id_int: int) -> list:
     return [
         [_dur_btn(s) for s in caps.allowed_durations],
         [{"text": f"🪶 Плавность 48fps: {smooth_state}", "callback_data": smooth_cb}],
-        [{"text": f"🎬 Движок: {caps.display_name}",
+        [{"text": f"⚙️ Движок: {caps.display_name}",
           "callback_data": f"vref:eng:{other_engine}"}],
         [{"text": f"🩱 Не раздевать: {ward_state}",
           "callback_data": f"vref:ward:{other_wardrobe}"}],
@@ -1798,7 +1798,7 @@ def _videoref_engine_toggle(chat_id, mode: str) -> None:
     pend["seconds"] = caps.snap_duration(pend.get("seconds", VIDEOREF_ANIM_SECONDS))
     send_with_keyboard(
         chat_id,
-        f"🎬 Движок: {caps.display_name}. Выбери длину:",
+        f"⚙️ Движок: {caps.display_name}. Выбери длину:",
         _videoref_duration_keyboard(chat_id_int),
     )
 
