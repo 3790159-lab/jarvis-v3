@@ -443,16 +443,30 @@ def _persona_video_dispatch(
     if _r not in _sys.path:
         _sys.path.insert(0, _r)
 
+    chat_id_int = int(chat_id)
+    chat_id_s = str(chat_id)
+
+    # Пре-гейт дневного лимита до платной видео-генерации (дыра a) — СТРОГО до
+    # тяжёлого импорта engine/handler и до лока (fail-fast, без побочек).
+    # Bare /persona_video = бесплатная справка, её НЕ гейтим. Покрывает и
+    # /persona_video, и /persona_video_redo. Факт-стоимость пишется на успехе.
+    _is_bare_help = command == "video" and not query.strip()
+    if not _is_bare_help:
+        _pv_ok, _pv_reason = _check_limit(
+            chat_id_int, estimated_usd=float(os.getenv("PERSONA_VIDEO_USD", "0.40")),
+        )
+        if not _pv_ok:
+            send(chat_id_s, f"🚫 {_pv_reason}")
+            return
+
     from app.handlers.persona_video_handler import PersonaVideoHandler
     from app.services.block_m2_video.generation_lock import GenerationLockBusy
 
     handler = PersonaVideoHandler()
-    chat_id_int = int(chat_id)
-    chat_id_s = str(chat_id)
     lock = _get_video_lock()
 
     # Bare /persona_video → help reply (cheap, no lock).
-    if command == "video" and not query.strip():
+    if _is_bare_help:
         try:
             help_text = _aio.run(handler.handle_help())
         except Exception as exc:
