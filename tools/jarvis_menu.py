@@ -232,3 +232,16 @@ def render_category(cat_id, role):
             for it in vis]
     rows.append([{"text": "⬅️ Назад", "callback_data": "menu:root"}])
     return cat.title, rows
+
+
+def lookup_item(cmd, role):
+    """Найти пункт по команде, role-checked (третий зуб изоляции).
+
+    friend-запрос admin-команды -> None (вызывающий покажет «🚫»). Принимает
+    команду со слешем и без."""
+    norm = "/" + cmd.lstrip("/")
+    for cat in MENU:
+        for it in cat.items:
+            if it.cmd == norm and (role == "admin" or it.friend):
+                return it
+    return None

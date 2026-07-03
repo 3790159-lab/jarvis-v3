@@ -68,3 +68,26 @@ def test_button_text_respects_label_presence():
     _t2, kb2 = m.render_category("system", "admin")
     sys_labels = [b["text"] for row in kb2 for b in row if b["callback_data"].startswith("menu:x:")]
     assert all(" — " not in x for x in sys_labels)  # Система: голые команды
+
+
+# ── Task 3: role-checked lookup (tooth #3) ────────────────────────────────
+def test_lookup_friend_of_admin_cmd_returns_none():
+    assert m.lookup_item("train_lora", "friend") is None       # admin-only в меню
+
+
+def test_lookup_friend_of_friend_cmd_returns_item():
+    it = m.lookup_item("persona_photo", "friend")
+    assert it is not None and it.cmd == "/persona_photo"
+
+
+def test_lookup_unknown_returns_none():
+    assert m.lookup_item("nope_nope", "admin") is None
+
+
+def test_lookup_admin_sees_admin_cmd():
+    assert m.lookup_item("train_lora", "admin") is not None
+
+
+def test_lookup_accepts_cmd_with_or_without_slash():
+    assert m.lookup_item("/persona_photo", "friend") is not None
+    assert m.lookup_item("persona_photo", "friend") is not None
