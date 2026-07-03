@@ -1311,10 +1311,9 @@ def _swapbatch_text_intercept(chat_id: str, text: str) -> bool:
 def _prompt_intake_dispatch(chat_id: str, result) -> None:
     """Применить съеденную ручную motion-строку по kind.
 
-    Обработчики движков подключаются в T3 (/animate) и T4 (/videoref); пока —
-    заглушка (кнопки-триггеры добавляются вместе со своими обработчиками, так
-    что до T3/T4 сюда никто не доходит)."""
-    return None
+    Обработчик /videoref подключается в T4."""
+    if result.kind == "animate":
+        _animate_apply_custom_motion(chat_id, result)
 
 
 def _prompt_intake_intercept(chat_id: str, text: str) -> bool:
@@ -2025,17 +2024,58 @@ def _animate_photo_intercept(chat_id: str, msg: Dict[str, Any]) -> bool:
         _ANIMATE_PENDING.pop(chat_id_int, None)
         return True
     pend["photo"] = local
+    rows = _animate_engine_keyboard(chat_id_int)
+    send_with_keyboard(chat_id, "🎬 Выбери движок для анимации:", rows)
+    return True
+
+
+def _animate_engine_keyboard(chat_id_int: int) -> list:
+    """Клавиатура движка одиночного /animate: batch build_engine_keyboard с
+    rewrite sbeng:→anim: + standalone-only кнопка «✍️ Свой промт» (anim:custom).
+
+    Ручная кнопка вставляется ЛОКАЛЬНО (не в batch-builder), чтобы batch-меню её
+    не показывало. Если задан свой промт (pend['motion']) — на кнопке видно.
+    """
     _hq, _ = _swapbatch_get_handler()
     kb = (
         _hq.build_engine_keyboard(show_smooth=False, show_wardrobe=False, show_generate=False)
-        if _hq else {"inline_keyboard": []}
+        if _hq else {"inline_keyboard": [[{"text": "🚫 Без анимации", "callback_data": "sbeng:none"}]]}
     )
     # Distinct callback prefix for the standalone flow (anim: vs batch sbeng:).
     for row in kb["inline_keyboard"]:
         for b in row:
             b["callback_data"] = b["callback_data"].replace("sbeng:", "anim:")
-    send_with_keyboard(chat_id, "🎬 Выбери движок для анимации:", kb["inline_keyboard"])
-    return True
+    pend = _ANIMATE_PENDING.get(chat_id_int) or {}
+    motion = pend.get("motion") or ""
+    custom_label = "✍️ Свой промт: задан ✅" if motion else "✍️ Свой промт"
+    # Вставляем перед последней строкой («🚫 Без анимации»), чтобы отмена осталась внизу.
+    kb["inline_keyboard"].insert(-1, [{"text": custom_label, "callback_data": "anim:custom"}])
+    return kb["inline_keyboard"]
+
+
+def _animate_custom_arm(chat_id: str) -> None:
+    """Тап «✍️ Свой промт» (anim:custom): включить ожидание свободной строки."""
+    from app.services.block_m2_video import prompt_intake
+    prompt_intake.arm(int(chat_id), "animate")
+    send(chat_id, "✍️ Пришли одну строку — что должно двигаться в кадре.")
+
+
+def _animate_apply_custom_motion(chat_id: str, result) -> None:
+    """Съеденная ручная строка → в _ANIMATE_PENDING['motion'], перерисовать меню
+    движка (теперь на кнопке видно, что промт задан). Пустую строку игнорируем."""
+    chat_id_int = int(chat_id)
+    pend = _ANIMATE_PENDING.get(chat_id_int)
+    if pend is None:
+        send(chat_id, "⚠️ Нет активного /animate. Начни заново: /animate.")
+        return
+    if result.motion:
+        pend["motion"] = result.motion
+    trunc = " (обрезал до лимита)" if getattr(result, "truncated", False) else ""
+    send_with_keyboard(
+        chat_id,
+        f"✍️ Промт задан{trunc}. Выбери движок:",
+        _animate_engine_keyboard(chat_id_int),
+    )
 
 
 def _animate_run_single(chat_id: str, engine_mode: str) -> None:
@@ -2076,7 +2116,7 @@ def _animate_run_single(chat_id: str, engine_mode: str) -> None:
         return
 
     req = handler.build_single_animate_request(
-        chat_id_int, image_path=photo, motion="",
+        chat_id_int, image_path=photo, motion=pend.get("motion", ""),
         engine_mode=engine_mode, seconds=seconds, resolution=resolution,
     )
 
@@ -3869,6 +3909,10 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
             answer_callback_query(cq_id, "Отменено")
             _ANIMATE_PENDING.pop(int(chat_id), None)
             send(chat_id, "🚫 Анимация отменена.")
+            return
+        if choice == "custom":
+            answer_callback_query(cq_id, "✍️ Жду промт")
+            _animate_custom_arm(chat_id)
             return
         answer_callback_query(cq_id, "Движок выбран")
         _animate_run_single(chat_id, choice)
