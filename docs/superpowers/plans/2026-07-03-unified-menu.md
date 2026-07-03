@@ -16,7 +16,7 @@
 
 Итого friend-меню: **🎬 Видео** (+ `/me_swap_photo`, `/me_swap_video`), **🎭 Персона** (полностью, вкл. LoRA), **🧑 Me-режимы** (полностью), **🍽 Photo Studio** (полностью), **📊 /my_stats**.
 
-> ⛔ **PREREQUISITE — Арка 1 (money-gate retrofit).** Категории Photo Studio, Me-creative и `/train_lora`/`/create_persona` тратят деньги через `restaurant_mode`/`party_mode`/`personal_mode`, у которых **НЕТ** `check_limit`/`record_cost` (проверено grep'ом). Эти команды входят в friend (Группа B в diff ниже) **только после мерджа Арки 1** — см. `docs/superpowers/plans/2026-07-03-money-gate-retrofit.md`. Решение пользователя: **сначала гейт (Арка 1), потом доступ (эта Арка 2).**
+> ✅ **PREREQUISITE ВЫПОЛНЕН — Арка 1 (money-gate retrofit) СМЕРДЖЕНА В ПРОД @`375a7a4` (money-gate 9/9), поверх неё `bc630bc` (fix /costs).** Категории Photo Studio, Me-creative и `/train_lora`/`/create_persona` раньше тратили деньги через `restaurant_mode`/`party_mode`/`personal_mode` **без** `check_limit`/`record_cost` — Арка 1 закрыла эти дыры (`guard_spend` хелпер + вариант B фактической стоимости на завершении, см. `docs/superpowers/plans/2026-07-03-money-gate-retrofit.md`). **Следствие: Группа B легальна, весь diff `FRIEND_ALLOWED_COMMANDS` (28→54) применяется в этой Арке 2.** Решение пользователя было: сначала гейт (Арка 1), потом доступ (эта Арка 2) — оба условия выполнены.
 
 ## Ключевые архитектурные решения (зафиксированы)
 
@@ -133,23 +133,23 @@ def _btn_text(it):
 | /list_loras | список готовых LoRA | A | — |
 | /cancel_lora | отменить обучение LoRA | H | — |
 
-### 🧑 Me-режимы (`me`) — подписи ОБЯЗАТЕЛЬНЫ · **friend-категория (после Арки 1)**
-> Все пункты `friend=True`. `/me_swap_photo`, `/me_swap_video` уже friend; остальные (Группа B) — friend после мерджа Арки 1.
+### 🧑 Me-режимы (`me`) — подписи ОБЯЗАТЕЛЬНЫ · **friend-категория (Арка 1 смерджена → friend активен)**
+> Все пункты `friend=True`. `/me_swap_photo`, `/me_swap_video` уже были friend; остальные (Группа B) — friend теперь (Арка 1 @375a7a4 в проде). В реестре `friend=True` на всей категории.
 | Команда | Подпись (черновик) | Тап | Friend |
 |---|---|---|---|
-| /me_swap_photo | я в фото по промту | H | — |
-| /me_swap_video | вставить моё лицо в видео | H | — |
-| /me_into | вставить меня в чужое фото | H | — |
-| /me_as | я в роли <роль> | H | — |
-| /me_in | я в месте <место> | H | — |
-| /me_with | я с предметом <предмет> | H | — |
-| /me_style | я в стиле <стиль> | H | — |
-| /me_roles | список ролей | A | — |
-| /me_places | список мест | A | — |
-| /me_styles | список стилей | A | — |
+| /me_swap_photo | я в фото по промту | H | F |
+| /me_swap_video | вставить моё лицо в видео | H | F |
+| /me_into | вставить меня в чужое фото | H | F |
+| /me_as | я в роли <роль> | H | F |
+| /me_in | я в месте <место> | H | F |
+| /me_with | я с предметом <предмет> | H | F |
+| /me_style | я в стиле <стиль> | H | F |
+| /me_roles | список ролей | A | F |
+| /me_places | список мест | A | F |
+| /me_styles | список стилей | A | F |
 
-### 🍽 Photo Studio (`photo`) — подписи ОБЯЗАТЕЛЬНЫ · **friend-категория (после Арки 1)**
-> Все пункты `friend=True` после мерджа Арки 1 (все тратят деньги → требуют гейта). Списки `/dish_styles`, `/party_themes` — бесплатны (Группа A, friend сразу).
+### 🍽 Photo Studio (`photo`) — подписи ОБЯЗАТЕЛЬНЫ · **friend-категория (Арка 1 смерджена → friend активен)**
+> Все пункты `friend=True` (Арка 1 @375a7a4 в проде: платные под `guard_spend`). Списки `/dish_styles`, `/party_themes` — бесплатны (Группа A). В реестре `friend=True` на всей категории (12 пунктов).
 | Команда | Подпись (черновик) | Тап |
 |---|---|---|
 | /menu_photo | фото блюда для меню | H |
@@ -243,7 +243,7 @@ help             — Справка
 
 ## 📋 БЛОК ДЛЯ ДАНИИЛА №4 — diff `FRIEND_ALLOWED_COMMANDS` (было 28 → станет 54)
 
-Экспозиция ступенчатая: **вся Группа B добавляется только вместе с мерджем Арки 1** (money-gate). Группа A (бесплатные) технически безопасна и сразу, но по решению «две арки» весь diff применяется в Арке 2 после Арки 1.
+✅ **Арка 1 (money-gate) СМЕРДЖЕНА @`375a7a4` — экспозиция разблокирована. Весь diff (Группа A + Группа B) применяется в этой Арке 2.** (Историческое решение «две арки»: сначала гейт Арки 1, потом доступ Арки 2 — оба условия выполнены; Группа B теперь легальна, т.к. все её spend-сайты за `check_limit`/`record_cost`.)
 
 **Остаётся без изменений (28, текущий набор):**
 `/animate /animate_batch /animate_batch_go /swapbatch /swapbatch_source /swapbatch_batch /swapbatch_go /swapbatch_set_quality /swapbatch_set_prompt /swapbatch_set_wardrobe /swapbatch_animate_yes /swapbatch_animate_go /swapbatch_animate_no /swapbatch_animate_custom /swapbatch_status /swapbatch_cancel /persona_photo /persona_video /persona_video_redo /persona_redo /persona_engine /persona_batch /me_swap_photo /me_swap_video /videoref /my_stats /start /help`
@@ -254,7 +254,7 @@ help             — Справка
 + /me_roles   + /me_places   + /me_styles   + /party_themes   + /dish_styles
 ```
 
-**🔴 Группа B — платные, входят ТОЛЬКО после мерджа Арки 1, +17:**
+**🟢 Группа B — платные, РАЗБЛОКИРОВАНЫ мерджем Арки 1 (@375a7a4), +17:**
 ```
 + /create_persona   + /train_lora
 + /me_into  + /me_as  + /me_in  + /me_with  + /me_style
@@ -265,7 +265,7 @@ help             — Справка
 
 **Итог: 28 + 9 + 17 = 54.** Внутренние шаги флоу (`/swapbatch_confirm/retry/apply_*`, `/me_seed`, `/me_done`) в набор НЕ входят (в меню их нет). `/train_lora` в friend — намеренно (~$2, под дневным лимитом после Арки 1).
 
-> **Зуб биллинга (Task в Арке 2 + гарантия Арки 1):** каждая команда Группы B к моменту добавления в этот список ДОЛЖНА проходить `check_limit` на своём spend-сайте (обеспечивает Арка 1). Меню-тест дополнительно проверяет: friend-exec через `handle()` упирается в `FRIEND_ALLOWED_COMMANDS`-гейт, а сама трата — в `check_limit`. Порядок мерджа: **Арка 1 → потом этот diff.**
+> **Зуб биллинга (гарантия Арки 1, уже в проде):** каждая команда Группы B проходит `check_limit` на своём spend-сайте — обеспечено Аркой 1 (@375a7a4). Меню-тест дополнительно проверяет: friend-exec через `handle()` упирается в `FRIEND_ALLOWED_COMMANDS`-гейт (второй зуб), а сама трата — в `check_limit`. Порядок мерджа выполнен: **Арка 1 (@375a7a4) → теперь этот diff в Арке 2.**
 
 ---
 
@@ -657,7 +657,7 @@ def register_native_commands():
 4. **Мёртвые тени (Блок №2A).** Не чиним существующий код; просто не показываем затенённый вариант. Осознанный техдолг.
 5. **Пре-существующие падения тестов.** В ветке ~31 не связанное с меню падение (runpod/pydantic/mobile_ux, см. память). Baseline фиксируем ДО Task 1; «зелёно» = не добавили новых падений, а не «0 падений».
 6. **Нативное меню кэшируется клиентом Telegram.** После `setMyCommands` список у клиента может обновиться с задержкой/после реоткрытия чата. Для живого теста — переоткрыть диалог.
-7. **Экспозиция Группы B БЕЗ Арки 1 = дыра в лимите.** Никогда не добавлять Группу B в `FRIEND_ALLOWED_COMMANDS` и не ставить `friend=True` на её пункты, пока Арка 1 (money-gate) не смерджена. Порядок жёсткий: Арка 1 → Арка 2-diff. Меню для admin можно показывать со всеми категориями сразу (admin безлимитен).
+7. **Экспозиция Группы B БЕЗ Арки 1 = дыра в лимите.** ✅ Снят: Арка 1 (money-gate) смерджена @`375a7a4`, все spend-сайты Группы B за `check_limit`. Порядок соблюдён (Арка 1 → этот diff). Меню для admin со всеми категориями (admin безлимитен, но трата теперь пишется в audit-леджер — см. fix /costs @`bc630bc`).
 
 ## Что НЕ трогаем
 
