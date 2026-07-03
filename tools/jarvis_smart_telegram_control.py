@@ -2161,14 +2161,23 @@ def _animate_quality_keyboard(chat_id_int: int) -> list:
     caps = caps_for(pend.get("engine_mode", "spicy"))
     cur_dur = pend.get("seconds", caps.default_duration)
     cur_res = pend.get("resolution", caps.default_resolution)
+    smooth = pend.get("smooth", False)          # money-safe default OFF
     dur_row = [{"text": f"{'⭐ ' if d == cur_dur else ''}{d}с",
                 "callback_data": f"aq:dur:{d}"} for d in caps.allowed_durations]
     res_row = [{"text": f"{'⭐ ' if r == cur_res else ''}{r}",
                 "callback_data": f"aq:res:{r}"} for r in caps.allowed_resolutions]
     est = caps.cost_for(cur_dur, cur_res)
+    if smooth:
+        # quote == charge: est includes the RIFE surcharge the ledger will bill
+        # on success (rife_surcharge_usd(1, cur_dur)) — same formula as the gate.
+        from app.handlers.face_swap_handler import rife_surcharge_usd
+        est += rife_surcharge_usd(1, cur_dur)
+    smooth_state = "ВКЛ" if smooth else "ВЫКЛ"
+    smooth_cb = "asmooth:off" if smooth else "asmooth:on"
     return [
         dur_row,
         res_row,
+        [{"text": f"🪶 Плавность 48fps: {smooth_state}", "callback_data": smooth_cb}],
         [{"text": f"✅ Генерировать (~${est:.2f})", "callback_data": "aq:done"}],
     ]
 
@@ -2205,6 +2214,45 @@ def _animate_set_quality(chat_id: str, kind: str, value: str) -> None:
         pend["resolution"] = value
 
 
+def _animate_set_smooth(chat_id: str, enabled: bool) -> None:
+    """Тап asmooth:on|off → записать флаг плавности в pending (порт batch
+    set_smooth). Трогает ТОЛЬКО smooth — движок/качество не сбрасываются."""
+    pend = _ANIMATE_PENDING.get(int(chat_id))
+    if pend is None:
+        return
+    pend["smooth"] = bool(enabled)
+
+
+def _animate_maybe_smooth(handler, video_path, seconds: int, chat_id, uname):
+    """Opt-in RIFE 48fps плавность для одного /animate-видео через money-safe
+    batch-делегат handler._interpolate_batch (порт sbsmooth: без переписывания
+    биллинга).
+
+    Контракт (money-safe делегированием):
+      * fail/timeout/no-key → _interpolate_batch отдаёт ТОТ ЖЕ объект пути →
+        доставляем ОРИГИНАЛ, RIFE не блокирует видео;
+      * биллинг RIFE живёт ВНУТРИ _interpolate_batch (списывает только по факту
+        успеха) — делегат САМ record_cost НЕ зовёт → нет двойного списания.
+
+    Возвращает (delivered_path, smoothed?) — smoothed True только когда RIFE
+    реально вернул новый (не исходный) файл (детект по идентичности объекта,
+    надёжно на Windows-путях)."""
+    import asyncio as _aio
+    from pathlib import Path as _P
+    orig = _P(video_path)
+    try:
+        delivered = _aio.run(
+            handler._interpolate_batch([orig], seconds, int(chat_id), uname)
+        )
+    except Exception as exc:  # noqa: BLE001 — RIFE НИКОГДА не роняет видео
+        print(f"[animate] RIFE smooth failed chat={chat_id}: {exc}", flush=True)
+        return orig, False
+    if not delivered:
+        return orig, False
+    out = delivered[0]
+    return out, (out is not orig)
+
+
 def _animate_run_single(chat_id: str, engine_mode: str) -> None:
     """Run one standalone /animate video on the chosen engine (worker thread)."""
     import asyncio as _aio
@@ -2231,8 +2279,13 @@ def _animate_run_single(chat_id: str, engine_mode: str) -> None:
     resolution = pend.get("resolution") or caps.default_resolution
 
     # Лимит-гейт ДО траты (friend под лимитом; admin безлимит).
+    # quote == charge: при smooth ON est включает RIFE-надбавку, которую по
+    # факту успеха спишет _interpolate_batch (та же формула, что на кнопке).
     from app.services.auth.access_control import check_limit
     _est = caps.cost_for(seconds, resolution)
+    if pend.get("smooth"):
+        from app.handlers.face_swap_handler import rife_surcharge_usd
+        _est += rife_surcharge_usd(1, seconds)
     _allowed, _reason = check_limit(chat_id_int, estimated_usd=_est)
     if not _allowed:
         send(chat_id, f"🚫 {_reason}")
@@ -2269,13 +2322,28 @@ def _animate_run_single(chat_id: str, engine_mode: str) -> None:
                 send(chat_id, "❌ Анимация не удалась.")
                 return
             cost = caps.cost_for(seconds, resolution)
-            send(chat_id, f"✅ Готово. Стоимость ~${cost:.2f}.")
+            _uname = _USERNAME_BY_CHAT.get(str(chat_id))
             try:
-                _uname = _USERNAME_BY_CHAT.get(str(chat_id))
                 _cost.record_cost(chat_id_int, _uname, cost)
             except Exception as _e:  # noqa: BLE001 - billing must not break send
                 print(f"[cost] single /animate record failed: {_e}", flush=True)
-            _send_local_video(chat_id, str(ok[0]))
+            # Порт sbsmooth: opt-in RIFE 48fps через money-safe batch-делегат.
+            # Fail → доставляем оригинал; надбавку списывает сам делегат ТОЛЬКО
+            # по факту успеха (без двойного списания). Сообщение по факту:
+            # surcharge в цене показываем лишь когда плавность реально удалась.
+            delivered = ok[0]
+            total = cost
+            if pend.get("smooth"):
+                delivered, _smoothed = _animate_maybe_smooth(
+                    handler, ok[0], seconds, chat_id_int, _uname
+                )
+                if _smoothed:
+                    from app.handlers.face_swap_handler import rife_surcharge_usd
+                    total = cost + rife_surcharge_usd(1, seconds)
+                else:
+                    send(chat_id, "🪶 Плавность не удалась — отдаю видео без неё.")
+            _send_local_video(chat_id, str(delivered))
+            send(chat_id, f"✅ Готово. Стоимость ~${total:.2f}.")
         except Exception as exc:  # noqa: BLE001
             send(chat_id, f"❌ Ошибка: {translate_exception(exc)}")
         finally:
@@ -4063,6 +4131,20 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
             return
         _animate_set_quality(chat_id, parts[1], parts[2])
         answer_callback_query(cq_id, f"{parts[1]}={parts[2]}")
+        edit_message_with_keyboard(
+            chat_id, message_id, "📐 Длина и качество:",
+            _animate_quality_keyboard(int(chat_id)),
+        )
+        return
+
+    # ── Standalone /animate smooth (RIFE 48fps) toggle (asmooth:, порт sbsmooth:) ─
+    if data.startswith("asmooth:"):
+        choice = data.split(":", 1)[1]          # "on" | "off"
+        # Трогаем ТОЛЬКО флаг smooth — движок/длина/разрешение в pending целы;
+        # перерисованное меню читает живой pend (цена = est с новым smooth).
+        # Без траты — как мгновенный batch sbsmooth:.
+        _animate_set_smooth(chat_id, choice == "on")
+        answer_callback_query(cq_id, f"Плавность: {'ВКЛ' if choice == 'on' else 'ВЫКЛ'}")
         edit_message_with_keyboard(
             chat_id, message_id, "📐 Длина и качество:",
             _animate_quality_keyboard(int(chat_id)),
@@ -6967,7 +7049,7 @@ FRIEND_ALLOWED_COMMANDS: frozenset = frozenset({
 # уже member-gated в process_update — отдельная команда не нужна.
 
 # Префиксы callback_data, разрешённые friend (генеративные кнопки). Остальное — admin.
-FRIEND_ALLOWED_CALLBACK_PREFIXES = ("sbeng:", "sbq:", "sbsmooth:", "sbward:", "anim:", "aq:", "sbgen:", "vref:")
+FRIEND_ALLOWED_CALLBACK_PREFIXES = ("sbeng:", "sbq:", "sbsmooth:", "sbward:", "anim:", "aq:", "asmooth:", "sbgen:", "vref:")
 
 
 def _role_for_chat(chat_id) -> Optional[str]:
