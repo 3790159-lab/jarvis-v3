@@ -14,7 +14,10 @@ def _run_invite_card(query, mock_result):
     sent = []
     photos = []
 
-    with patch("app.services.party_mode.generate_invite_card", return_value=mock_result):
+    # invite_card теперь за money-гейтом (Арка 1 T3); эти тесты проверяют парсинг
+    # dict/доставку — пропускаем гейт (allow). Сам гейт — в test_money_gate_photo_studio.
+    with patch("tools.photo_studio_telegram.guard_spend", side_effect=lambda uid, un, est, do: (do(), None)), \
+         patch("app.services.party_mode.generate_invite_card", return_value=mock_result):
         mod.handle_invite_card(
             chat_id="c1",
             query=query,
