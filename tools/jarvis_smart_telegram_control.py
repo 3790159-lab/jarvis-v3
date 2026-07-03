@@ -3945,6 +3945,44 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
             answer_callback_query(cq_id, "🚫 Только для администратора")
             return
 
+    # ── Unified menu navigation (menu:root | menu:cat:<id> | menu:x:<cmd>) ────
+    # Friend passes the prefix-gate above (menu: is allow-listed); the branch
+    # itself is role-checked: render filters by role (tooth #1), lookup_item is
+    # role-checked (tooth #3), and exec routes through handle() so the
+    # FRIEND_ALLOWED_COMMANDS gate re-applies (tooth #2).
+    if data.startswith("menu:"):
+        from tools import jarvis_menu as jmenu
+        role = _menu_role(_cq_uid)
+        if data == "menu:root":
+            _t, _kb = jmenu.render_root(role)
+            edit_message_with_keyboard(chat_id, message_id, _t, _kb)
+            answer_callback_query(cq_id)
+            return
+        if data.startswith("menu:cat:"):
+            res = jmenu.render_category(data.split(":", 2)[2], role)
+            if res is None:
+                answer_callback_query(cq_id, "🚫 Недоступно")
+                return
+            _t, _kb = res
+            edit_message_with_keyboard(chat_id, message_id, _t, _kb)
+            answer_callback_query(cq_id)
+            return
+        if data.startswith("menu:x:"):
+            _cmd = data.split(":", 2)[2]
+            item = jmenu.lookup_item(_cmd, role)          # tooth #3: role-checked
+            if item is None:
+                answer_callback_query(cq_id, "🚫 Только для администратора")
+                return
+            if item.action == "exec":
+                answer_callback_query(cq_id, "▶️")
+                handle(str(chat_id), item.cmd)            # tooth #2: FRIEND_ALLOWED gate
+            else:
+                answer_callback_query(cq_id)
+                send(chat_id, item.hint)
+            return
+        answer_callback_query(cq_id)
+        return
+
     # ── Access requests: admin approve/reject (Фаза 3) ────────────────────────
     if data.startswith("access:"):
         # Role-гейт выше уже отсёк friend от admin-callback; это страховка.
