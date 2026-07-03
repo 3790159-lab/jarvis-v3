@@ -146,3 +146,28 @@ def test_persona_batch_est_scales_with_count(monkeypatch):
     ph.handle_persona_batch(237616472, "mypersona 5 a cool prompt")
     assert started
     assert abs(store["est"] - 0.25) < 1e-9   # PERSONA_BATCH_USD 0.05 × 5
+
+
+# ── Task 5: /me_done Me-LoRA training pre-gate (was ungated ~$5) ───────────
+# (The cost RECORD for me_done is added in Task 7 as a kickoff reservation —
+#  synchronous, restart-safe, and it gives me_done its first ledger entry.)
+def test_me_done_train_pregate_blocks(monkeypatch):
+    sent = []
+    started = []
+    monkeypatch.setattr(ph, "check_limit", _deny)
+    monkeypatch.setattr(ph, "_safe_send", lambda cid, t, *a, **k: sent.append(t))
+    monkeypatch.setattr(ph.threading, "Thread", _thread_spy(started))
+    ph._do_train_me_lora(237616472)
+    assert not started                       # training NOT launched
+    assert any("🚫" in s for s in sent)
+
+
+def test_me_done_train_pregate_allows_uses_est(monkeypatch):
+    store = {}
+    started = []
+    monkeypatch.setattr(ph, "check_limit", _allow_capturing(store))
+    monkeypatch.setattr(ph, "_safe_send", lambda *a, **k: None)
+    monkeypatch.setattr(ph.threading, "Thread", _thread_spy(started))
+    ph._do_train_me_lora(237616472)
+    assert started
+    assert store["est"] == 5.00              # TRAIN_ME_LORA_USD default

@@ -53,6 +53,11 @@ def _persona_redo_est() -> float:
 
 def _persona_batch_est(count: int) -> float:
     return _env_usd("PERSONA_BATCH_USD", 0.05) * count
+
+
+def _train_me_lora_est() -> float:
+    # Подтверждено Daniil: /me_done квотируется ~$5 (не ~$2).
+    return _env_usd("TRAIN_ME_LORA_USD", 5.00)
 from app.services.block_m_common.cost_tracker import CostTracker, DailyLimitExceeded
 from app.services.block_m_common.logging_setup import get_logger, setup_block_m_logging
 from app.services.block_m_common.persona_storage import PersonaStorage
@@ -852,6 +857,14 @@ def handle_me_done(chat_id: int) -> None:
 
 def _do_train_me_lora(chat_id: int) -> None:
     """Start Me-Persona LoRA training in a background thread."""
+    # Пре-гейт дневного лимита СТРОГО до старта платной тренировки (~$5, дыра a).
+    # Раньше me_done не гейтился И не писался ни в один леджер. Запись стоимости
+    # (резерв) добавляется в T7 на старте — restart-safe.
+    allowed, reason = check_limit(chat_id, estimated_usd=_train_me_lora_est())
+    if not allowed:
+        _safe_send(chat_id, f"🚫 {reason}")
+        return
+
     _safe_send(
         chat_id,
         "Тренировка Me-Persona запущена (~20 минут). "
