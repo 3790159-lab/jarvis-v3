@@ -1308,6 +1308,34 @@ def _swapbatch_text_intercept(chat_id: str, text: str) -> bool:
     return True
 
 
+def _prompt_intake_dispatch(chat_id: str, result) -> None:
+    """Применить съеденную ручную motion-строку по kind.
+
+    Обработчики движков подключаются в T3 (/animate) и T4 (/videoref); пока —
+    заглушка (кнопки-триггеры добавляются вместе со своими обработчиками, так
+    что до T3/T4 сюда никто не доходит)."""
+    return None
+
+
+def _prompt_intake_intercept(chat_id: str, text: str) -> bool:
+    """T2: строго ПОСЛЕ ``_swapbatch_text_intercept`` — спросить prompt_intake,
+    ждёт ли этот чат свободную motion-строку для одиночной команды.
+
+    Команда (``/...``) в состоянии ожидания НЕ съедается: снимаем ожидание и
+    отдаём сообщение своему обработчику (иначе manual-режим завис бы). Иначе —
+    ``consume`` (единоразово) и диспатч по kind. Возвращает True, если съели.
+    """
+    from app.services.block_m2_video import prompt_intake as _pi
+    if text and text.lstrip().startswith("/"):
+        _pi.disarm(int(chat_id))
+        return False
+    result = _pi.consume(int(chat_id), text)
+    if result is None:
+        return False
+    _prompt_intake_dispatch(chat_id, result)
+    return True
+
+
 def _swapbatch_photo_intercept(chat_id: str, msg: Dict[str, Any]) -> bool:
     """Single-photo intercept: route to swapbatch if session expects it.
 
@@ -7635,6 +7663,11 @@ def process_update(upd: Dict[str, Any], media_group_buffer: Optional[Dict[str, A
     if text:
         # Block M.2.5: numbered-prompt message for an active custom-prompts flow.
         if _member and _swapbatch_text_intercept(chat_id, text):
+            return
+        # T2: свободная motion-строка для одиночной команды (/animate,
+        # /videoref) — СТРОГО после batch-intercept (инвариант: двойное
+        # ожидание недопустимо, batch короткозамыкает роутер первым).
+        if _member and _prompt_intake_intercept(chat_id, text):
             return
         if not _route_plain_text(chat_id, text, msg):
             handle(chat_id, text)
