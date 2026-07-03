@@ -207,6 +207,10 @@ def _vg_patches(mock_result: dict | None = None, side_effect=None):
     mock_vg_cls = MagicMock(return_value=mock_vg_instance)
 
     patches = [
+        # money-consolidation hole a: /persona_redo now pre-gates on check_limit;
+        # open the gate so the redo flow runs.
+        patch("app.handlers.persona_handler.check_limit",
+              MagicMock(return_value=(True, 1.0))),
         patch("app.handlers.persona_handler.ReplicateVideoClient", MagicMock()),
         patch("app.handlers.persona_handler.PersonaStorage", MagicMock()),
         patch("app.handlers.persona_handler.CostTracker", MagicMock()),

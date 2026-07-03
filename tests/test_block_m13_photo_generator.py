@@ -163,6 +163,10 @@ def _fake_start_sync(completed: threading.Event):
 def _handler_infra_patches(generate_photo_mock):
     """Patch out infra constructors so the handler thread doesn't need env vars."""
     return [
+        # money-consolidation hole a: handler now pre-gates on check_limit; open
+        # the gate so these tests exercise the generation flow.
+        patch("app.handlers.persona_handler.check_limit",
+              MagicMock(return_value=(True, 1.0))),
         patch("app.handlers.persona_handler.ReplicateVideoClient", MagicMock()),
         patch("app.handlers.persona_handler.PersonaStorage", MagicMock()),
         patch("app.handlers.persona_handler.CostTracker", MagicMock()),

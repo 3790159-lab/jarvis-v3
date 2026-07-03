@@ -102,6 +102,9 @@ def test_persona_me_swap_video_records_per_user_cost(tmp_path, monkeypatch):
 
 
 def _patch_persona_storage(ph, monkeypatch):
+    # persona_photo/batch теперь за пре-гейтом check_limit (money-consolidation
+    # hole a); эти тесты проверяют факт-запись, поэтому гейт открыт.
+    monkeypatch.setattr(ph, "check_limit", lambda uid, estimated_usd: (True, ""), raising=False)
     monkeypatch.setattr(ph, "ReplicateVideoClient", lambda *a, **k: object())
     monkeypatch.setattr(ph, "CostTracker", _NoopTracker)
     monkeypatch.setattr(ph, "PersonaStorage", lambda *a, **k: object())
