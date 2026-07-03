@@ -201,3 +201,34 @@ _SYSTEM = Category("system", "⚙️ Система", (
 ))
 
 MENU = [_VIDEO, _PERSONA, _ME, _PHOTO, _APPS, _AGENTS, _STATS, _SYSTEM]
+
+
+# ── Рендер (чистые функции: (текст, inline_keyboard)) ──────────────────────
+def render_root(role):
+    """Корень каталога: по одной кнопке-строке на видимую роли категорию.
+
+    Категория видна, если у неё есть ≥1 видимый роли пункт (первый зуб на
+    уровне категорий — admin-only категория не отрисуется friend'у)."""
+    rows = []
+    for cat in MENU:
+        if _visible(cat.items, role):
+            rows.append([{"text": cat.title, "callback_data": f"menu:cat:{cat.cat_id}"}])
+    text = "☰ Меню — выбери категорию:" if rows else "Нет доступных команд."
+    return text, rows
+
+
+def render_category(cat_id, role):
+    """Пункты категории для роли + кнопка «⬅️ Назад».
+
+    Возвращает None если категория неизвестна ИЛИ недоступна роли (нет ни
+    одного видимого пункта) — вызывающий покажет «🚫»."""
+    cat = next((c for c in MENU if c.cat_id == cat_id), None)
+    if cat is None:
+        return None
+    vis = _visible(cat.items, role)
+    if not vis:
+        return None
+    rows = [[{"text": _btn_text(it), "callback_data": f"menu:x:{it.cmd.lstrip('/')}"}]
+            for it in vis]
+    rows.append([{"text": "⬅️ Назад", "callback_data": "menu:root"}])
+    return cat.title, rows
