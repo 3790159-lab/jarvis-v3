@@ -35,6 +35,7 @@ from app.services.auth import whitelist as _whitelist
 from app.services.auth import users_store as _users_store
 from app.services.audit import audit_logger as _audit
 from app.services.audit import cost_tracker as _cost
+from app.services.auth.spend_guard import guard_spend
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 ALLOWED_CHAT_ID = str(os.getenv("TELEGRAM_ALLOWED_CHAT_ID", "")).strip()
@@ -5656,48 +5657,54 @@ def cmd_smart_photo(chat_id: str, query: str) -> None:
             "Claude AI улучшит твой промпт до уровня профессионального фотографа!")
         return
 
-    send(chat_id, f"Анализирую запрос: {query[:60]}...")
+    def _do():
+        send(chat_id, f"Анализирую запрос: {query[:60]}...")
+        try:
+            from app.services.smart_prompts import smart_enhance
+            result = smart_enhance(query)
+            category = result["category"]
+            enhanced = result["enhanced"]
+            from_cache = result.get("from_cache", False)
+            word_count = len(enhanced.split())
 
-    try:
-        from app.services.smart_prompts import smart_enhance
-        result = smart_enhance(query)
-        category = result["category"]
-        enhanced = result["enhanced"]
-        from_cache = result.get("from_cache", False)
-        word_count = len(enhanced.split())
+            category_ru = {
+                "food": "Еда",
+                "design": "Дизайн",
+                "people": "Люди",
+                "place": "Место",
+                "object": "Объект",
+                "abstract": "Абстракция",
+            }.get(category, category.capitalize())
 
-        category_ru = {
-            "food": "Еда",
-            "design": "Дизайн",
-            "people": "Люди",
-            "place": "Место",
-            "object": "Объект",
-            "abstract": "Абстракция",
-        }.get(category, category.capitalize())
-
-        cache_note = " (из кэша)" if from_cache else ""
-        send(chat_id,
-            f"Категория: {category_ru}{cache_note}\n"
-            f"Профессиональный промпт сгенерирован!\n\n"
-            f"Промпт ({word_count} слов):\n"
-            f"<code>{enhanced[:300]}{'...' if len(enhanced) > 300 else ''}</code>\n\n"
-            f"Создаю фото в премиум качестве...")
-
-        # Generate photo using existing FLUX pipeline
-        from app.services.replicate_image_gen import generate_images_replicate
-        urls = generate_images_replicate(enhanced)
-        url = urls[0] if urls else None
-
-        if url:
-            _send_photo_url(chat_id, url, f"Smart Photo: {query[:60]}")
+            cache_note = " (из кэша)" if from_cache else ""
             send(chat_id,
-                "Готово!\n"
-                "Совет: можешь скопировать промпт и попробовать в любом AI генераторе!")
-        else:
+                f"Категория: {category_ru}{cache_note}\n"
+                f"Профессиональный промпт сгенерирован!\n\n"
+                f"Промпт ({word_count} слов):\n"
+                f"<code>{enhanced[:300]}{'...' if len(enhanced) > 300 else ''}</code>\n\n"
+                f"Создаю фото в премиум качестве...")
+
+            # Generate photo using existing FLUX pipeline
+            from app.services.replicate_image_gen import generate_images_replicate
+            urls = generate_images_replicate(enhanced)
+            url = urls[0] if urls else None
+
+            if url:
+                _send_photo_url(chat_id, url, f"Smart Photo: {query[:60]}")
+                send(chat_id,
+                    "Готово!\n"
+                    "Совет: можешь скопировать промпт и попробовать в любом AI генераторе!")
+                return url
             send(chat_id, f"Промпт готов, но генерация фото не удалась.\n\nПромпт:\n{enhanced}")
-    except Exception as exc:
-        logger.exception("cmd_smart_photo failed chat=%s", chat_id)
-        send(chat_id, f"Ошибка: {translate_exception(exc)}")
+            return None
+        except Exception as exc:
+            logger.exception("cmd_smart_photo failed chat=%s", chat_id)
+            send(chat_id, f"Ошибка: {translate_exception(exc)}")
+            return None
+
+    _url, err = guard_spend(chat_id, None, float(os.getenv("PHOTO_DISH_USD", "0.04")), _do)
+    if err:
+        send(chat_id, f"🚫 {err}")
 
 
 def cmd_pro_food(chat_id: str, query: str) -> None:
@@ -5711,27 +5718,33 @@ def cmd_pro_food(chat_id: str, query: str) -> None:
             "Специализированный промпт для food photography!")
         return
 
-    send(chat_id, f"Создаю food photography промпт: {query[:50]}...")
+    def _do():
+        send(chat_id, f"Создаю food photography промпт: {query[:50]}...")
+        try:
+            from app.services.smart_prompts import enhance_food_prompt
+            from app.services.replicate_image_gen import generate_images_replicate
 
-    try:
-        from app.services.smart_prompts import enhance_food_prompt
-        from app.services.replicate_image_gen import generate_images_replicate
+            enhanced = enhance_food_prompt(query)
+            send(chat_id,
+                f"Промпт готов:\n<code>{enhanced[:300]}</code>\n\n"
+                "Генерирую фото...")
 
-        enhanced = enhance_food_prompt(query)
-        send(chat_id,
-            f"Промпт готов:\n<code>{enhanced[:300]}</code>\n\n"
-            "Генерирую фото...")
+            urls = generate_images_replicate(enhanced)
+            url = urls[0] if urls else None
 
-        urls = generate_images_replicate(enhanced)
-        url = urls[0] if urls else None
-
-        if url:
-            _send_photo_url(chat_id, url, f"Food photo: {query[:60]}")
-        else:
+            if url:
+                _send_photo_url(chat_id, url, f"Food photo: {query[:60]}")
+                return url
             send(chat_id, f"Промпт создан, фото не удалось.\nПромпт: {enhanced}")
-    except Exception as exc:
-        logger.exception("cmd_pro_food failed chat=%s", chat_id)
-        send(chat_id, f"Ошибка: {translate_exception(exc)}")
+            return None
+        except Exception as exc:
+            logger.exception("cmd_pro_food failed chat=%s", chat_id)
+            send(chat_id, f"Ошибка: {translate_exception(exc)}")
+            return None
+
+    _url, err = guard_spend(chat_id, None, float(os.getenv("PHOTO_DISH_USD", "0.04")), _do)
+    if err:
+        send(chat_id, f"🚫 {err}")
 
 
 # ── Landing Brief 2.0 (Block L.4) ────────────────────────────────────────────

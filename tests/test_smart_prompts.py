@@ -264,10 +264,11 @@ def test_cmd_smart_photo_sends_category():
         "prompt_metadata": {"category": "food", "word_count": 50, "system_used": "food"},
     }
     with patch("tools.jarvis_smart_telegram_control.send", side_effect=lambda cid, txt, **kw: sent.append(txt)):
-        with patch("app.services.smart_prompts.smart_enhance", return_value=mock_result):
-            with patch("app.services.replicate_image_gen.generate_images_replicate", return_value=["http://example.com/img.jpg"]):
-                with patch("tools.jarvis_smart_telegram_control._send_photo_url"):
-                    cmd_smart_photo("123", "pasta with seafood")
+        with patch("tools.jarvis_smart_telegram_control.guard_spend", side_effect=lambda uid, un, est, do: (do(), None)):
+            with patch("app.services.smart_prompts.smart_enhance", return_value=mock_result):
+                with patch("app.services.replicate_image_gen.generate_images_replicate", return_value=["http://example.com/img.jpg"]):
+                    with patch("tools.jarvis_smart_telegram_control._send_photo_url"):
+                        cmd_smart_photo("123", "pasta with seafood")
     full = " ".join(sent)
     assert "food" in full.lower() or "Еда" in full or "Промпт" in full
 
