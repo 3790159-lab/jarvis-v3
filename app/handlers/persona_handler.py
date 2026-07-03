@@ -294,10 +294,13 @@ def handle_persona_answer(chat_id: int, text: str) -> bool:
 def _start_generation(chat_id: int, dialog: PersonaDialog) -> None:
     """Transition dialog to GENERATING and launch a daemon background thread."""
     # Пре-гейт дневного лимита СТРОГО до старта платной seed-генерации (T6).
-    allowed, reason = check_limit(chat_id, estimated_usd=_create_persona_est())
+    _est = _create_persona_est()
+    allowed, reason = check_limit(chat_id, estimated_usd=_est)
     if not allowed:
         _safe_send(chat_id, f"🚫 {reason}")
         return
+    # Резерв оценки на старте (hole c); на успехе — дельта (факт−оценка).
+    _record_user_cost(chat_id, _est)
     dialog.confirm()
     _safe_send(
         chat_id,
@@ -333,7 +336,8 @@ def _start_generation(chat_id: int, dialog: PersonaDialog) -> None:
 
             return await creator.generate_seed_photos(
                 persona, count=20, progress_cb=progress_cb,
-                on_success_cost=lambda amt: _record_user_cost(chat_id, amt),
+                # hole c: резерв записан на старте; на успехе — дельта (факт−оценка).
+                on_success_cost=lambda amt: _record_user_cost(chat_id, amt - _est),
             )
 
         try:
@@ -377,10 +381,16 @@ def _run_async(coro):
 def _do_train_lora(chat_id: int, persona_id: str) -> None:
     """Start LoRA training and notify chat_id on completion."""
     # Пре-гейт дневного лимита СТРОГО до старта платной тренировки (T6, ~$2).
-    allowed, reason = check_limit(chat_id, estimated_usd=_train_lora_est())
+    _est = _train_lora_est()
+    allowed, reason = check_limit(chat_id, estimated_usd=_est)
     if not allowed:
         _safe_send(chat_id, f"🚫 {reason}")
         return
+    # Резерв оценки в леджер СРАЗУ (hole c): рестарт посреди daemon-тренировки
+    # убивает поток до записи факта, поэтому резерв на старте гарантирует
+    # видимость траты. На успехе пишем ДЕЛЬТУ (факт−оценка) → итог = факт;
+    # при рестарте в леджере остаётся оценка (честно — заряд вероятно случился).
+    _record_user_cost(chat_id, _est)
     _safe_send(
         chat_id,
         f"Тренировка запущена!\n"
@@ -402,9 +412,9 @@ def _do_train_lora(chat_id: int, persona_id: str) -> None:
                 persona_id,
                 user_chat_id=chat_id,
                 notify_fn=lambda cid, msg: _safe_send(cid, msg),
-                # Вариант B: ФАКТИЧЕСКАЯ стоимость в friend-леджер на успешном
-                # завершении (провал/прерывание → не списываем).
-                on_success_cost=lambda amt: _record_user_cost(chat_id, amt),
+                # hole c: резерв уже записан на старте; на успехе пишем ДЕЛЬТУ
+                # (факт−оценка), чтобы итог сошёлся к фактической стоимости.
+                on_success_cost=lambda amt: _record_user_cost(chat_id, amt - _est),
             )
 
         try:
@@ -858,12 +868,16 @@ def handle_me_done(chat_id: int) -> None:
 def _do_train_me_lora(chat_id: int) -> None:
     """Start Me-Persona LoRA training in a background thread."""
     # Пре-гейт дневного лимита СТРОГО до старта платной тренировки (~$5, дыра a).
-    # Раньше me_done не гейтился И не писался ни в один леджер. Запись стоимости
-    # (резерв) добавляется в T7 на старте — restart-safe.
-    allowed, reason = check_limit(chat_id, estimated_usd=_train_me_lora_est())
+    _est = _train_me_lora_est()
+    allowed, reason = check_limit(chat_id, estimated_usd=_est)
     if not allowed:
         _safe_send(chat_id, f"🚫 {reason}")
         return
+
+    # Резерв оценки на старте (hole c). me_done раньше не писался НИ в один
+    # леджер; train_flux_lora не возвращает гранулярную стоимость, поэтому
+    # дельты нет — резерв оценки и есть запись траты (restart-safe).
+    _record_user_cost(chat_id, _est)
 
     _safe_send(
         chat_id,
