@@ -38,6 +38,13 @@ def _train_lora_est() -> float:
 
 def _create_persona_est() -> float:
     return _env_usd("CREATE_PERSONA_SEED_USD", 0.04) * _CREATE_PERSONA_SEED_COUNT
+
+
+# Оценки пре-гейта для персона-генераций (money-consolidation, дыра a).
+# Факт-стоимость по-прежнему пишется на успехе через _record_user_cost —
+# пре-гейт только проверяет лимит ДО платного вызова (без двойного списания).
+def _persona_photo_est() -> float:
+    return _env_usd("PERSONA_PHOTO_USD", 0.05)
 from app.services.block_m_common.cost_tracker import CostTracker, DailyLimitExceeded
 from app.services.block_m_common.logging_setup import get_logger, setup_block_m_logging
 from app.services.block_m_common.persona_storage import PersonaStorage
@@ -526,6 +533,12 @@ def handle_persona_photo(chat_id: int, args: str) -> None:
         _safe_send(chat_id, "Укажите промпт: /persona_photo <persona_id> <prompt>")
         return
     prompt = parts[1].strip()
+
+    # Пре-гейт дневного лимита СТРОГО до старта платной генерации (дыра a).
+    allowed, reason = check_limit(chat_id, estimated_usd=_persona_photo_est())
+    if not allowed:
+        _safe_send(chat_id, f"🚫 {reason}")
+        return
 
     logger.info("handle_persona_photo chat=%s persona=%s", chat_id, persona_id)
     _safe_send(chat_id, "Генерирую фото, подождите...")
