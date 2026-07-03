@@ -289,20 +289,30 @@ def handle_party_promo(
     theme = parts[0].lower()
     extra_text = parts[1] if len(parts) > 1 else ""
 
-    send_fn(chat_id, f"🎉 Создаю постер для {theme}...")
-    try:
-        from app.services.party_mode import generate_party_promo
-        result = generate_party_promo(theme, extra_text or "")
-        poster_url = result.get("poster_url", "").strip()
-        promo_text = result.get("promo_text", "").strip()
-        if not poster_url:
+    def _do():
+        send_fn(chat_id, f"🎉 Создаю постер для {theme}...")
+        try:
+            from app.services.party_mode import generate_party_promo
+            res = generate_party_promo(theme, extra_text or "")
+            if res and res.get("poster_url", "").strip():
+                return res
             send_fn(chat_id, "❌ Не удалось сгенерировать постер")
-            return
-        send_photo_fn(chat_id, poster_url, caption=promo_text[:1024] if promo_text else theme)
-        if len(promo_text) > 1024:
-            send_fn(chat_id, "📝 Полный текст:\n\n" + promo_text)
-    except Exception as exc:
-        send_fn(chat_id, f"❌ Ошибка: {exc}")
+            return None
+        except Exception as exc:
+            send_fn(chat_id, f"❌ Ошибка: {exc}")
+            return None
+
+    result, err = guard_spend(chat_id, None, _envf("PHOTO_PARTY_USD", 0.05), _do)
+    if err:
+        send_fn(chat_id, f"🚫 {err}")
+        return
+    if not result:
+        return
+    poster_url = result.get("poster_url", "").strip()
+    promo_text = result.get("promo_text", "").strip()
+    send_photo_fn(chat_id, poster_url, caption=promo_text[:1024] if promo_text else theme)
+    if len(promo_text) > 1024:
+        send_fn(chat_id, "📝 Полный текст:\n\n" + promo_text)
 
 
 def handle_invite_card(
@@ -332,24 +342,30 @@ def handle_invite_card(
     event = tokens[1]
     date_str = tokens[2]
 
-    send_fn(chat_id, f"💌 Создаю приглашение для {name}...")
-    try:
-        from app.services.party_mode import generate_invite_card
-        result = generate_invite_card(name, event, date_str)
-
-        card_url = result.get("card_url", "").strip()
-        personal_text = result.get("personal_text", "").strip()
-
-        if not card_url:
+    def _do():
+        send_fn(chat_id, f"💌 Создаю приглашение для {name}...")
+        try:
+            from app.services.party_mode import generate_invite_card
+            res = generate_invite_card(name, event, date_str)
+            if res and res.get("card_url", "").strip():
+                return res
             send_fn(chat_id, "❌ Не удалось сгенерировать приглашение")
-            return
+            return None
+        except Exception as exc:
+            send_fn(chat_id, f"❌ Ошибка: {exc}")
+            return None
 
-        send_photo_fn(chat_id, card_url, caption=personal_text[:1024])
-
-        if len(personal_text) > 1024:
-            send_fn(chat_id, "📝 Полный текст:\n\n" + personal_text)
-    except Exception as exc:
-        send_fn(chat_id, f"❌ Ошибка: {exc}")
+    result, err = guard_spend(chat_id, None, _envf("PHOTO_PARTY_USD", 0.05), _do)
+    if err:
+        send_fn(chat_id, f"🚫 {err}")
+        return
+    if not result:
+        return
+    card_url = result.get("card_url", "").strip()
+    personal_text = result.get("personal_text", "").strip()
+    send_photo_fn(chat_id, card_url, caption=personal_text[:1024])
+    if len(personal_text) > 1024:
+        send_fn(chat_id, "📝 Полный текст:\n\n" + personal_text)
 
 
 def handle_event_photo(
@@ -362,17 +378,27 @@ def handle_event_photo(
         send_fn(chat_id, "Использование: /event_photo банкетный зал с хрустальными люстрами")
         return
 
-    send_fn(chat_id, f"📸 Создаю фото события...")
-    try:
-        from app.services.party_mode import generate_event_photo
-        result = generate_event_photo(query)
-        url = result.get("url") or result.get("image_url")
-        if url:
-            send_photo_fn(chat_id, url, caption=query[:200])
-        else:
-            send_fn(chat_id, f"❌ Не удалось создать фото: {result}")
-    except Exception as exc:
-        send_fn(chat_id, f"❌ Ошибка: {exc}")
+    def _do():
+        send_fn(chat_id, f"📸 Создаю фото события...")
+        try:
+            from app.services.party_mode import generate_event_photo
+            res = generate_event_photo(query)
+            if res and (res.get("url") or res.get("image_url")):
+                return res
+            send_fn(chat_id, f"❌ Не удалось создать фото: {res}")
+            return None
+        except Exception as exc:
+            send_fn(chat_id, f"❌ Ошибка: {exc}")
+            return None
+
+    result, err = guard_spend(chat_id, None, _envf("PHOTO_PARTY_USD", 0.05), _do)
+    if err:
+        send_fn(chat_id, f"🚫 {err}")
+        return
+    if not result:
+        return
+    url = result.get("url") or result.get("image_url")
+    send_photo_fn(chat_id, url, caption=query[:200])
 
 
 def handle_party_themes(chat_id: str, send_fn: Callable) -> None:
