@@ -83,6 +83,9 @@ def _neutralize_startup(mod, monkeypatch):
     threads, and the 3-second error-backoff sleep."""
     monkeypatch.setattr(mod, "_heartbeat_thread", lambda: None)
     monkeypatch.setattr(mod, "_check_backend_startup", lambda: None)
+    # Native ☰ registration (setMyCommands) is a pre-loop startup step too; stub
+    # it so its Telegram calls don't land in the loop's captured getUpdates URLs.
+    monkeypatch.setattr(mod, "register_native_commands", lambda: None)
     # No real backoff sleeps — keeps the test instant and prevents a slow spin.
     monkeypatch.setattr(mod.time, "sleep", lambda *a, **k: None)
     # Cowork watcher + backend monitor are imported *inside* _main_inner; stub at
