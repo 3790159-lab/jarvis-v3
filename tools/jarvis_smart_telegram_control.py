@@ -2151,6 +2151,60 @@ def _animate_apply_custom_motion(chat_id: str, result) -> None:
     )
 
 
+def _animate_quality_keyboard(chat_id_int: int) -> list:
+    """T5: caps-aware кнопки длины/разрешения для одиночного /animate (порт
+    batch build_quality_keyboard, префикс aq: вместо sbq:). Читает движок и
+    текущий выбор из _ANIMATE_PENDING; выбранное помечено ⭐. Кнопка «Готово»
+    показывает est(cur_dur, cur_res) — quoted == charged."""
+    from app.services.block_m2_video.engines.capabilities import caps_for
+    pend = _ANIMATE_PENDING.get(chat_id_int) or {}
+    caps = caps_for(pend.get("engine_mode", "spicy"))
+    cur_dur = pend.get("seconds", caps.default_duration)
+    cur_res = pend.get("resolution", caps.default_resolution)
+    dur_row = [{"text": f"{'⭐ ' if d == cur_dur else ''}{d}с",
+                "callback_data": f"aq:dur:{d}"} for d in caps.allowed_durations]
+    res_row = [{"text": f"{'⭐ ' if r == cur_res else ''}{r}",
+                "callback_data": f"aq:res:{r}"} for r in caps.allowed_resolutions]
+    est = caps.cost_for(cur_dur, cur_res)
+    return [
+        dur_row,
+        res_row,
+        [{"text": f"✅ Генерировать (~${est:.2f})", "callback_data": "aq:done"}],
+    ]
+
+
+def _animate_pick_engine(chat_id: str, engine_mode: str) -> None:
+    """Тап движка (anim:<engine>): запомнить движок + снапнуть текущее качество
+    в его caps + показать quality-меню (вместо мгновенного запуска)."""
+    from app.services.block_m2_video.engines.capabilities import caps_for
+    chat_id_int = int(chat_id)
+    pend = _ANIMATE_PENDING.get(chat_id_int)
+    if pend is None:
+        send(chat_id, "⚠️ Нет активного /animate. Начни заново: /animate.")
+        return
+    caps = caps_for(engine_mode)
+    pend["engine_mode"] = engine_mode
+    pend["seconds"] = caps.snap_duration(pend.get("seconds", caps.default_duration))
+    pend["resolution"] = caps.snap_resolution(pend.get("resolution", caps.default_resolution))
+    note = "" if not caps.censored else " · censored (SFW)"
+    send_with_keyboard(
+        chat_id,
+        f"📐 {caps.display_name}{note}: длина и качество:",
+        _animate_quality_keyboard(chat_id_int),
+    )
+
+
+def _animate_set_quality(chat_id: str, kind: str, value: str) -> None:
+    """Тап aq:dur/res → записать выбор в pending (движок не трогаем)."""
+    pend = _ANIMATE_PENDING.get(int(chat_id))
+    if pend is None:
+        return
+    if kind == "dur":
+        pend["seconds"] = int(value)
+    elif kind == "res":
+        pend["resolution"] = value
+
+
 def _animate_run_single(chat_id: str, engine_mode: str) -> None:
     """Run one standalone /animate video on the chosen engine (worker thread)."""
     import asyncio as _aio
@@ -2171,8 +2225,10 @@ def _animate_run_single(chat_id: str, engine_mode: str) -> None:
         send(chat_id, "⚠️ Модуль face-swap недоступен.")
         return
     caps = caps_for(engine_mode)
-    seconds = caps.default_duration
-    resolution = caps.default_resolution
+    # T5: длина/разрешение из выбора пользователя (pend), иначе caps-дефолт.
+    # quote == charge: та же пара идёт и в гейт (cost_for), и в build request.
+    seconds = pend.get("seconds") or caps.default_duration
+    resolution = pend.get("resolution") or caps.default_resolution
 
     # Лимит-гейт ДО траты (friend под лимитом; admin безлимит).
     from app.services.auth.access_control import check_limit
@@ -3992,8 +4048,25 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
             answer_callback_query(cq_id, "✍️ Жду промт")
             _animate_custom_arm(chat_id)
             return
+        # T5: движок выбран → показать caps-aware quality-меню (запуск на aq:done).
         answer_callback_query(cq_id, "Движок выбран")
-        _animate_run_single(chat_id, choice)
+        _animate_pick_engine(chat_id, choice)
+        return
+
+    # ── Standalone /animate quality/length toggles (T5, порт sbq:) ────────────
+    if data.startswith("aq:"):
+        parts = data.split(":")
+        if parts[1] == "done":
+            answer_callback_query(cq_id, "Генерирую")
+            _pend = _ANIMATE_PENDING.get(int(chat_id)) or {}
+            _animate_run_single(chat_id, _pend.get("engine_mode", "spicy"))
+            return
+        _animate_set_quality(chat_id, parts[1], parts[2])
+        answer_callback_query(cq_id, f"{parts[1]}={parts[2]}")
+        edit_message_with_keyboard(
+            chat_id, message_id, "📐 Длина и качество:",
+            _animate_quality_keyboard(int(chat_id)),
+        )
         return
 
     # ── Mesh mode switches ────────────────────────────────────────────────────
@@ -6894,7 +6967,7 @@ FRIEND_ALLOWED_COMMANDS: frozenset = frozenset({
 # уже member-gated в process_update — отдельная команда не нужна.
 
 # Префиксы callback_data, разрешённые friend (генеративные кнопки). Остальное — admin.
-FRIEND_ALLOWED_CALLBACK_PREFIXES = ("sbeng:", "sbq:", "sbsmooth:", "sbward:", "anim:", "sbgen:", "vref:")
+FRIEND_ALLOWED_CALLBACK_PREFIXES = ("sbeng:", "sbq:", "sbsmooth:", "sbward:", "anim:", "aq:", "sbgen:", "vref:")
 
 
 def _role_for_chat(chat_id) -> Optional[str]:
