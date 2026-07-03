@@ -9,7 +9,19 @@ import threading
 from pathlib import Path
 from typing import Callable
 
+import os
+
 from app.services.audit import cost_tracker as _user_cost
+from app.services.auth.access_control import check_limit
+
+
+def _me_swap_est() -> float:
+    """Консервативная оценка для пре-гейта me_swap (фактическая стоимость
+    пишется в леджер после успеха отдельно)."""
+    try:
+        return float(os.getenv("ME_SWAP_USD", "0.04"))
+    except (TypeError, ValueError):
+        return 0.04
 from app.services.block_m_common.cost_tracker import CostTracker, DailyLimitExceeded
 from app.services.block_m_common.logging_setup import get_logger, setup_block_m_logging
 from app.services.block_m_common.persona_storage import PersonaStorage
@@ -831,6 +843,12 @@ def handle_me_swap_photo(chat_id: int, args: str) -> None:
         _safe_send(chat_id, "Укажите промпт: /me_swap_photo <prompt>")
         return
 
+    # Пре-гейт дневного лимита СТРОГО до запуска платной генерации (T7).
+    allowed, reason = check_limit(chat_id, estimated_usd=_me_swap_est())
+    if not allowed:
+        _safe_send(chat_id, f"🚫 {reason}")
+        return
+
     logger.info("handle_me_swap_photo chat=%s", chat_id)
     _safe_send(chat_id, "Генерирую фото с вашей Me-Persona...")
 
@@ -880,6 +898,12 @@ def handle_me_swap_video(chat_id: int, args: str) -> None:
     video_url = args.strip()
     if not video_url:
         _safe_send(chat_id, "Укажите URL видео: /me_swap_video <video_url>")
+        return
+
+    # Пре-гейт дневного лимита СТРОГО до запуска платного face-swap видео (T7).
+    allowed, reason = check_limit(chat_id, estimated_usd=_me_swap_est())
+    if not allowed:
+        _safe_send(chat_id, f"🚫 {reason}")
         return
 
     logger.info("handle_me_swap_video chat=%s", chat_id)

@@ -46,6 +46,10 @@ class _NoopTracker:
 
 
 def _common_patches(ph, monkeypatch):
+    # me_swap теперь за пре-гейтом check_limit (Арка 1 T7); эти тесты проверяют
+    # запись фактической стоимости — пропускаем гейт (allow). Сам гейт — в
+    # tests/test_money_gate_persona.py.
+    monkeypatch.setattr(ph, "check_limit", lambda uid, estimated_usd: (True, ""), raising=False)
     monkeypatch.setattr(ph, "ReplicateVideoClient", lambda *a, **k: _Client())
     monkeypatch.setattr(
         "app.services.block_m22_fun.me_persona.MePersonaManager", _Mgr
