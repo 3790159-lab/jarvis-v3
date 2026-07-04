@@ -2,6 +2,8 @@
 """Dev-task git worktree lifecycle — injected `run`, $0, no real git."""
 import types
 
+import pytest
+
 import app.services.devtask.git_ops as g
 
 
@@ -18,13 +20,54 @@ def _verbs(calls):
     return [a[3] if len(a) > 3 and a[0] == "git" and a[1] == "-C" else a[1] for a in calls]
 
 
-def test_create_worktree_form_and_verbs():
+class _Handle:
+    """Fake detached-checkout process handle."""
+    def __init__(self, rc_sequence):
+        self._seq = list(rc_sequence)
+        self.killed = False
+
+    def poll(self):
+        return self._seq.pop(0) if self._seq else 0
+
+    def kill(self):
+        self.killed = True
+
+
+# Variant A: instant `--no-checkout` add, then a DETACHED `git checkout` that
+# populates the worktree off the bot process (the mass checkout is killed as a
+# direct child of the live bot but succeeds when decoupled).
+def test_create_worktree_uses_no_checkout_then_detached_checkout():
     run = _fake()
-    wt = g.create_worktree("T1", base="dead", run=run, root="C:/jarvis", wt_root="C:/wt")
+    spawned = []
+    wt = g.create_worktree("T1", base="dead", run=run,
+                           spawn_checkout=lambda w: spawned.append(w) or _Handle([0]),
+                           root="C:/jarvis", wt_root="C:/wt",
+                           poll_s=0, sleep=lambda s: None)
     assert wt == "C:/wt/devtask-T1"
-    joined = " ".join(run.calls[0])
-    assert "worktree add" in joined and "-b devtask-T1" in joined and "dead" in joined
+    add_cmd = " ".join(run.calls[0])
+    assert "worktree add --no-checkout" in add_cmd and "-b devtask-T1" in add_cmd and "dead" in add_cmd
+    assert spawned == ["C:/wt/devtask-T1"]                       # detached checkout spawned
     assert all(v in g._ALLOWED_VERBS for v in _verbs(run.calls))
+
+
+def test_create_worktree_detached_checkout_failure_raises():
+    run = _fake()
+    with pytest.raises(RuntimeError):
+        g.create_worktree("T1", base="d", run=run,
+                          spawn_checkout=lambda w: _Handle([1]),   # checkout died rc=1
+                          root="C:/jarvis", wt_root="C:/wt",
+                          poll_s=0, sleep=lambda s: None)
+
+
+def test_create_worktree_checkout_timeout_kills_and_raises():
+    run = _fake()
+    h = _Handle([None, None, None])                               # never finishes
+    times = iter([0, 0, 100, 100])                               # now() advances past deadline
+    with pytest.raises(RuntimeError):
+        g.create_worktree("T1", base="d", run=run, spawn_checkout=lambda w: h,
+                          root="C:/jarvis", wt_root="C:/wt", timeout_s=10,
+                          poll_s=0, sleep=lambda s: None, now=lambda: next(times))
+    assert h.killed is True
 
 
 def test_prod_head_reads_rev_parse():
