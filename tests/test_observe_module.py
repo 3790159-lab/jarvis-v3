@@ -42,3 +42,14 @@ def test_git_status_text_shape_and_readonly():
     assert "phase-4.0-unified-jarvis" in txt and "da2312e" in txt and "ahead 3" in txt
     verbs = [_git_verb(a) for a in calls]
     assert all(v in o._GIT_READONLY_VERBS for v in verbs)
+
+
+def test_parse_pytest_summary():
+    s = "130 failed, 3353 passed, 10 skipped, 101 warnings, 4 errors in 255.38s"
+    assert o.parse_pytest_summary(s) == {"failed": 130, "passed": 3353, "errors": 4}
+
+
+def test_regress_verdict_vs_baseline():
+    assert "✅" in o.regress_verdict({"failed": 130, "passed": 3353, "errors": 4}, {"failed": 130})
+    assert "⚠️" in o.regress_verdict({"failed": 134, "passed": 3349, "errors": 4}, {"failed": 130})
+    assert "baseline не задан" in o.regress_verdict({"failed": 130, "passed": 1, "errors": 0}, None)

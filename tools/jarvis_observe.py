@@ -7,6 +7,7 @@ to read-only verbs (see ``_GIT_READONLY_VERBS``).
 """
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -76,6 +77,37 @@ def git_status_text(repo: str = "C:/jarvis", run=subprocess.run) -> str:
         out.append(f"↕️ {ahead_behind}")
     out.append(f"🧹 рабочее дерево: {dirty_txt}")
     return "\n".join(out)
+
+
+def parse_pytest_summary(stdout: str) -> dict:
+    """Pull ``failed``/``passed``/``errors`` counts from pytest's summary tail.
+
+    Reads the last matching occurrence of each ``N <word>`` token so a stray
+    earlier mention doesn't win. Missing counts default to 0.
+    """
+    def _last(word):
+        matches = re.findall(rf"(\d+)\s+{word}", stdout)
+        return int(matches[-1]) if matches else 0
+
+    return {
+        "failed": _last("failed"),
+        "passed": _last("passed"),
+        "errors": _last("error"),  # matches "error" and "errors"
+    }
+
+
+def regress_verdict(summary: dict, baseline: dict | None) -> str:
+    """Compare a fresh pytest summary against the stored baseline failed-count."""
+    failed = summary.get("failed", 0)
+    passed = summary.get("passed", 0)
+    errors = summary.get("errors", 0)
+    body = f"{failed} failed, {passed} passed, {errors} errors"
+    if baseline is None:
+        return f"⚠️ baseline не задан (обнови вручную)\n{body}"
+    base_failed = baseline.get("failed", 0)
+    if failed <= base_failed:
+        return f"✅ не хуже baseline ({failed} ≤ {base_failed})\n{body}"
+    return f"⚠️ регресс: +{failed - base_failed} новых падений (было {base_failed})\n{body}"
 
 
 def tail_log(path: str, n: int = 40, max_chars: int = 3900) -> str:

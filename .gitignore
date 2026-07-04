@@ -55,3 +55,6 @@ scripts/*.log.err
 
 # Nested generated-project venvs (recursive certifi/pip bloat)
 jarvis_stage3_artifacts/generated_projects/*/.venv/
+
+# scratchpad: local baseline/regress artifacts, never commit
+scratchpad/
