@@ -1355,8 +1355,17 @@ def _devtask_confirm(chat_id, tid: str) -> None:
         send(chat_id, "Задача не найдена или уже запущена.")
         return
     from app.services.devtask import git_ops as _g
-    base = _g.prod_head()
-    wt = _g.create_worktree(tid, base)
+    try:
+        base = _g.prod_head()
+        wt = _g.create_worktree(tid, base)
+    except Exception as exc:
+        # Worktree setup failed → don't leave the task stuck 'queued' forever;
+        # mark failed and tell the admin explicitly (answer_callback is fragile:
+        # it 400s on a stale callback, so the user would otherwise see nothing).
+        logger.exception("devtask %s worktree setup failed", tid)
+        q.set_status(tid, "failed", error="worktree setup: %s" % exc)
+        send(chat_id, "❌ Dev-задача %s: не удалось создать worktree.\n%s" % (tid, exc))
+        return
     q.set_status(tid, "running", worktree=wt, base_head=base)
     send(chat_id, "🚀 Запускаю Claude Code в worktree %s (opus, TDD). Дойду до СТОП — пришлю отчёт." % wt)
     threading.Thread(target=_devtask_run_body, args=(chat_id, tid), daemon=True,
@@ -8339,6 +8348,8 @@ def process_update(upd: Dict[str, Any], media_group_buffer: Optional[Dict[str, A
             try:
                 handle_callback_query(cq, state)
             except Exception as e:
+                logger.exception("callback_query handler failed data=%r: %s",
+                                 cq.get("data"), e)
                 try:
                     answer_callback_query(cq.get("id", ""), "❌ Ошибка")
                 except Exception:
