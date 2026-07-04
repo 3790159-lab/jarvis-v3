@@ -114,7 +114,16 @@ while ($true) {
     } else {
         if ($lastState -ne 'dead') { Write-G 'bot DOWN - restarting'; $lastState = 'dead' }
         Start-Bot | Out-Null
-        if (Test-Bot) { $lastState = 'alive' }
+        if (Test-Bot) {
+            $lastState = 'alive'
+        } else {
+            # Dev-task (Ступень 2) crash-loop guard: if a [Мердж] wrote a
+            # boot_watch marker and the merged code never boots healthy past its
+            # deadline, this standalone stdlib-only script TG-alerts the admin
+            # with rollback commands. Survives even a merge that breaks the bot's
+            # imports. No-op when no marker / bot already healthy.
+            try { & $py (Join-Path $Root 'scripts\boot_watch_check.py') 2>$null } catch {}
+        }
     }
     Start-Sleep -Seconds $IntervalSeconds
 }

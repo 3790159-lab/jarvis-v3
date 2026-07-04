@@ -166,3 +166,34 @@ def test_confirm_creates_worktree_and_starts_run(monkeypatch, tmp_path):
     mod._devtask_confirm(ADMIN, tid)
     assert "wt" in made and started["x"] is True
     assert q.get(tid)["status"] == STATUS_RUNNING and q.get(tid)["base_head"] == "base1"
+
+
+# ── Task 7: boot reconciliation (post-restart report + interrupted-run) ─────
+from app.services.devtask import boot_watch as _bw_mod
+from app.services.devtask.queue import STATUS_FAILED, STATUS_RUNNING as _RUN
+
+
+def test_boot_reconcile_pending_restart_single_shot(monkeypatch, tmp_path):
+    q = DevTaskQueue(base_dir=tmp_path)
+    monkeypatch.setattr(mod, "_DEVTASK_QUEUE", q, raising=False)
+    _bw_mod.write_pending_restart(tmp_path, "T1", "old", "new")
+    _bw_mod.write_boot_watch(tmp_path, "T1", "old", "new", now=0)
+    sent = []
+    mod._devtask_boot_reconcile(base_dir=tmp_path, send_fn=lambda t: sent.append(t))
+    assert any("смерджена" in s for s in sent)
+    assert _bw_mod.read_pending_restart(tmp_path) is None          # single-shot
+    assert not (tmp_path / "boot_watch.json").exists()             # cleared on healthy boot
+    sent.clear()
+    mod._devtask_boot_reconcile(base_dir=tmp_path, send_fn=lambda t: sent.append(t))
+    assert sent == []                                              # no repeat
+
+
+def test_boot_reconcile_marks_interrupted_running_failed(monkeypatch, tmp_path):
+    q = DevTaskQueue(base_dir=tmp_path)
+    tid = q.add("x")
+    q.set_status(tid, _RUN)
+    monkeypatch.setattr(mod, "_DEVTASK_QUEUE", q, raising=False)
+    sent = []
+    mod._devtask_boot_reconcile(base_dir=tmp_path, send_fn=lambda t: sent.append(t))
+    assert q.get(tid)["status"] == STATUS_FAILED
+    assert any("прервана" in s for s in sent)

@@ -1469,6 +1469,31 @@ def _devtask_rollback(chat_id, tid: str) -> None:
     send(chat_id, "↩️ Dev-задача %s откачена (worktree+ветка снесены, прод не тронут)." % tid)
 
 
+def _devtask_boot_reconcile(base_dir=None, send_fn=None) -> None:
+    """On startup: send the post-restart merge confirmation (single-shot) and
+    fail any task left `running` (the bot restarted mid-run). Never raises."""
+    from app.services.devtask import boot_watch as _bw, queue as _q
+    try:
+        q = _devtask_queue()
+        base = base_dir if base_dir is not None else _devtask_state_dir()
+        if send_fn is None:
+            send_fn = lambda t: send(ALLOWED_CHAT_ID, t)
+        pending = _bw.read_pending_restart(base)
+        if pending:
+            send_fn("✅ Dev-задача %s смерджена, бот перезапущен на новом коде (%s→%s)."
+                    % (pending.get("task_id"), pending.get("old_head"), pending.get("new_head")))
+            _bw.clear_pending_restart(base)
+            _bw.clear_boot_watch(base)          # healthy boot -> disarm crash-loop guard
+        for item in q.list_recent(50):
+            if item.get("status") == _q.STATUS_RUNNING:
+                q.set_status(item["id"], _q.STATUS_FAILED,
+                             error="бот перезапущен во время прогона")
+                send_fn("⚠️ Dev-задача %s прервана рестартом бота — помечена failed. "
+                        "Worktree сохранён для инспекции." % item["id"])
+    except Exception as exc:
+        print("[devtask] boot reconcile error: %s" % exc, flush=True)
+
+
 def _devtask_details(chat_id, tid: str) -> None:
     from pathlib import Path as _P
     item = _devtask_queue().get(tid)
@@ -8515,6 +8540,11 @@ def _main_inner() -> None:
 
     # Register the native ☰ menu once, before either dispatch mode starts.
     register_native_commands()
+
+    # Dev-task (Ступень 2) boot reconcile: post-merge restart confirmation +
+    # fail any run interrupted by this restart. Also disarms the crash-loop
+    # guard (healthy boot reached). Never raises.
+    _devtask_boot_reconcile()
 
     if webhook_url:
         print(f"[Webhook] Mode active — URL: {webhook_url}", flush=True)
