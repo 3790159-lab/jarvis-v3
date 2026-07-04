@@ -53,3 +53,16 @@ def test_regress_verdict_vs_baseline():
     assert "✅" in o.regress_verdict({"failed": 130, "passed": 3353, "errors": 4}, {"failed": 130})
     assert "⚠️" in o.regress_verdict({"failed": 134, "passed": 3349, "errors": 4}, {"failed": 130})
     assert "baseline не задан" in o.regress_verdict({"failed": 130, "passed": 1, "errors": 0}, None)
+
+
+def test_health_snapshot_formats_all_sections():
+    readers = {
+        "bot": lambda: {"pid": 17048, "alive": True},
+        "heartbeat_age": lambda: 12,
+        "backend": lambda: {"ok": True, "code": 200},
+        "tunnel_age": lambda: 40,
+        "disk": lambda: {"free_gb": 12.9, "total_gb": 119.1},
+    }
+    txt = o.health_snapshot(readers)
+    assert "17048" in txt and "12" in txt and "12.9" in txt
+    assert "✅" in txt  # backend ok

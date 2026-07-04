@@ -22,6 +22,10 @@ BASELINE_PATH = ROOT / "state" / "regress_baseline.json"
 # --- read-only git guard -----------------------------------------------------
 _GIT_READONLY_VERBS = {"status", "rev-parse", "log", "describe"}
 
+# --- health thresholds -------------------------------------------------------
+HEARTBEAT_STALE_S = 90
+TUNNEL_STALE_S = 300
+
 # --- log noise filter --------------------------------------------------------
 _NOISE_LOGGER = "_base_client"
 _NOISE_MARKER = "Request options"
@@ -77,6 +81,59 @@ def git_status_text(repo: str = "C:/jarvis", run=subprocess.run) -> str:
         out.append(f"↕️ {ahead_behind}")
     out.append(f"🧹 рабочее дерево: {dirty_txt}")
     return "\n".join(out)
+
+
+def health_snapshot(readers: dict) -> str:
+    """Assemble the /health report from injected reader callables.
+
+    ``readers`` keys: ``bot`` -> {pid, alive}, ``heartbeat_age`` -> seconds,
+    ``backend`` -> {ok, code}, ``tunnel_age`` -> seconds, ``disk`` ->
+    {free_gb, total_gb}. Every reader is called defensively; a failing reader
+    degrades its own line to a ❓ rather than crashing the report.
+    """
+    def _safe(key, fn):
+        try:
+            return readers[key]()
+        except Exception as e:  # a broken probe must not kill the whole report
+            return e
+
+    lines = []
+
+    bot = _safe("bot", None)
+    if isinstance(bot, dict):
+        mark = "✅" if bot.get("alive") else "🔴"
+        lines.append(f"🤖 бот: PID {bot.get('pid', '?')} {mark}")
+    else:
+        lines.append("🤖 бот: ❓")
+
+    hb = _safe("heartbeat_age", None)
+    if isinstance(hb, (int, float)):
+        mark = "✅" if hb <= HEARTBEAT_STALE_S else "⚠️"
+        lines.append(f"💓 heartbeat: {int(hb)}с назад {mark}")
+    else:
+        lines.append("💓 heartbeat: ❓")
+
+    be = _safe("backend", None)
+    if isinstance(be, dict):
+        mark = "✅" if be.get("ok") else "🔴"
+        lines.append(f"🔌 backend: {mark} (код {be.get('code', '—')})")
+    else:
+        lines.append("🔌 backend: 🔴 недоступен")
+
+    tun = _safe("tunnel_age", None)
+    if isinstance(tun, (int, float)):
+        mark = "✅" if tun < TUNNEL_STALE_S else "⚠️"
+        lines.append(f"🌐 туннель: {int(tun)}с назад {mark}")
+    else:
+        lines.append("🌐 туннель: ❓")
+
+    disk = _safe("disk", None)
+    if isinstance(disk, dict):
+        lines.append(f"💽 диск: {disk.get('free_gb', '?')}/{disk.get('total_gb', '?')} ГБ свободно")
+    else:
+        lines.append("💽 диск: ❓")
+
+    return "\n".join(lines)
 
 
 def parse_pytest_summary(stdout: str) -> dict:
