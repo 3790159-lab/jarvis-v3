@@ -11,6 +11,14 @@ def test_add_creates_queued(tmp_path):
     assert (tmp_path / f"{tid}.json").exists()
 
 
+def test_add_generates_unique_ids_under_rapid_calls(tmp_path):
+    # Windows datetime.utcnow() has ~15ms resolution -> strftime("%f") collides
+    # for rapid successive adds. IDs MUST stay unique regardless of clock tick.
+    dq = q.DevTaskQueue(base_dir=tmp_path)
+    ids = [dq.add(f"t{i}") for i in range(25)]
+    assert len(set(ids)) == 25
+
+
 def test_status_transitions_and_active(tmp_path):
     dq = q.DevTaskQueue(base_dir=tmp_path)
     tid = dq.add("t")

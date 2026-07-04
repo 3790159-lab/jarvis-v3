@@ -11,6 +11,7 @@ layer enforces the guard; the queue only reports.
 from __future__ import annotations
 
 import json
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -60,7 +61,10 @@ class DevTaskQueue:
 
     # ── api ────────────────────────────────────────────────────────────────
     def add(self, desc: str, requested_by: Optional[str] = None) -> str:
-        task_id = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
+        # Time prefix keeps mtime/sort order human-readable; a uuid suffix
+        # guarantees uniqueness even when two adds land in the same clock tick
+        # (Windows utcnow() ~15ms resolution makes bare "%f" collide).
+        task_id = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f") + "_" + uuid.uuid4().hex[:6]
         item = {
             "id": task_id,
             "desc": desc,
