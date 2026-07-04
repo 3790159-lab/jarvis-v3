@@ -5938,6 +5938,66 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
         send_with_keyboard(chat_id, _text, _kb)
         return
 
+    # ── Observation console (admin-only by omission from FRIEND_ALLOWED) ──────
+    # Read-only: none of these mutate files/git/processes. git uses read verbs
+    # only (jobserve._GIT_READONLY_VERBS); /regress spawns pytest (observation,
+    # not a mutation — Task 6). Admin-only enforced in handle() before we get here.
+    if cmd == "/git_status":
+        from tools import jarvis_observe as jobserve
+        send(chat_id, "📦 Git:\n" + jobserve.git_status_text())
+        return
+
+    if cmd == "/logs_tail":
+        from tools import jarvis_observe as jobserve
+        raw = (query or "").strip()
+        try:
+            n = int(raw) if raw else 40
+        except ValueError:
+            n = 40
+        n = max(1, min(n, 200))
+        tail = jobserve.tail_log(str(jobserve.LOG_PATH), n=n)
+        send(chat_id, f"📜 Последние {n} строк лога:\n{tail}")
+        return
+
+    if cmd == "/health":
+        from tools import jarvis_observe as jobserve
+        import shutil as _shutil
+
+        def _bot_reader():
+            pid = int(_PID_FILE.read_text(encoding="utf-8").strip())
+            alive = True
+            if sys.platform == "win32":
+                import subprocess as _sp
+                r = _sp.run(["tasklist", "/FI", f"PID eq {pid}"],
+                            capture_output=True, text=True, timeout=5,
+                            encoding="utf-8", errors="replace")
+                alive = str(pid) in (r.stdout or "")
+            return {"pid": pid, "alive": alive}
+
+        def _hb_reader():
+            last = int(_HEARTBEAT_FILE.read_text(encoding="utf-8").strip())
+            return int(time.time() - last)
+
+        def _backend_reader():
+            resp = urllib.request.urlopen(f"{BACKEND}/health", timeout=5)
+            return {"ok": resp.status == 200, "code": resp.status}
+
+        def _tunnel_reader():
+            mt = jobserve.CLOUDFLARED_LOG.stat().st_mtime
+            return int(time.time() - mt)
+
+        def _disk_reader():
+            u = _shutil.disk_usage("C:/jarvis")
+            return {"free_gb": round(u.free / 1e9, 1), "total_gb": round(u.total / 1e9, 1)}
+
+        readers = {
+            "bot": _bot_reader, "heartbeat_age": _hb_reader,
+            "backend": _backend_reader, "tunnel_age": _tunnel_reader,
+            "disk": _disk_reader,
+        }
+        send(chat_id, "🩺 Здоровье систем:\n" + jobserve.health_snapshot(readers))
+        return
+
     if cmd == "/capabilities":
         cmd_capabilities(chat_id)
         return
