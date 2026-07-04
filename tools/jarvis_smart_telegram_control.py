@@ -1298,6 +1298,43 @@ def _task_apply_reply(chat_id_s, reply) -> None:
         _send_local_document(chat_id_s, str(reply.document_path), mime="text/html")
 
 
+# ── Dev-tasks for Claude Code (Ступень 2) — admin-only by omission ──────────
+# /dev_task <desc> → confirm → claude -p headless in a git worktree (TDD) → СТОП
+# report → [Мердж]/[Откат]/[Детали]. Plan: docs/superpowers/plans/2026-07-04-
+# dev-tasks-cc-gated.md. Heavy logic lives in app/services/devtask/*; these are
+# thin, injectable seams (see tests/test_devtask_wiring.py).
+_DEVTASK_QUEUE = None
+
+
+def _devtask_queue():
+    global _DEVTASK_QUEUE
+    if _DEVTASK_QUEUE is None:
+        from app.services.devtask.queue import DevTaskQueue
+        _DEVTASK_QUEUE = DevTaskQueue()
+    return _DEVTASK_QUEUE
+
+
+def _devtask_dispatch(chat_id, desc: str) -> None:
+    q = _devtask_queue()
+    desc = (desc or "").strip()
+    if not desc:
+        send(chat_id, "Использование: /dev_task <описание задачи>")
+        return
+    active = q.active()
+    if active:
+        send(chat_id, "⏳ Уже есть активная dev-задача %s (%s). Разберись с ней "
+             "([Мердж]/[Откат]) прежде чем запускать новую." % (active["id"], active["status"]))
+        return
+    tid = q.add(desc, requested_by=str(chat_id))
+    send_with_keyboard(
+        chat_id,
+        "🛠 Dev-задача принята:\n%s\n\nЗапустить Claude Code (opus, изолированный "
+        "worktree, TDD, СТОП перед мерджем)?" % desc,
+        [[{"text": "▶️ Запустить", "callback_data": "devtask:confirm:%s" % tid},
+          {"text": "Отмена", "callback_data": "devtask:cancel:%s" % tid}]],
+    )
+
+
 def _swapbatch_text_intercept(chat_id: str, text: str) -> bool:
     """Route a plain-text numbered-prompt message into the custom-prompts flow.
 
@@ -6063,6 +6100,10 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
         _REGRESS_RUNNING = True  # claim synchronously (dispatch is single-threaded)
         send(chat_id, "🧪 Запускаю прогон тестов (это ~4-5 мин, бот может отвечать медленнее)…")
         threading.Thread(target=_regress_run, args=(chat_id,), daemon=True, name="regress").start()
+        return
+
+    if cmd == "/dev_task":
+        _devtask_dispatch(chat_id, query)
         return
 
     if cmd == "/capabilities":
