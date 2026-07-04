@@ -1335,6 +1335,151 @@ def _devtask_dispatch(chat_id, desc: str) -> None:
     )
 
 
+def _devtask_state_dir():
+    return _devtask_queue()._base
+
+
+def _devtask_review_keyboard(tid: str) -> list:
+    return [
+        [{"text": "✅ Мердж", "callback_data": "devtask:merge:%s" % tid},
+         {"text": "↩️ Откат", "callback_data": "devtask:rollback:%s" % tid}],
+        [{"text": "📄 Детали", "callback_data": "devtask:details:%s" % tid},
+         {"text": "⚠️ Мердж без регресса", "callback_data": "devtask:mergeforce:%s" % tid}],
+    ]
+
+
+def _devtask_confirm(chat_id, tid: str) -> None:
+    q = _devtask_queue()
+    item = q.get(tid)
+    if not item or item["status"] != "queued":
+        send(chat_id, "Задача не найдена или уже запущена.")
+        return
+    from app.services.devtask import git_ops as _g
+    base = _g.prod_head()
+    wt = _g.create_worktree(tid, base)
+    q.set_status(tid, "running", worktree=wt, base_head=base)
+    send(chat_id, "🚀 Запускаю Claude Code в worktree %s (opus, TDD). Дойду до СТОП — пришлю отчёт." % wt)
+    threading.Thread(target=_devtask_run_body, args=(chat_id, tid), daemon=True,
+                     name="devtask_%s" % tid).start()
+
+
+def _devtask_run_body(chat_id, tid: str) -> None:
+    import uuid as _uuid
+    from pathlib import Path as _P
+    from app.services.devtask import runner as _r, queue as _q
+    item = _devtask_queue().get(tid)
+    try:
+        wt = item["worktree"]
+        report_path = str(_P("state/dev_tasks") / tid / "report.md")
+        prompt = _r.build_prompt(tid, item["desc"])
+        session_uuid = str(_uuid.uuid4())
+        argv = _r.build_argv(wt, session_uuid, prompt)
+        res = _r.run(argv=argv, cwd=wt, report_path=report_path)
+        if res.get("status") == "awaiting_review":
+            _devtask_queue().set_status(tid, _q.STATUS_AWAITING_REVIEW,
+                                        session_id=res.get("session_id"), report_path=report_path)
+            send_with_keyboard(
+                chat_id,
+                "🛠 Dev-задача %s дошла до СТОП. Проверь отчёт и выбери действие.\n"
+                "Стоимость: %s" % (tid, res.get("cost")),
+                _devtask_review_keyboard(tid))
+        else:
+            _devtask_queue().set_status(tid, _q.STATUS_FAILED, error=res.get("reason"))
+            send(chat_id, "❌ Dev-задача %s не дошла до СТОП: %s. Worktree сохранён для инспекции "
+                 "([Откат] чтобы снести)." % (tid, res.get("reason")))
+    except Exception as exc:  # thread must never die silently
+        _devtask_queue().set_status(tid, "failed", error=str(exc))
+        send(chat_id, "❌ Dev-задача %s упала: %s" % (tid, exc))
+
+
+def _devtask_run_regress(worktree: str) -> dict:
+    """Run the suite in the worktree, verdict vs baseline. {ok, text}."""
+    from tools import jarvis_observe as _jo
+    import subprocess as _sp
+    try:
+        proc = _sp.run(
+            [sys.executable, "-m", "pytest", "tests/", "-q", "-p", "no:cacheprovider",
+             "--continue-on-collection-errors", "--tb=no"],
+            cwd=worktree, capture_output=True, text=True,
+            timeout=int(os.getenv("REGRESS_TIMEOUT_S", "900")),
+            creationflags=(0x4000 if sys.platform == "win32" else 0),
+            encoding="utf-8", errors="replace")
+    except _sp.TimeoutExpired:
+        return {"ok": False, "text": "⏱ регресс-прогон превысил таймаут"}
+    line = ""
+    for ln in reversed((proc.stdout or "").strip().splitlines()):
+        if "passed" in ln or "failed" in ln or "error" in ln:
+            line = ln.strip()
+            break
+    summary = _jo.parse_pytest_summary(line)
+    baseline = _regress_baseline()
+    verdict = _jo.regress_verdict(summary, baseline)
+    return {"ok": verdict.startswith("✅"), "text": verdict}
+
+
+def _devtask_restart(chat_id) -> None:
+    send(chat_id, "🔄 Перезапускаю бота через гардиан (новый код вступает в силу)…")
+    time.sleep(3)
+    os._exit(0)
+
+
+def _devtask_do_merge(chat_id, tid: str, item: dict) -> None:
+    from app.services.devtask import git_ops as _g, boot_watch as _bw, queue as _q
+    if not _g.is_ff_clean(item["branch"], item["base_head"]):
+        send(chat_id, "🚫 Прод сдвинулся с момента старта задачи — FF невозможен. "
+             "Нужен ручной rebase ветки %s." % item["branch"])
+        return
+    old = item["base_head"]
+    _g.ff_merge(item["branch"])
+    new = _g.prod_head()
+    _bw.write_pending_restart(_devtask_state_dir(), tid, old, new)
+    _bw.write_boot_watch(_devtask_state_dir(), tid, old, new)
+    _devtask_queue().set_status(tid, _q.STATUS_MERGED, old_head=old, new_head=new)
+    send(chat_id, "✅ FF-мердж %s выполнен (%s→%s)." % (tid, old, new))
+    _devtask_restart(chat_id)
+
+
+def _devtask_merge(chat_id, tid: str, skip_regress: bool = False) -> None:
+    q = _devtask_queue()
+    item = q.get(tid)
+    if not item:
+        send(chat_id, "Задача не найдена.")
+        return
+    if not skip_regress:
+        send(chat_id, "🧪 Прогоняю регресс по ветке перед мерджем (~4-5 мин)…")
+        verdict = _devtask_run_regress(item["worktree"])
+        if not verdict["ok"]:
+            send(chat_id, "🚫 Мердж заблокирован: регресс хуже baseline.\n%s\n"
+                 "Можно принудительно через [⚠️ Мердж без регресса]." % verdict["text"])
+            return
+    _devtask_do_merge(chat_id, tid, item)
+
+
+def _devtask_rollback(chat_id, tid: str) -> None:
+    from app.services.devtask import git_ops as _g, queue as _q
+    item = _devtask_queue().get(tid)
+    if not item:
+        send(chat_id, "Задача не найдена.")
+        return
+    try:
+        _g.remove_worktree(tid)
+    except Exception as exc:
+        send(chat_id, "⚠️ Снос worktree: %s" % exc)
+    _devtask_queue().set_status(tid, _q.STATUS_ROLLED_BACK)
+    send(chat_id, "↩️ Dev-задача %s откачена (worktree+ветка снесены, прод не тронут)." % tid)
+
+
+def _devtask_details(chat_id, tid: str) -> None:
+    from pathlib import Path as _P
+    item = _devtask_queue().get(tid)
+    rp = (item or {}).get("report_path") or str(_P("state/dev_tasks") / tid / "report.md")
+    try:
+        txt = _P(rp).read_text(encoding="utf-8", errors="replace")
+    except FileNotFoundError:
+        txt = "(отчёт не найден: %s)" % rp
+    send(chat_id, "📄 Отчёт %s:\n%s" % (tid, txt[:3800]))
+
+
 def _swapbatch_text_intercept(chat_id: str, text: str) -> bool:
     """Route a plain-text numbered-prompt message into the custom-prompts flow.
 
@@ -4032,6 +4177,39 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
                 send(chat_id, item.hint)
             return
         answer_callback_query(cq_id)
+        return
+
+    # ── Dev-tasks (Ступень 2): admin-only (devtask: NOT in friend prefixes) ────
+    if data.startswith("devtask:"):
+        if not (_is_admin_id(_cq_uid) or str(_cq_uid) == ALLOWED_CHAT_ID):
+            answer_callback_query(cq_id, "🚫 Только для администратора")
+            return
+        parts = data.split(":")
+        action = parts[1] if len(parts) > 1 else ""
+        tid = parts[2] if len(parts) > 2 else ""
+        if action == "confirm":
+            answer_callback_query(cq_id, "▶️")
+            _devtask_confirm(chat_id, tid)
+        elif action == "cancel":
+            answer_callback_query(cq_id, "Отменено")
+            _devtask_queue().set_status(tid, "rolled_back")
+            send(chat_id, "Отменено. Задача %s не запущена." % tid)
+        elif action == "merge":
+            answer_callback_query(cq_id, "🧪")
+            threading.Thread(target=_devtask_merge, args=(chat_id, tid), daemon=True,
+                             name="devtask_merge_%s" % tid).start()
+        elif action == "mergeforce":
+            answer_callback_query(cq_id, "⚠️")
+            threading.Thread(target=_devtask_merge, args=(chat_id, tid), kwargs={"skip_regress": True},
+                             daemon=True, name="devtask_mergeforce_%s" % tid).start()
+        elif action == "rollback":
+            answer_callback_query(cq_id, "↩️")
+            _devtask_rollback(chat_id, tid)
+        elif action == "details":
+            answer_callback_query(cq_id)
+            _devtask_details(chat_id, tid)
+        else:
+            answer_callback_query(cq_id)
         return
 
     # ── Access requests: admin approve/reject (Фаза 3) ────────────────────────
