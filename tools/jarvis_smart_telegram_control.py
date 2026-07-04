@@ -5927,6 +5927,63 @@ def _menu_role(chat_id) -> str:
     return "admin" if r == "admin" else "friend"
 
 
+# ── /regress: async read-only pytest observation ────────────────────────────
+# Spawning pytest is observation of test health, NOT a mutation: `-p
+# no:cacheprovider` writes no cache, tests isolate tmp via conftest, and the
+# process touches neither git nor sources. Runs in a daemon thread (poll-loop
+# stays responsive) at BELOW_NORMAL priority, with a timeout and single-flight.
+_REGRESS_RUNNING = False
+_REGRESS_TIMEOUT_S = int(os.getenv("REGRESS_TIMEOUT_S", "600"))
+_BELOW_NORMAL_PRIORITY_CLASS = 0x4000  # Windows creationflags
+
+
+def _regress_run_pytest() -> str:
+    """Run the suite read-only; return pytest's summary tail line (or a note)."""
+    import subprocess as _sp
+    flags = _BELOW_NORMAL_PRIORITY_CLASS if sys.platform == "win32" else 0
+    try:
+        proc = _sp.run(
+            [sys.executable, "-m", "pytest", "tests/", "-q", "-p", "no:cacheprovider",
+             "--continue-on-collection-errors", "--tb=no"],
+            cwd="C:/jarvis", capture_output=True, text=True,
+            timeout=_REGRESS_TIMEOUT_S, creationflags=flags,
+            encoding="utf-8", errors="replace",
+        )
+    except _sp.TimeoutExpired:
+        return f"⏱ прогон превысил {_REGRESS_TIMEOUT_S}с"
+    out = (proc.stdout or "").strip().splitlines()
+    for line in reversed(out):
+        if "passed" in line or "failed" in line or "error" in line:
+            return line.strip()
+    return out[-1].strip() if out else "(нет вывода pytest)"
+
+
+def _regress_baseline():
+    """Read state/regress_baseline.json ({'failed': N, ...}) or None."""
+    from tools import jarvis_observe as jobserve
+    try:
+        return json.loads(jobserve.BASELINE_PATH.read_text(encoding="utf-8"))
+    except (FileNotFoundError, ValueError):
+        return None
+
+
+def _regress_run(chat_id: str) -> None:
+    """Thread body: run pytest, compute verdict vs baseline, report. Frees flag."""
+    global _REGRESS_RUNNING
+    _REGRESS_RUNNING = True
+    try:
+        from tools import jarvis_observe as jobserve
+        out = _regress_run_pytest()
+        if out.startswith("⏱"):
+            send(chat_id, out)
+            return
+        summary = jobserve.parse_pytest_summary(out)
+        verdict = jobserve.regress_verdict(summary, _regress_baseline())
+        send(chat_id, "🧪 Регресс завершён:\n" + verdict)
+    finally:
+        _REGRESS_RUNNING = False
+
+
 def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) -> None:
     if cmd in ["/start", "/smart", "/smart_help", "/help"]:
         send(chat_id, HELP_TEXT)
@@ -5996,6 +6053,16 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
             "disk": _disk_reader,
         }
         send(chat_id, "🩺 Здоровье систем:\n" + jobserve.health_snapshot(readers))
+        return
+
+    if cmd == "/regress":
+        global _REGRESS_RUNNING
+        if _REGRESS_RUNNING:
+            send(chat_id, "⏳ Прогон уже идёт, дождись завершения.")
+            return
+        _REGRESS_RUNNING = True  # claim synchronously (dispatch is single-threaded)
+        send(chat_id, "🧪 Запускаю прогон тестов (это ~4-5 мин, бот может отвечать медленнее)…")
+        threading.Thread(target=_regress_run, args=(chat_id,), daemon=True, name="regress").start()
         return
 
     if cmd == "/capabilities":

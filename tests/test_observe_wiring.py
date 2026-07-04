@@ -61,3 +61,41 @@ def test_health_command_sends_snapshot(monkeypatch):
     monkeypatch.setattr(o, "health_snapshot", lambda readers: "HEALTH-OK")
     mod.handle_command(ADMIN, "/health", "", {})
     assert "HEALTH-OK" in sent["t"]
+
+
+# ── Task 6: async /regress — verdict + single-flight ───────────────────────
+def test_regress_reports_verdict(monkeypatch):
+    sent = []
+    monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
+    monkeypatch.setattr(mod, "_regress_run_pytest",
+                        lambda: "130 failed, 3353 passed, 10 skipped, 4 errors in 255s")
+    monkeypatch.setattr(mod, "_regress_baseline", lambda: {"failed": 130})
+    mod._REGRESS_RUNNING = False
+    mod._regress_run(ADMIN)
+    assert any("✅" in s for s in sent)  # not worse than baseline
+    assert mod._REGRESS_RUNNING is False  # flag released after run
+
+
+class _FakeThread:
+    def __init__(self, *a, **k):
+        self.target = k.get("target")
+        self.args = k.get("args", ())
+
+    def start(self):
+        _FakeThread.spawned.append(1)  # claim only; do NOT run target
+
+
+def test_regress_single_flight_blocks_second(monkeypatch):
+    _FakeThread.spawned = []
+    monkeypatch.setattr(mod.threading, "Thread", _FakeThread)
+    msgs = []
+    monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: msgs.append(t))
+    mod._REGRESS_RUNNING = False
+    try:
+        mod.handle_command(ADMIN, "/regress", "", {})       # first: spawns
+        assert len(_FakeThread.spawned) == 1
+        mod.handle_command(ADMIN, "/regress", "", {})       # second: blocked
+        assert len(_FakeThread.spawned) == 1
+        assert any("уже идёт" in m for m in msgs)
+    finally:
+        mod._REGRESS_RUNNING = False
