@@ -129,3 +129,17 @@ def test_observe_category_admin_only_hidden_from_friend():
     # admin root DOES surface it
     _t3, ak = m.render_root("admin")
     assert "menu:cat:observe" in [b["callback_data"] for row in ak for b in row]
+
+
+# ── Task 8 (dev-tasks Ступень 2): 🛠 admin-only category, auto-hidden ───────
+def test_devops_category_admin_only_hidden_from_friend():
+    ids = [c.cat_id for c in m.MENU]
+    assert "devops" in ids
+    assert m.render_category("devops", "friend") is None
+    _t, kb = m.render_category("devops", "admin")
+    datas = [b["callback_data"] for row in kb for b in row]
+    assert "menu:x:dev_task" in datas
+    _t2, rk = m.render_root("friend")
+    assert "menu:cat:devops" not in [b["callback_data"] for row in rk for b in row]
+    _t3, ak = m.render_root("admin")
+    assert "menu:cat:devops" in [b["callback_data"] for row in ak for b in row]

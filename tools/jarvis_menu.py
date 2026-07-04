@@ -210,7 +210,16 @@ _OBSERVE = Category("observe", "🔧 Наблюдение", (
     _mi("/health", "здоровье систем", "exec", False),
 ))
 
-MENU = [_VIDEO, _PERSONA, _ME, _PHOTO, _APPS, _AGENTS, _STATS, _SYSTEM, _OBSERVE]
+# 🛠 Разработка (dev-tasks Ступень 2): admin-only. /dev_task требует текст
+# задачи, поэтому пункт — hint (показывает как пользоваться), не exec.
+_DEVOPS = Category("devops", "🛠 Разработка", (
+    _mi("/dev_task", "задача для Claude Code (worktree+ворота)", "hint", False,
+        hint="/dev_task <описание> — Claude Code выполнит задачу в изолированном "
+             "worktree по TDD и остановится перед мерджем; ты получишь отчёт и "
+             "кнопки [Мердж]/[Откат]/[Детали]."),
+))
+
+MENU = [_VIDEO, _PERSONA, _ME, _PHOTO, _APPS, _AGENTS, _STATS, _SYSTEM, _OBSERVE, _DEVOPS]
 
 
 # ── Рендер (чистые функции: (текст, inline_keyboard)) ──────────────────────
