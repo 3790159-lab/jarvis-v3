@@ -200,7 +200,17 @@ _SYSTEM = Category("system", "⚙️ Система", (
     _mi("/capabilities", None, "exec", False),
 ))
 
-MENU = [_VIDEO, _PERSONA, _ME, _PHOTO, _APPS, _AGENTS, _STATS, _SYSTEM]
+# 🔧 Наблюдение (observation-console): 4 read-only admin-only команды. Все
+# friend=False → категория авто-скрыта от friend (как system/agents). Пункты
+# exec (сразу выполняют read-only команду через handle()).
+_OBSERVE = Category("observe", "🔧 Наблюдение", (
+    _mi("/git_status", "статус git", "exec", False),
+    _mi("/regress", "прогон тестов", "exec", False),
+    _mi("/logs_tail", "хвост логов", "exec", False),
+    _mi("/health", "здоровье систем", "exec", False),
+))
+
+MENU = [_VIDEO, _PERSONA, _ME, _PHOTO, _APPS, _AGENTS, _STATS, _SYSTEM, _OBSERVE]
 
 
 # ── Рендер (чистые функции: (текст, inline_keyboard)) ──────────────────────
@@ -265,6 +275,10 @@ NATIVE_ADMIN_COMMANDS = [
     ("agents", "Статус агентов"),
     ("tasks", "Задачи Vizir"),
     ("logs", "Читать логи"),
+    ("git_status", "Статус git"),
+    ("regress", "Прогон тестов"),
+    ("logs_tail", "Хвост логов"),
+    ("health", "Здоровье систем"),
     ("my_stats", "Личная статистика"),
     ("help", "Справка"),
 ]

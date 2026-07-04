@@ -112,3 +112,20 @@ def test_build_native_payloads_scopes():
     assert {c["command"] for c in p["default"]["commands"]} == {n for n, _ in m.NATIVE_FRIEND_COMMANDS}
     assert p["admin"]["scope"] == {"type": "chat", "chat_id": "123"}
     assert {c["command"] for c in p["admin"]["commands"]} == {n for n, _ in m.NATIVE_ADMIN_COMMANDS}
+
+
+# ── Task 7 (observation-console): 🔧 admin-only category, auto-hidden ───────
+def test_observe_category_admin_only_hidden_from_friend():
+    ids = [c.cat_id for c in m.MENU]
+    assert "observe" in ids
+    # friend sees nothing (all items friend=False) -> category renders None
+    assert m.render_category("observe", "friend") is None
+    _t, kb = m.render_category("observe", "admin")
+    datas = [b["callback_data"] for row in kb for b in row]
+    assert "menu:x:git_status" in datas and "menu:x:regress" in datas
+    # friend root does NOT surface the observe category
+    _t2, rk = m.render_root("friend")
+    assert "menu:cat:observe" not in [b["callback_data"] for row in rk for b in row]
+    # admin root DOES surface it
+    _t3, ak = m.render_root("admin")
+    assert "menu:cat:observe" in [b["callback_data"] for row in ak for b in row]
