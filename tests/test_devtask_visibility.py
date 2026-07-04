@@ -32,24 +32,30 @@ def test_callback_exception_is_logged(monkeypatch):
 
 
 # ── Fix (а)-2: confirm worktree failure -> task failed + explicit send() ────
-def test_confirm_worktree_failure_marks_failed_and_notifies(monkeypatch, tmp_path):
+def test_run_body_worktree_failure_marks_failed_and_notifies(monkeypatch, tmp_path):
+    # Worktree setup now runs INSIDE the daemon thread (_devtask_run_body), so a
+    # failure there must still: mark the task failed (not stuck) + send an
+    # explicit error to the admin + never launch CC.
+    from app.services.devtask.queue import STATUS_RUNNING
     q = DevTaskQueue(base_dir=tmp_path)
     tid = q.add("do X")
+    q.set_status(tid, STATUS_RUNNING)
     monkeypatch.setattr(mod, "_DEVTASK_QUEUE", q, raising=False)
     sent = []
     monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
-    from app.services.devtask import git_ops as g
+    monkeypatch.setattr(mod, "send_with_keyboard", lambda *a, **k: None)
+    from app.services.devtask import git_ops as g, runner as r
     monkeypatch.setattr(g, "prod_head", lambda *a, **k: "base1")
 
     def boom(*a, **k):
         raise RuntimeError("git worktree add failed: fatal: something")
 
     monkeypatch.setattr(g, "create_worktree", boom)
-    started = {"x": False}
-    monkeypatch.setattr(mod, "_devtask_run_body", lambda *a, **k: started.update(x=True))
+    ran = {"x": False}
+    monkeypatch.setattr(r, "run", lambda **k: ran.update(x=True) or {"status": "failed"})
 
-    mod._devtask_confirm(ADMIN, tid)
+    mod._devtask_run_body(ADMIN, tid)
 
-    assert q.get(tid)["status"] == STATUS_FAILED            # not stuck 'queued'
+    assert q.get(tid)["status"] == STATUS_FAILED            # not stuck
     assert any("git worktree" in s for s in sent)           # explicit error text to admin
-    assert started["x"] is False                            # CC run never started
+    assert ran["x"] is False                                # CC run never launched

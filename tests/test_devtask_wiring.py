@@ -143,18 +143,15 @@ def test_details_sends_report(monkeypatch, tmp_path):
     assert "READY" in sent["t"]
 
 
-def test_confirm_creates_worktree_and_starts_run(monkeypatch, tmp_path):
+def test_confirm_sets_running_and_starts_run_body(monkeypatch, tmp_path):
+    # Confirm no longer builds the worktree (heavy ~30-50s detached checkout runs
+    # in the daemon thread now); it just claims 'running' and spawns run_body.
     from app.services.devtask.queue import STATUS_RUNNING
     q = DevTaskQueue(base_dir=tmp_path)
     tid = q.add("build X")
     monkeypatch.setattr(mod, "_DEVTASK_QUEUE", q, raising=False)
     monkeypatch.setattr(mod, "send", lambda *a, **k: None)
-    from app.services.devtask import git_ops as g
-    made = {}
-    monkeypatch.setattr(g, "prod_head", lambda *a, **k: "base1")
-    monkeypatch.setattr(g, "create_worktree", lambda tid_, base, **k: made.setdefault("wt", f"C:/wt/devtask-{tid_}"))
     started = {"x": False}
-    # run body injected: do not spawn real CC
     monkeypatch.setattr(mod, "_devtask_run_body", lambda cid, t: started.update(x=True))
 
     class _Immediate:
@@ -164,8 +161,27 @@ def test_confirm_creates_worktree_and_starts_run(monkeypatch, tmp_path):
             self._t(*self._args)
     monkeypatch.setattr(mod.threading, "Thread", _Immediate)
     mod._devtask_confirm(ADMIN, tid)
-    assert "wt" in made and started["x"] is True
-    assert q.get(tid)["status"] == STATUS_RUNNING and q.get(tid)["base_head"] == "base1"
+    assert started["x"] is True
+    assert q.get(tid)["status"] == STATUS_RUNNING
+    assert q.get(tid)["base_head"] is None          # worktree not built in confirm
+
+
+def test_run_body_creates_worktree_then_runs(monkeypatch, tmp_path):
+    from app.services.devtask.queue import STATUS_RUNNING, STATUS_AWAITING_REVIEW
+    q = DevTaskQueue(base_dir=tmp_path)
+    tid = q.add("build X")
+    q.set_status(tid, STATUS_RUNNING)
+    monkeypatch.setattr(mod, "_DEVTASK_QUEUE", q, raising=False)
+    monkeypatch.setattr(mod, "send", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "send_with_keyboard", lambda *a, **k: None)
+    from app.services.devtask import git_ops as g, runner as r
+    monkeypatch.setattr(g, "prod_head", lambda *a, **k: "base1")
+    monkeypatch.setattr(g, "create_worktree", lambda tid_, base, **k: f"C:/wt/devtask-{tid_}")
+    monkeypatch.setattr(r, "run", lambda **k: {"status": "awaiting_review", "session_id": "s", "cost": 0.1})
+    mod._devtask_run_body(ADMIN, tid)
+    assert q.get(tid)["worktree"] == f"C:/wt/devtask-{tid}"
+    assert q.get(tid)["base_head"] == "base1"
+    assert q.get(tid)["status"] == STATUS_AWAITING_REVIEW
 
 
 # ── Task 7: boot reconciliation (post-restart report + interrupted-run) ─────

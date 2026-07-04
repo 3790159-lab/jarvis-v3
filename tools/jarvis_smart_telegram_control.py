@@ -1354,20 +1354,12 @@ def _devtask_confirm(chat_id, tid: str) -> None:
     if not item or item["status"] != "queued":
         send(chat_id, "Задача не найдена или уже запущена.")
         return
-    from app.services.devtask import git_ops as _g
-    try:
-        base = _g.prod_head()
-        wt = _g.create_worktree(tid, base)
-    except Exception as exc:
-        # Worktree setup failed → don't leave the task stuck 'queued' forever;
-        # mark failed and tell the admin explicitly (answer_callback is fragile:
-        # it 400s on a stale callback, so the user would otherwise see nothing).
-        logger.exception("devtask %s worktree setup failed", tid)
-        q.set_status(tid, "failed", error="worktree setup: %s" % exc)
-        send(chat_id, "❌ Dev-задача %s: не удалось создать worktree.\n%s" % (tid, exc))
-        return
-    q.set_status(tid, "running", worktree=wt, base_head=base)
-    send(chat_id, "🚀 Запускаю Claude Code в worktree %s (opus, TDD). Дойду до СТОП — пришлю отчёт." % wt)
+    # Claim 'running' and hand off to the daemon thread. Worktree setup (Variant A:
+    # instant --no-checkout add + a ~30-50s DETACHED checkout) happens in the
+    # thread, NOT here — it must never block the poll loop.
+    q.set_status(tid, "running")
+    send(chat_id, "🚀 Готовлю изолированный worktree и запускаю Claude Code (opus, TDD). "
+                  "Подготовка ~минуту; дойду до СТОП — пришлю отчёт.")
     threading.Thread(target=_devtask_run_body, args=(chat_id, tid), daemon=True,
                      name="devtask_%s" % tid).start()
 
@@ -1375,10 +1367,22 @@ def _devtask_confirm(chat_id, tid: str) -> None:
 def _devtask_run_body(chat_id, tid: str) -> None:
     import uuid as _uuid
     from pathlib import Path as _P
-    from app.services.devtask import runner as _r, queue as _q
-    item = _devtask_queue().get(tid)
+    from app.services.devtask import runner as _r, queue as _q, git_ops as _g
+    q = _devtask_queue()
+    # 1. Worktree setup in THIS thread (heavy detached checkout). On failure →
+    #    mark failed (not stuck) + explicit admin notify; CC never launches.
     try:
-        wt = item["worktree"]
+        base = _g.prod_head()
+        wt = _g.create_worktree(tid, base)
+    except Exception as exc:
+        logger.exception("devtask %s worktree setup failed", tid)
+        q.set_status(tid, "failed", error="worktree setup: %s" % exc)
+        send(chat_id, "❌ Dev-задача %s: не удалось создать worktree.\n%s" % (tid, exc))
+        return
+    q.set_status(tid, "running", worktree=wt, base_head=base)
+    # 2. Run Claude Code.
+    item = q.get(tid)
+    try:
         report_path = str(_P("state/dev_tasks") / tid / "report.md")
         prompt = _r.build_prompt(tid, item["desc"])
         session_uuid = str(_uuid.uuid4())
