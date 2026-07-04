@@ -39,3 +39,56 @@ def test_build_argv_defaults_opus_and_flags():
 def test_build_argv_model_override():
     argv = r.build_argv("C:/wt", "u", "P", model="sonnet")
     assert argv[argv.index("--model") + 1] == "sonnet"
+
+
+# ── Task 4: run() — spawn, stream-parse, kill-on-timeout, detect STOP ───────
+import json as _json
+
+
+class _FakeProc:
+    def __init__(self, lines):
+        self.stdout = iter(lines)
+        self.killed = False
+        self._rc = None
+    def wait(self):
+        self._rc = 0
+        return 0
+    def poll(self):
+        return self._rc
+    def kill(self):
+        self.killed = True
+        self._rc = -9
+
+
+def test_run_success_awaiting_review(tmp_path):
+    report = tmp_path / "report.md"
+    report.write_text("VERDICT: READY", encoding="utf-8")
+    lines = [
+        _json.dumps({"type": "system", "subtype": "init"}),
+        _json.dumps({"type": "result", "total_cost_usd": 0.42, "session_id": "sid-1"}),
+    ]
+    proc = _FakeProc(lines)
+    res = r.run(argv=["claude"], cwd=str(tmp_path), spawn=lambda a, **k: proc,
+                report_path=str(report), line_iter=lambda p: iter(p.stdout))
+    assert res["status"] == "awaiting_review"
+    assert res["cost"] == 0.42 and res["session_id"] == "sid-1"
+    assert proc.killed is False
+
+
+def test_run_without_report_is_failed(tmp_path):
+    lines = [_json.dumps({"type": "result", "total_cost_usd": 0.1, "session_id": "s"})]
+    proc = _FakeProc(lines)
+    res = r.run(argv=["claude"], cwd=str(tmp_path), spawn=lambda a, **k: proc,
+                report_path=str(tmp_path / "missing.md"), line_iter=lambda p: iter(p.stdout))
+    assert res["status"] == "failed" and res["reason"] == "no_report"
+
+
+def test_run_timeout_kills_child(tmp_path):
+    def boom(p):
+        raise TimeoutError("silence")
+        yield  # pragma: no cover
+    proc = _FakeProc([])
+    res = r.run(argv=["claude"], cwd=str(tmp_path), spawn=lambda a, **k: proc,
+                report_path=str(tmp_path / "r.md"), line_iter=boom)
+    assert res["status"] == "failed" and "timeout" in res["reason"]
+    assert proc.killed is True

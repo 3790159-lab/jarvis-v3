@@ -7,8 +7,14 @@ See plan: docs/superpowers/plans/2026-07-04-dev-tasks-cc-gated.md
 """
 from __future__ import annotations
 
+import json
 import os
-from typing import List, Optional
+import subprocess
+from pathlib import Path
+from typing import Callable, List, Optional
+
+WALL_TIMEOUT_S = int(os.getenv("DEVTASK_TIMEOUT_S", "1800"))
+SILENCE_TIMEOUT_S = int(os.getenv("DEVTASK_SILENCE_S", "420"))
 
 PROD_REPO = "C:/jarvis"
 _TASK_OPEN = "<TASK_SPEC>"
@@ -73,3 +79,109 @@ def build_argv(worktree: str, session_uuid: str, prompt: str,
         "--model", model or _default_model(),
         "--add-dir", add_repo,
     ]
+
+
+def _parse_line(line) -> Optional[dict]:
+    """Parse one CC stream-json line → the result payload, or None."""
+    if isinstance(line, (bytes, bytearray)):
+        line = line.decode("utf-8", errors="replace")
+    line = (line or "").strip()
+    if not line:
+        return None
+    try:
+        msg = json.loads(line)
+    except ValueError:
+        return None
+    if msg.get("type") == "result":
+        return {"cost": msg.get("total_cost_usd"), "session_id": msg.get("session_id")}
+    return None
+
+
+def _default_line_iter(proc, silence_s: int = SILENCE_TIMEOUT_S,
+                       wall_s: int = WALL_TIMEOUT_S):
+    """Production line source: a reader thread feeds a queue so we can enforce a
+    real silence-timeout (blocking reads can't otherwise be interrupted). Raises
+    TimeoutError on silence or wall-clock breach so run() kills the child."""
+    import queue as _q
+    import threading
+    import time as _t
+
+    q: "_q.Queue" = _q.Queue()
+    _SENTINEL = object()
+
+    def _reader():
+        try:
+            for raw in proc.stdout:
+                q.put(raw)
+        finally:
+            q.put(_SENTINEL)
+
+    threading.Thread(target=_reader, daemon=True, name="devtask_cc_reader").start()
+    start = _t.monotonic()
+    while True:
+        if _t.monotonic() - start > wall_s:
+            raise TimeoutError("wall")
+        try:
+            item = q.get(timeout=silence_s)
+        except _q.Empty:
+            raise TimeoutError("silence")
+        if item is _SENTINEL:
+            return
+        yield item
+
+
+def _kill(proc) -> None:
+    try:
+        if proc.poll() is None:
+            proc.kill()
+    except Exception:
+        pass
+
+
+def run(*, argv: List[str], cwd: str, report_path: str,
+        spawn: Callable = None, report_exists: Callable[[str], bool] = None,
+        line_iter: Callable = None) -> dict:
+    """Drive a headless CC subprocess, parse its stream, detect the STOP report.
+
+    Injection seams (tests never touch real CC): ``spawn(argv, cwd=…)`` → proc,
+    ``line_iter(proc)`` → iterable of stream lines (raises TimeoutError on
+    silence/wall breach), ``report_exists(path)`` → bool.
+    """
+    if spawn is None:
+        def spawn(a, **k):
+            return subprocess.Popen(a, cwd=k.get("cwd"), stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE, text=True)
+    if report_exists is None:
+        report_exists = lambda p: Path(p).exists()
+    if line_iter is None:
+        line_iter = _default_line_iter
+
+    proc = spawn(argv, cwd=cwd)
+    result: dict = {}
+    try:
+        for line in line_iter(proc):
+            parsed = _parse_line(line)
+            if parsed:
+                result = parsed
+        try:
+            proc.wait()
+        except Exception:
+            pass
+    except TimeoutError as e:
+        _kill(proc)
+        return {"status": "failed", "reason": f"timeout:{e}", "killed": True,
+                "cost": result.get("cost"), "session_id": result.get("session_id")}
+    finally:
+        _kill(proc)
+
+    if not result:
+        return {"status": "failed", "reason": "no_result", "killed": False}
+    present = report_exists(report_path)
+    return {
+        "status": "awaiting_review" if present else "failed",
+        "reason": None if present else "no_report",
+        "cost": result.get("cost"),
+        "session_id": result.get("session_id"),
+        "report_present": present,
+        "killed": False,
+    }
