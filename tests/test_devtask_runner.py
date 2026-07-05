@@ -28,7 +28,10 @@ def test_build_prompt_injection_delimiter_is_neutralized():
 
 
 def test_build_argv_defaults_opus_and_flags():
-    argv = r.build_argv("C:/wt", "uuid-123", "PROMPT TEXT")
+    # inject `which` so argv[0] resolution is deterministic (env-independent);
+    # the real resolution is covered by test_build_argv_resolves_claude_*.
+    argv = r.build_argv("C:/wt", "uuid-123", "PROMPT TEXT",
+                        which=lambda name: "claude")
     assert argv[0] == "claude" and "-p" in argv
     assert argv[argv.index("--model") + 1] == "opus"
     assert argv[argv.index("--permission-mode") + 1] == "bypassPermissions"
@@ -39,6 +42,23 @@ def test_build_argv_defaults_opus_and_flags():
 def test_build_argv_model_override():
     argv = r.build_argv("C:/wt", "u", "P", model="sonnet")
     assert argv[argv.index("--model") + 1] == "sonnet"
+
+
+def test_build_argv_resolves_claude_to_absolute_path():
+    # On Windows `claude` is a `.cmd` shim; subprocess.Popen(shell=False) resolves
+    # only `.exe` for a bare name → WinError 2. argv[0] MUST be the resolved
+    # launcher path (shutil.which honours PATHEXT and finds claude.cmd).
+    argv = r.build_argv("C:/wt", "u", "P",
+                        which=lambda name: "C:/npm/claude.cmd")
+    assert argv[0] == "C:/npm/claude.cmd"
+    assert "-p" in argv
+
+
+def test_build_argv_falls_back_to_bare_name_when_unresolved():
+    # If claude cannot be resolved on PATH, keep the bare name (surfaces a clear
+    # error rather than crashing the builder) — behaviour is opt-in via seam.
+    argv = r.build_argv("C:/wt", "u", "P", which=lambda name: None)
+    assert argv[0] == "claude"
 
 
 # ── Task 4: run() — spawn, stream-parse, kill-on-timeout, detect STOP ───────

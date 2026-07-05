@@ -1401,6 +1401,7 @@ def _devtask_run_body(chat_id, tid: str) -> None:
             send(chat_id, "❌ Dev-задача %s не дошла до СТОП: %s. Worktree сохранён для инспекции "
                  "([Откат] чтобы снести)." % (tid, res.get("reason")))
     except Exception as exc:  # thread must never die silently
+        logger.exception("devtask %s CC-run failed", tid)  # traceback → jarvis_bot.log
         _devtask_queue().set_status(tid, "failed", error=str(exc))
         send(chat_id, "❌ Dev-задача %s упала: %s" % (tid, exc))
 

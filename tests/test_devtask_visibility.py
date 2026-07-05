@@ -59,3 +59,34 @@ def test_run_body_worktree_failure_marks_failed_and_notifies(monkeypatch, tmp_pa
     assert q.get(tid)["status"] == STATUS_FAILED            # not stuck
     assert any("git worktree" in s for s in sent)           # explicit error text to admin
     assert ran["x"] is False                                # CC run never launched
+
+
+# ── Fix (WinError 2 arc): CC-run failure must LOG a traceback, not only store str ──
+def test_run_body_cc_run_failure_is_logged(monkeypatch, tmp_path):
+    # Worktree setup succeeds, but the CC-run block raises (e.g. WinError 2 on
+    # spawn). The handler must set failed + notify AND logger.exception — without
+    # the log, a spawn failure left no traceback in jarvis_bot.log (the bug that
+    # made the WinError 2 hard to diagnose).
+    from app.services.devtask.queue import STATUS_RUNNING
+    q = DevTaskQueue(base_dir=tmp_path)
+    tid = q.add("do X")
+    q.set_status(tid, STATUS_RUNNING)
+    monkeypatch.setattr(mod, "_DEVTASK_QUEUE", q, raising=False)
+    monkeypatch.setattr(mod, "send", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "send_with_keyboard", lambda *a, **k: None)
+    from app.services.devtask import git_ops as g, runner as r
+    monkeypatch.setattr(g, "prod_head", lambda *a, **k: "base1")
+    monkeypatch.setattr(g, "create_worktree", lambda *a, **k: str(tmp_path / "wt"))
+
+    def boom(**k):
+        raise FileNotFoundError(2, "Не удается найти указанный файл")
+
+    monkeypatch.setattr(r, "run", boom)
+    logged = {}
+    monkeypatch.setattr(mod.logger, "exception",
+                        lambda *a, **k: logged.setdefault("x", True))
+
+    mod._devtask_run_body(ADMIN, tid)
+
+    assert q.get(tid)["status"] == STATUS_FAILED            # not stuck
+    assert logged.get("x") is True                          # traceback logged

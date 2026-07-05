@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Callable, List, Optional
@@ -69,10 +70,19 @@ def build_prompt(task_id: str, desc: str) -> str:
 
 
 def build_argv(worktree: str, session_uuid: str, prompt: str,
-               model: Optional[str] = None, add_repo: str = PROD_REPO) -> List[str]:
-    """argv for a headless one-shot CC run (cwd MUST be set to ``worktree``)."""
+               model: Optional[str] = None, add_repo: str = PROD_REPO,
+               which: Optional[Callable[[str], Optional[str]]] = None) -> List[str]:
+    """argv for a headless one-shot CC run (cwd MUST be set to ``worktree``).
+
+    argv[0] is RESOLVED to the launcher's real path (``shutil.which`` honours
+    ``PATHEXT`` and finds ``claude.cmd`` on Windows). A bare ``"claude"`` would
+    make ``subprocess.Popen(shell=False)`` fail with WinError 2 — CreateProcess
+    only auto-appends ``.exe`` for a bare name and never resolves ``.cmd``.
+    """
+    which = which or shutil.which
+    claude_bin = which("claude") or "claude"
     return [
-        "claude", "-p", prompt,
+        claude_bin, "-p", prompt,
         "--output-format", "stream-json",
         "--permission-mode", "bypassPermissions",
         "--session-id", session_uuid,
