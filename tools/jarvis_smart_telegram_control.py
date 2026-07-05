@@ -1411,11 +1411,16 @@ def _devtask_run_body(chat_id, tid: str) -> None:
     # 2. Run Claude Code.
     item = q.get(tid)
     try:
-        report_path = str(_P("state/dev_tasks") / tid / "report.md")
+        # CC writes the report relative to ITS cwd (the worktree); look for it
+        # THERE, not under the bot's cwd, or even a perfect CC yields no_report.
+        report_path = str(_P(wt) / "state" / "dev_tasks" / tid / "report.md")
+        # CC's stderr goes to the prod task dir (survives worktree cleanup) so a
+        # startup failure is self-diagnosing via /details or the file.
+        stderr_path = str(_P("state/dev_tasks") / tid / "stderr.log")
         prompt = _r.build_prompt(tid, item["desc"])
         session_uuid = str(_uuid.uuid4())
         argv = _r.build_argv(wt, session_uuid, prompt)
-        res = _r.run(argv=argv, cwd=wt, report_path=report_path)
+        res = _r.run(argv=argv, cwd=wt, report_path=report_path, stderr_path=stderr_path)
         if res.get("status") == "awaiting_review":
             _devtask_queue().set_status(tid, _q.STATUS_AWAITING_REVIEW,
                                         session_id=res.get("session_id"), report_path=report_path)

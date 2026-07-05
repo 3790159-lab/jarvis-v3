@@ -225,6 +225,29 @@ def test_boot_reconcile_removes_merged_worktree(monkeypatch, tmp_path):
     assert removed == ["T7"]                         # merged worktree cleaned up
 
 
+def test_run_body_report_path_is_under_worktree(monkeypatch, tmp_path):
+    # Contract: CC writes the report relative to ITS cwd (the worktree). The
+    # runner must therefore look for it UNDER the worktree, not under the bot's
+    # cwd — otherwise even a perfect CC yields no_report.
+    from app.services.devtask.queue import STATUS_RUNNING
+    q = DevTaskQueue(base_dir=tmp_path)
+    tid = q.add("x")
+    q.set_status(tid, STATUS_RUNNING)
+    monkeypatch.setattr(mod, "_DEVTASK_QUEUE", q, raising=False)
+    monkeypatch.setattr(mod, "send", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "send_with_keyboard", lambda *a, **k: None)
+    from app.services.devtask import git_ops as g, runner as r
+    monkeypatch.setattr(g, "prod_head", lambda *a, **k: "base1")
+    wt = str(tmp_path / "wt")
+    monkeypatch.setattr(g, "create_worktree", lambda *a, **k: wt)
+    seen = {}
+    monkeypatch.setattr(r, "run", lambda **k: seen.update(k) or {"status": "failed", "reason": "no_result"})
+    mod._devtask_run_body(ADMIN, tid)
+    rp = seen["report_path"].replace("\\", "/")
+    assert rp.startswith(wt.replace("\\", "/"))          # under the worktree, not bot cwd
+    assert rp.endswith("state/dev_tasks/%s/report.md" % tid)
+
+
 def test_run_body_creates_worktree_then_runs(monkeypatch, tmp_path):
     from app.services.devtask.queue import STATUS_RUNNING, STATUS_AWAITING_REVIEW
     q = DevTaskQueue(base_dir=tmp_path)

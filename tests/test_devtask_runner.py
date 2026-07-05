@@ -81,6 +81,15 @@ def test_build_argv_falls_back_to_bare_name_when_unresolved():
     assert argv[0] == "claude"
 
 
+def test_build_argv_includes_verbose_for_stream_json():
+    # ROOT of the 6th-run failure (proven by live reproduction): `claude -p
+    # --output-format stream-json` EXITS with "requires --verbose" unless
+    # --verbose is passed. argv must carry it alongside stream-json.
+    argv = r.build_argv("C:/wt", "u", "P", which=lambda name: "claude")
+    assert "--verbose" in argv
+    assert argv[argv.index("--output-format") + 1] == "stream-json"
+
+
 def test_multiline_task_prompt_survives_via_exe_not_cmd():
     # Regression for the WinError2-fix side effect: a real 22-line build_prompt
     # (with the <TASK_SPEC> block) must reach argv INTACT, and argv[0] must not be
@@ -169,3 +178,20 @@ def test_run_parses_utf8_cyrillic_stream_via_default_spawn(tmp_path):
     # result was parsed despite Cyrillic → session_id survives byte-for-byte
     assert res["session_id"] == "РЕЗУЛЬТАТ-сессия-✓"
     assert res["cost"] == 0.01
+
+
+def test_run_drains_cc_stderr_to_file(tmp_path):
+    # CC's stderr must be drained (parallel — an unread PIPE can deadlock CC) into
+    # the task log so a startup failure is self-diagnosing. Real default spawn +
+    # a child that writes to stderr and emits no result line.
+    import sys
+    child = ("import sys\n"
+             "sys.stderr.write('CC-ERR: stream-json requires --verbose\\n')\n"
+             "sys.stderr.flush()\n")
+    slog = tmp_path / "stderr.log"
+    res = r.run(argv=[sys.executable, "-c", child], cwd=str(tmp_path),
+                report_path=str(tmp_path / "missing.md"),
+                report_exists=lambda p: False, stderr_path=str(slog))
+    assert slog.exists()
+    assert "requires --verbose" in slog.read_text(encoding="utf-8", errors="replace")
+    assert res["status"] == "failed"

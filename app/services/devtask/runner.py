@@ -109,6 +109,7 @@ def build_argv(worktree: str, session_uuid: str, prompt: str,
     return [
         claude_bin, "-p", prompt,
         "--output-format", "stream-json",
+        "--verbose",  # REQUIRED: `-p --output-format stream-json` errors without it
         "--permission-mode", "bypassPermissions",
         "--session-id", session_uuid,
         "--model", model or _default_model(),
@@ -173,30 +174,74 @@ def _kill(proc) -> None:
         pass
 
 
+def _start_stderr_drain(proc, sink: list):
+    """Drain proc.stderr on a thread → ``sink``. An UNREAD stderr PIPE can fill
+    and deadlock the child, so we must read it even when we only care on failure.
+    Returns the thread (or None if the proc has no stderr, e.g. injected fakes)."""
+    err = getattr(proc, "stderr", None)
+    if err is None:
+        return None
+    import threading
+
+    def _pump():
+        try:
+            for line in err:
+                sink.append(line if isinstance(line, str)
+                            else line.decode("utf-8", errors="replace"))
+        except Exception:
+            pass
+
+    t = threading.Thread(target=_pump, daemon=True, name="devtask_cc_stderr")
+    t.start()
+    return t
+
+
+def _persist_stderr(sink: list, path: Optional[str], thread=None) -> str:
+    """Join the drain thread, write captured stderr to ``path`` (task log), and
+    return a short tail for surfacing in the failure reason. Best-effort."""
+    if thread is not None:
+        thread.join(timeout=5)
+    text = "".join(sink)
+    if path:
+        try:
+            p = Path(path)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(text, encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+    tail = text.strip().replace("\n", " ")
+    return tail[-300:]
+
+
 def run(*, argv: List[str], cwd: str, report_path: str,
         spawn: Callable = None, report_exists: Callable[[str], bool] = None,
-        line_iter: Callable = None) -> dict:
+        line_iter: Callable = None, stderr_path: Optional[str] = None) -> dict:
     """Drive a headless CC subprocess, parse its stream, detect the STOP report.
 
     Injection seams (tests never touch real CC): ``spawn(argv, cwd=…)`` → proc,
     ``line_iter(proc)`` → iterable of stream lines (raises TimeoutError on
-    silence/wall breach), ``report_exists(path)`` → bool.
+    silence/wall breach), ``report_exists(path)`` → bool. ``stderr_path`` (if set)
+    receives CC's drained stderr — a startup failure is then self-diagnosing.
     """
     if spawn is None:
         def spawn(a, **k):
             # encoding MUST be utf-8: CC emits UTF-8 stream-json; without this,
             # text mode decodes with the locale codec (cp1251 on RU Windows) and
             # Cyrillic in the stream becomes mojibake → result parse fails.
-            return subprocess.Popen(a, cwd=k.get("cwd"), stdout=subprocess.PIPE,
-                                    stderr=subprocess.PIPE, text=True,
-                                    encoding="utf-8", errors="replace")
+            # stdin=DEVNULL: headless CC waits ~3s for stdin otherwise.
+            return subprocess.Popen(a, cwd=k.get("cwd"), stdin=subprocess.DEVNULL,
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                    text=True, encoding="utf-8", errors="replace")
     if report_exists is None:
         report_exists = lambda p: Path(p).exists()
     if line_iter is None:
         line_iter = _default_line_iter
 
     proc = spawn(argv, cwd=cwd)
+    stderr_sink: list = []
+    drain = _start_stderr_drain(proc, stderr_sink)
     result: dict = {}
+    timed_out = None
     try:
         for line in line_iter(proc):
             parsed = _parse_line(line)
@@ -207,14 +252,19 @@ def run(*, argv: List[str], cwd: str, report_path: str,
         except Exception:
             pass
     except TimeoutError as e:
-        _kill(proc)
-        return {"status": "failed", "reason": f"timeout:{e}", "killed": True,
-                "cost": result.get("cost"), "session_id": result.get("session_id")}
+        timed_out = e
     finally:
         _kill(proc)
+        err_tail = _persist_stderr(stderr_sink, stderr_path, drain)
 
+    if timed_out is not None:
+        reason = f"timeout:{timed_out}"
+        return {"status": "failed", "reason": reason + (f" | stderr: {err_tail}" if err_tail else ""),
+                "killed": True, "cost": result.get("cost"), "session_id": result.get("session_id")}
     if not result:
-        return {"status": "failed", "reason": "no_result", "killed": False}
+        # surface CC's own error (e.g. a bad flag) in the reason, not just "no_result"
+        return {"status": "failed",
+                "reason": "no_result" + (f": {err_tail}" if err_tail else ""), "killed": False}
     present = report_exists(report_path)
     return {
         "status": "awaiting_review" if present else "failed",
