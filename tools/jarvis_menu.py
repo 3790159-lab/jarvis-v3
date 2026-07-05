@@ -207,7 +207,7 @@ _OBSERVE = Category("observe", "🔧 Наблюдение", (
     _mi("/git_status", "статус git", "exec", False),
     _mi("/regress", "прогон тестов", "exec", False),
     _mi("/logs_tail", "хвост логов", "exec", False),
-    _mi("/health", "здоровье систем", "exec", False),
+    _mi("/health", "здоровье Jarvis", "exec", False),
 ))
 
 # 🛠 Разработка (dev-tasks Ступень 2): admin-only. /dev_task требует текст

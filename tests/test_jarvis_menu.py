@@ -93,6 +93,11 @@ def test_lookup_accepts_cmd_with_or_without_slash():
     assert m.lookup_item("persona_photo", "friend") is not None
 
 
+def test_health_button_caption_is_jarvis():
+    it = m.lookup_item("/health", "admin")
+    assert it is not None and it.label == "здоровье Jarvis"
+
+
 # ── Task 4: native setMyCommands payloads ─────────────────────────────────
 def test_native_commands_shape_valid():
     for name, desc in m.NATIVE_ADMIN_COMMANDS + m.NATIVE_FRIEND_COMMANDS:
