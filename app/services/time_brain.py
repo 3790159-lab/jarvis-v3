@@ -38,7 +38,7 @@ def parse_dt(value: str, tz: str = DEFAULT_TZ) -> datetime:
     value = value.strip().replace(" ", "T")
     dt = datetime.fromisoformat(value)
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=get_zone(tz))
+        dt = dt.replace(tzinfo=ZoneInfo(tz))
     return dt.astimezone(UTC)
 
 

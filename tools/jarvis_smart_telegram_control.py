@@ -6384,7 +6384,13 @@ def _regress_run(chat_id: str) -> None:
 
 
 def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) -> None:
-    if cmd in ["/start", "/smart", "/smart_help", "/help"]:
+    if cmd == "/start":
+        from tools import jarvis_menu as jmenu
+        _text, _kb = jmenu.render_root(_menu_role(chat_id))
+        send_with_keyboard(chat_id, "👋 Привет! Я Jarvis.\n\n" + _text, _kb)
+        return
+
+    if cmd in ["/smart", "/smart_help", "/help"]:
         send(chat_id, HELP_TEXT)
         return
 
