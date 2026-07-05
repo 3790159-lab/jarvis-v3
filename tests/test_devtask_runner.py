@@ -44,14 +44,34 @@ def test_build_argv_model_override():
     assert argv[argv.index("--model") + 1] == "sonnet"
 
 
-def test_build_argv_resolves_claude_to_absolute_path():
-    # On Windows `claude` is a `.cmd` shim; subprocess.Popen(shell=False) resolves
-    # only `.exe` for a bare name → WinError 2. argv[0] MUST be the resolved
-    # launcher path (shutil.which honours PATHEXT and finds claude.cmd).
+def test_build_argv_resolves_cmd_to_sibling_exe():
+    # `which` finds claude.CMD (a batch shim). Routing a multi-line `-p` prompt
+    # through the .cmd truncates it at the first newline (batch %* mangling), so
+    # argv[0] MUST be the real sibling claude.exe under node_modules — NOT the
+    # .cmd. Path is DERIVED from the .cmd location, never hardcoded.
     argv = r.build_argv("C:/wt", "u", "P",
-                        which=lambda name: "C:/npm/claude.cmd")
+                        which=lambda name: "C:/npm/claude.CMD",
+                        exists=lambda p: p.replace("\\", "/").endswith(
+                            "node_modules/@anthropic-ai/claude-code/bin/claude.exe"))
+    assert argv[0].replace("\\", "/") == \
+        "C:/npm/node_modules/@anthropic-ai/claude-code/bin/claude.exe"
+    assert not argv[0].lower().endswith(".cmd")
+
+
+def test_build_argv_cmd_falls_back_when_exe_missing():
+    # npm updates may change the layout: if the sibling exe is absent, keep the
+    # .cmd (spawn still works — only multi-line prompts suffer) rather than crash.
+    argv = r.build_argv("C:/wt", "u", "P",
+                        which=lambda name: "C:/npm/claude.cmd",
+                        exists=lambda p: False)
     assert argv[0] == "C:/npm/claude.cmd"
-    assert "-p" in argv
+
+
+def test_build_argv_non_cmd_path_passes_through():
+    # A plain resolved path (already an .exe / posix) is used verbatim.
+    argv = r.build_argv("C:/wt", "u", "P",
+                        which=lambda name: "/usr/local/bin/claude")
+    assert argv[0] == "/usr/local/bin/claude"
 
 
 def test_build_argv_falls_back_to_bare_name_when_unresolved():
@@ -59,6 +79,22 @@ def test_build_argv_falls_back_to_bare_name_when_unresolved():
     # error rather than crashing the builder) — behaviour is opt-in via seam.
     argv = r.build_argv("C:/wt", "u", "P", which=lambda name: None)
     assert argv[0] == "claude"
+
+
+def test_multiline_task_prompt_survives_via_exe_not_cmd():
+    # Regression for the WinError2-fix side effect: a real 22-line build_prompt
+    # (with the <TASK_SPEC> block) must reach argv INTACT, and argv[0] must not be
+    # a .cmd — routing multi-line args through the batch shim drops everything
+    # after line 1 (CC then sees "no task"). Tooth on prompt integrity + launcher.
+    prompt = r.build_prompt("T1", "поменяй текст кнопки /health")
+    assert "<TASK_SPEC>" in prompt and prompt.count("\n") >= 5   # genuinely multi-line
+    argv = r.build_argv("C:/wt", "u", prompt,
+                        which=lambda name: "C:/npm/claude.CMD",
+                        exists=lambda p: True)
+    sent = argv[argv.index("-p") + 1]
+    assert sent == prompt                                        # full prompt, untruncated
+    assert "<TASK_SPEC>" in sent and "поменяй текст" in sent     # the task itself is present
+    assert not argv[0].lower().endswith(".cmd")                 # not routed through batch shim
 
 
 # ── Task 4: run() — spawn, stream-parse, kill-on-timeout, detect STOP ───────
@@ -112,3 +148,24 @@ def test_run_timeout_kills_child(tmp_path):
                 report_path=str(tmp_path / "r.md"), line_iter=boom)
     assert res["status"] == "failed" and "timeout" in res["reason"]
     assert proc.killed is True
+
+
+def test_run_parses_utf8_cyrillic_stream_via_default_spawn(tmp_path):
+    # Predictable-failure #5 guard: CC emits UTF-8 stream-json; on RU Windows the
+    # default text-mode codec is cp1251, which mojibakes Cyrillic and breaks the
+    # result parse. Uses the REAL default spawn (no injection) + a child that
+    # writes raw UTF-8 bytes, so it exercises Popen(encoding="utf-8").
+    import sys
+    child = (
+        "import sys\n"
+        "line = '{\"type\":\"result\",\"total_cost_usd\":0.01,"
+        "\"session_id\":\"РЕЗУЛЬТАТ-сессия-\\u2713\"}'\n"
+        "sys.stdout.buffer.write((line + chr(10)).encode('utf-8'))\n"
+        "sys.stdout.flush()\n"
+    )
+    res = r.run(argv=[sys.executable, "-c", child], cwd=str(tmp_path),
+                report_path=str(tmp_path / "missing.md"),
+                report_exists=lambda p: False)
+    # result was parsed despite Cyrillic → session_id survives byte-for-byte
+    assert res["session_id"] == "РЕЗУЛЬТАТ-сессия-✓"
+    assert res["cost"] == 0.01

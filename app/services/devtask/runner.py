@@ -69,18 +69,43 @@ def build_prompt(task_id: str, desc: str) -> str:
 """
 
 
+def _resolve_claude(which: Callable[[str], Optional[str]],
+                    exists: Callable[[str], bool]) -> str:
+    """Resolve the launcher to run under ``subprocess.Popen(shell=False)``.
+
+    Two Windows traps drive this:
+    - A bare ``"claude"`` makes CreateProcess fail with WinError 2 (it only
+      auto-appends ``.exe``, never resolves ``.cmd``). So we resolve via PATH.
+    - ``claude.cmd`` is a *batch shim* (``claude.exe %*``). Forwarding a
+      multi-line ``-p`` prompt through ``%%*`` truncates it at the first newline,
+      so CC receives only line 1 and reports "no task". We therefore prefer the
+      real sibling ``…/node_modules/@anthropic-ai/claude-code/bin/claude.exe``,
+      DERIVED from the .cmd location (never hardcoded) and existence-checked.
+      npm layout changes → fall back to the .cmd (spawn still works).
+    """
+    path = which("claude")
+    if not path:
+        return "claude"
+    if path.lower().endswith(".cmd"):
+        exe = Path(path).parent / "node_modules" / "@anthropic-ai" / \
+            "claude-code" / "bin" / "claude.exe"
+        if exists(str(exe)):
+            return str(exe)
+    return path
+
+
 def build_argv(worktree: str, session_uuid: str, prompt: str,
                model: Optional[str] = None, add_repo: str = PROD_REPO,
-               which: Optional[Callable[[str], Optional[str]]] = None) -> List[str]:
+               which: Optional[Callable[[str], Optional[str]]] = None,
+               exists: Optional[Callable[[str], bool]] = None) -> List[str]:
     """argv for a headless one-shot CC run (cwd MUST be set to ``worktree``).
 
-    argv[0] is RESOLVED to the launcher's real path (``shutil.which`` honours
-    ``PATHEXT`` and finds ``claude.cmd`` on Windows). A bare ``"claude"`` would
-    make ``subprocess.Popen(shell=False)`` fail with WinError 2 — CreateProcess
-    only auto-appends ``.exe`` for a bare name and never resolves ``.cmd``.
+    argv[0] is resolved via :func:`_resolve_claude` (real .exe over the .cmd shim,
+    so a multi-line prompt is not truncated by batch ``%%*`` forwarding).
     """
     which = which or shutil.which
-    claude_bin = which("claude") or "claude"
+    exists = exists or os.path.exists
+    claude_bin = _resolve_claude(which, exists)
     return [
         claude_bin, "-p", prompt,
         "--output-format", "stream-json",
@@ -159,8 +184,12 @@ def run(*, argv: List[str], cwd: str, report_path: str,
     """
     if spawn is None:
         def spawn(a, **k):
+            # encoding MUST be utf-8: CC emits UTF-8 stream-json; without this,
+            # text mode decodes with the locale codec (cp1251 on RU Windows) and
+            # Cyrillic in the stream becomes mojibake → result parse fails.
             return subprocess.Popen(a, cwd=k.get("cwd"), stdout=subprocess.PIPE,
-                                    stderr=subprocess.PIPE, text=True)
+                                    stderr=subprocess.PIPE, text=True,
+                                    encoding="utf-8", errors="replace")
     if report_exists is None:
         report_exists = lambda p: Path(p).exists()
     if line_iter is None:
