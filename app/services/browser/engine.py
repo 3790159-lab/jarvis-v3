@@ -6,6 +6,7 @@ logic on injected fakes without the dependency installed. See plan §7 (BU1-T3).
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Callable, Optional
 
