@@ -58,3 +58,8 @@ jarvis_stage3_artifacts/generated_projects/*/.venv/
 
 # scratchpad: local baseline/regress artifacts, never commit
 scratchpad/
+
+# browser-use runtime state
+state/browser_profile/
+state/browser_sessions/
+state/browser_playbooks/
