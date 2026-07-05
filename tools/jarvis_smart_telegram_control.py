@@ -1516,6 +1516,108 @@ def _devtask_rollback(chat_id, tid: str) -> None:
     send(chat_id, "↩️ Dev-задача %s откачена (worktree+ветка снесены, прод не тронут)." % tid)
 
 
+# ── Browser (browser-use, BU-1): admin-only, money-gated, PII-safe, read-only ──
+_BROWSE_WATCH = {"stop": None}
+
+
+def _browse_dispatch(chat_id, cmd, arg) -> None:
+    if cmd == "/browse_check":
+        _browse_check(chat_id, arg)
+    elif cmd == "/browse_watch":
+        _browse_watch(chat_id, arg)
+    elif cmd == "/browse_watch_stop":
+        _browse_watch_stop(chat_id)
+    elif cmd == "/browse_status":
+        _browse_status(chat_id)
+
+
+def _browse_build_job(url, extract, mode="read"):
+    from urllib.parse import urlparse
+    from app.services.browser.job import BrowserJob
+    domain = urlparse(url).netloc
+    return BrowserJob(urls=[url], mode=mode,
+                      task=(extract or "Извлеки ключевую информацию со страницы"),
+                      allowed_domains=[domain] if domain else [], extract=extract)
+
+
+def _browse_check(chat_id, arg) -> None:
+    parts = (arg or "").strip().split(None, 1)
+    if not parts or not parts[0].lower().startswith("http"):
+        send(chat_id, "Использование: /browse_check <url> [что извлечь]")
+        return
+    url = parts[0]
+    extract = parts[1] if len(parts) > 1 else None
+    from app.services.browser import service as _bsvc
+    job = _browse_build_job(url, extract)
+    est = _bsvc.estimate_usd(job)
+
+    def _do():
+        threading.Thread(target=_browse_run_body, args=(chat_id, job), daemon=True,
+                         name="browse_check").start()
+        return True                                  # reserved; real cost recorded post-run
+
+    _res, err = guard_spend(chat_id, None, est, _do)
+    if err:
+        send(chat_id, "🚫 %s" % err)
+        return
+    scope = job.allowed_domains[0] if job.allowed_domains else url
+    send(chat_id, "🌐 Открываю %s (est $%.2f, read-only)…" % (scope, est))
+
+
+def _browse_run_body(chat_id, job) -> None:
+    import uuid as _uuid
+    from app.services.browser import service as _bsvc, pii as _bpii
+    sid = "browse_" + _uuid.uuid4().hex[:8]
+    try:
+        res = _bsvc.run_browse(job, session_id=sid)
+        send(chat_id, _bpii.build_report(res))
+    except Exception as exc:                          # thread must never die silently
+        logger.exception("browse %s failed", sid)
+        send(chat_id, "❌ Браузер %s: %s" % (sid, exc))
+
+
+def _browse_status(chat_id) -> None:
+    from app.services.browser import service as _bsvc
+    send(chat_id, "🌐 Браузер: %s" % ("занят (сессия идёт)" if _bsvc.active() else "свободен"))
+
+
+def _browse_watch(chat_id, arg) -> None:
+    parts = (arg or "").strip().split(None, 1)
+    if len(parts) < 2 or not parts[0].lower().startswith("http"):
+        send(chat_id, "Использование: /browse_watch <url> <критерий>")
+        return
+    url, criterion = parts[0], parts[1]
+    ev = threading.Event()
+    _BROWSE_WATCH["stop"] = ev
+    job = _browse_build_job(url, "Проверь, выполнено ли условие: %s. Ответь кратко." % criterion)
+    interval = int(os.getenv("BROWSE_WATCH_INTERVAL_S", "600"))
+
+    def _loop():
+        import uuid as _uuid
+        from app.services.browser import service as _bsvc, pii as _bpii
+        while True:
+            try:
+                res = _bsvc.run_browse(job, session_id="watch_" + _uuid.uuid4().hex[:8])
+                send(chat_id, "🌐 watch: " + _bpii.build_report(res))
+            except Exception as exc:
+                send(chat_id, "🌐 watch error: %s" % exc)
+            if ev.wait(interval):                    # sleep, or exit early on stop
+                break
+
+    threading.Thread(target=_loop, daemon=True, name="browse_watch").start()
+    send(chat_id, "🌐 Мониторю %s каждые %dс. /browse_watch_stop — остановить." % (url, interval))
+
+
+def _browse_watch_stop(chat_id) -> None:
+    ev = _BROWSE_WATCH.get("stop")
+    if ev:
+        ev.set()
+        _BROWSE_WATCH["stop"] = None
+        send(chat_id, "🌐 Мониторинг остановлен.")
+    else:
+        send(chat_id, "🌐 Активного мониторинга нет.")
+
+
 def _devtask_boot_reconcile(base_dir=None, send_fn=None) -> None:
     """On startup: send the post-restart merge confirmation (single-shot) and
     fail any task left `running` (the bot restarted mid-run). Never raises."""
@@ -6364,6 +6466,10 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
 
     if cmd == "/dev_task":
         _devtask_dispatch(chat_id, query)
+        return
+
+    if cmd in ("/browse_check", "/browse_watch", "/browse_watch_stop", "/browse_status"):
+        _browse_dispatch(chat_id, cmd, query)
         return
 
     if cmd == "/capabilities":

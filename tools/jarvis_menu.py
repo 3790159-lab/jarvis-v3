@@ -219,7 +219,19 @@ _DEVOPS = Category("devops", "🛠 Разработка", (
              "кнопки [Мердж]/[Откат]/[Детали]."),
 ))
 
-MENU = [_VIDEO, _PERSONA, _ME, _PHOTO, _APPS, _AGENTS, _STATS, _SYSTEM, _OBSERVE, _DEVOPS]
+# 🌐 Браузер (browser-use, BU-1): admin-only. Команды требуют URL/текст → hint.
+_BROWSER = Category("browser", "🌐 Браузер", (
+    _mi("/browse_check", "проверить страницу (read-only)", "hint", False,
+        hint="/browse_check <url> [что извлечь] — Jarvis откроет страницу в "
+             "изолированном браузере, извлечёт нужное и пришлёт отчёт (money-гейт, "
+             "PII-безопасно)."),
+    _mi("/browse_watch", "мониторить страницу по критерию", "hint", False,
+        hint="/browse_watch <url> <критерий> — периодически проверяет страницу и "
+             "пингует при совпадении; /browse_watch_stop — остановить."),
+))
+
+MENU = [_VIDEO, _PERSONA, _ME, _PHOTO, _APPS, _AGENTS, _STATS, _SYSTEM,
+        _OBSERVE, _DEVOPS, _BROWSER]
 
 
 # ── Рендер (чистые функции: (текст, inline_keyboard)) ──────────────────────
@@ -288,6 +300,8 @@ NATIVE_ADMIN_COMMANDS = [
     ("regress", "Прогон тестов"),
     ("logs_tail", "Хвост логов"),
     ("health", "Здоровье систем"),
+    ("browse_check", "Проверить страницу (браузер)"),
+    ("browse_watch", "Мониторить страницу"),
     ("my_stats", "Личная статистика"),
     ("help", "Справка"),
 ]

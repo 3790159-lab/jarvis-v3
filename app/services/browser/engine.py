@@ -79,5 +79,50 @@ def run_browser(job: BrowserJob, *, run_agent: Callable = None) -> BrowserResult
     )
 
 
-def _default_run_agent(**kwargs):  # pragma: no cover - real browser-use, exercised live post-merge
-    raise NotImplementedError("real browser-use agent wired in BU1-T4 (needs prod .venv install)")
+def _default_run_agent(*, prompt, read_only, allowed_domains, max_steps,
+                       max_wall_s, model):  # pragma: no cover - live path, money-gated
+    """Real browser-use agent (BU1-T4). Lazy imports so tests need no install.
+
+    Runs on a fresh event loop (Windows needs ProactorEventLoop for the browser
+    subprocess). Domain scope is carried in the prompt (build_agent_task) in BU-1;
+    a Tools/Controller hard-scope + confirm-gated actions land in BU-2.
+    """
+    import asyncio
+    import inspect
+    from browser_use import Agent, ChatAnthropic, BrowserProfile
+
+    prof_kwargs = {"headless": os.getenv("BROWSER_HEADLESS", "1") != "0"}
+    if "user_data_dir" in inspect.signature(BrowserProfile).parameters:
+        prof_kwargs["user_data_dir"] = os.getenv("BROWSER_PROFILE_DIR", "state/browser_profile")
+    profile = BrowserProfile(**prof_kwargs)
+    agent = Agent(task=prompt, llm=ChatAnthropic(model=model), browser_profile=profile)
+
+    loop = asyncio.new_event_loop()
+    try:
+        asyncio.set_event_loop(loop)
+        history = loop.run_until_complete(agent.run(max_steps=max_steps))
+    finally:
+        try:
+            loop.close()
+        except Exception:
+            pass
+
+    def _pull(obj, *names, default=None):
+        for n in names:
+            v = getattr(obj, n, None)
+            if callable(v):
+                try:
+                    v = v()
+                except Exception:
+                    v = None
+            if v is not None:
+                return v
+        return default
+
+    return {
+        "steps": _pull(history, "number_of_steps", default=None)
+                 or len(getattr(history, "history", []) or []),
+        "cost": float(_pull(history, "total_cost_usd", "total_cost", default=0.0) or 0.0),
+        "extracted": _pull(history, "final_result", default="") or "",
+        "stopped": "done",
+    }
