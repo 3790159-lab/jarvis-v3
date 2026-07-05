@@ -151,6 +151,7 @@ def test_confirm_sets_running_and_starts_run_body(monkeypatch, tmp_path):
     tid = q.add("build X")
     monkeypatch.setattr(mod, "_DEVTASK_QUEUE", q, raising=False)
     monkeypatch.setattr(mod, "send", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "_devtask_free_gb", lambda *a, **k: 999.0)  # plenty of disk
     started = {"x": False}
     monkeypatch.setattr(mod, "_devtask_run_body", lambda cid, t: started.update(x=True))
 
@@ -164,6 +165,64 @@ def test_confirm_sets_running_and_starts_run_body(monkeypatch, tmp_path):
     assert started["x"] is True
     assert q.get(tid)["status"] == STATUS_RUNNING
     assert q.get(tid)["base_head"] is None          # worktree not built in confirm
+
+
+def test_confirm_refuses_when_disk_low(monkeypatch, tmp_path):
+    # Pre-flight guard: a worktree is a full ~2 GB checkout. With too little free
+    # disk, refuse immediately with an honest message — never attempt the checkout
+    # (which fills the disk and then can't even persist its own failure).
+    q = DevTaskQueue(base_dir=tmp_path)
+    tid = q.add("build X")
+    monkeypatch.setattr(mod, "_DEVTASK_QUEUE", q, raising=False)
+    sent = []
+    monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
+    monkeypatch.setattr(mod, "_devtask_free_gb", lambda *a, **k: 1.2)   # below default 4
+    started = {"x": False}
+    monkeypatch.setattr(mod, "_devtask_run_body", lambda *a, **k: started.update(x=True))
+    mod._devtask_confirm(ADMIN, tid)
+    assert started["x"] is False                    # checkout never attempted
+    assert q.get(tid)["status"] == "queued"         # not claimed running (retryable)
+    assert any("места" in s for s in sent)          # honest disk message
+
+
+def test_run_body_worktree_failure_notifies_before_persist(monkeypatch, tmp_path):
+    # On a full disk the failure-persist itself raises OSError. The admin
+    # notification MUST NOT depend on that write — send() comes first, and a
+    # failing set_status can never swallow the alert (the silent-death bug).
+    from app.services.devtask.queue import STATUS_RUNNING
+    q = DevTaskQueue(base_dir=tmp_path)
+    tid = q.add("do X")
+    q.set_status(tid, STATUS_RUNNING)
+    monkeypatch.setattr(mod, "_DEVTASK_QUEUE", q, raising=False)
+    sent = []
+    monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
+    from app.services.devtask import git_ops as g, runner as r
+    monkeypatch.setattr(g, "prod_head", lambda *a, **k: "base1")
+    monkeypatch.setattr(g, "create_worktree",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("disk full mid-checkout")))
+    monkeypatch.setattr(r, "run", lambda **k: (_ for _ in ()).throw(AssertionError("CC must not run")))
+
+    def boom_persist(*a, **k):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(q, "set_status", boom_persist)
+    mod._devtask_run_body(ADMIN, tid)               # must NOT raise out of the thread
+    assert any("worktree" in s for s in sent)       # admin alerted despite persist failure
+
+
+def test_boot_reconcile_removes_merged_worktree(monkeypatch, tmp_path):
+    # Auto-cleanup: once a healthy boot confirms the merge (pending_restart found),
+    # the merged task's worktree is removed — otherwise merged worktrees pile up
+    # (this is what filled the disk). Removal happens ONLY after healthy boot.
+    q = DevTaskQueue(base_dir=tmp_path)
+    monkeypatch.setattr(mod, "_DEVTASK_QUEUE", q, raising=False)
+    _bw_mod.write_pending_restart(tmp_path, "T7", "old", "new")
+    _bw_mod.write_boot_watch(tmp_path, "T7", "old", "new", now=0)
+    removed = []
+    from app.services.devtask import git_ops as g
+    monkeypatch.setattr(g, "remove_worktree", lambda tid, *a, **k: removed.append(tid))
+    mod._devtask_boot_reconcile(base_dir=tmp_path, send_fn=lambda t: None)
+    assert removed == ["T7"]                         # merged worktree cleaned up
 
 
 def test_run_body_creates_worktree_then_runs(monkeypatch, tmp_path):
@@ -192,6 +251,8 @@ from app.services.devtask.queue import STATUS_FAILED, STATUS_RUNNING as _RUN
 def test_boot_reconcile_pending_restart_single_shot(monkeypatch, tmp_path):
     q = DevTaskQueue(base_dir=tmp_path)
     monkeypatch.setattr(mod, "_DEVTASK_QUEUE", q, raising=False)
+    from app.services.devtask import git_ops as _g
+    monkeypatch.setattr(_g, "remove_worktree", lambda *a, **k: None)  # no real git
     _bw_mod.write_pending_restart(tmp_path, "T1", "old", "new")
     _bw_mod.write_boot_watch(tmp_path, "T1", "old", "new", now=0)
     sent = []

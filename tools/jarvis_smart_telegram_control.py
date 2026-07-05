@@ -1348,11 +1348,28 @@ def _devtask_review_keyboard(tid: str) -> list:
     ]
 
 
+_DEVTASK_MIN_FREE_GB = int(os.getenv("DEVTASK_MIN_FREE_GB", "4"))
+
+
+def _devtask_free_gb(path: str = "C:/") -> float:
+    """Free space (GB) on the volume holding the worktrees. Seam for tests."""
+    import shutil as _sh
+    return _sh.disk_usage(path).free / 1e9
+
+
 def _devtask_confirm(chat_id, tid: str) -> None:
     q = _devtask_queue()
     item = q.get(tid)
     if not item or item["status"] != "queued":
         send(chat_id, "Задача не найдена или уже запущена.")
+        return
+    # Pre-flight disk guard: a worktree is a full ~2 GB checkout. Refuse BEFORE
+    # claiming 'running' or attempting the checkout — a checkout that fills the
+    # disk then can't even persist its own failure (silent-death). Retryable.
+    free = _devtask_free_gb()
+    if free < _DEVTASK_MIN_FREE_GB:
+        send(chat_id, "🚫 Мало места на диске: %.1f ГБ свободно, нужно ≥%d ГБ "
+             "(worktree ~2 ГБ + запас). Освободи место и повтори." % (free, _DEVTASK_MIN_FREE_GB))
         return
     # Claim 'running' and hand off to the daemon thread. Worktree setup (Variant A:
     # instant --no-checkout add + a ~30-50s DETACHED checkout) happens in the
@@ -1362,6 +1379,15 @@ def _devtask_confirm(chat_id, tid: str) -> None:
                   "Подготовка ~минуту; дойду до СТОП — пришлю отчёт.")
     threading.Thread(target=_devtask_run_body, args=(chat_id, tid), daemon=True,
                      name="devtask_%s" % tid).start()
+
+
+def _devtask_safe_set_status(q, tid: str, status: str, **kw) -> None:
+    """Persist status best-effort: a failing write (e.g. full disk) must never
+    swallow the admin alert or kill the daemon thread. Alert goes out first."""
+    try:
+        q.set_status(tid, status, **kw)
+    except Exception:
+        logger.exception("devtask %s: could not persist status=%s (disk?)", tid, status)
 
 
 def _devtask_run_body(chat_id, tid: str) -> None:
@@ -1376,8 +1402,10 @@ def _devtask_run_body(chat_id, tid: str) -> None:
         wt = _g.create_worktree(tid, base)
     except Exception as exc:
         logger.exception("devtask %s worktree setup failed", tid)
-        q.set_status(tid, "failed", error="worktree setup: %s" % exc)
+        # notify FIRST — the alert must not depend on a disk write (a full disk is
+        # the very failure that stops the checkout AND the status persist).
         send(chat_id, "❌ Dev-задача %s: не удалось создать worktree.\n%s" % (tid, exc))
+        _devtask_safe_set_status(q, tid, "failed", error="worktree setup: %s" % exc)
         return
     q.set_status(tid, "running", worktree=wt, base_head=base)
     # 2. Run Claude Code.
@@ -1402,8 +1430,8 @@ def _devtask_run_body(chat_id, tid: str) -> None:
                  "([Откат] чтобы снести)." % (tid, res.get("reason")))
     except Exception as exc:  # thread must never die silently
         logger.exception("devtask %s CC-run failed", tid)  # traceback → jarvis_bot.log
-        _devtask_queue().set_status(tid, "failed", error=str(exc))
-        send(chat_id, "❌ Dev-задача %s упала: %s" % (tid, exc))
+        send(chat_id, "❌ Dev-задача %s упала: %s" % (tid, exc))  # notify before persist
+        _devtask_safe_set_status(_devtask_queue(), tid, "failed", error=str(exc))
 
 
 def _devtask_run_regress(worktree: str) -> dict:
@@ -1498,6 +1526,16 @@ def _devtask_boot_reconcile(base_dir=None, send_fn=None) -> None:
                     % (pending.get("task_id"), pending.get("old_head"), pending.get("new_head")))
             _bw.clear_pending_restart(base)
             _bw.clear_boot_watch(base)          # healthy boot -> disarm crash-loop guard
+            # merge confirmed healthy → reclaim the merged worktree (best-effort).
+            # Deferred to here (not at merge time) so it survives until we KNOW the
+            # new code boots; otherwise merged worktrees pile up and fill the disk.
+            mtid = pending.get("task_id")
+            if mtid:
+                try:
+                    from app.services.devtask import git_ops as _g
+                    _g.remove_worktree(mtid)
+                except Exception as exc:
+                    print("[devtask] merged worktree cleanup failed: %s" % exc, flush=True)
         for item in q.list_recent(50):
             if item.get("status") == _q.STATUS_RUNNING:
                 q.set_status(item["id"], _q.STATUS_FAILED,
