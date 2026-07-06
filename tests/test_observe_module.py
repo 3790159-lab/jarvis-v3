@@ -44,6 +44,23 @@ def test_git_status_text_shape_and_readonly():
     assert all(v in o._GIT_READONLY_VERBS for v in verbs)
 
 
+def test_git_status_text_shows_last_commit_datetime():
+    def fake_run(args, **k):
+        import types
+        joined = " ".join(args)
+        if "rev-parse" in joined and "--short" in joined:
+            return types.SimpleNamespace(stdout="da2312e\n", returncode=0)
+        if "log" in joined:
+            return types.SimpleNamespace(stdout="2026-07-06 03:57\n", returncode=0)
+        return types.SimpleNamespace(
+            stdout="## main...origin/main\n",
+            returncode=0,
+        )
+
+    txt = o.git_status_text(repo="C:/jarvis", run=fake_run)
+    assert "2026-07-06 03:57" in txt
+
+
 def test_parse_pytest_summary():
     s = "130 failed, 3353 passed, 10 skipped, 101 warnings, 4 errors in 255.38s"
     assert o.parse_pytest_summary(s) == {"failed": 130, "passed": 3353, "errors": 4}

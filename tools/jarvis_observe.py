@@ -61,6 +61,7 @@ def git_status_text(repo: str = "C:/jarvis", run=subprocess.run) -> str:
         return (getattr(res, "stdout", "") or "").strip()
 
     short_head = _git("rev-parse", "--short", "HEAD") or "?"
+    last_commit_at = _git("log", "-1", "--format=%cd", "--date=format:%Y-%m-%d %H:%M") or "?"
     status = _git("status", "-sb")
 
     lines = status.splitlines()
@@ -76,6 +77,7 @@ def git_status_text(repo: str = "C:/jarvis", run=subprocess.run) -> str:
     out = [
         f"🌿 ветка: {branch}",
         f"📍 HEAD: {short_head}",
+        f"🕒 последний коммит: {last_commit_at}",
     ]
     if ahead_behind:
         out.append(f"↕️ {ahead_behind}")
