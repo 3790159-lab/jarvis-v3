@@ -66,3 +66,32 @@ def test_resolve_ambiguous_short_phrase_clarifies():
     res = ir.resolve("фото", "admin")
     assert res.decision == "clarify"
     assert len(res.candidates) >= 2
+
+
+# ── Task 3: money invariant — FREE_AUTOEXEC / PAID ─────────────────────────
+def test_free_and_paid_are_disjoint():
+    # THE money invariant: a paid command can never be in the auto-exec set,
+    # so paid commands are structurally impossible to run without confirmation.
+    assert ir.FREE_AUTOEXEC & ir.PAID == frozenset()
+
+
+def test_auto_exec_ok_true_for_free_read():
+    assert ir.auto_exec_ok("/health") is True
+    assert ir.auto_exec_ok("/costs") is True
+
+
+def test_auto_exec_ok_false_for_paid_and_heavy():
+    assert ir.auto_exec_ok("/menu_photo") is False  # paid
+    assert ir.auto_exec_ok("/regress") is False      # heavy (~5 min) → confirm
+
+
+def test_is_paid_flags_generation():
+    assert ir.is_paid("/videoref") is True
+    assert ir.is_paid("/menu_photo") is True
+    assert ir.is_paid("/health") is False
+
+
+def test_free_and_paid_sets_reference_real_commands():
+    corpus = ir.build_corpus()
+    for cmd in (ir.FREE_AUTOEXEC | ir.PAID):
+        assert cmd in corpus, f"{cmd} not in menu registry"
