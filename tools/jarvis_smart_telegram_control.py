@@ -3889,6 +3889,38 @@ def _try_log_decision(query: str, intent: str, start_time: float) -> Optional[st
         return None
 
 
+def _ir_unknown(chat_id: str) -> None:
+    """Честный фолбэк на непонятный текст — НЕ угадывание (заменяет chat→research)."""
+    send(chat_id, "🤷 Не понял запрос. Открой каталог: /menu — или напиши «что ты умеешь?».")
+
+
+def _ir_send_confirm(chat_id: str, cmd: str, arg: str, state: Dict[str, Any]) -> None:
+    """Кнопка «Запустить /X?» для платной/параметрической команды. Не exec сразу."""
+    from tools import intent_router as _ir
+    label = cmd + ((" " + arg) if arg else "")
+    if _ir.is_paid(cmd):
+        price = _ir.price_hint(cmd)
+        ptxt = f" (платно ~${price:.2f})" if price else " (платно)"
+    else:
+        ptxt = ""
+    state["pending_ir"] = {"cmd": cmd, "arg": arg}
+    save_state(state)
+    send_with_keyboard(
+        chat_id, f"Запустить {label}?{ptxt}",
+        [[{"text": f"▶️ Запустить {cmd}", "callback_data": "ir:run"},
+          {"text": "Отмена", "callback_data": "ir:cancel"}]],
+    )
+
+
+def _ir_send_clarify(chat_id: str, candidates, state: Dict[str, Any]) -> None:
+    """Кнопки-уточнение для двусмысленной фразы — пользователь выбирает, не гадаем."""
+    cands = list(candidates)
+    state["pending_ir"] = {"candidates": cands}
+    save_state(state)
+    rows = [[{"text": c, "callback_data": f"ir:pick:{i}"}] for i, c in enumerate(cands)]
+    send_with_keyboard(chat_id, "Уточни, что запустить:", rows)
+
+
 def run_intent(chat_id: str, pack: Dict[str, Any], state: Dict[str, Any]) -> None:
     import time as _time_ri
     _start = _time_ri.time()
@@ -3899,6 +3931,26 @@ def run_intent(chat_id: str, pack: Dict[str, Any], state: Dict[str, Any]) -> Non
     if intent in ("research", "simple_question", "brain", "table", "engineer"):
         _decision_id = _try_log_decision(query, intent or "unknown", _start)
     state["last_decision_id"] = _decision_id
+
+    # ── IR-1 (intent-router) исходы ─────────────────────────────────────────
+    if intent == "ir_route":
+        from tools import intent_router as _ir
+        _cmd = pack.get("command", ""); _arg = pack.get("arg", "")
+        if not _arg and _ir.auto_exec_ok(_cmd):
+            handle(chat_id, _cmd)                      # free + read-only → сразу
+        else:
+            _ir_send_confirm(chat_id, _cmd, _arg, state)   # платно/параметр → кнопка
+        return
+    if intent == "ir_clarify":
+        _ir_send_clarify(chat_id, pack.get("candidates", []), state)
+        return
+    if intent == "ir_uncertain":
+        # IR-2 (Haiku, admin) — отдельная фаза; пока честный фолбэк (безопасно).
+        _ir_unknown(chat_id)
+        return
+    if intent == "ir_unknown":
+        _ir_unknown(chat_id)
+        return
 
     # H8.2: self_status — real check, not AI Engineer
     if intent == "self_status":
