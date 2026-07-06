@@ -3548,7 +3548,27 @@ def classify_message(text: str, state: Dict[str, Any]) -> Dict[str, Any]:
     if len(raw) > 70:
         return {"intent": "brain", "query": raw}
 
-    return {"intent": "chat", "query": raw}
+    # ── IR-1 (intent-router): остаточный текст, не пойманный ничем выше ──────
+    # Ступень стоит ПОСЛЕ всех существующих триггеров → инвариант «не сломать
+    # флоу»: меняется ровно бывший исход `chat`. Роль здесь всегда admin —
+    # свободный текст friend обрабатывается отдельным узким путём в handle()
+    # (friend-гейт не пускает его в classify). Бывшее chat→платный-Perplexity
+    # угадывание заменено честным фолбэком (ir_unknown).
+    try:
+        from tools import intent_router as _ir
+        _res = _ir.resolve(raw, "admin")
+        if _res.decision == "route":
+            _c = _res.candidates[0]
+            return {"intent": "ir_route", "command": _c.cmd, "arg": _c.arg, "query": raw}
+        if _res.decision == "clarify":
+            return {"intent": "ir_clarify",
+                    "candidates": [c.cmd for c in _res.candidates], "query": raw}
+        if _res.decision == "uncertain":
+            return {"intent": "ir_uncertain", "query": raw}
+        return {"intent": "ir_unknown", "query": raw}
+    except Exception:
+        # роутер не должен ронять классификацию — безопасный откат
+        return {"intent": "ir_unknown", "query": raw}
 
 
 def needs_table_clarification(query: str) -> Optional[str]:
