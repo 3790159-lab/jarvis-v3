@@ -188,23 +188,30 @@ def build_corpus() -> Dict[str, Entry]:
 
 
 def _score(qn: str, qtok: FrozenSet[str], entry: Entry) -> float:
-    """Оценка соответствия нормализованной фразы команде (0..1)."""
-    best = 0.0
+    """Оценка соответствия нормализованной фразы команде (0..1).
+
+    Разделяем сильные сигналы (точное/подстрочное совпадение фразы, token-
+    overlap) и слабый fuzzy (``difflib``). Чистый fuzzy НЕ даёт уверенный
+    ROUTE (кап ниже ROUTE_FLOOR) — иначе общий префикс («статус ...») ложно
+    роутит. Уверенный роут — только на сильных сигналах.
+    """
+    strong = 0.0
+    fuzzy = 0.0
     for p in entry.phrases:
         if not p:
             continue
         if qn == p:
             return 1.0
         if p in qn or qn in p:
-            best = max(best, 0.9)
+            strong = max(strong, 0.9)
         r = SequenceMatcher(None, qn, p).ratio()
-        if r > best:
-            best = r
+        if r > fuzzy:
+            fuzzy = r
     if qtok and entry.tokens:
         overlap = len(qtok & entry.tokens) / len(qtok)
-        if overlap > best:
-            best = overlap
-    return best
+        if overlap > strong:
+            strong = overlap
+    return max(strong, min(fuzzy, ROUTE_FLOOR - 0.01))
 
 
 def resolve(text: str, role: str,
