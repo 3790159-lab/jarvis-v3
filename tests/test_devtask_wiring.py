@@ -167,6 +167,27 @@ def test_confirm_sets_running_and_starts_run_body(monkeypatch, tmp_path):
     assert q.get(tid)["base_head"] is None          # worktree not built in confirm
 
 
+def test_confirm_message_states_expected_duration(monkeypatch, tmp_path):
+    # The start message must tell the admin roughly how long to wait, so they
+    # don't sit staring at the chat wondering if it hung.
+    q = DevTaskQueue(base_dir=tmp_path)
+    tid = q.add("build X")
+    monkeypatch.setattr(mod, "_DEVTASK_QUEUE", q, raising=False)
+    sent = []
+    monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
+    monkeypatch.setattr(mod, "_devtask_free_gb", lambda *a, **k: 999.0)
+    monkeypatch.setattr(mod, "_devtask_run_body", lambda *a, **k: None)
+
+    class _Immediate:
+        def __init__(self, *a, **k):
+            self._t = k.get("target"); self._args = k.get("args", ())
+        def start(self):
+            self._t(*self._args)
+    monkeypatch.setattr(mod.threading, "Thread", _Immediate)
+    mod._devtask_confirm(ADMIN, tid)
+    assert any("~10-30 мин" in s for s in sent)
+
+
 def test_confirm_refuses_when_disk_low(monkeypatch, tmp_path):
     # Pre-flight guard: a worktree is a full ~2 GB checkout. With too little free
     # disk, refuse immediately with an honest message — never attempt the checkout

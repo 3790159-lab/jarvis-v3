@@ -1376,7 +1376,7 @@ def _devtask_confirm(chat_id, tid: str) -> None:
     # thread, NOT here — it must never block the poll loop.
     q.set_status(tid, "running")
     send(chat_id, "🚀 Готовлю изолированный worktree и запускаю Claude Code (opus, TDD). "
-                  "Подготовка ~минуту; дойду до СТОП — пришлю отчёт.")
+                  "Подготовка ~минуту, выполнение ~10-30 мин; дойду до СТОП — пришлю отчёт.")
     threading.Thread(target=_devtask_run_body, args=(chat_id, tid), daemon=True,
                      name="devtask_%s" % tid).start()
 
