@@ -95,3 +95,32 @@ def test_free_and_paid_sets_reference_real_commands():
     corpus = ir.build_corpus()
     for cmd in (ir.FREE_AUTOEXEC | ir.PAID):
         assert cmd in corpus, f"{cmd} not in menu registry"
+
+
+# ── Task 4: friend role filter (injected allow-list) ───────────────────────
+_FRIEND_SET = frozenset({"/animate", "/videoref", "/menu_photo",
+                         "/my_stats", "/persona_photo"})
+
+
+def test_friend_routes_only_allowed_command():
+    res = ir.resolve("анимировать одно фото", "friend", friend_allowed=_FRIEND_SET)
+    assert res.decision == "route"
+    assert res.candidates[0].cmd == "/animate"
+
+
+def test_friend_cannot_reach_admin_only_command():
+    # /git_status is admin-only (not in friend set) → must never be a candidate
+    res = ir.resolve("статус гита", "friend", friend_allowed=_FRIEND_SET)
+    assert all(c.cmd != "/git_status" for c in res.candidates)
+
+
+def test_friend_unknown_capability_is_none():
+    res = ir.resolve("создать сайт на реакте", "friend", friend_allowed=_FRIEND_SET)
+    assert res.decision == "none"
+
+
+def test_admin_sees_admin_only_command():
+    # same phrase under admin DOES reach the admin-only command
+    res = ir.resolve("статус гита", "admin")
+    assert res.decision == "route"
+    assert res.candidates[0].cmd == "/git_status"
