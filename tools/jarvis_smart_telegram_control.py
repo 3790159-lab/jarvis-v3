@@ -6434,7 +6434,14 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
                             capture_output=True, text=True, timeout=5,
                             encoding="utf-8", errors="replace")
                 alive = str(pid) in (r.stdout or "")
-            return {"pid": pid, "alive": alive}
+            started = None
+            try:  # StartTime disambiguates PID-recycled generations
+                import psutil as _ps
+                started = datetime.fromtimestamp(
+                    _ps.Process(pid).create_time()).strftime("%d.%m %H:%M:%S")
+            except Exception:
+                pass
+            return {"pid": pid, "alive": alive, "started": started}
 
         def _hb_reader():
             last = int(_HEARTBEAT_FILE.read_text(encoding="utf-8").strip())

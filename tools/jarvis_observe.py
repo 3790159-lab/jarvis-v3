@@ -102,7 +102,9 @@ def health_snapshot(readers: dict) -> str:
     bot = _safe("bot", None)
     if isinstance(bot, dict):
         mark = "✅" if bot.get("alive") else "🔴"
-        lines.append(f"🤖 бот: PID {bot.get('pid', '?')} {mark}")
+        started = bot.get("started")
+        suffix = f" (старт {started})" if started else ""
+        lines.append(f"🤖 бот: PID {bot.get('pid', '?')}{suffix} {mark}")
     else:
         lines.append("🤖 бот: ❓")
 

@@ -66,3 +66,18 @@ def test_health_snapshot_formats_all_sections():
     txt = o.health_snapshot(readers)
     assert "17048" in txt and "12" in txt and "12.9" in txt
     assert "✅" in txt  # backend ok
+
+
+def test_health_snapshot_shows_bot_start_time_when_present():
+    # StartTime disambiguates PID-recycled generations so namesakes never
+    # argue "same process or not" again.
+    readers = {"bot": lambda: {"pid": 6428, "alive": True, "started": "06.07 04:44:13"}}
+    txt = o.health_snapshot(readers)
+    assert "6428" in txt and "04:44:13" in txt
+
+
+def test_health_snapshot_bot_line_backward_compatible_without_start_time():
+    # A reader that omits ``started`` (older callers) must still render cleanly.
+    readers = {"bot": lambda: {"pid": 6428, "alive": True}}
+    txt = o.health_snapshot(readers)
+    assert "6428" in txt and "старт" not in txt
