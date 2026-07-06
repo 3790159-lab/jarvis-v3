@@ -93,3 +93,107 @@ def test_ir_clarify_sends_candidate_buttons(monkeypatch):
     flat = str(sent.get("kb"))
     assert "ir:pick:0" in flat and "ir:pick:1" in flat
     assert st.get("pending_ir", {}).get("candidates") == ["/menu_photo", "/pro_food"]
+
+
+# ── Task 7: end-to-end — unknown text no longer guesses via paid research ──
+def test_unknown_text_end_to_end_no_paid_research(monkeypatch):
+    sent = {}
+    monkeypatch.setattr(mod, "send", lambda cid, text, *a, **k: sent.setdefault("t", text))
+    monkeypatch.setattr(mod, "backend_post",
+                        lambda *a, **k: sent.setdefault("research", True) or {})
+    pack = mod.classify_message("асдфгхй совсем непонятная фраза без смысла", {})
+    mod.run_intent("123", pack, {})
+    assert "research" not in sent                     # money-safety: no Perplexity guess
+    assert "menu" in sent["t"].lower() or "меню" in sent["t"].lower()
+
+
+# ── Task 8: callback ir: + friend narrow path + teeth ──────────────────────
+def _cq(data, uid=1, chat="123"):
+    return {"id": "c", "data": data, "from": {"id": uid},
+            "message": {"chat": {"id": chat}, "message_id": 5}}
+
+
+def test_ir_prefix_is_friend_allowed():
+    assert "ir:" in mod.FRIEND_ALLOWED_CALLBACK_PREFIXES
+
+
+def test_callback_ir_run_executes_pending(monkeypatch):
+    called = {}
+    monkeypatch.setattr(mod, "answer_callback_query", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "handle", lambda cid, text: called.setdefault("h", (cid, text)))
+    monkeypatch.setattr(mod, "save_state", lambda s: None)
+    monkeypatch.setattr(mod, "_is_admin_id", lambda uid: True)
+    st = {"pending_ir": {"cmd": "/menu_photo", "arg": ""}}
+    mod.handle_callback_query(_cq("ir:run"), st)
+    assert called["h"] == ("123", "/menu_photo")
+    assert st.get("pending_ir") is None
+
+
+def test_callback_ir_cancel_clears_without_exec(monkeypatch):
+    called = {}
+    monkeypatch.setattr(mod, "answer_callback_query", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "handle", lambda cid, text: called.setdefault("h", True))
+    monkeypatch.setattr(mod, "save_state", lambda s: None)
+    monkeypatch.setattr(mod, "_is_admin_id", lambda uid: True)
+    st = {"pending_ir": {"cmd": "/menu_photo", "arg": ""}}
+    mod.handle_callback_query(_cq("ir:cancel"), st)
+    assert "h" not in called
+    assert st.get("pending_ir") is None
+
+
+def test_callback_ir_pick_free_command_execs(monkeypatch):
+    called = {}
+    monkeypatch.setattr(mod, "answer_callback_query", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "handle", lambda cid, text: called.setdefault("h", (cid, text)))
+    monkeypatch.setattr(mod, "send_with_keyboard", lambda *a, **k: called.setdefault("kb", True))
+    monkeypatch.setattr(mod, "save_state", lambda s: None)
+    monkeypatch.setattr(mod, "_is_admin_id", lambda uid: True)
+    monkeypatch.setattr(mod, "_menu_role", lambda uid: "admin")
+    st = {"pending_ir": {"candidates": ["/health", "/git_status"]}}
+    mod.handle_callback_query(_cq("ir:pick:0"), st)
+    assert called.get("h") == ("123", "/health")   # free → exec
+    assert "kb" not in called
+
+
+def test_callback_ir_pick_paid_command_asks_confirm(monkeypatch):
+    called = {}
+    monkeypatch.setattr(mod, "answer_callback_query", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "handle", lambda cid, text: called.setdefault("h", True))
+    monkeypatch.setattr(mod, "send_with_keyboard",
+                        lambda cid, text, kb: called.update(kb=kb))
+    monkeypatch.setattr(mod, "save_state", lambda s: None)
+    monkeypatch.setattr(mod, "_is_admin_id", lambda uid: True)
+    st = {"pending_ir": {"candidates": ["/menu_photo", "/pro_food"]}}
+    mod.handle_callback_query(_cq("ir:pick:0"), st)
+    assert "h" not in called                        # paid pick → NOT executed
+    assert "ir:run" in str(called.get("kb"))        # second confirm required
+
+
+def test_friend_free_text_routes_allowed_command(monkeypatch):
+    routed = {}
+    monkeypatch.setattr(mod, "_role_for_chat", lambda cid: "friend")
+    monkeypatch.setattr(mod, "load_state", lambda: {})
+    monkeypatch.setattr(mod, "run_intent", lambda cid, pack, st: routed.update(pack))
+    monkeypatch.setattr(mod, "send", lambda *a, **k: routed.setdefault("sent", True))
+    mod.handle("777", "анимировать одно фото")       # /animate is friend-allowed
+    assert routed.get("intent") == "ir_route"
+    assert routed.get("command") == "/animate"
+
+
+def test_friend_free_text_admin_only_command_no_leak(monkeypatch):
+    out = {}
+    monkeypatch.setattr(mod, "_role_for_chat", lambda cid: "friend")
+    monkeypatch.setattr(mod, "load_state", lambda: {})
+    monkeypatch.setattr(mod, "run_intent", lambda cid, pack, st: out.update(pack))
+    monkeypatch.setattr(mod, "send", lambda cid, text, *a, **k: out.setdefault("sent", text))
+    mod.handle("777", "статус гита")                 # /git_status is admin-only
+    assert out.get("command") != "/git_status"       # no leak
+    assert "sent" in out                             # honest fallback
+
+
+def test_friend_slash_command_gate_still_denies(monkeypatch):
+    out = {}
+    monkeypatch.setattr(mod, "_role_for_chat", lambda cid: "friend")
+    monkeypatch.setattr(mod, "send", lambda cid, text, *a, **k: out.setdefault("sent", text))
+    mod.handle("777", "/git_status")                 # admin-only slash command
+    assert "администратор" in out.get("sent", "").lower()

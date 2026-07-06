@@ -3921,6 +3921,25 @@ def _ir_send_clarify(chat_id: str, candidates, state: Dict[str, Any]) -> None:
     send_with_keyboard(chat_id, "Уточни, что запустить:", rows)
 
 
+def _ir_handle_friend_text(chat_id: str, text: str) -> None:
+    """Узкий IR-путь для свободного текста friend: только его команды.
+
+    Матч ограничен FRIEND_ALLOWED_COMMANDS (не утекает admin-функционал), IR-2
+    выключен; непонятное → честный фолбэк.
+    """
+    from tools import intent_router as _ir
+    state = load_state()
+    res = _ir.resolve(text, "friend", friend_allowed=FRIEND_ALLOWED_COMMANDS)
+    if res.decision == "route":
+        c = res.candidates[0]
+        run_intent(chat_id, {"intent": "ir_route", "command": c.cmd, "arg": c.arg}, state)
+    elif res.decision == "clarify":
+        run_intent(chat_id, {"intent": "ir_clarify",
+                             "candidates": [c.cmd for c in res.candidates]}, state)
+    else:
+        send(chat_id, "🤷 Не понял. Что я умею — набери /menu.")
+
+
 def run_intent(chat_id: str, pack: Dict[str, Any], state: Dict[str, Any]) -> None:
     import time as _time_ri
     _start = _time_ri.time()
@@ -4397,6 +4416,56 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
         if not data.startswith(FRIEND_ALLOWED_CALLBACK_PREFIXES):
             answer_callback_query(cq_id, "🚫 Только для администратора")
             return
+
+    # ── Intent-router confirm (ir:run | ir:pick:<idx> | ir:cancel) ───────────
+    # ir:run порождается только confirm-кнопкой _ir_send_confirm → уже
+    # подтверждено, исполняем. ir:pick — выбор из clarify: free → сразу, платно/
+    # с параметром → второй confirm (money НИКОГДА не exec без явного да).
+    # Исполнение через handle() → зубы friend-гейта + downstream money-гейт.
+    if data.startswith("ir:"):
+        from tools import intent_router as _ir
+        role = _menu_role(_cq_uid)
+        action = parts[1] if len(parts) > 1 else ""
+        pend = state.get("pending_ir") or {}
+        if action == "cancel":
+            state["pending_ir"] = None
+            save_state(state)
+            answer_callback_query(cq_id, "Отменено")
+            return
+        if action == "pick":
+            idx = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else -1
+            cands = pend.get("candidates") or []
+            cmd = cands[idx] if 0 <= idx < len(cands) else ""
+            arg = ""
+        elif action == "run":
+            cmd = pend.get("cmd", "")
+            arg = pend.get("arg", "")
+        else:
+            answer_callback_query(cq_id)
+            return
+        if not cmd:
+            answer_callback_query(cq_id, "Нечего запускать")
+            return
+        # role-safety: friend исполняет только свои команды (зуб от утечки)
+        if role != "admin" and cmd not in FRIEND_ALLOWED_COMMANDS:
+            answer_callback_query(cq_id, "🚫 Только для администратора")
+            return
+        if action == "run":
+            state["pending_ir"] = None
+            save_state(state)
+            answer_callback_query(cq_id, "▶️")
+            handle(chat_id, (cmd + " " + arg).strip())
+            return
+        # action == "pick"
+        if not arg and _ir.auto_exec_ok(cmd):
+            state["pending_ir"] = None
+            save_state(state)
+            answer_callback_query(cq_id, "▶️")
+            handle(chat_id, cmd)
+        else:
+            answer_callback_query(cq_id)
+            _ir_send_confirm(chat_id, cmd, arg, state)   # платно/параметр → confirm
+        return
 
     # ── Unified menu navigation (menu:root | menu:cat:<id> | menu:x:<cmd>) ────
     # Friend passes the prefix-gate above (menu: is allow-listed); the branch
@@ -7603,10 +7672,18 @@ def handle(chat_id: str, text: str) -> None:
         send(chat_id, "Access denied.")
         return
     if role != "admin":
-        # friend: только генеративный allowlist (default-deny на всё прочее).
         _cmd = (text or "").strip().split(maxsplit=1)[0].split("@", 1)[0].lower()
-        if _cmd not in FRIEND_ALLOWED_COMMANDS:
-            send(chat_id, "🚫 Эта команда доступна только администратору.")
+        if _cmd.startswith("/"):
+            # friend слэш-команда: прежний default-deny allowlist.
+            if _cmd not in FRIEND_ALLOWED_COMMANDS:
+                send(chat_id, "🚫 Эта команда доступна только администратору.")
+                return
+        else:
+            # friend свободный текст → узкий IR-путь: матч ТОЛЬКО против его
+            # разрешённых команд, НЕ проваливается в общий каскад (права не
+            # расширяются, research/generate friend'у недоступны). IR-2 для
+            # friend выключен (не тратим его cap на классификацию).
+            _ir_handle_friend_text(chat_id, text)
             return
 
     state = load_state()
@@ -7767,7 +7844,7 @@ FRIEND_ALLOWED_COMMANDS: frozenset = frozenset({
 # уже member-gated в process_update — отдельная команда не нужна.
 
 # Префиксы callback_data, разрешённые friend (генеративные кнопки). Остальное — admin.
-FRIEND_ALLOWED_CALLBACK_PREFIXES = ("sbeng:", "sbq:", "sbsmooth:", "sbward:", "anim:", "aq:", "asmooth:", "sbgen:", "vref:", "menu:")
+FRIEND_ALLOWED_CALLBACK_PREFIXES = ("sbeng:", "sbq:", "sbsmooth:", "sbward:", "anim:", "aq:", "asmooth:", "sbgen:", "vref:", "menu:", "ir:")
 
 
 def _role_for_chat(chat_id) -> Optional[str]:
