@@ -47,6 +47,27 @@ class Entry:
     phrases: Tuple[str, ...] # нормализованные фразы (label, native, aliases)
 
 
+@dataclass(frozen=True)
+class Candidate:
+    cmd: str
+    score: float
+    arg: str = ""            # извлечённый параметр (IR-3; в IR-1 пусто)
+
+
+@dataclass(frozen=True)
+class IRResult:
+    decision: str            # "route" | "clarify" | "uncertain" | "none"
+    candidates: Tuple[Candidate, ...] = ()
+    reason: str = ""
+
+
+# Пороги (стартовые; калибруются вживую на реальных фразах).
+ROUTE_FLOOR = 0.72       # ниже — не уверенная команда
+CLARIFY_GAP = 0.15       # зазор топ-1 vs топ-2, чтобы не гадать
+UNCERTAIN_FLOOR = 0.45   # 0.45..0.72 → отдать LLM-слою (IR-2, admin)
+CLARIFY_MAX = 3          # сколько кандидатов показать на уточнении
+
+
 _WORD_RE = re.compile(r"[^0-9a-zA-Zа-яё]+")
 
 
@@ -104,3 +125,67 @@ def build_corpus() -> Dict[str, Entry]:
             )
     _CORPUS = corpus
     return corpus
+
+
+def _score(qn: str, qtok: FrozenSet[str], entry: Entry) -> float:
+    """Оценка соответствия нормализованной фразы команде (0..1)."""
+    best = 0.0
+    for p in entry.phrases:
+        if not p:
+            continue
+        if qn == p:
+            return 1.0
+        if p in qn or qn in p:
+            best = max(best, 0.9)
+        r = SequenceMatcher(None, qn, p).ratio()
+        if r > best:
+            best = r
+    if qtok and entry.tokens:
+        overlap = len(qtok & entry.tokens) / len(qtok)
+        if overlap > best:
+            best = overlap
+    return best
+
+
+def resolve(text: str, role: str,
+            friend_allowed: Optional[FrozenSet[str]] = None) -> IRResult:
+    """Офлайн-резолв фразы → решение (route/clarify/uncertain/none). $0, чисто.
+
+    ``friend`` матчится только против ``friend_allowed`` (source-of-truth прав
+    из bot.py, инъекция — модуль не импортирует control-файл). Если для friend
+    список не передан, откат на menu-видимость (``entry.friend``).
+    """
+    qn = _normalize(text)
+    if not qn:
+        return IRResult("none")
+    qtok = _tokens(qn)
+
+    corpus = build_corpus()
+    if role == "friend":
+        if friend_allowed is not None:
+            entries = [e for e in corpus.values() if e.cmd in friend_allowed]
+        else:
+            entries = [e for e in corpus.values() if e.friend]
+    else:
+        entries = list(corpus.values())
+
+    scored = sorted(
+        ((e.cmd, _score(qn, qtok, e)) for e in entries),
+        key=lambda cs: (-cs[1], cs[0]),
+    )
+    if not scored:
+        return IRResult("none")
+
+    best = scored[0][1]
+    second = scored[1][1] if len(scored) > 1 else 0.0
+
+    if best >= ROUTE_FLOOR:
+        if best - second >= CLARIFY_GAP:
+            return IRResult("route", (Candidate(scored[0][0], best),))
+        near = [Candidate(c, s) for c, s in scored
+                if best - s < CLARIFY_GAP][:CLARIFY_MAX]
+        return IRResult("clarify", tuple(near))
+    if best >= UNCERTAIN_FLOOR:
+        cands = tuple(Candidate(c, s) for c, s in scored[:CLARIFY_MAX])
+        return IRResult("uncertain", cands)
+    return IRResult("none")
