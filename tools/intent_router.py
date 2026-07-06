@@ -61,6 +61,66 @@ class IRResult:
     reason: str = ""
 
 
+# ── Money source-of-truth (реестр цен в jarvis_menu.py ОТСУТСТВУЕТ) ─────────
+# Авто-exec РАЗРЕШЁН ТОЛЬКО для команд из FREE_AUTOEXEC (бесплатные,
+# безпараметровые, read-only). Всё прочее (в т.ч. PAID и hint-с-параметрами) →
+# confirm-кнопка. Инвариант money-safety: FREE_AUTOEXEC ∩ PAID == ∅ (зуб).
+FREE_AUTOEXEC: FrozenSet[str] = frozenset({
+    "/health", "/git_status", "/logs_tail",           # observation-console
+    "/costs", "/my_stats", "/status", "/stats",        # деньги/статус (read)
+    "/smart_health", "/debug_health", "/capabilities",
+    "/diag", "/selfcheck", "/memory_stats", "/night_status",
+    "/list_loras",                                      # список (read)
+    "/me_roles", "/me_places", "/me_styles",           # списки (read)
+    "/party_themes", "/dish_styles",                   # списки (read)
+    "/swapbatch_status",                               # статус батча (read)
+    "/agents", "/tasks",                               # статусы (read)
+})
+# /regress НЕ в FREE_AUTOEXEC: бесплатно, но тяжело (~5 мин) → confirm.
+
+PAID: FrozenSet[str] = frozenset({
+    # Me-режимы
+    "/me_swap_photo", "/me_swap_video", "/me_into", "/me_as",
+    "/me_in", "/me_with", "/me_style",
+    # Photo Studio
+    "/menu_photo", "/social_post", "/menu_book", "/pro_food", "/smart_photo",
+    "/party_promo", "/invite_card", "/event_photo", "/faceswap", "/enhance",
+    # Видео/анимация
+    "/videoref", "/animate", "/animate_batch", "/animate_batch_go",
+    "/swapbatch", "/swapbatch_go", "/swapbatch_animate_go",
+    # Персона
+    "/persona_photo", "/persona_video", "/persona_video_redo", "/persona_redo",
+    "/persona_batch", "/create_persona", "/train_lora",
+    # Агенты/бэкенды (платные вызовы)
+    "/research", "/brain", "/engineer", "/table", "/gen",
+    # Dev / браузер
+    "/dev_task", "/browse_check", "/browse_watch",
+})
+
+# Ориентировочная цена $ для подписи confirm-кнопки (де-факто прайс хендлеров).
+PRICE: Dict[str, float] = {
+    "/videoref": 0.37, "/menu_photo": 0.04, "/social_post": 0.05,
+    "/pro_food": 0.04, "/smart_photo": 0.04, "/party_promo": 0.05,
+    "/persona_video": 0.40, "/persona_photo": 0.10, "/faceswap": 0.005,
+    "/enhance": 0.01, "/dev_task": 0.90,
+}
+
+
+def auto_exec_ok(cmd: str) -> bool:
+    """Можно ли выполнить команду сразу без подтверждения (free + read-only)."""
+    return cmd in FREE_AUTOEXEC
+
+
+def is_paid(cmd: str) -> bool:
+    """Тратит ли команда деньги (для гейта/подписи)."""
+    return cmd in PAID
+
+
+def price_hint(cmd: str) -> Optional[float]:
+    """Ориентир $ для подписи (None → просто «платно»)."""
+    return PRICE.get(cmd)
+
+
 # Пороги (стартовые; калибруются вживую на реальных фразах).
 ROUTE_FLOOR = 0.72       # ниже — не уверенная команда
 CLARIFY_GAP = 0.15       # зазор топ-1 vs топ-2, чтобы не гадать
