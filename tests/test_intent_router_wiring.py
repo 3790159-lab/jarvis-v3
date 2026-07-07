@@ -68,9 +68,10 @@ def test_ir_route_paid_command_asks_confirm(monkeypatch):
     st = {}
     mod.run_intent("123", {"intent": "ir_route", "command": "/menu_photo", "arg": ""}, st)
     assert "h" not in sent                           # paid → NOT auto-executed
-    assert "ir:run" in str(sent.get("kb"))           # confirm keyboard
+    # unified money-gate (Task 6): confirm:-mechanism, not the old ir:run
+    assert "confirm:run" in str(sent.get("kb"))      # confirm keyboard
     assert "$" in sent.get("text", "")               # price shown
-    assert st.get("pending_ir", {}).get("cmd") == "/menu_photo"
+    assert st.get("pending_confirm", {}).get("cmd") == "/menu_photo"
 
 
 def test_ir_unknown_honest_fallback_no_research(monkeypatch):
@@ -166,7 +167,7 @@ def test_callback_ir_pick_paid_command_asks_confirm(monkeypatch):
     st = {"pending_ir": {"candidates": ["/menu_photo", "/pro_food"]}}
     mod.handle_callback_query(_cq("ir:pick:0"), st)
     assert "h" not in called                        # paid pick → NOT executed
-    assert "ir:run" in str(called.get("kb"))        # second confirm required
+    assert "confirm:run" in str(called.get("kb"))   # unified money-gate confirm
 
 
 def test_friend_free_text_routes_allowed_command(monkeypatch):

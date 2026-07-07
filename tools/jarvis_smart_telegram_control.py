@@ -3940,6 +3940,42 @@ def _ir_handle_friend_text(chat_id: str, text: str) -> None:
         send(chat_id, "🤷 Не понял. Что я умею — набери /menu.")
 
 
+def _money_gate(chat_id: str, cmd: str, resume: Dict[str, Any], state: Dict[str, Any]) -> bool:
+    """Текст-независимый money-гейт. True → выполнять сейчас; False → показан confirm.
+
+    Решение опирается ТОЛЬКО на PAID-реестр + одноразовый токен, который ставит
+    исключительно callback confirm-кнопки. Текст запроса не читается никогда —
+    ни фраза юзера, ни инструкция из недоверенного контента (web/файл) не могут
+    обойти confirm или снять его.
+    """
+    from tools import intent_router as _ir
+    # одноразовый: предыдущий confirm авторизовал ровно эту команду
+    if state.pop("_paid_confirmed", None) == cmd:
+        return True
+    if not _ir.is_paid(cmd):
+        return True
+    # платно + не подтверждено → сохранить resume, показать confirm, заблокировать
+    price = _ir.price_hint(cmd)
+    ptxt = f" (платно ~${price:.2f})" if price else " (платно)"
+    state["pending_confirm"] = {"cmd": cmd, "resume": resume}
+    save_state(state)
+    send_with_keyboard(
+        chat_id, f"Запустить {cmd}?{ptxt}",
+        [[{"text": f"▶️ Запустить {cmd}", "callback_data": "confirm:run"},
+          {"text": "Отмена", "callback_data": "confirm:cancel"}]],
+    )
+    return False
+
+
+def _gate_intent(chat_id: str, pack: Dict[str, Any], state: Dict[str, Any]) -> bool:
+    """Money-gate an NL intent by its canonical PAID command. True → proceed."""
+    from tools import intent_router as _ir
+    cmd = _ir.INTENT_CMD.get(pack.get("intent"))
+    if not cmd:
+        return True
+    return _money_gate(chat_id, cmd, {"kind": "intent", "pack": dict(pack)}, state)
+
+
 def run_intent(chat_id: str, pack: Dict[str, Any], state: Dict[str, Any]) -> None:
     import time as _time_ri
     _start = _time_ri.time()
@@ -3955,10 +3991,12 @@ def run_intent(chat_id: str, pack: Dict[str, Any], state: Dict[str, Any]) -> Non
     if intent == "ir_route":
         from tools import intent_router as _ir
         _cmd = pack.get("command", ""); _arg = pack.get("arg", "")
-        if not _arg and _ir.auto_exec_ok(_cmd):
-            handle(chat_id, _cmd)                      # free + read-only → сразу
-        else:
-            _ir_send_confirm(chat_id, _cmd, _arg, state)   # платно/параметр → кнопка
+        # Paid/parametric → single money-gate (no double-prompt with handle_command).
+        if _arg or not _ir.auto_exec_ok(_cmd):
+            _resume = {"kind": "cmd", "cmd": _cmd, "query": _arg}
+            if not _money_gate(chat_id, _cmd, _resume, state):
+                return
+        handle(chat_id, (_cmd + " " + _arg).strip())   # free → straight through
         return
     if intent == "ir_clarify":
         _ir_send_clarify(chat_id, pack.get("candidates", []), state)
@@ -4050,6 +4088,8 @@ def run_intent(chat_id: str, pack: Dict[str, Any], state: Dict[str, Any]) -> Non
         state["last_table_query"] = query
         save_state(state)
 
+        if not _gate_intent(chat_id, pack, state):   # PAID → confirm (post-clarification)
+            return
         msg_id = send_and_get_id(chat_id, "📊 Получаю запрос...")
         edit_message(chat_id, msg_id, "🔎 Ищу через Tavily и Perplexity...")
         data = backend_post("/api/jarvis/telegram-tools/internet-table", {
@@ -4121,6 +4161,8 @@ def run_intent(chat_id: str, pack: Dict[str, Any], state: Dict[str, Any]) -> Non
         return
 
     if intent == "research":
+        if not _gate_intent(chat_id, pack, state):
+            return
         q = apply_language(query, state)
         send(chat_id, "🔎 Ищу и анализирую...")
         data = backend_post("/api/jarvis/tools/internet/research", {"query": q}, timeout=240)
@@ -4139,6 +4181,8 @@ def run_intent(chat_id: str, pack: Dict[str, Any], state: Dict[str, Any]) -> Non
         return
 
     if intent == "brain":
+        if not _gate_intent(chat_id, pack, state):
+            return
         q = apply_language(query, state)
         send(chat_id, "🧠 Думаю и проверяю актуальную информацию...")
         data = backend_post("/api/jarvis/brain/plan", {
@@ -4167,6 +4211,8 @@ def run_intent(chat_id: str, pack: Dict[str, Any], state: Dict[str, Any]) -> Non
         return
 
     if intent == "engineer":
+        if not _gate_intent(chat_id, pack, state):
+            return
         q = apply_language(query, state)
         send(chat_id, "🛠 Запускаю AI Engineer: анализ, риски, архитектура, план...")
         data = backend_post("/api/jarvis/ai-engineer/review", {
@@ -4196,6 +4242,8 @@ def run_intent(chat_id: str, pack: Dict[str, Any], state: Dict[str, Any]) -> Non
         return
 
     if intent == "generate":
+        if not _gate_intent(chat_id, pack, state):
+            return
         prompt = re.sub(
             r"^(сгенерируй|создай\s+картинк[уи]|создай\s+фото|изображение|нарисуй|/gen)\s*:?",
             "", query, flags=re.I
@@ -4417,6 +4465,33 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
             answer_callback_query(cq_id, "🚫 Только для администратора")
             return
 
+    # ── Money-confirm (confirm:run | confirm:cancel) ─────────────────────────
+    # confirm:run порождается ТОЛЬКО _money_gate → уже авторизовано. Re-dispatch
+    # сохранённого resume с одноразовым токеном _paid_confirmed, чтобы гейт
+    # прошёл ровно один раз. Платную команду НИКОГДА не exec без этого тапа.
+    if data == "confirm:cancel":
+        state["pending_confirm"] = None
+        save_state(state)
+        answer_callback_query(cq_id, "Отменено")
+        return
+    if data == "confirm:run":
+        pend = state.get("pending_confirm") or {}
+        cmd = pend.get("cmd", "")
+        resume = pend.get("resume") or {}
+        role = _menu_role(_cq_uid)
+        if role != "admin" and cmd not in FRIEND_ALLOWED_COMMANDS:
+            answer_callback_query(cq_id, "🚫 Только для администратора")
+            return
+        state["pending_confirm"] = None
+        state["_paid_confirmed"] = cmd          # одноразовый: гейт его consume-нет
+        save_state(state)
+        answer_callback_query(cq_id, "▶️")
+        if resume.get("kind") == "intent":
+            run_intent(chat_id, resume.get("pack") or {}, state)
+        else:  # kind == "cmd"
+            handle_command(chat_id, resume.get("cmd", ""), resume.get("query", ""), state)
+        return
+
     # ── Intent-router confirm (ir:run | ir:pick:<idx> | ir:cancel) ───────────
     # ir:run порождается только confirm-кнопкой _ir_send_confirm → уже
     # подтверждено, исполняем. ir:pick — выбор из clarify: free → сразу, платно/
@@ -4452,19 +4527,21 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
             return
         if action == "run":
             state["pending_ir"] = None
+            state["_paid_confirmed"] = cmd     # defensive: авторизовано → без двойного гейта
             save_state(state)
             answer_callback_query(cq_id, "▶️")
             handle(chat_id, (cmd + " " + arg).strip())
             return
         # action == "pick"
+        state["pending_ir"] = None
         if not arg and _ir.auto_exec_ok(cmd):
-            state["pending_ir"] = None
             save_state(state)
             answer_callback_query(cq_id, "▶️")
             handle(chat_id, cmd)
         else:
             answer_callback_query(cq_id)
-            _ir_send_confirm(chat_id, cmd, arg, state)   # платно/параметр → confirm
+            # платно/параметр → единый money-гейт (тот же confirm:-механизм)
+            _money_gate(chat_id, cmd, {"kind": "cmd", "cmd": cmd, "query": arg}, state)
         return
 
     # ── Unified menu navigation (menu:root | menu:cat:<id> | menu:x:<cmd>) ────
@@ -6526,6 +6603,14 @@ def _regress_run(chat_id: str) -> None:
 
 
 def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) -> None:
+    # ── Money invariant: any PAID slash command must confirm first ───────────
+    # Single chokepoint keyed on the PAID registry (text-independent). Free
+    # commands (is_paid=False) pass straight through regardless of position.
+    from tools import intent_router as _ir_hc
+    if _ir_hc.is_paid(cmd):
+        if not _money_gate(chat_id, cmd, {"kind": "cmd", "cmd": cmd, "query": query}, state):
+            return
+
     if cmd == "/start":
         from tools import jarvis_menu as jmenu
         _text, _kb = jmenu.render_root(_menu_role(chat_id))
@@ -7844,7 +7929,7 @@ FRIEND_ALLOWED_COMMANDS: frozenset = frozenset({
 # уже member-gated в process_update — отдельная команда не нужна.
 
 # Префиксы callback_data, разрешённые friend (генеративные кнопки). Остальное — admin.
-FRIEND_ALLOWED_CALLBACK_PREFIXES = ("sbeng:", "sbq:", "sbsmooth:", "sbward:", "anim:", "aq:", "asmooth:", "sbgen:", "vref:", "menu:", "ir:")
+FRIEND_ALLOWED_CALLBACK_PREFIXES = ("sbeng:", "sbq:", "sbsmooth:", "sbward:", "anim:", "aq:", "asmooth:", "sbgen:", "vref:", "menu:", "ir:", "confirm:")
 
 
 def _role_for_chat(chat_id) -> Optional[str]:
