@@ -237,7 +237,10 @@ class TestImageGenUXFix:
         with patch.object(mod, "send_and_get_id", fake_send_and_get_id), \
              patch.object(mod, "edit_message", fake_edit_message), \
              patch.object(mod, "backend_post", fake_backend_post):
-            mod.run_intent(111, {"intent": "generate", "query": "нарисуй кота"}, {})
+            # /gen is PAID → money-gated; token simulates post-confirm so the
+            # execution/UX path under test runs (gating itself is covered by
+            # test_money_confirm_gate::test_generate_intent_shows_confirm_not_exec).
+            mod.run_intent(111, {"intent": "generate", "query": "нарисуй кота"}, {"_paid_confirmed": "/gen"})
 
         send_calls = [c for c in calls if c[0] == "send_and_get_id"]
         edit_calls = [c for c in calls if c[0] == "edit_message"]
@@ -252,7 +255,10 @@ class TestImageGenUXFix:
         with patch.object(mod, "send_and_get_id", lambda cid, t: sent.append(t) or 1), \
              patch.object(mod, "edit_message", lambda *a: None), \
              patch.object(mod, "backend_post", lambda *a, **kw: {"job_id": "j1", "status": "queued"}):
-            mod.run_intent(111, {"intent": "generate", "query": "нарисуй кота"}, {})
+            # /gen is PAID → money-gated; token simulates post-confirm so the
+            # execution/UX path under test runs (gating itself is covered by
+            # test_money_confirm_gate::test_generate_intent_shows_confirm_not_exec).
+            mod.run_intent(111, {"intent": "generate", "query": "нарисуй кота"}, {"_paid_confirmed": "/gen"})
 
         assert sent, "Loading message should be sent"
         assert "🎨" in sent[0]
@@ -268,7 +274,10 @@ class TestImageGenUXFix:
              patch.object(mod, "backend_post", lambda *a, **kw: {
                  "urls": ["https://img.com/1.jpg"], "provider": "replicate", "status": "ok"
              }):
-            mod.run_intent(111, {"intent": "generate", "query": "нарисуй кота"}, {})
+            # /gen is PAID → money-gated; token simulates post-confirm so the
+            # execution/UX path under test runs (gating itself is covered by
+            # test_money_confirm_gate::test_generate_intent_shows_confirm_not_exec).
+            mod.run_intent(111, {"intent": "generate", "query": "нарисуй кота"}, {"_paid_confirmed": "/gen"})
 
         assert edits, "edit_message should be called"
         assert "✅" in edits[0]
@@ -281,7 +290,10 @@ class TestImageGenUXFix:
         with patch.object(mod, "send_and_get_id", lambda cid, t: sends.append(t) or 77), \
              patch.object(mod, "edit_message", lambda cid, mid, t: edits.append(t)), \
              patch.object(mod, "backend_post", lambda *a, **kw: {"_error": "timeout"}):
-            mod.run_intent(111, {"intent": "generate", "query": "нарисуй кота"}, {})
+            # /gen is PAID → money-gated; token simulates post-confirm so the
+            # execution/UX path under test runs (gating itself is covered by
+            # test_money_confirm_gate::test_generate_intent_shows_confirm_not_exec).
+            mod.run_intent(111, {"intent": "generate", "query": "нарисуй кота"}, {"_paid_confirmed": "/gen"})
 
         assert len(sends) == 1, "Only loading message via send_and_get_id"
         assert edits, "Error shown via edit_message"
@@ -299,6 +311,9 @@ class TestImageGenUXFix:
         with patch.object(mod, "send_and_get_id", fake_sagi), \
              patch.object(mod, "edit_message", lambda *a: None), \
              patch.object(mod, "backend_post", lambda *a, **kw: {"job_id": "j", "status": "ok"}):
-            mod.run_intent(111, {"intent": "generate", "query": "нарисуй кота"}, {})
+            # /gen is PAID → money-gated; token simulates post-confirm so the
+            # execution/UX path under test runs (gating itself is covered by
+            # test_money_confirm_gate::test_generate_intent_shows_confirm_not_exec).
+            mod.run_intent(111, {"intent": "generate", "query": "нарисуй кота"}, {"_paid_confirmed": "/gen"})
 
         assert count[0] == 1, f"Expected 1 send_and_get_id call, got {count[0]}"

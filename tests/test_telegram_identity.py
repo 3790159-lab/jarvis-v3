@@ -345,7 +345,9 @@ def test_table_intent_sends_error_message_on_backend_error(monkeypatch):
                         {"ok": False, "_error": "[WinError 10061] Connection refused"})
     monkeypatch.setattr(mod, "save_state", lambda s: None)
 
-    mod.run_intent("123", {"intent": "table", "query": "AI сервисы"}, _make_state())
+    # /table is PAID → money-gated; token simulates post-confirm so the
+    # execution path under test runs (gating covered in test_money_confirm_gate).
+    mod.run_intent("123", {"intent": "table", "query": "AI сервисы"}, {**_make_state(), "_paid_confirmed": "/table"})
 
     assert len(sent) >= 1, f"Expected at least 1 error message, got {len(sent)}: {sent}"
     assert any("❌" in m for m in sent), f"Must contain ❌ error message, got: {sent}"
@@ -368,7 +370,9 @@ def test_table_intent_sends_success_message_on_ok_response(monkeypatch):
                         })
     monkeypatch.setattr(mod, "save_state", lambda s: None)
 
-    mod.run_intent("123", {"intent": "table", "query": "AI сервисы"}, _make_state())
+    # /table is PAID → money-gated; token simulates post-confirm so the
+    # execution path under test runs (gating covered in test_money_confirm_gate).
+    mod.run_intent("123", {"intent": "table", "query": "AI сервисы"}, {**_make_state(), "_paid_confirmed": "/table"})
 
     assert any("✅" in m for m in sent), f"Expected ✅ in messages, got: {sent}"
     assert not any("❌" in m for m in sent), f"Got unexpected ❌: {sent}"
@@ -385,7 +389,8 @@ def test_research_intent_sends_error_on_backend_error(monkeypatch):
                         {"ok": False, "_error": "URLError: timeout"})
     monkeypatch.setattr(mod, "save_state", lambda s: None)
 
-    mod.run_intent("123", {"intent": "research", "query": "топ AI сервисы"}, _make_state())
+    # /research is PAID → money-gated; token simulates post-confirm.
+    mod.run_intent("123", {"intent": "research", "query": "топ AI сервисы"}, {**_make_state(), "_paid_confirmed": "/research"})
 
     assert any("❌" in m for m in sent), f"Expected error message, got: {sent}"
     assert any("Не смог получить результат" in m for m in sent)

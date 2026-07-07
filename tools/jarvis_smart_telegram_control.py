@@ -1888,7 +1888,12 @@ def _videoref_intercept(chat_id: str, msg: Dict[str, Any]) -> bool:
     download failure) so a later video is never hijacked. Limits are validated
     on Telegram metadata BEFORE any download. Free: no vision / paid calls.
     """
-    chat_id_int = int(chat_id)
+    try:
+        chat_id_int = int(chat_id)
+    except (TypeError, ValueError):
+        # Empty / non-numeric chat_id (e.g. malformed or empty update) can never
+        # be armed → nothing to intercept, fall through without crashing.
+        return False
     if chat_id_int not in _VIDEOREF_AWAITING:
         return False
     video = msg.get("video")
@@ -6655,12 +6660,30 @@ def _regress_run(chat_id: str) -> None:
         _REGRESS_RUNNING = False
 
 
+# ── Self-gating PAID commands: exempt from the blanket handle_command gate ──
+# These paid slash commands do NOT spend at their handle_command entry — each
+# either shows its OWN confirm (with richer context) or dispatches to a further
+# interactive flow (engine menu / upload-await) whose paid step is gated by its
+# own downstream confirm. Blanket-gating them here double-prompts and pre-empts
+# their own flow (e.g. /dev_task's task-preview confirm, /animate_batch's engine
+# menu). Immediate-spend paid commands (/pro_food, /gen, /faceswap, …) are NOT
+# listed → they still hit the chokepoint. Money invariant holds: every paid path
+# confirms exactly once, here or downstream.
+_SELF_GATING_PAID: frozenset = frozenset({
+    "/animate_batch", "/animate_batch_go",   # → _swapbatch_dispatch → engine menu
+    "/dev_task",                             # → own task-preview confirm + buttons
+    "/videoref",                             # → arms upload-await; paid step later
+})
+
+
 def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) -> None:
     # ── Money invariant: any PAID slash command must confirm first ───────────
     # Single chokepoint keyed on the PAID registry (text-independent). Free
     # commands (is_paid=False) pass straight through regardless of position.
+    # Self-gating paid commands (own confirm / interactive dispatch) are exempt
+    # so their own flow runs — they gate their paid step downstream.
     from tools import intent_router as _ir_hc
-    if _ir_hc.is_paid(cmd):
+    if _ir_hc.is_paid(cmd) and cmd not in _SELF_GATING_PAID:
         if not _money_gate(chat_id, cmd, {"kind": "cmd", "cmd": cmd, "query": query}, state):
             return
 

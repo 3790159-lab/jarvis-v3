@@ -170,6 +170,8 @@ class TestRunIntentDecisionLogging:
                         "tools.jarvis_smart_telegram_control.send_with_feedback",
                         side_effect=lambda cid, txt, did, **kw: swf_calls.append(did),
                     ):
+                        # /research is PAID → money-gated; token = post-confirm.
+                        state["_paid_confirmed"] = "/research"
                         ctrl.run_intent("123", {"intent": "research", "query": "test"}, state)
         assert len(swf_calls) == 1
 
