@@ -124,3 +124,30 @@ def test_admin_sees_admin_only_command():
     res = ir.resolve("статус гита", "admin")
     assert res.decision == "route"
     assert res.candidates[0].cmd == "/git_status"
+
+
+# ── Money source-of-truth: intent→cmd map + intent_is_paid ──────────────────
+def test_intent_cmd_map_covers_paid_nl_intents():
+    assert ir.INTENT_CMD["generate"] == "/gen"
+    assert ir.INTENT_CMD["research"] == "/research"
+    assert ir.INTENT_CMD["brain"] == "/brain"
+    assert ir.INTENT_CMD["table"] == "/table"
+    assert ir.INTENT_CMD["engineer"] == "/engineer"
+
+
+def test_intent_is_paid_matches_registry():
+    assert ir.intent_is_paid("generate") is True       # /gen in PAID
+    assert ir.intent_is_paid("research") is True
+    assert ir.intent_is_paid("simple_question") is False  # not in map → free
+    assert ir.intent_is_paid("chat") is False
+
+
+def test_free_and_paid_disjoint_still_holds():
+    # money invariant unchanged by this task (regression guard)
+    assert ir.FREE_AUTOEXEC & ir.PAID == frozenset()
+
+
+def test_every_mapped_intent_cmd_is_a_real_paid_command():
+    # tooth: INTENT_CMD must never point at a non-PAID or non-existent command
+    for intent, cmd in ir.INTENT_CMD.items():
+        assert cmd in ir.PAID, f"{intent}->{cmd} not in PAID"

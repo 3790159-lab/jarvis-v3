@@ -116,6 +116,23 @@ def is_paid(cmd: str) -> bool:
     return cmd in PAID
 
 
+# NL-интенты classify_message → каноническая команда реестра (money source-of-truth).
+# Перечислены ТОЛЬКО тратящие деньги интенты; всё отсутствующее считается бесплатным.
+INTENT_CMD: Dict[str, str] = {
+    "generate": "/gen",
+    "research": "/research",
+    "brain": "/brain",
+    "table": "/table",
+    "engineer": "/engineer",
+}
+
+
+def intent_is_paid(intent: str) -> bool:
+    """True, если NL-интент резолвится в PAID-команду реестра (текст-независимо)."""
+    cmd = INTENT_CMD.get(intent)
+    return bool(cmd) and is_paid(cmd)
+
+
 def price_hint(cmd: str) -> Optional[float]:
     """Ориентир $ для подписи (None → просто «платно»)."""
     return PRICE.get(cmd)
