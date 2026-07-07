@@ -3565,7 +3565,8 @@ def classify_message(text: str, state: Dict[str, Any]) -> Dict[str, Any]:
             return {"intent": "ir_clarify",
                     "candidates": [c.cmd for c in _res.candidates], "query": raw}
         if _res.decision == "uncertain":
-            return {"intent": "ir_uncertain", "query": raw}
+            return {"intent": "ir_uncertain", "query": raw,
+                    "candidates": [c.cmd for c in _res.candidates]}
         return {"intent": "ir_unknown", "query": raw}
     except Exception:
         # роутер не должен ронять классификацию — безопасный откат
@@ -3976,6 +3977,58 @@ def _gate_intent(chat_id: str, pack: Dict[str, Any], state: Dict[str, Any]) -> b
     return _money_gate(chat_id, cmd, {"kind": "intent", "pack": dict(pack)}, state)
 
 
+def _ir2_ask_haiku(system: str, messages: list) -> str:
+    """IR-2: один дешёвый Haiku-вызов «фраза → команда». Возвращает текст ответа.
+
+    Изолирован ради money-safety: тесты мокают ИМЕННО эту функцию (ноль реальных
+    API). Пустая строка (нет ключа/сбой) → falsy → guard_spend НЕ спишет.
+    """
+    from tools import intent_router as _ir
+    from app.services.unified.llm_router.llm_client import build_anthropic_client
+    client = build_anthropic_client()
+    if client is None:
+        return ""
+    resp = client.messages.create(
+        model=_ir.IR2_MODEL, max_tokens=16, system=system, messages=messages,
+    )
+    for b in (getattr(resp, "content", None) or []):
+        if getattr(b, "type", None) == "text":
+            return (getattr(b, "text", "") or "").strip()
+    return ""
+
+
+def _ir2_route(chat_id: str, text: str, candidates, state: Dict[str, Any]) -> None:
+    """IR-2 каскад: uncertain-фраза → Haiku-классификатор (под guard_spend) → команда.
+
+    Money-safety (item 4): весь Haiku-вызов обёрнут в ``guard_spend`` — при
+    превышении лимита do_spend НЕ вызывается, тратится $0, честный фолбэк.
+    Безопасность (item 3): результат Haiku недоверенный — прогоняется через ТОТ ЖЕ
+    ``_money_gate`` (платно → confirm) и ограничен shortlist'ом; никакая инструкция
+    в тексте не может авто-исполнить платную команду или снять confirm.
+    """
+    from tools import intent_router as _ir
+    cands = [c for c in (candidates or []) if c]
+    if not cands:
+        _ir_unknown(chat_id)
+        return
+    system, messages = _ir.build_ir2_messages(text, cands)
+    reply, err = guard_spend(
+        chat_id, None, _ir.IR2_EST_USD, lambda: _ir2_ask_haiku(system, messages),
+    )
+    if err:                                   # лимит → $0 потрачено, честный фолбэк
+        _ir_unknown(chat_id)
+        return
+    cmd = _ir.parse_ir2_reply(reply or "", set(cands))
+    if not cmd:                               # Haiku не выбрал / вне shortlist
+        _ir_unknown(chat_id)
+        return
+    resume = {"kind": "cmd", "cmd": cmd, "query": ""}
+    if not _ir.auto_exec_ok(cmd):             # платно/тяжело → единый money-гейт
+        if not _money_gate(chat_id, cmd, resume, state):
+            return                            # показан confirm
+    handle(chat_id, cmd)                      # free/read-only → сразу
+
+
 def run_intent(chat_id: str, pack: Dict[str, Any], state: Dict[str, Any]) -> None:
     import time as _time_ri
     _start = _time_ri.time()
@@ -4002,8 +4055,8 @@ def run_intent(chat_id: str, pack: Dict[str, Any], state: Dict[str, Any]) -> Non
         _ir_send_clarify(chat_id, pack.get("candidates", []), state)
         return
     if intent == "ir_uncertain":
-        # IR-2 (Haiku, admin) — отдельная фаза; пока честный фолбэк (безопасно).
-        _ir_unknown(chat_id)
+        # IR-2: Haiku-фолбэк под guard_spend (money-safe), результат — через money-gate.
+        _ir2_route(chat_id, query, pack.get("candidates", []), state)
         return
     if intent == "ir_unknown":
         _ir_unknown(chat_id)

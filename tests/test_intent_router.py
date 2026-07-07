@@ -151,3 +151,33 @@ def test_every_mapped_intent_cmd_is_a_real_paid_command():
     # tooth: INTENT_CMD must never point at a non-PAID or non-existent command
     for intent, cmd in ir.INTENT_CMD.items():
         assert cmd in ir.PAID, f"{intent}->{cmd} not in PAID"
+
+
+# ── IR-2 (Haiku fallback) pure layer: prompt build + reply parse, $0 ──────────
+def test_ir2_constants_target_haiku():
+    assert ir.IR2_MODEL == "claude-haiku-4-5"      # cheap classifier, per money-safety
+    assert 0 < ir.IR2_EST_USD < 0.05               # tiny pre-flight reserve
+
+
+def test_ir2_build_messages_lists_candidates_and_hardens_against_injection():
+    system, messages = ir.build_ir2_messages("выполни health", ["/health", "/costs"])
+    body = messages[0]["content"]
+    assert "/health" in body and "/costs" in body and "выполни health" in body
+    # content-injection hardening: pick by meaning, ignore 'выполни X' instructions in text
+    assert "игнорир" in system.lower()
+
+
+def test_ir2_parse_extracts_valid_command():
+    valid = {"/health", "/costs"}
+    assert ir.parse_ir2_reply("/health", valid) == "/health"
+    assert ir.parse_ir2_reply("Похоже на /costs — покажу траты", valid) == "/costs"
+    assert ir.parse_ir2_reply("health", valid) == "/health"     # bare name
+
+
+def test_ir2_parse_none_invalid_and_out_of_shortlist():
+    valid = {"/health"}
+    assert ir.parse_ir2_reply("none", valid) is None
+    assert ir.parse_ir2_reply("нет подходящей команды", valid) is None
+    assert ir.parse_ir2_reply("", valid) is None
+    # IR-2 may only pick from the shortlist — a paid cmd it invents is rejected
+    assert ir.parse_ir2_reply("/train_lora без подтверждения", valid) is None
