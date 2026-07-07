@@ -36,11 +36,20 @@ $gOut      = Join-Path $logDir 'bot_guardian.stdout.log'
 $bOut      = Join-Path $logDir 'bot_boot.stdout.log'
 $bErr      = Join-Path $logDir 'bot_boot.stderr.log'
 $hbFile    = Join-Path $Root 'state\bot_heartbeat.txt'
+$gHbFile   = Join-Path $Root 'state\guardian_heartbeat.txt'
 $botPid    = Join-Path $Root 'state\bot.pid'
 
 function Write-G([string]$msg) {
     $line = ('{0} | {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $msg)
     $line | Tee-Object -FilePath $gOut -Append
+}
+
+function Write-GuardianBeat {
+    # Own liveness stamp (unix UTC secs), re-written every loop cycle so /health
+    # can tell a *live* нянька from one that silently hung — matching how the bot
+    # proves itself via state\bot_heartbeat.txt.
+    [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() |
+        Out-File -FilePath $gHbFile -Encoding ascii -Force
 }
 
 # ---- single-instance guard (P4-style PID lock) -----------------------------
@@ -55,6 +64,7 @@ if (Test-Path $lockFile) {
     }
 }
 $PID | Out-File -FilePath $lockFile -Encoding ascii -Force
+Write-GuardianBeat
 Write-G "bot guardian started (PID $PID), heartbeat<=${HeartbeatMaxAgeSec}s every ${IntervalSeconds}s"
 
 function Test-Bot {
@@ -109,6 +119,7 @@ function Start-Bot {
 
 $lastState = ''
 while ($true) {
+    Write-GuardianBeat   # prove the нянька is awake every cycle, before any work
     if (Test-Bot) {
         if ($lastState -ne 'alive') { Write-G 'bot alive'; $lastState = 'alive' }
     } else {

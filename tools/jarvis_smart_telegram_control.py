@@ -41,6 +41,7 @@ BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 ALLOWED_CHAT_ID = str(os.getenv("TELEGRAM_ALLOWED_CHAT_ID", "")).strip()
 
 _HEARTBEAT_FILE = Path("state/bot_heartbeat.txt")
+_GUARDIAN_HEARTBEAT_FILE = Path("state/guardian_heartbeat.txt")
 _PID_FILE = Path("state/bot.pid")
 
 
@@ -6447,6 +6448,13 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
             last = int(_HEARTBEAT_FILE.read_text(encoding="utf-8").strip())
             return int(time.time() - last)
 
+        def _guardian_reader():
+            # The нянька (JarvisBotGuardian) re-stamps this every loop cycle; a
+            # stale/missing file means the watchdog itself is asleep — the very
+            # silent failure that once let the bot lie down unnoticed.
+            last = int(_GUARDIAN_HEARTBEAT_FILE.read_text(encoding="utf-8").strip())
+            return int(time.time() - last)
+
         def _backend_reader():
             resp = urllib.request.urlopen(f"{BACKEND}/health", timeout=5)
             return {"ok": resp.status == 200, "code": resp.status}
@@ -6461,6 +6469,7 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
 
         readers = {
             "bot": _bot_reader, "heartbeat_age": _hb_reader,
+            "guardian_age": _guardian_reader,
             "backend": _backend_reader, "tunnel_age": _tunnel_reader,
             "disk": _disk_reader,
         }

@@ -98,3 +98,49 @@ def test_health_snapshot_bot_line_backward_compatible_without_start_time():
     readers = {"bot": lambda: {"pid": 6428, "alive": True}}
     txt = o.health_snapshot(readers)
     assert "6428" in txt and "старт" not in txt
+
+
+def test_health_snapshot_shows_guardian_active():
+    # Fresh guardian heartbeat -> гардиан активен. Catches a *hung* guardian the
+    # scheduled-task "Running" state cannot (the incident: task Running yet asleep).
+    readers = {"guardian_age": lambda: 15}
+    txt = o.health_snapshot(readers)
+    assert "гардиан" in txt and "активен" in txt and "✅" in txt
+
+
+def test_health_snapshot_flags_asleep_guardian_with_warning():
+    # The mini-tooth the incident demands: a sleeping/dead нянька must surface a
+    # ⚠️ warning line, never a silent ✅. Mutating the threshold comparison or the
+    # marker flips this red.
+    readers = {"guardian_age": lambda: o.GUARDIAN_STALE_S + 500}
+    txt = o.health_snapshot(readers)
+    assert "гардиан" in txt and "спит" in txt and "⚠️" in txt
+
+
+def test_health_snapshot_guardian_boundary_at_threshold():
+    # exactly at threshold still counts as active; one past it is asleep (⚠️).
+    assert "активен" in o.health_snapshot({"guardian_age": lambda: o.GUARDIAN_STALE_S})
+    asleep = o.health_snapshot({"guardian_age": lambda: o.GUARDIAN_STALE_S + 1})
+    assert "спит" in asleep and "⚠️" in asleep
+
+
+def test_health_snapshot_guardian_unknown_when_unreadable():
+    def boom():
+        raise FileNotFoundError
+
+    txt = o.health_snapshot({"guardian_age": boom})
+    assert "гардиан" in txt and "❓" in txt
+
+
+def test_health_snapshot_all_sections_still_render_without_guardian():
+    # Backward compat: callers that omit guardian_age still get a clean report
+    # (guardian line degrades to ❓, never crashes the snapshot).
+    readers = {
+        "bot": lambda: {"pid": 17048, "alive": True},
+        "heartbeat_age": lambda: 12,
+        "backend": lambda: {"ok": True, "code": 200},
+        "tunnel_age": lambda: 40,
+        "disk": lambda: {"free_gb": 12.9, "total_gb": 119.1},
+    }
+    txt = o.health_snapshot(readers)
+    assert "17048" in txt and "гардиан" in txt

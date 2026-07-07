@@ -16,6 +16,7 @@ ROOT = Path.cwd()
 LOG_PATH = ROOT / "logs" / "jarvis_bot.log"
 PID_PATH = ROOT / "state" / "bot.pid"
 HEARTBEAT_PATH = ROOT / "state" / "bot_heartbeat.txt"
+GUARDIAN_HEARTBEAT_PATH = ROOT / "state" / "guardian_heartbeat.txt"
 CLOUDFLARED_LOG = ROOT / "logs" / "cloudflared.log"
 BASELINE_PATH = ROOT / "state" / "regress_baseline.json"
 
@@ -25,6 +26,10 @@ _GIT_READONLY_VERBS = {"status", "rev-parse", "log", "describe"}
 # --- health thresholds -------------------------------------------------------
 HEARTBEAT_STALE_S = 90
 TUNNEL_STALE_S = 300
+# The guardian re-writes its heartbeat every loop cycle (~30s). Older than this
+# and the гардиан is asleep/hung/dead — the exact silent failure that once let
+# the bot lie down unnoticed (scheduled-task state still read "Running").
+GUARDIAN_STALE_S = 90
 
 # --- log noise filter --------------------------------------------------------
 _NOISE_LOGGER = "_base_client"
@@ -116,6 +121,14 @@ def health_snapshot(readers: dict) -> str:
         lines.append(f"💓 heartbeat: {int(hb)}с назад {mark}")
     else:
         lines.append("💓 heartbeat: ❓")
+
+    grd = _safe("guardian_age", None)
+    if isinstance(grd, (int, float)):
+        awake = grd <= GUARDIAN_STALE_S
+        word, mark = ("активен", "✅") if awake else ("спит", "⚠️")
+        lines.append(f"🛡️ гардиан: {word} ({int(grd)}с назад) {mark}")
+    else:
+        lines.append("🛡️ гардиан: ❓")
 
     be = _safe("backend", None)
     if isinstance(be, dict):
