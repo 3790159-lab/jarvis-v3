@@ -1,1 +1,0 @@
-Telegram task received: Создай файл artifacts/output/telegram_test.txt и запиши туда: Jarvis Telegram test successful.

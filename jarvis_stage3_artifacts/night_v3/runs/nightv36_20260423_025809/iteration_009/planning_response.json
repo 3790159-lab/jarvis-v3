@@ -1,8 +1,0 @@
-{
-    "reply":  "Message received: Find weak spots in the system and fix low-risk issues. Prefer real project changes.\n\nSupervisor fallback mode is active.",
-    "mode":  "smart_local",
-    "source":  "local_fallback",
-    "confidence":  0.78,
-    "route":  "chat",
-    "mission":  null
-}

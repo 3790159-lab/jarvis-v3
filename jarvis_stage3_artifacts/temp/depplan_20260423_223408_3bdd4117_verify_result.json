@@ -1,7 +1,0 @@
-{
-  "plan_id": "depplan_20260423_223408_3bdd4117",
-  "goal": "Improve dependency-aware validation bundle",
-  "task": "Create a bounded dependency-aware patch with generated module, verify script, and smoke script",
-  "status": "ok",
-  "created_at": "2026-04-23T22:34:10+00:00"
-}

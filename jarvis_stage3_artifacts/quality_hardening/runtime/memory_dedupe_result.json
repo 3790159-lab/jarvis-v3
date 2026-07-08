@@ -1,9 +1,0 @@
-{
-  "status": "ok",
-  "dry_run": false,
-  "events_before": 37,
-  "unique_events": 37,
-  "duplicates": 0,
-  "removed": 0,
-  "archive_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\memory_learning\\events_deduped_archive"
-}

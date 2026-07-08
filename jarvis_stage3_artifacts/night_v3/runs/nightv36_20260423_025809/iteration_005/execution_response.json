@@ -1,8 +1,0 @@
-{
-    "reply":  "Message received: Task context: Improve observability, logs, and health-check system. Prefer real project changes.\n\nBased on the previous plan:\n1) perform only low-risk or additive improvements;\n2) prefer real project changes over response-only analysis;\n3) if a change is medium-risk, convert it into a safe plan/package mode;\n4) list what was actually done: files, modules, services, restarts, checks;\n5) end with a short action-summary.\n\nSupervisor fallback mode is active.",
-    "mode":  "smart_local",
-    "source":  "local_fallback",
-    "confidence":  0.78,
-    "route":  "chat",
-    "mission":  null
-}

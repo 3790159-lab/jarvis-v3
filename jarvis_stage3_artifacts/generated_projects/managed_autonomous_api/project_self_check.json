@@ -1,8 +1,0 @@
-﻿{
-    "tests_ok":  true,
-    "validator_ok":  true,
-    "manifest_exists":  true,
-    "runtime_policy_exists":  true,
-    "file_hash_snapshot_exists":  true,
-    "control_script_exists":  true
-}

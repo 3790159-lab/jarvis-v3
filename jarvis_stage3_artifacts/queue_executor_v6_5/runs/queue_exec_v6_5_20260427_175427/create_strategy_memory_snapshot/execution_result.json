@@ -1,7 +1,0 @@
-{
-  "task": "create_strategy_memory_snapshot",
-  "ok": true,
-  "snapshot_json": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\queue_executor_v6_5\\runs\\queue_exec_v6_5_20260427_175427\\create_strategy_memory_snapshot\\strategy_memory_snapshot.json",
-  "snapshot_md": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\queue_executor_v6_5\\runs\\queue_exec_v6_5_20260427_175427\\create_strategy_memory_snapshot\\strategy_memory_snapshot.md",
-  "memory_copy": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\artifacts\\memory\\summaries\\strategy_snapshot_20260427_175427.md"
-}

@@ -1,8 +1,0 @@
-{
-    "mode":  "smart_local",
-    "source":  "local_fallback",
-    "reply":  "Message received: Macro goal: Create and strengthen useful autonomous agents\n\nFocused task: Prepare safe additive improvements for modules. Make real code-backed changes in .py or .ps1 files.\n\nExecute a compact package:\n1) prefer real code/project changes;\n2) if no safe code change exists, stop at the smallest useful state change;\n3) avoid touching knowledge_graph.json repeatedly unless necessary;\n4) list exactly what changed.\n\nSupervisor fallback mode is active.",
-    "confidence":  "0.78",
-    "mission":  null,
-    "route":  "chat"
-}

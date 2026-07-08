@@ -63,3 +63,16 @@ scratchpad/
 state/browser_profile/
 state/browser_sessions/
 state/browser_playbooks/
+
+# --- Cleanup 2026-07-09: untrack runtime artifacts & close .env-backup leak ---
+
+# Whole runtime-artifact tree is bot output, never source (supersedes narrower rules above)
+jarvis_stage3_artifacts/
+
+# .env backups missed by existing patterns (contain real tokens — keep on disk, never commit)
+.env.backup
+.env.bak_*
+
+# Misc local backups / runtime data dirs
+requirements_backup_*
+data/block_m2_face_swap/

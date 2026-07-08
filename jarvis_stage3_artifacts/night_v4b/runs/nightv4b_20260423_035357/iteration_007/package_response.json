@@ -1,8 +1,0 @@
-{
-    "mode":  "smart_local",
-    "source":  "local_fallback",
-    "reply":  "Message received: Goal: Prepare safer automation and sandbox workflows\n\nYou have specialist notes from architecture/code/validation/observability roles.\n\nBuild one integrated execution package:\n1) combine the best parts into 2-4 coordinated low-risk steps;\n2) prioritize project/code changes over state-only work;\n3) describe dependencies between steps;\n4) mention validation gates and rollback conditions;\n5) keep the package compact but high impact.\n\nSupervisor fallback mode is active.",
-    "confidence":  "0.78",
-    "mission":  null,
-    "route":  "chat"
-}

@@ -1,9 +1,0 @@
-{
-  "ok": true,
-  "result": {
-    "ok": true,
-    "service": "jarvis_v5_content_factory_async_bridge",
-    "jobs_dir": "C:\\Users\\Daniil Lapin\\Downloads\\supervisor_v1_5_smart_telegram (1)\\supervisor_v1_5_smart_telegram\\jarvis_stage3_artifacts\\jarvis_v5_content_factory_async_jobs",
-    "local_run_url": "http://127.0.0.1:8015/api/jarvis/v5/content-factory/run"
-  }
-}

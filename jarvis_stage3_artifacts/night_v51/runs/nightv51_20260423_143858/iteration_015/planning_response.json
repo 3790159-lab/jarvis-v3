@@ -1,8 +1,0 @@
-{
-    "mode":  "smart_local",
-    "source":  "local_fallback",
-    "reply":  "Message received: Goal: Improve observability and failure diagnosis\nTask: Improve observability, logs, and health-check system. Make real code-backed changes in .py or .ps1 files.\n\nUsing the specialist notes, build one integrated execution package:\n1) combine the best parts into 2-4 coordinated low-risk steps;\n2) prioritize project/code changes over state-only work;\n3) describe dependencies between steps;\n4) mention validation gates and rollback conditions;\n5) DO NOT use knowledge_graph-only changes as the final result unless absolutely blocked.\n\nSupervisor fallback mode is active.",
-    "confidence":  "0.78",
-    "mission":  null,
-    "route":  "chat"
-}

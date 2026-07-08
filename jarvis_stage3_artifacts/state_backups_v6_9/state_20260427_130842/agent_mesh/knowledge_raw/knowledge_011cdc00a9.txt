@@ -1,5 +1,0 @@
-Claude is usually strongest for concrete engineering, refactor and implementation work when prompts are explicit.
-OpenAI can remain strong for planning, review and QA framing.
-Avoid promoting n8n to broad live execution until auth and webhook verification are complete.
-Keep communication between agents structured: explicit roles, limited consultation, second opinions mostly for risky tasks.
-Knowledge should be separated by domain and block, but linked logically across engineering, planning, communication, memory and integration patterns.

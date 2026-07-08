@@ -1,8 +1,0 @@
-{
-    "reply":  "Message received: Improve Director lifecycle system\n\nSupervisor fallback mode is active.",
-    "mode":  "smart_local",
-    "source":  "local_fallback",
-    "confidence":  0.78,
-    "route":  "chat",
-    "mission":  null
-}

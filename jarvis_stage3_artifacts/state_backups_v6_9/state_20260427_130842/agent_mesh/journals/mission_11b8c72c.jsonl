@@ -1,2 +1,0 @@
-{"event": "consultation_resolved", "task_id": "native_claude_check_api_v9", "from_agent": "coding_agent_main", "helper_agent": "memory_agent_main", "requested_capability": "context_bundle", "consult_depth": 1, "ts": "2026-04-18 01:42:19"}
-{"event": "task_completed", "task_id": "native_claude_check_api_v9", "agent_id": "coding_agent_main", "provider": "cloud", "qa_summary": "QA average=0.90 passed=True strictness=high", "ts": "2026-04-18 01:42:19"}
