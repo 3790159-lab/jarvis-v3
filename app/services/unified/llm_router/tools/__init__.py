@@ -33,6 +33,22 @@ from app.services.unified.llm_router.tools.voice_reply import build_voice_reply_
 from app.services.unified.llm_router.tools.web_research import build_web_research_tool
 
 
+# Source of truth: which router tools spend money, and the est USD used for the
+# confirm-button label AND the guard_spend cap check. Anything not listed is FREE
+# (read-only / setup). Must stay in sync with the paid backends behind each tool.
+_ROUTER_PAID_USD = {
+    "generate_image": 0.04,            # Replicate FLUX (== /gen)
+    "generate_persona_photo": 0.10,    # FLUX persona (stub today, still gate it)
+    "video_face_swap": 0.40,           # video swap pipeline
+    "swap_batch_run_swap": 0.02,       # runs the batch swap
+    "swap_batch_run_animation": 0.50,  # animates the batch (minutes, paid)
+    "web_research": 0.02,              # LLM + search
+    "build_table": 0.03,               # research + XLSX
+    "answer_about_file": 0.01,         # LLM over uploaded file
+    "reply_with_voice": 0.01,          # TTS
+}
+
+
 def register_default_tools(
     registry: ToolRegistry,
     *,
@@ -72,6 +88,11 @@ def register_default_tools(
     registry.register(build_table_tool(table_fn=table_fn))
     registry.register(build_generate_image_tool(image_fn=image_fn))
     registry.register(build_answer_about_file_tool(file_qa_fn=file_qa_fn))
+    for _t in registry.all():
+        _price = _ROUTER_PAID_USD.get(_t.name)
+        if _price is not None:
+            _t.paid = True
+            _t.est_usd = _price
     return registry
 
 

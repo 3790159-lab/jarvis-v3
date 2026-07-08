@@ -93,6 +93,8 @@ class Tool:
     description: str
     input_schema: Dict[str, Any]
     handler: ToolHandler
+    paid: bool = False          # True → spends money; router must confirm before running
+    est_usd: float = 0.0        # estimated cost, drives confirm-button label + guard_spend cap
 
     def to_anthropic(self) -> Dict[str, Any]:
         """Render the tool definition block for the Messages API ``tools`` list."""
