@@ -487,3 +487,79 @@ def test_boot_reconcile_marks_interrupted_running_failed(monkeypatch, tmp_path):
     mod._devtask_boot_reconcile(base_dir=tmp_path, send_fn=lambda t: sent.append(t))
     assert q.get(tid)["status"] == STATUS_FAILED
     assert any("прервана" in s for s in sent)
+
+
+# ── Этап 1: queued-confirmation nag (one reminder for un-tapped [Запустить]) ─
+from datetime import datetime as _dt
+
+
+def _seed_stale_queued(monkeypatch, tmp_path, created_at="2026-07-15T11:40:00"):
+    q = DevTaskQueue(base_dir=tmp_path)
+    tid = q.add("do X")
+    q.set_status(tid, "queued", created_at=created_at)     # stays queued, aged
+    monkeypatch.setattr(mod, "_DEVTASK_QUEUE", q, raising=False)
+    monkeypatch.setattr(mod, "ALLOWED_CHAT_ID", ADMIN, raising=False)
+    return q, tid
+
+
+def test_remind_queued_nags_stale_and_marks(monkeypatch, tmp_path):
+    q, tid = _seed_stale_queued(monkeypatch, tmp_path)
+    kb_sent = []
+    monkeypatch.setattr(mod, "send_with_keyboard",
+                        lambda cid, t, kb: kb_sent.append((cid, t, kb)))
+    mod._devtask_remind_queued(now=_dt(2026, 7, 15, 12, 0, 0))
+    assert len(kb_sent) == 1
+    cid, text, kb = kb_sent[0]
+    assert cid == ADMIN                                    # admin gets the nag
+    assert tid in text and "Запустить" in text             # id + which button
+    assert q.get(tid)["reminded"] is True                  # flagged once
+
+
+def test_remind_queued_fires_only_once(monkeypatch, tmp_path):
+    q, tid = _seed_stale_queued(monkeypatch, tmp_path)
+    kb_sent = []
+    monkeypatch.setattr(mod, "send_with_keyboard",
+                        lambda cid, t, kb: kb_sent.append(cid))
+    now = _dt(2026, 7, 15, 12, 0, 0)
+    mod._devtask_remind_queued(now=now)
+    mod._devtask_remind_queued(now=now)                    # second sweep
+    assert len(kb_sent) == 1                               # no spam
+
+
+def test_remind_queued_skips_fresh(monkeypatch, tmp_path):
+    q, tid = _seed_stale_queued(monkeypatch, tmp_path, created_at="2026-07-15T11:55:00")
+    kb_sent = []
+    monkeypatch.setattr(mod, "send_with_keyboard", lambda *a, **k: kb_sent.append(1))
+    mod._devtask_remind_queued(now=_dt(2026, 7, 15, 12, 0, 0))   # only 5 min old
+    assert kb_sent == []
+    assert "reminded" not in q.get(tid) or q.get(tid)["reminded"] is not True
+
+
+def test_remind_queued_keyboard_has_confirm_button(monkeypatch, tmp_path):
+    q, tid = _seed_stale_queued(monkeypatch, tmp_path)
+    kb_sent = []
+    monkeypatch.setattr(mod, "send_with_keyboard",
+                        lambda cid, t, kb: kb_sent.append(kb))
+    mod._devtask_remind_queued(now=_dt(2026, 7, 15, 12, 0, 0))
+    datas = [b["callback_data"] for row in kb_sent[0] for b in row]
+    assert ("devtask:confirm:%s" % tid) in datas           # tappable [Запустить]
+
+
+def test_heartbeat_tick_runs_reminder(monkeypatch, tmp_path):
+    # Wiring: the existing heartbeat loop drives the nag (no new thread).
+    monkeypatch.setattr(mod, "_HEARTBEAT_FILE", tmp_path / "hb.txt", raising=False)
+    called = {"x": False}
+    monkeypatch.setattr(mod, "_devtask_remind_queued", lambda *a, **k: called.update(x=True))
+    mod._heartbeat_tick()
+    assert called["x"] is True
+    assert (tmp_path / "hb.txt").exists()                  # heartbeat still written
+
+
+def test_heartbeat_tick_survives_reminder_error(monkeypatch, tmp_path):
+    # A raising reminder must NEVER kill the heartbeat (guardian would restart bot).
+    monkeypatch.setattr(mod, "_HEARTBEAT_FILE", tmp_path / "hb.txt", raising=False)
+    def boom(*a, **k):
+        raise RuntimeError("queue read failed")
+    monkeypatch.setattr(mod, "_devtask_remind_queued", boom)
+    mod._heartbeat_tick()                                   # must not raise
+    assert (tmp_path / "hb.txt").exists()                  # heartbeat still written

@@ -1362,6 +1362,38 @@ def _devtask_state_dir():
     return _devtask_queue()._base
 
 
+# Этап 1: a card left in `queued` (created, [Запустить] not tapped) longer than
+# this many minutes earns ONE reminder to the admin — then `reminded=True` on the
+# card silences it (никакого спама). Driven by the existing heartbeat loop below.
+_DEVTASK_QUEUED_REMIND_MIN = int(os.getenv("DEVTASK_QUEUED_REMIND_MIN", "10"))
+
+
+def _devtask_remind_queued(now: Optional[datetime] = None) -> None:
+    """Nag the admin once about each un-confirmed queued dev-task.
+
+    ``now`` is injected for tests (never assume real time). Each due card is sent
+    a single reminder carrying its id and the confirm/cancel keyboard so the admin
+    can tap [▶️ Запустить] straight from the nag; the card is then flagged so the
+    next sweep skips it. Best-effort per card — one bad card never blocks the rest.
+    """
+    if now is None:
+        now = datetime.utcnow()
+    q = _devtask_queue()
+    for item in q.due_reminders(now, remind_after_min=_DEVTASK_QUEUED_REMIND_MIN):
+        tid = item["id"]
+        try:
+            send_with_keyboard(
+                ALLOWED_CHAT_ID,
+                "⏰ Dev-задача %s ждёт подтверждения — тапни [▶️ Запустить], "
+                "чтобы стартовать (или Отмена):\n%s" % (tid, item.get("desc", "")),
+                [[{"text": "▶️ Запустить", "callback_data": "devtask:confirm:%s" % tid},
+                  {"text": "Отмена", "callback_data": "devtask:cancel:%s" % tid}]],
+            )
+            q.mark_reminded(tid)
+        except Exception:
+            logger.exception("devtask %s: queued-reminder send failed", tid)
+
+
 def _devtask_review_keyboard(tid: str) -> list:
     return [
         [{"text": "✅ Мердж", "callback_data": "devtask:merge:%s" % tid},
@@ -8137,15 +8169,26 @@ def _cowork_delivery_callback(result: dict) -> None:
         send(ALLOWED_CHAT_ID, f"ℹ️ Cowork ответил (статус={status}):\n{text_result[:3900]}")
 
 
+def _heartbeat_tick() -> None:
+    """One heartbeat iteration: prove the bot is alive, then run the periodic
+    dev-task queued-confirmation nag (Этап 1) on the SAME loop — no extra thread.
+    Each side is independently guarded so a reminder fault can never stop the
+    heartbeat (a dead heartbeat would make the guardian restart the bot)."""
+    try:
+        _HEARTBEAT_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _HEARTBEAT_FILE.write_text(str(int(time.time())), encoding="utf-8")
+    except Exception:
+        pass
+    try:
+        _devtask_remind_queued()
+    except Exception:
+        logger.exception("heartbeat: queued-reminder sweep failed")
+
+
 def _heartbeat_thread() -> None:
-    """Write timestamp every 30s to prove bot is alive."""
-    import threading as _thr_hb
+    """Beat every 30s to prove the bot is alive (also drives the queued nag)."""
     while True:
-        try:
-            _HEARTBEAT_FILE.parent.mkdir(parents=True, exist_ok=True)
-            _HEARTBEAT_FILE.write_text(str(int(time.time())), encoding="utf-8")
-        except Exception:
-            pass
+        _heartbeat_tick()
         time.sleep(30)
 
 

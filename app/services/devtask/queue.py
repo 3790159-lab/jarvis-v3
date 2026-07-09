@@ -156,6 +156,41 @@ class DevTaskQueue:
                 pass
         return total
 
+    def due_reminders(self, now: datetime, remind_after_min: int) -> List[Dict[str, Any]]:
+        """Queued cards that have waited past ``remind_after_min`` without a tap.
+
+        The queued-confirmation nag (Этап 1): a card is due iff it is still
+        ``queued``, has NOT been reminded yet (``reminded`` truthy → skip, so we
+        nag exactly once), and its ``created_at`` parses to at least
+        ``remind_after_min`` minutes before ``now``. ``now`` is injected (never
+        ``utcnow()`` here) so tests are deterministic; a missing/unparseable
+        ``created_at`` contributes nothing (never crash the monitor loop).
+        """
+        from app.services.block_l_common import load_json_safe
+        due: List[Dict[str, Any]] = []
+        for f in self._dir().glob("*.json"):
+            data = load_json_safe(f)
+            if not data or data.get("status") != STATUS_QUEUED or data.get("reminded"):
+                continue
+            try:
+                created = datetime.fromisoformat(data.get("created_at"))
+            except (TypeError, ValueError):
+                continue
+            if (now - created).total_seconds() >= remind_after_min * 60:
+                due.append(data)
+        return due
+
+    def mark_reminded(self, task_id: str) -> bool:
+        """Flag ``reminded=True`` on a card WITHOUT touching its status, so the
+        queued-confirmation nag fires exactly once per task."""
+        item = self.get(task_id)
+        if not item:
+            return False
+        item["reminded"] = True
+        self._save(item)
+        self._log("reminded", task_id)
+        return True
+
     def list_recent(self, limit: int = 10) -> List[Dict[str, Any]]:
         from app.services.block_l_common import load_json_safe
         items = []

@@ -133,3 +133,60 @@ def test_month_cost_ignores_unparseable_created_at(tmp_path):
     _seed_cost(dq, "not-a-date", 4.0)               # must not crash
     _seed_cost(dq, "2026-07-08T00:00:00", 1.0)
     assert dq.month_cost(now) == 1.0
+
+
+# ── due_reminders (queued-confirmation nag): queued cards left un-tapped ─────
+def _seed_queued(dq, created_at, reminded=None):
+    tid = dq.add("t")
+    fields = {"created_at": created_at}
+    if reminded is not None:
+        fields["reminded"] = reminded
+    dq.set_status(tid, q.STATUS_QUEUED, **fields)     # stays queued, older created_at
+    return tid
+
+
+def test_due_reminders_returns_stale_queued(tmp_path):
+    dq = q.DevTaskQueue(base_dir=tmp_path)
+    now = datetime(2026, 7, 15, 12, 0, 0)
+    tid = _seed_queued(dq, "2026-07-15T11:49:00")     # 11 min old, > 10
+    due = dq.due_reminders(now, remind_after_min=10)
+    assert [d["id"] for d in due] == [tid]
+
+
+def test_due_reminders_excludes_fresh_queued(tmp_path):
+    dq = q.DevTaskQueue(base_dir=tmp_path)
+    now = datetime(2026, 7, 15, 12, 0, 0)
+    _seed_queued(dq, "2026-07-15T11:55:00")           # 5 min old, < 10
+    assert dq.due_reminders(now, remind_after_min=10) == []
+
+
+def test_due_reminders_excludes_already_reminded(tmp_path):
+    dq = q.DevTaskQueue(base_dir=tmp_path)
+    now = datetime(2026, 7, 15, 12, 0, 0)
+    _seed_queued(dq, "2026-07-15T11:40:00", reminded=True)   # stale but flagged
+    assert dq.due_reminders(now, remind_after_min=10) == []
+
+
+def test_due_reminders_excludes_non_queued(tmp_path):
+    dq = q.DevTaskQueue(base_dir=tmp_path)
+    now = datetime(2026, 7, 15, 12, 0, 0)
+    tid = dq.add("t")
+    dq.set_status(tid, q.STATUS_RUNNING, created_at="2026-07-15T11:00:00")
+    assert dq.due_reminders(now, remind_after_min=10) == []   # confirmed already
+
+
+def test_due_reminders_ignores_unparseable_created_at(tmp_path):
+    dq = q.DevTaskQueue(base_dir=tmp_path)
+    now = datetime(2026, 7, 15, 12, 0, 0)
+    _seed_queued(dq, "not-a-date")                    # must not crash
+    good = _seed_queued(dq, "2026-07-15T11:40:00")
+    assert [d["id"] for d in dq.due_reminders(now, remind_after_min=10)] == [good]
+
+
+def test_mark_reminded_sets_flag_without_changing_status(tmp_path):
+    dq = q.DevTaskQueue(base_dir=tmp_path)
+    tid = dq.add("t")
+    dq.mark_reminded(tid)
+    item = dq.get(tid)
+    assert item["reminded"] is True
+    assert item["status"] == q.STATUS_QUEUED          # status untouched
