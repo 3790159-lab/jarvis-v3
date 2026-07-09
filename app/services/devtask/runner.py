@@ -189,7 +189,7 @@ def build_argv(worktree: str, session_uuid: str, prompt: str,
     which = which or shutil.which
     exists = exists or os.path.exists
     claude_bin = _resolve_claude(which, exists)
-    return [
+    argv = [
         claude_bin, "-p", prompt,
         "--output-format", "stream-json",
         "--verbose",  # REQUIRED: `-p --output-format stream-json` errors without it
@@ -198,6 +198,14 @@ def build_argv(worktree: str, session_uuid: str, prompt: str,
         "--model", model or _default_model(),
         "--add-dir", add_repo,
     ]
+    # Prefix diet (2026-07-10): load only project+local settings so the user-global
+    # superpowers marketplace SessionStart preamble is skipped each run (speed +
+    # context headroom); the repo's own project skills (jarvis-discipline, tracked
+    # in .claude/skills) still load. DEVTASK_SETTING_SOURCES=all → CLI default.
+    sources = os.getenv("DEVTASK_SETTING_SOURCES", "project,local").strip()
+    if sources and sources.lower() != "all":
+        argv += ["--setting-sources", sources]
+    return argv
 
 
 def _parse_line(line) -> Optional[dict]:

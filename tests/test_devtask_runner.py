@@ -66,6 +66,22 @@ def test_build_argv_model_override():
     assert argv[argv.index("--model") + 1] == "sonnet"
 
 
+def test_build_argv_setting_sources_default_drops_user_superpowers(monkeypatch):
+    # Prefix diet (2026-07-10): dev_task loads only project+local settings, so the
+    # user-global superpowers marketplace SessionStart preamble is skipped; the
+    # repo's own project skill (jarvis-discipline, tracked in .claude/skills) stays.
+    monkeypatch.delenv("DEVTASK_SETTING_SOURCES", raising=False)
+    argv = r.build_argv("C:/wt", "u", "P", which=lambda name: "claude")
+    assert argv[argv.index("--setting-sources") + 1] == "project,local"
+
+
+def test_build_argv_setting_sources_all_omits_flag(monkeypatch):
+    # Rollback: DEVTASK_SETTING_SOURCES=all → use the CLI default (user included).
+    monkeypatch.setenv("DEVTASK_SETTING_SOURCES", "all")
+    argv = r.build_argv("C:/wt", "u", "P", which=lambda name: "claude")
+    assert "--setting-sources" not in argv
+
+
 def test_build_argv_resolves_cmd_to_sibling_exe():
     # `which` finds claude.CMD (a batch shim). Routing a multi-line `-p` prompt
     # through the .cmd truncates it at the first newline (batch %* mangling), so
