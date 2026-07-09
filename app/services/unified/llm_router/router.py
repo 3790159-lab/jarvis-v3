@@ -126,6 +126,7 @@ class RouterResponse:
     output_tokens: int = 0
     cost_usd: float = 0.0
     error: str = ""
+    pending_paid: Optional[Dict[str, Any]] = None   # {name, params, est_usd} — awaiting confirm
 
 
 # Injected recorders: keep signatures matching the Day-8 modules.
@@ -257,6 +258,31 @@ class LLMRouter:
 
                 # Echo the assistant turn (with its tool_use blocks) back verbatim.
                 messages.append({"role": "assistant", "content": content})
+
+                # Money gate: if Claude selected any PAID tool, DO NOT execute
+                # anything in this batch. Halt and surface a pending action for the
+                # caller to confirm. The trigger is registry metadata (tool.paid),
+                # never the message text — so no phrase can bypass this.
+                paid_tu = next(
+                    (tu for tu in tool_uses
+                     if getattr(self._registry.get(tu.name), "paid", False)),
+                    None,
+                )
+                if paid_tu is not None:
+                    tool = self._registry.get(paid_tu.name)
+                    cost = compute_cost(self._model, input_tokens, output_tokens)
+                    self._record(context, tools_used, input_tokens + output_tokens, cost)
+                    return RouterResponse(
+                        tools_used=tools_used,
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        cost_usd=cost,
+                        pending_paid={
+                            "name": paid_tu.name,
+                            "params": paid_tu.input or {},
+                            "est_usd": float(getattr(tool, "est_usd", 0.0) or 0.0),
+                        },
+                    )
 
                 results: List[Dict[str, Any]] = []
                 for tu in tool_uses:
