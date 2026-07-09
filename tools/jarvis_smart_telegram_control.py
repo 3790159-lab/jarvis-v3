@@ -42,7 +42,29 @@ ALLOWED_CHAT_ID = str(os.getenv("TELEGRAM_ALLOWED_CHAT_ID", "")).strip()
 
 _HEARTBEAT_FILE = Path("state/bot_heartbeat.txt")
 _GUARDIAN_HEARTBEAT_FILE = Path("state/guardian_heartbeat.txt")
-_PID_FILE = Path("state/bot.pid")
+# Absolute so single-instance never depends on the process CWD: a CWD-relative
+# pid write could land outside the guardian's (absolute) bot.pid read and
+# silently defeat the guard. bot.pid stays a guardian TARGET; the OS lock below
+# is the actual, kernel-enforced enforcement (a pid file the guardian wipes
+# before relaunch cannot enforce anything).
+_PID_FILE = _PROJECT_ROOT / "state" / "bot.pid"
+_LOCK_FILE = _PROJECT_ROOT / "state" / "bot.lock"
+_INSTANCE_LOCK = None  # OS single-instance lock fd, held for the process lifetime
+
+
+def _acquire_single_instance_lock() -> bool:
+    """Kernel-enforced single-instance gate: True if this process took the lock,
+    False if another bot already holds it (caller then exits). Independent of
+    bot.pid, so a misbehaving guardian that fails to kill the old bot can no
+    longer end up with two pollers on one token."""
+    global _INSTANCE_LOCK
+    from app.services import single_instance as _si
+    try:
+        _INSTANCE_LOCK = _si.acquire(_LOCK_FILE)
+        return True
+    except _si.AlreadyRunning:
+        print(f"❌ Bot already running (lock {_LOCK_FILE} held) — exiting", flush=True)
+        return False
 
 
 def _check_single_instance() -> bool:
@@ -9013,6 +9035,10 @@ def register_native_commands() -> None:
 
 
 def main() -> None:
+    # Primary gate: kernel-enforced OS lock (survives a guardian that fails to
+    # kill the old bot). Then the pid check (friendly message + guardian target).
+    if not _acquire_single_instance_lock():
+        sys.exit(1)
     if not _check_single_instance():
         sys.exit(1)
 
