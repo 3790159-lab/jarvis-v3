@@ -270,8 +270,12 @@ class LLMRouter:
                 )
                 if paid_tu is not None:
                     tool = self._registry.get(paid_tu.name)
+                    # Money-leak fix: this halt is an un-executed turn (awaiting a
+                    # confirm tap). Do NOT write the routing tokens to the user's
+                    # ledger — before the tap /costs must not move at all. The
+                    # tokens are still surfaced on the response for transparency,
+                    # but nothing is billed.
                     cost = compute_cost(self._model, input_tokens, output_tokens)
-                    self._record(context, tools_used, input_tokens + output_tokens, cost)
                     return RouterResponse(
                         tools_used=tools_used,
                         input_tokens=input_tokens,

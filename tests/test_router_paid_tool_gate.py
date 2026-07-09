@@ -85,6 +85,29 @@ def test_router_halts_on_paid_tool_without_executing():
     assert all(c < 0.04 for c in recorded)
 
 
+def test_router_halt_does_not_bill_ledger():
+    """Leak fix: the routing LLM call on the halt branch (pending_paid, empty
+    turn — nothing done for the user yet) must NOT be written to the user's cost
+    ledger. Before the confirm tap /costs must not move at all.
+    """
+    async def _handler(params, ctx):  # never runs
+        return ToolResult.photo("http://x/img.png")
+
+    reg = ToolRegistry()
+    reg.register(Tool("generate_image", "gen", {"type": "object"}, _handler,
+                      paid=True, est_usd=0.04))
+    recorded = []
+    router = LLMRouter(
+        _FakeClient(_Resp([_Block("generate_image")])), reg,
+        record_cost=lambda uid, un, cost: recorded.append(cost),
+    )
+    ctx = ToolContext(user_id=1, username="admin", chat_id="99")
+    resp = asyncio.run(router.route_message("сделай фото брускеты", ctx))
+
+    assert resp.pending_paid is not None      # gated to confirm
+    assert recorded == []                     # ledger untouched — no billing pre-tap
+
+
 def test_router_does_not_gate_free_tool():
     """Other direction: a FREE tool executes normally — no false confirm.
 
