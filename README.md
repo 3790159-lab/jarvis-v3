@@ -71,3 +71,7 @@ If those settings are missing, the assistant keeps working in offline rule-based
 - broad general knowledge remains limited in offline mode unless an LLM is configured
 - task execution is still intentionally restricted to built-in flows and executors
 - Codex integration depends on the local `codex` command being installed and configured
+
+## Pipeline
+
+Dev-конвейер: /dev_task в Telegram → CC (TDD, worktree) → таргет-тесты → [Мердж] тапом админа.
