@@ -36,6 +36,7 @@ from app.services.auth import users_store as _users_store
 from app.services.audit import audit_logger as _audit
 from app.services.audit import cost_tracker as _cost
 from app.services.auth.spend_guard import guard_spend
+from app.services.devtask import regress_watch as _regress_watch
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 ALLOWED_CHAT_ID = str(os.getenv("TELEGRAM_ALLOWED_CHAT_ID", "")).strip()
@@ -53,6 +54,11 @@ _OFFSET_PATH = _PROJECT_ROOT / "state" / "telegram_offset.json"
 # before relaunch cannot enforce anything).
 _PID_FILE = _PROJECT_ROOT / "state" / "bot.pid"
 _LOCK_FILE = _PROJECT_ROOT / "state" / "bot.lock"
+# Detached regress watchdog (Этап 1, хвост #6): the pytest PID-group + wall-clock
+# deadline recorded here at spawn. The bot's periodic loop sweeps it (see
+# _regress_watch_sweep); the guardian's standalone scripts/regress_watch_check.py
+# is the second layer that kills an orphaned regress after the bot itself dies.
+_REGRESS_WATCH_DIR = _PROJECT_ROOT / "state"
 _INSTANCE_LOCK = None  # OS single-instance lock fd, held for the process lifetime
 
 
@@ -1572,18 +1578,22 @@ def _devtask_pytest_env() -> Dict[str, str]:
 
 
 def _devtask_run_regress(worktree: str) -> dict:
-    """Run the suite in the worktree, verdict vs baseline. {ok, text}."""
+    """Run the suite in the worktree, verdict vs baseline. {ok, text}.
+
+    Spawned under the detached watchdog (run_guarded records the pytest
+    PID-group + deadline) so an orphaned run can't grind forever — the pytest
+    invocation itself is unchanged."""
     from tools import jarvis_observe as _jo
     import subprocess as _sp
     try:
-        proc = _sp.run(
+        proc = _regress_watch.run_guarded(
             [sys.executable, "-m", "pytest", "tests/", "-q", "-p", "no:cacheprovider",
              "--continue-on-collection-errors", "--tb=no"],
-            cwd=worktree, capture_output=True, text=True,
-            timeout=int(os.getenv("REGRESS_TIMEOUT_S", "900")),
+            cwd=worktree,
+            timeout_s=int(os.getenv("REGRESS_TIMEOUT_S", "900")),
             creationflags=(0x4000 if sys.platform == "win32" else 0),
             env=_devtask_pytest_env(),
-            encoding="utf-8", errors="replace")
+            state_dir=_REGRESS_WATCH_DIR, label="merge-gate")
     except _sp.TimeoutExpired:
         return {"ok": False, "text": "⏱ регресс-прогон превысил таймаут"}
     line = ""
@@ -1620,14 +1630,14 @@ def _devtask_run_targeted(worktree: str, base_head: str) -> dict:
                 "text": "🎯 таргет-режим: дифф не маппится ни на один тест "
                         "(%d изменённых путей) — не могу верифицировать точечно" % len(changed)}
     try:
-        proc = _sp.run(
+        proc = _regress_watch.run_guarded(
             [sys.executable, "-m", "pytest", *targets, "-q", "-p", "no:cacheprovider",
              "--continue-on-collection-errors", "--tb=no"],
-            cwd=worktree, capture_output=True, text=True,
-            timeout=int(os.getenv("REGRESS_TIMEOUT_S", "900")),
+            cwd=worktree,
+            timeout_s=int(os.getenv("REGRESS_TIMEOUT_S", "900")),
             creationflags=(0x4000 if sys.platform == "win32" else 0),
             env=_devtask_pytest_env(),
-            encoding="utf-8", errors="replace")
+            state_dir=_REGRESS_WATCH_DIR, label="merge-gate-targeted")
     except _sp.TimeoutExpired:
         return {"ok": False, "mode": "targeted", "text": "⏱ таргет-прогон превысил таймаут"}
     line = ""
@@ -7011,16 +7021,18 @@ _BELOW_NORMAL_PRIORITY_CLASS = 0x4000  # Windows creationflags
 
 
 def _regress_run_pytest() -> str:
-    """Run the suite read-only; return pytest's summary tail line (or a note)."""
+    """Run the suite read-only; return pytest's summary tail line (or a note).
+
+    Spawned under the detached watchdog (run_guarded records the pytest
+    PID-group + deadline) so a hung/orphaned /regress can't grind forever."""
     import subprocess as _sp
     flags = _BELOW_NORMAL_PRIORITY_CLASS if sys.platform == "win32" else 0
     try:
-        proc = _sp.run(
+        proc = _regress_watch.run_guarded(
             [sys.executable, "-m", "pytest", "tests/", "-q", "-p", "no:cacheprovider",
              "--continue-on-collection-errors", "--tb=no"],
-            cwd="C:/jarvis", capture_output=True, text=True,
-            timeout=_REGRESS_TIMEOUT_S, creationflags=flags,
-            encoding="utf-8", errors="replace",
+            cwd="C:/jarvis", timeout_s=_REGRESS_TIMEOUT_S, creationflags=flags,
+            env=None, state_dir=_REGRESS_WATCH_DIR, label="regress",
         )
     except _sp.TimeoutExpired:
         return f"⏱ прогон превысил {_REGRESS_TIMEOUT_S}с"
@@ -8345,11 +8357,49 @@ def _cowork_delivery_callback(result: dict) -> None:
         send(ALLOWED_CHAT_ID, f"ℹ️ Cowork ответил (статус={status}):\n{text_result[:3900]}")
 
 
+def _pid_alive(pid) -> bool:
+    """True iff the process still exists. On doubt (query error) fail-SAFE to
+    True — never declare an orphan we cannot prove, so a legit regress is not
+    killed just because the check hiccupped (its deadline still bounds it)."""
+    if pid is None:
+        return False
+    try:
+        import psutil as _ps
+        return _ps.pid_exists(int(pid))
+    except Exception:
+        pass
+    try:
+        if sys.platform == "win32":
+            import subprocess as _sp
+            r = _sp.run(["tasklist", "/FI", "PID eq %d" % int(pid)],
+                        capture_output=True, text=True, timeout=10,
+                        encoding="utf-8", errors="replace")
+            return str(int(pid)) in (r.stdout or "")
+        return Path("/proc/%d" % int(pid)).exists()
+    except Exception:
+        return True
+
+
+def _regress_watch_sweep() -> None:
+    """Layer 1 of the detached regress watchdog: while the bot is alive, kill a
+    regress that blew past its wall-clock deadline (or was orphaned by an
+    earlier bot generation), notify the admin, clear the marker."""
+    _regress_watch.sweep(
+        _REGRESS_WATCH_DIR,
+        now=time.time(),
+        parent_alive_fn=_pid_alive,
+        kill_fn=_regress_watch.kill_process_group,
+        notify_fn=(lambda m: send(ALLOWED_CHAT_ID, m)) if ALLOWED_CHAT_ID else None,
+        log_fn=logger.warning,
+    )
+
+
 def _heartbeat_tick() -> None:
     """One heartbeat iteration: prove the bot is alive, then run the periodic
-    dev-task queued-confirmation nag (Этап 1) on the SAME loop — no extra thread.
-    Each side is independently guarded so a reminder fault can never stop the
-    heartbeat (a dead heartbeat would make the guardian restart the bot)."""
+    dev-task queued-confirmation nag (Этап 1) + the regress watchdog sweep on the
+    SAME loop — no extra thread. Each side is independently guarded so a fault in
+    one can never stop the heartbeat (a dead heartbeat would make the guardian
+    restart the bot)."""
     try:
         _HEARTBEAT_FILE.parent.mkdir(parents=True, exist_ok=True)
         _HEARTBEAT_FILE.write_text(str(int(time.time())), encoding="utf-8")
@@ -8359,6 +8409,10 @@ def _heartbeat_tick() -> None:
         _devtask_remind_queued()
     except Exception:
         logger.exception("heartbeat: queued-reminder sweep failed")
+    try:
+        _regress_watch_sweep()
+    except Exception:
+        logger.exception("heartbeat: regress-watch sweep failed")
 
 
 def _heartbeat_thread() -> None:

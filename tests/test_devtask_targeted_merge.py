@@ -161,7 +161,9 @@ def test_run_targeted_runs_only_mapped_tests(monkeypatch):
         captured["argv"] = argv
         return _P()
 
-    import subprocess as _sp; monkeypatch.setattr(_sp, "run", fake_run)
+    # The spawn seam is now the detached-watchdog runner (Этап 1, хвост #6); the
+    # pytest argv it receives is unchanged from the old subprocess.run.
+    monkeypatch.setattr(mod._regress_watch, "run_guarded", fake_run)
     res = mod._devtask_run_targeted("C:/wt", "base1")
     assert res["ok"] is True and res["mode"] == "targeted"
     assert "tests/test_queue.py" in captured["argv"]
@@ -178,6 +180,6 @@ def test_run_targeted_fails_when_targeted_tests_fail(monkeypatch):
         stdout = "1 failed, 2 passed in 0.1s"
         returncode = 1
 
-    import subprocess as _sp; monkeypatch.setattr(_sp, "run", lambda *a, **k: _P())
+    monkeypatch.setattr(mod._regress_watch, "run_guarded", lambda *a, **k: _P())
     res = mod._devtask_run_targeted("C:/wt", "base1")
     assert res["ok"] is False and res["mode"] == "targeted"

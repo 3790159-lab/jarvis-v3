@@ -38,6 +38,8 @@ $bErr      = Join-Path $logDir 'bot_boot.stderr.log'
 $hbFile    = Join-Path $Root 'state\bot_heartbeat.txt'
 $gHbFile   = Join-Path $Root 'state\guardian_heartbeat.txt'
 $botPid    = Join-Path $Root 'state\bot.pid'
+$regressWatch      = Join-Path $Root 'state\regress_watch.json'
+$regressWatchCheck = Join-Path $Root 'scripts\regress_watch_check.py'
 
 function Write-G([string]$msg) {
     $line = ('{0} | {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $msg)
@@ -120,6 +122,17 @@ function Start-Bot {
 $lastState = ''
 while ($true) {
     Write-GuardianBeat   # prove the нянька is awake every cycle, before any work
+
+    # Detached regress watchdog, layer 2 (Этап 1, хвост #6): if a regress marker
+    # exists, run the standalone stdlib-only killer. It no-ops for a healthy run;
+    # if the regress is past its deadline OR orphaned (its parent bot PID dead),
+    # it taskkills the PID-group, TG-alerts the admin, and clears the marker —
+    # the case the bot's own loop can't cover because the bot itself has died.
+    # Cheap: only spawns Python when the marker is actually present.
+    if (Test-Path $regressWatch) {
+        try { & $py $regressWatchCheck 2>$null } catch {}
+    }
+
     if (Test-Bot) {
         if ($lastState -ne 'alive') { Write-G 'bot alive'; $lastState = 'alive' }
     } else {
