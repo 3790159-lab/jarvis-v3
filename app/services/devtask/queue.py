@@ -11,6 +11,7 @@ layer enforces the guard; the queue only reports.
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -94,6 +95,28 @@ class DevTaskQueue:
         item.update(fields)
         self._save(item)
         self._log(status, task_id, fields or None)
+        return True
+
+    def claim(self, task_id: str) -> bool:
+        """Atomically flip ``queued`` -> ``running`` exactly once, cross-process.
+
+        Returns True if THIS caller won the claim, False if the task is missing,
+        no longer ``queued``, or was already claimed by a racing handler. The
+        real root of the double-fire race is >1 bot poller (separate processes),
+        so an in-process lock is insufficient — the barrier is an ``O_EXCL``
+        marker create, which is atomic across processes. The winner is the sole
+        process that creates the marker; it alone advances the status.
+        """
+        item = self.get(task_id)
+        if not item or item["status"] != STATUS_QUEUED:
+            return False
+        marker = self._dir() / f"{task_id}.claim"
+        try:
+            fd = os.open(str(marker), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            return False  # another handler/process already claimed this task
+        os.close(fd)
+        self.set_status(task_id, STATUS_RUNNING)
         return True
 
     def active(self) -> Optional[Dict[str, Any]]:

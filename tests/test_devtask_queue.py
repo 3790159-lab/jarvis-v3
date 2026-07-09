@@ -46,3 +46,36 @@ def test_set_status_extra_fields_and_log(tmp_path):
     dq.set_status(tid, q.STATUS_FAILED, error="timeout")
     assert dq.get(tid)["error"] == "timeout"
     assert (tmp_path / "log.jsonl").exists()
+
+
+def test_claim_queued_wins(tmp_path):
+    dq = q.DevTaskQueue(base_dir=tmp_path)
+    tid = dq.add("t")
+    assert dq.claim(tid) is True                     # queued -> caller wins
+    assert dq.get(tid)["status"] == q.STATUS_RUNNING  # ...and it is now running
+
+
+def test_claim_double_returns_false(tmp_path):
+    # A double-delivered callback must not start two worktrees: the second claim
+    # loses and leaves state untouched.
+    dq = q.DevTaskQueue(base_dir=tmp_path)
+    tid = dq.add("t")
+    assert dq.claim(tid) is True
+    assert dq.claim(tid) is False                    # already claimed -> lose
+    assert dq.get(tid)["status"] == q.STATUS_RUNNING  # unchanged
+
+
+def test_claim_non_queued_returns_false(tmp_path):
+    dq = q.DevTaskQueue(base_dir=tmp_path)
+    tid = dq.add("t")
+    dq.set_status(tid, q.STATUS_AWAITING_REVIEW)     # not queued anymore
+    assert dq.claim(tid) is False
+    assert dq.claim("no-such-task") is False         # missing -> lose
+
+
+def test_claim_only_one_winner(tmp_path):
+    # Two racing handlers on the same fresh task: exactly one may win.
+    dq = q.DevTaskQueue(base_dir=tmp_path)
+    tid = dq.add("t")
+    results = [dq.claim(tid), dq.claim(tid)]
+    assert results.count(True) == 1

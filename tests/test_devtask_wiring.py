@@ -167,6 +167,35 @@ def test_confirm_sets_running_and_starts_run_body(monkeypatch, tmp_path):
     assert q.get(tid)["base_head"] is None          # worktree not built in confirm
 
 
+def test_confirm_double_delivery_starts_run_body_once(monkeypatch, tmp_path):
+    # Two bot pollers (separate processes) can each get the same confirm callback
+    # in the offset-overlap window, so BOTH pass the status pre-check while the
+    # task is still 'queued'. The atomic claim must be the barrier that lets
+    # exactly one through — otherwise two worktrees race ('branch already exists').
+    q = DevTaskQueue(base_dir=tmp_path)
+    tid = q.add("build X")
+    monkeypatch.setattr(mod, "_DEVTASK_QUEUE", q, raising=False)
+    monkeypatch.setattr(mod, "send", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "_devtask_free_gb", lambda *a, **k: 999.0)
+    # Force the pre-check to see 'queued' on both calls (simulates the race window
+    # before either handler has persisted 'running'); claim()'s O_EXCL marker is
+    # then the ONLY thing that can serialise them.
+    real_get = q.get
+    monkeypatch.setattr(q, "get", lambda t: {**real_get(t), "status": "queued"})
+    starts = []
+    monkeypatch.setattr(mod, "_devtask_run_body", lambda cid, t: starts.append(t))
+
+    class _Immediate:
+        def __init__(self, *a, **k):
+            self._t = k.get("target"); self._args = k.get("args", ())
+        def start(self):
+            self._t(*self._args)
+    monkeypatch.setattr(mod.threading, "Thread", _Immediate)
+    mod._devtask_confirm(ADMIN, tid)
+    mod._devtask_confirm(ADMIN, tid)
+    assert len(starts) == 1                          # exactly one worktree run
+
+
 def test_confirm_message_states_expected_duration(monkeypatch, tmp_path):
     # The start message must tell the admin roughly how long to wait, so they
     # don't sit staring at the chat wondering if it hung.

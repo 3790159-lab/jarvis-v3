@@ -1372,10 +1372,14 @@ def _devtask_confirm(chat_id, tid: str) -> None:
         send(chat_id, "🚫 Мало места на диске: %.1f ГБ свободно, нужно ≥%d ГБ "
              "(worktree ~2 ГБ + запас). Освободи место и повтори." % (free, _DEVTASK_MIN_FREE_GB))
         return
-    # Claim 'running' and hand off to the daemon thread. Worktree setup (Variant A:
-    # instant --no-checkout add + a ~30-50s DETACHED checkout) happens in the
-    # thread, NOT here — it must never block the poll loop.
-    q.set_status(tid, "running")
+    # Atomically claim 'queued' -> 'running'. A confirm callback can be delivered
+    # twice (two bot pollers in the offset-overlap window) — the status pre-check
+    # above races, so claim() is the cross-process barrier: the loser returns
+    # silently here, BEFORE spawning a second worktree ('branch already exists').
+    if not q.claim(tid):
+        return
+    # Worktree setup (Variant A: instant --no-checkout add + a ~30-50s DETACHED
+    # checkout) happens in the thread, NOT here — it must never block the poll loop.
     send(chat_id, "🚀 Готовлю изолированный worktree и запускаю Claude Code (opus, TDD). "
                   "Подготовка ~минуту, выполнение ~10-30 мин; дойду до СТОП — пришлю отчёт.")
     threading.Thread(target=_devtask_run_body, args=(chat_id, tid), daemon=True,
