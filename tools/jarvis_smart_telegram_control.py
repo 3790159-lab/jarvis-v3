@@ -4037,6 +4037,83 @@ def _ir_handle_friend_text(chat_id: str, text: str) -> None:
         send(chat_id, "🤷 Не понял. Что я умею — набери /menu.")
 
 
+def _handle_confirm_run(chat_id, cq_id, cq_uid, state) -> None:
+    """Resume a confirmed paid action. ``confirm:run`` is produced ONLY by a
+    confirm button, so it is already authorised — dispatch the stashed resume
+    exactly once. Extracted from the callback handler so the resume branches
+    (intent / cmd / router_tool) stay unit-testable."""
+    pend = state.get("pending_confirm") or {}
+    cmd = pend.get("cmd", "")
+    resume = pend.get("resume") or {}
+    role = _menu_role(cq_uid)
+    if role != "admin" and cmd not in FRIEND_ALLOWED_COMMANDS:
+        answer_callback_query(cq_id, "🚫 Только для администратора")
+        return
+    state["pending_confirm"] = None
+    if resume.get("kind") == "router_tool":
+        save_state(state)
+        answer_callback_query(cq_id, "▶️")
+        _run_router_tool_confirmed(chat_id, cq_uid, resume, state)
+        return
+    state["_paid_confirmed"] = cmd          # одноразовый: гейт его consume-нет
+    save_state(state)
+    answer_callback_query(cq_id, "▶️")
+    if resume.get("kind") == "intent":
+        run_intent(chat_id, resume.get("pack") or {}, state)
+    else:  # kind == "cmd"
+        handle_command(chat_id, resume.get("cmd", ""), resume.get("query", ""), state)
+
+
+def _run_router_tool_confirmed(chat_id, cq_uid, resume, state) -> None:
+    """Execute a confirmed router paid tool under ``guard_spend``, then render.
+
+    ``guard_spend`` checks the daily cap BEFORE spend and records cost ONLY on a
+    truthy (successful, non-error) result — so a tool failure is never billed
+    and admin/friend accounting flows through the same gate as every other paid
+    op. No text is read here; the tap already authorised exactly this action.
+    """
+    import asyncio as _asyncio
+
+    from app.services.unified.llm_router.tool_registry import ToolContext
+
+    name = resume.get("tool", "")
+    params = resume.get("params") or {}
+    est = float(resume.get("est") or 0.0)
+    router = _build_router()
+    if router is None:
+        send(chat_id, "⚠️ Роутер недоступен, попробуй позже.")
+        return
+    try:
+        uid = int(cq_uid) if cq_uid is not None else None
+    except (TypeError, ValueError):
+        uid = None
+    context = ToolContext(user_id=uid, username=None, chat_id=str(chat_id))
+
+    captured: Dict[str, Any] = {}
+
+    def _do():
+        r = _asyncio.run(router.execute_paid_tool(name, params, context))
+        captured["result"] = r
+        # Only a successful (non-error) result counts as a spend, so guard_spend
+        # records cost on success only (mirrors the face_swap pattern).
+        return r if (r is not None and not r.is_error) else None
+
+    result, err = guard_spend(uid, None, est, _do)
+    if err:
+        send(chat_id, f"🚫 {err}")
+        return
+    r = captured.get("result")
+    if r is None or r.is_error:
+        send(chat_id, f"⚠️ Не выполнено: {getattr(r, 'error', '') or 'ошибка инструмента'}")
+        return
+    if r.kind == "photo" and r.media:
+        _send_photo_url(str(chat_id), r.media, r.text or "")
+    elif r.kind == "video" and r.media:
+        send(str(chat_id), f"🎬 Видео: {r.media}")
+    else:
+        send(str(chat_id), r.text or "Готово.")
+
+
 def _money_gate(chat_id: str, cmd: str, resume: Dict[str, Any], state: Dict[str, Any]) -> bool:
     """Текст-независимый money-гейт. True → выполнять сейчас; False → показан confirm.
 
@@ -4624,21 +4701,7 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
         answer_callback_query(cq_id, "Отменено")
         return
     if data == "confirm:run":
-        pend = state.get("pending_confirm") or {}
-        cmd = pend.get("cmd", "")
-        resume = pend.get("resume") or {}
-        role = _menu_role(_cq_uid)
-        if role != "admin" and cmd not in FRIEND_ALLOWED_COMMANDS:
-            answer_callback_query(cq_id, "🚫 Только для администратора")
-            return
-        state["pending_confirm"] = None
-        state["_paid_confirmed"] = cmd          # одноразовый: гейт его consume-нет
-        save_state(state)
-        answer_callback_query(cq_id, "▶️")
-        if resume.get("kind") == "intent":
-            run_intent(chat_id, resume.get("pack") or {}, state)
-        else:  # kind == "cmd"
-            handle_command(chat_id, resume.get("cmd", ""), resume.get("query", ""), state)
+        _handle_confirm_run(chat_id, cq_id, _cq_uid, state)
         return
 
     # ── Intent-router confirm (ir:run | ir:pick:<idx> | ir:cancel) ───────────
@@ -8661,6 +8724,31 @@ def _build_router():
         return None
 
 
+def _router_paid_confirm(chat_id: str, pending: Dict[str, Any]) -> None:
+    """Turn a router ``pending_paid`` action into the shared confirm flow.
+
+    Reuses ``pending_confirm`` + the ``confirm:run`` callback (same machinery as
+    the IR money-gate) — NOT a parallel flow. No spend happens here: the tool
+    runs only after the tap. The gate key is the tool's paid-ness (already
+    decided in the router by ``Tool.paid``), never the message text.
+    """
+    name = pending.get("name", "")
+    params = pending.get("params") or {}
+    est = float(pending.get("est_usd") or 0.0)
+    state = load_state()
+    state["pending_confirm"] = {
+        "cmd": name,                       # human label; not a slash-command
+        "resume": {"kind": "router_tool", "tool": name, "params": params, "est": est},
+    }
+    save_state(state)
+    ptxt = f" (платно ~${est:.2f})" if est else " (платно)"
+    send_with_keyboard(
+        chat_id, f"Запустить {name}?{ptxt}",
+        [[{"text": "▶️ Запустить", "callback_data": "confirm:run"},
+          {"text": "Отмена", "callback_data": "confirm:cancel"}]],
+    )
+
+
 def _render_router_response(chat_id: str, response) -> None:
     """Render a RouterResponse back to Telegram (text + any media)."""
     chat_id_s = str(chat_id)
@@ -8673,6 +8761,11 @@ def _render_router_response(chat_id: str, response) -> None:
         elif item.kind == "video" and item.media:
             send(chat_id_s, f"🎬 Видео: {item.media}")
     if not response.text and not media:
+        # A pending_paid turn is NOT done — it awaits a confirm tap (the button
+        # is shown by _router_paid_confirm). Emitting «Готово.» here would be a
+        # lie. Only a genuinely empty answer gets the acknowledgement.
+        if getattr(response, "pending_paid", None):
+            return
         send(chat_id_s, "Готово.")
 
 
@@ -8724,6 +8817,13 @@ def _run_router(chat_id: str, text: str, msg: Dict[str, Any]):
             flush=True,
         )
         return None
+    # A pending_paid turn is NOT a completed exchange — do not poison the
+    # history with an empty assistant reply nor mislabel it as "handled". The
+    # bridge shows the confirm button; the real answer comes after the tap.
+    if getattr(response, "pending_paid", None):
+        print(f"[router] paid tool pending confirm: {response.pending_paid.get('name')}",
+              flush=True)
+        return response
     _router_history_append(str(chat_id), text, getattr(response, "text", "") or "")
     tools = getattr(response, "tools_used", None) or []
     print(f"[router] handled chat={chat_id} via tools={tools}", flush=True)
@@ -8740,6 +8840,13 @@ def _route_plain_text(chat_id: str, text: str, msg: Dict[str, Any]) -> bool:
     response = _run_router(chat_id, text, msg)
     if response is None:
         return False
+    pending = getattr(response, "pending_paid", None)
+    if pending:
+        try:
+            _router_paid_confirm(chat_id, pending)
+        except Exception as e:  # noqa: BLE001 - confirm must not crash the loop
+            print(f"[router] paid-confirm failed: {e}", flush=True)
+        return True                        # consumed; no spend, awaiting the tap
     try:
         _render_router_response(chat_id, response)
     except Exception as e:  # noqa: BLE001 - render must not crash the loop

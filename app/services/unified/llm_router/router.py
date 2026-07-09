@@ -332,6 +332,17 @@ class LLMRouter:
             cost_usd=cost,
         )
 
+    async def execute_paid_tool(
+        self, name: str, params: Dict[str, Any], context: ToolContext
+    ) -> ToolResult:
+        """Execute one already-confirmed tool by name. Used by the confirm flow.
+
+        Cost is NOT recorded here — the caller wraps this in ``guard_spend`` so
+        the cap check happens before spend and the ledger is written only on a
+        successful result (mirrors the face_swap pattern).
+        """
+        return await self._execute_tool(name, params, context)
+
     # ── internals ──────────────────────────────────────────────────────────
     def _create_message(self, **kwargs: Any) -> Any:
         """Call ``messages.create`` with bounded exponential-backoff retry.
