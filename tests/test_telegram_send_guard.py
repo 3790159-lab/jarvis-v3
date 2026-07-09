@@ -46,3 +46,18 @@ def test_disable_env_forces_block_outside_pytest(monkeypatch):
     monkeypatch.delenv("JARVIS_ALLOW_TELEGRAM_SEND", raising=False)
     monkeypatch.setenv("JARVIS_DISABLE_TELEGRAM_SEND", "1")
     assert ti.telegram_send_blocked() is True
+
+
+def test_devtask_gate_pytest_env_blanks_secrets_and_arms_guard(monkeypatch):
+    # The merge gate runs pytest in the worktree as a subprocess of the BOT
+    # process; without a sanitized env it inherits the real bot token and a
+    # worktree test can reach the admin's real chat (the 152568 leak vector —
+    # distinct from the CC dev-run, which runner.sanitized_child_env covers).
+    import tools.jarvis_smart_telegram_control as c
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:REALTOKEN")
+    monkeypatch.setenv("WAVESPEED_API_KEY", "ws")
+    env = c._devtask_pytest_env()
+    assert env["TELEGRAM_BOT_TOKEN"] == ""             # can't reach the real chat
+    assert env["WAVESPEED_API_KEY"] == ""              # can't spend
+    assert env["JARVIS_DISABLE_TELEGRAM_SEND"] == "1"  # app-layer guard armed too
+    assert "PATH" in env                               # inherited env preserved

@@ -1557,6 +1557,20 @@ def _devtask_run_body(chat_id, tid: str) -> None:
         _devtask_safe_set_status(_devtask_queue(), tid, "failed", error=str(exc))
 
 
+def _devtask_pytest_env() -> Dict[str, str]:
+    """Env for the pytest subprocesses the merge gate spawns inside a worktree.
+
+    The gate runs in the BOT process, so a naive subprocess inherits the real
+    bot token / paid-API keys and a worktree test could reach the admin's real
+    chat or spend — the 152568 leak vector (distinct from the CC dev-run, which
+    :func:`runner.sanitized_child_env` already neutralizes). Blank every live
+    secret AND arm the app-layer send-guard, belt-and-suspenders."""
+    from app.services.devtask import runner as _runner
+    env = _runner.sanitized_child_env(os.environ)
+    env["JARVIS_DISABLE_TELEGRAM_SEND"] = "1"
+    return env
+
+
 def _devtask_run_regress(worktree: str) -> dict:
     """Run the suite in the worktree, verdict vs baseline. {ok, text}."""
     from tools import jarvis_observe as _jo
@@ -1568,6 +1582,7 @@ def _devtask_run_regress(worktree: str) -> dict:
             cwd=worktree, capture_output=True, text=True,
             timeout=int(os.getenv("REGRESS_TIMEOUT_S", "900")),
             creationflags=(0x4000 if sys.platform == "win32" else 0),
+            env=_devtask_pytest_env(),
             encoding="utf-8", errors="replace")
     except _sp.TimeoutExpired:
         return {"ok": False, "text": "⏱ регресс-прогон превысил таймаут"}
@@ -1611,6 +1626,7 @@ def _devtask_run_targeted(worktree: str, base_head: str) -> dict:
             cwd=worktree, capture_output=True, text=True,
             timeout=int(os.getenv("REGRESS_TIMEOUT_S", "900")),
             creationflags=(0x4000 if sys.platform == "win32" else 0),
+            env=_devtask_pytest_env(),
             encoding="utf-8", errors="replace")
     except _sp.TimeoutExpired:
         return {"ok": False, "mode": "targeted", "text": "⏱ таргет-прогон превысил таймаут"}
