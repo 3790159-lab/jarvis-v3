@@ -1495,28 +1495,28 @@ def _devtask_run_body(chat_id, tid: str) -> None:
     from app.services.devtask import runner as _r, queue as _q, git_ops as _g, preflight as _pf
     from datetime import datetime as _dt
     q = _devtask_queue()
-    # 0. Preflight ($0, BOTH before any worktree/CC spawn):
-    #    (a) monthly-budget gate (Фаза 8.2) — local ledger sum for this calendar
-    #        month vs BUDGET_CC_MONTHLY; a depleted budget refuses HONESTLY with
-    #        spent/budget numbers before we pay to build a worktree; and
-    #    (b) canary credit preflight (Фаза 8.1) — a dead balance answers 400
-    #        "credit balance too low" for free. Fails OPEN on any transport error
-    #        — cc_error (b658603) still insures a mid-run dead balance.
-    bpf = _pf.preflight_budget_check(q.month_cost(_dt.utcnow()))
-    if not bpf.get("ok"):
-        reason = bpf.get("reason") or "unknown"
-        send(chat_id, "🚫 Dev-задача %s отклонена на preflight: %s.\n"
-             "Месячный бюджет CC исчерпан — подними BUDGET_CC_MONTHLY или дождись "
-             "нового месяца." % (tid, reason))
-        _devtask_safe_set_status(q, tid, _q.STATUS_FAILED, error="preflight: %s" % reason)
-        return
-    pf = _pf.preflight_credit_check()
-    if not pf.get("ok"):
-        reason = pf.get("reason") or "unknown"
-        send(chat_id, "🚫 Dev-задача %s отклонена на preflight: %s.\n"
-             "Похоже, баланс Anthropic исчерпан — пополни баланс и повтори." % (tid, reason))
-        _devtask_safe_set_status(q, tid, _q.STATUS_FAILED, error="preflight: %s" % reason)
-        return
+    # 0. Preflight ($0, before any worktree/CC spawn) — API-MODE ONLY. In
+    #    subscription mode (default) there is no API credit to gate on (flat-rate
+    #    Max) and the budget ledger is notional/stats-only, so we neither canary
+    #    nor block; the run's cost is still recorded on the card at completion.
+    #    (a) monthly-budget gate (Фаза 8.2) vs BUDGET_CC_MONTHLY;
+    #    (b) canary credit preflight (Фаза 8.1) — a dead balance answers 400 free.
+    if _r.devtask_auth_mode() == "api":
+        bpf = _pf.preflight_budget_check(q.month_cost(_dt.utcnow()))
+        if not bpf.get("ok"):
+            reason = bpf.get("reason") or "unknown"
+            send(chat_id, "🚫 Dev-задача %s отклонена на preflight: %s.\n"
+                 "Месячный бюджет CC исчерпан — подними BUDGET_CC_MONTHLY или дождись "
+                 "нового месяца." % (tid, reason))
+            _devtask_safe_set_status(q, tid, _q.STATUS_FAILED, error="preflight: %s" % reason)
+            return
+        pf = _pf.preflight_credit_check()
+        if not pf.get("ok"):
+            reason = pf.get("reason") or "unknown"
+            send(chat_id, "🚫 Dev-задача %s отклонена на preflight: %s.\n"
+                 "Похоже, баланс Anthropic исчерпан — пополни баланс и повтори." % (tid, reason))
+            _devtask_safe_set_status(q, tid, _q.STATUS_FAILED, error="preflight: %s" % reason)
+            return
     # 1. Worktree setup in THIS thread (heavy detached checkout). On failure →
     #    mark failed (not stuck) + explicit admin notify; CC never launches.
     try:
@@ -1558,10 +1558,18 @@ def _devtask_run_body(chat_id, tid: str) -> None:
         else:
             # cc_error / no_report: partial spend may still have been billed —
             # persist it so month_cost() counts spend even on doomed runs.
-            _devtask_queue().set_status(tid, _q.STATUS_FAILED, error=res.get("reason"),
+            reason = res.get("reason")
+            _devtask_queue().set_status(tid, _q.STATUS_FAILED, error=reason,
                                         cost=res.get("cost"))
-            send(chat_id, "❌ Dev-задача %s не дошла до СТОП: %s. Worktree сохранён для инспекции "
-                 "([Откат] чтобы снести)." % (tid, res.get("reason")))
+            if _r.is_rate_limited(reason or ""):
+                # Subscription Max-quota hit — an HONEST hint, never a silent
+                # fallback to the paid API key (that would spend real money).
+                send(chat_id, "🛑 Dev-задача %s остановлена: исчерпана Max-квота подписки "
+                     "(%s). Попробуй позже или переключи DEVTASK_AUTH_MODE=api (платный ключ). "
+                     "Worktree сохранён ([Откат] чтобы снести)." % (tid, reason))
+            else:
+                send(chat_id, "❌ Dev-задача %s не дошла до СТОП: %s. Worktree сохранён для инспекции "
+                     "([Откат] чтобы снести)." % (tid, reason))
     except Exception as exc:  # thread must never die silently
         logger.exception("devtask %s CC-run failed", tid)  # traceback → jarvis_bot.log
         send(chat_id, "❌ Dev-задача %s упала: %s" % (tid, exc))  # notify before persist

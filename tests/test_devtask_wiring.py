@@ -299,6 +299,7 @@ def test_run_body_preflight_block_refuses_before_worktree(monkeypatch, tmp_path)
     monkeypatch.setattr(mod, "_DEVTASK_QUEUE", q, raising=False)
     sent = []
     monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
+    monkeypatch.setenv("DEVTASK_AUTH_MODE", "api")   # preflight is api-mode-only now
     monkeypatch.setattr(_pf, "preflight_credit_check",
                         lambda *a, **k: {"ok": False, "reason": "credit balance too low"})
     from app.services.devtask import git_ops as g, runner as r
@@ -349,6 +350,7 @@ def test_run_body_budget_block_refuses_before_worktree(monkeypatch, tmp_path):
     sent = []
     monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
     monkeypatch.setattr(_pf, "preflight_credit_check", lambda *a, **k: {"ok": True, "reason": None})
+    monkeypatch.setenv("DEVTASK_AUTH_MODE", "api")   # preflight is api-mode-only now
     monkeypatch.setattr(
         _pf, "preflight_budget_check",
         lambda spent, **k: {"ok": False, "reason": "месячный бюджет CC исчерпан (60.00$/50.00$)"})

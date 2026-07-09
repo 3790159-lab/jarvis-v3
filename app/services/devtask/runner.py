@@ -106,17 +106,50 @@ def _is_secret_env(name: str) -> bool:
     return up.endswith(_SECRET_ENV_SUFFIXES) or any(s in up for s in _SECRET_ENV_SUBSTRINGS)
 
 
-def sanitized_child_env(base) -> dict:
-    """A copy of ``base`` env with every live outbound secret blanked (the
-    Anthropic auth CC itself needs is preserved). The dev-task CC child gets this
-    so a worktree test physically cannot reach prod Telegram / paid APIs with real
-    credentials. Non-secret config (e.g. TELEGRAM_ALLOWED_CHAT_ID) is untouched so
-    the suite's admin-chat gate still behaves. The input mapping is not mutated."""
+def devtask_auth_mode() -> str:
+    """How the dev-task CC child authenticates (cost lever, 2026-07-10):
+    ``subscription`` (default) runs WITHOUT ANTHROPIC_API_KEY so ``claude`` falls
+    back to the logged-in account (flat-rate Max OAuth, ~$0 marginal); ``api``
+    keeps the key for per-token billing. Flip with ``DEVTASK_AUTH_MODE``."""
+    return os.getenv("DEVTASK_AUTH_MODE", "subscription").strip().lower()
+
+
+def sanitized_child_env(base, auth_mode: Optional[str] = None) -> dict:
+    """A copy of ``base`` env with every live outbound secret blanked so the
+    dev-task CC child (and any pytest it spawns) physically cannot reach prod
+    Telegram / paid APIs with real credentials. Non-secret config (e.g.
+    TELEGRAM_ALLOWED_CHAT_ID) is untouched so the suite's admin-chat gate still
+    behaves. The input mapping is not mutated.
+
+    Auth: in ``subscription`` mode (default) ANTHROPIC_API_KEY is *removed* — an
+    empty string would make the CLI try the API with a blank key (401), whereas
+    an absent key lets ``claude`` use the logged-in OAuth. In ``api`` mode the key
+    is preserved for per-token billing. ``auth_mode`` defaults to
+    :func:`devtask_auth_mode`."""
+    mode = (auth_mode or devtask_auth_mode()).lower()
     out = dict(base)
     for name in list(out):
         if _is_secret_env(name):
             out[name] = ""
+    if mode != "api":
+        out.pop("ANTHROPIC_API_KEY", None)
     return out
+
+
+#: Markers of a Max-plan quota/rate-limit exhaustion (subscription mode) — as
+#: opposed to an api-mode depleted *credit balance*, a different failure.
+_RATE_LIMIT_MARKERS = ("usage limit", "rate limit", "429", "quota", "too many requests")
+
+
+def is_rate_limited(text: str) -> bool:
+    """True when a failed CC ``reason`` looks like a Max quota/rate-limit hit, so
+    the pipeline can tell the admin to wait or switch DEVTASK_AUTH_MODE=api —
+    never a silent fallback to the paid key. A depleted api credit balance is
+    explicitly NOT this case."""
+    low = (text or "").lower()
+    if "credit balance" in low:
+        return False
+    return any(m in low for m in _RATE_LIMIT_MARKERS)
 
 
 def _resolve_claude(which: Callable[[str], Optional[str]],

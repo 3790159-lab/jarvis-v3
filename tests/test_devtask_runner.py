@@ -280,12 +280,12 @@ def test_sanitized_child_env_blanks_live_secrets_keeps_cc_auth():
         "PATH": "/usr/bin",
         "LOG_LEVEL": "INFO",
     }
-    out = r.sanitized_child_env(src)
+    out = r.sanitized_child_env(src, auth_mode="api")
     # every live outbound secret neutralized → worktree tests can't send/spend
     for k in ("TELEGRAM_BOT_TOKEN", "WAVESPEED_API_KEY", "REPLICATE_API_TOKEN",
               "XAI_API_KEY", "N8N_JARVIS_WEBHOOK_SECRET", "OPENAI_API_KEY"):
         assert out[k] == "", k
-    # CC's own auth MUST survive or the agent can't run at all
+    # api mode: CC's own auth MUST survive (per-token API billing)
     assert out["ANTHROPIC_API_KEY"] == "sk-ant-KEEP"
     # non-secret config survives — the admin-chat gate the devtask tests rely on
     assert out["TELEGRAM_ALLOWED_CHAT_ID"] == "237616472"
@@ -293,3 +293,39 @@ def test_sanitized_child_env_blanks_live_secrets_keeps_cc_auth():
     assert out["LOG_LEVEL"] == "INFO"
     # source env is not mutated (we return a copy)
     assert src["TELEGRAM_BOT_TOKEN"] == "123:REAL"
+
+
+# ── Cost lever: subscription auth (DEVTASK_AUTH_MODE) ───────────────────────
+def test_devtask_auth_mode_defaults_subscription(monkeypatch):
+    monkeypatch.delenv("DEVTASK_AUTH_MODE", raising=False)
+    assert r.devtask_auth_mode() == "subscription"
+    monkeypatch.setenv("DEVTASK_AUTH_MODE", "API")   # normalized to lowercase
+    assert r.devtask_auth_mode() == "api"
+
+
+def test_sanitized_env_subscription_removes_anthropic_key_to_force_oauth():
+    # Subscription mode: the CC child must NOT see ANTHROPIC_API_KEY at all (an
+    # empty string would make the CLI try the API with a blank key → 401), so it
+    # is REMOVED, letting claude fall back to the logged-in OAuth (flat-rate Max).
+    src = {"ANTHROPIC_API_KEY": "sk-ant", "TELEGRAM_BOT_TOKEN": "t", "PATH": "/x"}
+    out = r.sanitized_child_env(src, auth_mode="subscription")
+    assert "ANTHROPIC_API_KEY" not in out
+    assert out["TELEGRAM_BOT_TOKEN"] == ""          # other secrets still blanked
+    assert out["PATH"] == "/x"
+
+
+def test_sanitized_env_default_mode_is_subscription(monkeypatch):
+    monkeypatch.delenv("DEVTASK_AUTH_MODE", raising=False)
+    out = r.sanitized_child_env({"ANTHROPIC_API_KEY": "sk-ant", "PATH": "/x"})
+    assert "ANTHROPIC_API_KEY" not in out           # default = subscription
+
+
+def test_is_rate_limited_detects_max_quota_not_credit_balance():
+    assert r.is_rate_limited("cc_error: Claude AI usage limit reached")
+    assert r.is_rate_limited("cc_error: rate limit exceeded (429)")
+    assert r.is_rate_limited("cc_error: usage quota exhausted")
+    # a depleted API *credit balance* is a different failure (api-mode billing),
+    # NOT a Max-quota exhaustion — must not trigger the quota message.
+    assert not r.is_rate_limited("cc_error: credit balance is too low")
+    assert not r.is_rate_limited("no_report")
+    assert not r.is_rate_limited("")
