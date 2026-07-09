@@ -67,6 +67,7 @@ def test_targeted_merge_uses_targeted_gate_not_full_regress(monkeypatch, tmp_pat
                         lambda wt, base: seen.update(wt=wt, base=base) or
                         {"ok": True, "text": "🎯 3 passed", "mode": "targeted"})
     from app.services.devtask import git_ops as g, boot_watch as bw
+    monkeypatch.setattr(g, "is_merged", lambda *a, **k: False)
     monkeypatch.setattr(g, "is_ff_clean", lambda *a, **k: True)
     monkeypatch.setattr(g, "prod_head", lambda *a, **k: "n")
     monkeypatch.setattr(g, "ff_merge", lambda *a, **k: None)
@@ -88,6 +89,7 @@ def test_merge_records_mode_on_task(monkeypatch, tmp_path):
     monkeypatch.setattr(mod, "_devtask_run_targeted",
                         lambda wt, base: {"ok": True, "text": "🎯 3 passed", "mode": "targeted"})
     from app.services.devtask import git_ops as g, boot_watch as bw
+    monkeypatch.setattr(g, "is_merged", lambda *a, **k: False)
     monkeypatch.setattr(g, "is_ff_clean", lambda *a, **k: True)
     monkeypatch.setattr(g, "prod_head", lambda *a, **k: "n")
     monkeypatch.setattr(g, "ff_merge", lambda *a, **k: None)
@@ -104,6 +106,7 @@ def test_full_merge_records_full_mode(monkeypatch, tmp_path):
     monkeypatch.setattr(mod, "send", lambda *a, **k: None)
     monkeypatch.setattr(mod, "_devtask_run_regress", lambda *a, **k: {"ok": True, "text": "129==129"})
     from app.services.devtask import git_ops as g, boot_watch as bw
+    monkeypatch.setattr(g, "is_merged", lambda *a, **k: False)
     monkeypatch.setattr(g, "is_ff_clean", lambda *a, **k: True)
     monkeypatch.setattr(g, "prod_head", lambda *a, **k: "n")
     monkeypatch.setattr(g, "ff_merge", lambda *a, **k: None)
@@ -125,6 +128,8 @@ def test_targeted_empty_targets_blocks_merge(monkeypatch, tmp_path):
                                           "text": "🎯 не найдено тестов под дифф"})
     merged = {"x": False}
     monkeypatch.setattr(mod, "_devtask_do_merge", lambda *a, **k: merged.update(x=True))
+    from app.services.devtask import git_ops as g
+    monkeypatch.setattr(g, "is_merged", lambda *a, **k: False)
     mod._devtask_merge(ADMIN, tid, mode="targeted")
     assert merged["x"] is False
     assert q.get(tid)["status"] == STATUS_AWAITING_REVIEW

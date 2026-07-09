@@ -94,6 +94,51 @@ def test_ff_merge_uses_ff_only():
     assert all(v in g._ALLOWED_VERBS for v in _verbs(run.calls))
 
 
+# ── is_merged: branch already fully contained in prod HEAD (Этап 1) ─────────
+def test_is_merged_true_when_branch_is_ancestor_of_prod():
+    # merge-base --is-ancestor <branch> HEAD -> rc 0 means branch already in prod
+    run = _fake(rc=0)
+    assert g.is_merged("devtask-T1", run=run, root="C:/jarvis") is True
+    assert "merge-base --is-ancestor devtask-T1 HEAD" in " ".join(run.calls[-1])
+    assert all(v in g._ALLOWED_VERBS for v in _verbs(run.calls))
+
+
+def test_is_merged_false_when_branch_not_ancestor():
+    run = _fake(rc=1)
+    assert g.is_merged("devtask-T1", run=run, root="C:/jarvis") is False
+
+
+# ── merge_no_ff: a real merge COMMIT (never fast-forward) ───────────────────
+def test_merge_no_ff_uses_no_ff():
+    run = _fake()
+    g.merge_no_ff("devtask-T1", run=run, root="C:/jarvis")
+    joined = " ".join(run.calls[-1])
+    assert "merge --no-ff" in joined and "devtask-T1" in joined
+    assert "--ff-only" not in joined
+    assert all(v in g._ALLOWED_VERBS for v in _verbs(run.calls))
+
+
+# ── merge_prod_into_worktree: combine prod into branch worktree for testing ──
+def test_merge_prod_into_worktree_clean_returns_true():
+    run = _fake(rc=0)
+    assert g.merge_prod_into_worktree("C:/wt/devtask-T1", "prodsha", run=run) is True
+    joined = " ".join(run.calls[-1])
+    assert "-C C:/wt/devtask-T1" in joined and "merge" in joined and "prodsha" in joined
+    assert all(v in g._ALLOWED_VERBS for v in _verbs(run.calls))
+
+
+def test_merge_prod_into_worktree_conflict_aborts_and_returns_false():
+    def run(args, **k):
+        run.calls.append(args)
+        # first call (the merge) conflicts; the abort succeeds
+        rc = 1 if len(run.calls) == 1 else 0
+        return types.SimpleNamespace(stdout="", returncode=rc)
+    run.calls = []
+    assert g.merge_prod_into_worktree("C:/wt/devtask-T1", "prodsha", run=run) is False
+    assert any("merge --abort" in " ".join(c) for c in run.calls)
+    assert all(v in g._ALLOWED_VERBS for v in _verbs(run.calls))
+
+
 def test_remove_worktree_removes_and_deletes_branch():
     run = _fake()
     g.remove_worktree("T1", run=run, root="C:/jarvis", wt_root="C:/wt")

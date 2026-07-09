@@ -1644,17 +1644,101 @@ def _devtask_run_targeted(worktree: str, base_head: str) -> dict:
             "text": "🎯 таргет-тесты по диффу (%d файлов): %s %s" % (len(targets), icon, body)}
 
 
+def _devtask_run_targeted_combined(worktree: str, base_head: str) -> dict:
+    """Merge-commit gate (Этап 1): materialise the COMBINED code by merging the
+    current prod HEAD into the branch worktree, then run the targeted tests on it.
+
+    A merge conflict is an HONEST block (never an implicit pass) — the human must
+    resolve it manually. Otherwise the verdict is the usual targeted-test verdict
+    over the diff of the now-combined worktree.
+    """
+    from app.services.devtask import git_ops as _g
+    prod = _g.prod_head()
+    if not _g.merge_prod_into_worktree(worktree, prod):
+        return {"ok": False, "mode": "merge_commit",
+                "text": "🚫 конфликт слияния прод↔ветка в worktree — merge-коммит "
+                        "невозможен без ручного разбора конфликтов"}
+    return _devtask_run_targeted(worktree, base_head)
+
+
+def _devtask_merge_commit(chat_id, tid: str) -> None:
+    """Case (b): prod moved, branch not merged. Test the COMBINED code, then do a
+    real non-FF merge commit in prod (never a fast-forward)."""
+    from app.services.devtask import git_ops as _g, boot_watch as _bw, queue as _q
+    q = _devtask_queue()
+    item = q.get(tid)
+    if not item:
+        send(chat_id, "Задача не найдена.")
+        return
+    if _devtask_is_terminal(item):
+        send(chat_id, "Задача %s уже завершена (%s) — повторный мердж не нужен." %
+             (tid, item.get("status")))
+        return
+    # The branch may have been merged out-of-band since the button appeared —
+    # then just close the card, don't merge again.
+    if _g.is_merged(item["branch"]):
+        _devtask_close_already_merged(chat_id, tid, item)
+        return
+    send(chat_id, "🎯 Собираю объединённый код (прод+ветка) и прогоняю таргет-тесты "
+         "перед merge-коммитом…")
+    verdict = _devtask_run_targeted_combined(item["worktree"], item["base_head"])
+    if not verdict["ok"]:
+        send(chat_id, "🚫 Merge-коммит заблокирован: %s\n"
+             "Можно принудительно через [⚠️ Мердж без регресса]." % verdict["text"])
+        return
+    old = _g.prod_head()
+    _g.merge_no_ff(item["branch"])
+    new = _g.prod_head()
+    _bw.write_pending_restart(_devtask_state_dir(), tid, old, new)
+    _bw.write_boot_watch(_devtask_state_dir(), tid, old, new)
+    _devtask_queue().set_status(tid, _q.STATUS_MERGED, old_head=old, new_head=new,
+                                regress_mode="merge_commit", cost=item.get("cost"))
+    send(chat_id, "✅ Merge-коммит %s выполнен (%s→%s). Режим проверки: merge_commit "
+         "(таргет-тесты по объединённому коду)." % (tid, old, new))
+    _devtask_restart(chat_id)
+
+
 def _devtask_restart(chat_id) -> None:
     send(chat_id, "🔄 Перезапускаю бота через гардиан (новый код вступает в силу)…")
     time.sleep(3)
     os._exit(0)
 
 
+def _devtask_mergecommit_keyboard(tid: str) -> list:
+    """Shown when prod moved but the branch is NOT yet merged: instead of a
+    dead-end "manual rebase", offer a real non-FF merge (with a combined-code
+    targeted-test gate) or a rollback."""
+    return [
+        [{"text": "🔀 Смерджить merge-коммитом", "callback_data": "devtask:mergecommit:%s" % tid},
+         {"text": "↩️ Откат", "callback_data": "devtask:rollback:%s" % tid}],
+    ]
+
+
+def _devtask_close_already_merged(chat_id, tid: str, item: dict) -> None:
+    """Case (a): the branch is already fully contained in prod (merged out-of-band).
+    Don't run regress and don't scold about "prod moved" — just close the card as
+    merged with the factual old/new heads. No restart: prod already runs this code."""
+    from app.services.devtask import git_ops as _g, queue as _q
+    old = item.get("base_head")
+    new = _g.prod_head()
+    _devtask_queue().set_status(tid, _q.STATUS_MERGED, old_head=old, new_head=new,
+                                regress_mode="already_merged", cost=item.get("cost"))
+    send(chat_id, "✅ Ветка %s уже влита в прод — карточка %s закрыта как merged "
+         "(%s→%s), регресс не гонял." % (item.get("branch"), tid, old, new))
+
+
 def _devtask_do_merge(chat_id, tid: str, item: dict, mode: str = "full") -> None:
     from app.services.devtask import git_ops as _g, boot_watch as _bw, queue as _q
     if not _g.is_ff_clean(item["branch"], item["base_head"]):
-        send(chat_id, "🚫 Прод сдвинулся с момента старта задачи — FF невозможен. "
-             "Нужен ручной rebase ветки %s." % item["branch"])
+        # Prod moved and the branch is NOT merged (the already-merged case is caught
+        # earlier in _devtask_merge). Offer a real non-FF merge instead of the old
+        # "manual rebase" dead-end — the button re-tests the COMBINED code first.
+        send_with_keyboard(
+            chat_id,
+            "🚫 Прод сдвинулся с момента старта задачи — FF невозможен, но ветка %s "
+            "ещё НЕ влита. Можно смерджить merge-коммитом (обычный merge, не FF) — "
+            "перед этим прогоню таргет-тесты по объединённому коду." % item["branch"],
+            _devtask_mergecommit_keyboard(tid))
         return
     old = item["base_head"]
     _g.ff_merge(item["branch"])
@@ -1691,6 +1775,13 @@ def _devtask_merge(chat_id, tid: str, skip_regress: bool = False,
     if _devtask_is_terminal(item):
         send(chat_id, "Задача %s уже завершена (%s) — повторный мердж не нужен." %
              (tid, item.get("status")))
+        return
+    # Git-reality check (Этап 1): if the branch is ALREADY fully in prod (merged
+    # out-of-band), close the card as merged WITHOUT running regress and without
+    # the "prod moved" scolding. This precedes every mode, incl. [⚠️ force].
+    from app.services.devtask import git_ops as _g
+    if _g.is_merged(item["branch"]):
+        _devtask_close_already_merged(chat_id, tid, item)
         return
     if skip_regress:
         _devtask_do_merge(chat_id, tid, item, mode="skipped")
@@ -4959,6 +5050,12 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
             answer_callback_query(cq_id, "🎯")
             threading.Thread(target=_devtask_merge, args=(chat_id, tid), kwargs={"mode": "targeted"},
                              daemon=True, name="devtask_mergetarget_%s" % tid).start()
+        elif action == "mergecommit":
+            # Prod moved but branch not merged: a real non-FF merge commit, gated
+            # on targeted tests over the COMBINED (prod+branch) code (Этап 1).
+            answer_callback_query(cq_id, "🔀")
+            threading.Thread(target=_devtask_merge_commit, args=(chat_id, tid),
+                             daemon=True, name="devtask_mergecommit_%s" % tid).start()
         elif action == "mergeforce":
             answer_callback_query(cq_id, "⚠️")
             threading.Thread(target=_devtask_merge, args=(chat_id, tid), kwargs={"skip_regress": True},

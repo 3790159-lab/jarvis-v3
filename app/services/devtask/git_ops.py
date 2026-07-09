@@ -115,6 +115,34 @@ def ff_merge(branch: str, *, run=subprocess.run, root: str = PROD_REPO):
     return _git(root, run, "merge", "--ff-only", branch, check=True)
 
 
+def is_merged(branch: str, *, run=subprocess.run, root: str = PROD_REPO) -> bool:
+    """True iff ``<branch>`` is already fully contained in prod HEAD (branch is an
+    ancestor of HEAD) — the merge already happened out-of-band, so the card should
+    simply be closed as merged, NOT re-tested or flagged as "prod moved" (Этап 1)."""
+    res = _git(root, run, "merge-base", "--is-ancestor", branch, "HEAD")
+    return getattr(res, "returncode", 1) == 0
+
+
+def merge_no_ff(branch: str, *, run=subprocess.run, root: str = PROD_REPO):
+    """`git merge --no-ff <branch>` — a real merge COMMIT (never fast-forward),
+    for when prod moved but the branch still needs integrating (Этап 1)."""
+    return _git(root, run, "merge", "--no-ff", "--no-edit", branch, check=True)
+
+
+def merge_prod_into_worktree(worktree: str, prod_head: str, *,
+                             run=subprocess.run) -> bool:
+    """Merge current prod HEAD INTO the branch worktree to materialise the
+    COMBINED code (prod + branch) so the merge gate can test it before we create
+    the real merge commit in prod. Returns True on a clean merge; on a conflict
+    (rc != 0) we ``git merge --abort`` so the worktree stays usable and return
+    False (the human must resolve it manually)."""
+    res = _git(worktree, run, "merge", "--no-edit", prod_head)
+    if getattr(res, "returncode", 0) != 0:
+        _git(worktree, run, "merge", "--abort")
+        return False
+    return True
+
+
 def remove_worktree(task_id: str, *, run=subprocess.run, root: str = PROD_REPO,
                     wt_root: str = WT_ROOT) -> None:
     wt = _wt_path(task_id, wt_root)

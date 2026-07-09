@@ -68,6 +68,8 @@ def test_merge_blocked_when_regress_worse(monkeypatch, tmp_path):
     sent = []
     monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
     monkeypatch.setattr(mod, "_devtask_run_regress", lambda wt: {"ok": False, "text": "+3 fail"})
+    from app.services.devtask import git_ops as g
+    monkeypatch.setattr(g, "is_merged", lambda *a, **k: False)   # branch not yet in prod
     merged = {"called": False}
     monkeypatch.setattr(mod, "_devtask_do_merge", lambda *a, **k: merged.update(called=True))
     mod._devtask_merge(ADMIN, tid, skip_regress=False)
@@ -81,6 +83,7 @@ def test_merge_proceeds_when_regress_ok(monkeypatch, tmp_path):
     monkeypatch.setattr(mod, "_devtask_run_regress", lambda wt: {"ok": True, "text": "129==129"})
     order = []
     from app.services.devtask import git_ops as g, boot_watch as bw
+    monkeypatch.setattr(g, "is_merged", lambda *a, **k: False)
     monkeypatch.setattr(g, "is_ff_clean", lambda *a, **k: True)
     monkeypatch.setattr(g, "prod_head", lambda *a, **k: "newsha")
     monkeypatch.setattr(g, "ff_merge", lambda *a, **k: order.append("merge"))
@@ -98,6 +101,7 @@ def test_mergeforce_skips_regress(monkeypatch, tmp_path):
     called = {"regress": False}
     monkeypatch.setattr(mod, "_devtask_run_regress", lambda wt: called.update(regress=True) or {"ok": True, "text": ""})
     from app.services.devtask import git_ops as g, boot_watch as bw
+    monkeypatch.setattr(g, "is_merged", lambda *a, **k: False)
     monkeypatch.setattr(g, "is_ff_clean", lambda *a, **k: True)
     monkeypatch.setattr(g, "prod_head", lambda *a, **k: "n")
     monkeypatch.setattr(g, "ff_merge", lambda *a, **k: None)
@@ -108,17 +112,24 @@ def test_mergeforce_skips_regress(monkeypatch, tmp_path):
     assert called["regress"] is False and q.get(tid)["status"] == STATUS_MERGED
 
 
-def test_merge_rejected_when_prod_moved(monkeypatch, tmp_path):
+def test_merge_offers_mergecommit_when_prod_moved(monkeypatch, tmp_path):
+    # Prod moved AND branch not merged: instead of a "manual rebase" dead-end,
+    # offer a real non-FF merge-commit button (Этап 1). Card stays reviewable.
     q, tid = _seed_awaiting(monkeypatch, tmp_path)
-    sent = {}
-    monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.setdefault("t", t))
+    kb = {}
+    monkeypatch.setattr(mod, "send_with_keyboard",
+                        lambda cid, t, keyboard: kb.update(t=t, keyboard=keyboard))
+    monkeypatch.setattr(mod, "send", lambda *a, **k: None)
     monkeypatch.setattr(mod, "_devtask_run_regress", lambda wt: {"ok": True, "text": ""})
     from app.services.devtask import git_ops as g
+    monkeypatch.setattr(g, "is_merged", lambda *a, **k: False)
     monkeypatch.setattr(g, "is_ff_clean", lambda *a, **k: False)
     restarted = {"x": False}
     monkeypatch.setattr(mod, "_devtask_restart", lambda cid: restarted.update(x=True))
     mod._devtask_merge(ADMIN, tid, skip_regress=True)
-    assert "сдвин" in sent["t"].lower() and restarted["x"] is False
+    datas = [b["callback_data"] for row in kb["keyboard"] for b in row]
+    assert "devtask:mergecommit:%s" % tid in datas
+    assert "сдвин" in kb["t"].lower() and restarted["x"] is False
     assert q.get(tid)["status"] == STATUS_AWAITING_REVIEW
 
 
@@ -402,6 +413,7 @@ def test_merge_preserves_cost(monkeypatch, tmp_path):
     monkeypatch.setattr(mod, "send", lambda *a, **k: None)
     monkeypatch.setattr(mod, "_devtask_run_regress", lambda wt: {"ok": True, "text": ""})
     from app.services.devtask import git_ops as g, boot_watch as bw
+    monkeypatch.setattr(g, "is_merged", lambda *a, **k: False)
     monkeypatch.setattr(g, "is_ff_clean", lambda *a, **k: True)
     monkeypatch.setattr(g, "prod_head", lambda *a, **k: "newsha")
     monkeypatch.setattr(g, "ff_merge", lambda *a, **k: None)

@@ -84,6 +84,8 @@ def test_merge_on_awaiting_review_card_still_runs(monkeypatch, tmp_path):
                         lambda wt, base: ran.update(targeted=True) or
                         {"ok": True, "text": "ok", "mode": "targeted"})
     monkeypatch.setattr(mod, "_devtask_do_merge", lambda *a, **k: None)
+    from app.services.devtask import git_ops as g
+    monkeypatch.setattr(g, "is_merged", lambda *a, **k: False)   # branch not yet in prod
 
     mod._devtask_merge(ADMIN, tid, mode="targeted")
 
