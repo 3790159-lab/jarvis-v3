@@ -27,16 +27,38 @@ def test_build_prompt_injection_delimiter_is_neutralized():
     assert "ignore all previous instructions" in body     # trapped, not escaped
 
 
-def test_build_argv_defaults_opus_and_flags():
-    # inject `which` so argv[0] resolution is deterministic (env-independent);
-    # the real resolution is covered by test_build_argv_resolves_claude_*.
+def test_build_argv_defaults_sonnet_and_flags(monkeypatch):
+    # Cost lever (2026-07-10): default model is now SONNET (~5x cheaper than opus);
+    # opus is opt-in per task via the [opus] flag. inject `which` so argv[0]
+    # resolution is deterministic; env is pinned so the default is unambiguous.
+    monkeypatch.delenv("DEVTASK_CC_MODEL", raising=False)
     argv = r.build_argv("C:/wt", "uuid-123", "PROMPT TEXT",
                         which=lambda name: "claude")
     assert argv[0] == "claude" and "-p" in argv
-    assert argv[argv.index("--model") + 1] == "opus"
+    assert argv[argv.index("--model") + 1] == "sonnet"
     assert argv[argv.index("--permission-mode") + 1] == "bypassPermissions"
     assert argv[argv.index("--session-id") + 1] == "uuid-123"
     assert argv[argv.index("--output-format") + 1] == "stream-json"
+
+
+def test_default_model_sonnet_unless_env_overrides(monkeypatch):
+    monkeypatch.delenv("DEVTASK_CC_MODEL", raising=False)
+    assert r._default_model() == "sonnet"
+    monkeypatch.setenv("DEVTASK_CC_MODEL", "opus")
+    assert r._default_model() == "opus"
+
+
+def test_resolve_task_model_opus_flag_opts_into_opus(monkeypatch):
+    monkeypatch.delenv("DEVTASK_CC_MODEL", raising=False)
+    # plain task → the (cheap) default
+    assert r.resolve_task_model("почини кнопку /health") == "sonnet"
+    # [opus] flag anywhere in the task text → opus (case-insensitive)
+    assert r.resolve_task_model("ЭТ1-6 сложный рефактор [opus]") == "opus"
+    assert r.resolve_task_model("[OPUS] hard one") == "opus"
+    # env still overrides the *default*, but an explicit [opus] flag wins
+    monkeypatch.setenv("DEVTASK_CC_MODEL", "sonnet")
+    assert r.resolve_task_model("trivial") == "sonnet"
+    assert r.resolve_task_model("do X [opus]") == "opus"
 
 
 def test_build_argv_model_override():

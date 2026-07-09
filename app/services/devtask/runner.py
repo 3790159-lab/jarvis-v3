@@ -23,8 +23,25 @@ _TASK_CLOSE = "</TASK_SPEC>"
 
 
 def _default_model() -> str:
-    # Ревизия Daniil 2026-07-04: opus для первой обкатки (качество > расход).
-    return os.getenv("DEVTASK_CC_MODEL", "opus")
+    # Cost lever (Daniil 2026-07-10): default SONNET (~5x cheaper than opus).
+    # Opus stays opt-in per task via the [opus] flag (see resolve_task_model);
+    # DEVTASK_CC_MODEL still overrides the default fleet-wide.
+    return os.getenv("DEVTASK_CC_MODEL", "sonnet")
+
+
+#: A task can opt a single run into opus by putting this flag anywhere in its
+#: text — for the occasional hard task (e.g. a big Этап refactor) where quality
+#: is worth the ~5x. Everything else rides the cheap default.
+_OPUS_FLAG = "[opus]"
+
+
+def resolve_task_model(desc: str) -> str:
+    """Model for THIS task: opus iff the task text carries the ``[opus]`` flag,
+    else the (cheap) fleet default. Case-insensitive; the flag wins over the
+    env default so an operator can force opus on one task without a global flip."""
+    if _OPUS_FLAG in (desc or "").lower():
+        return "opus"
+    return _default_model()
 
 
 def _neutralize_delimiters(text: str) -> str:

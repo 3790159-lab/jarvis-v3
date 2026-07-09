@@ -1359,10 +1359,12 @@ def _devtask_dispatch(chat_id, desc: str) -> None:
              "([Мердж]/[Откат]) прежде чем запускать новую." % (active["id"], active["status"]))
         return
     tid = q.add(desc, requested_by=str(chat_id))
+    from app.services.devtask import runner as _r
+    _mdl = _r.resolve_task_model(desc)
     send_with_keyboard(
         chat_id,
-        "🛠 Dev-задача принята:\n%s\n\nЗапустить Claude Code (opus, изолированный "
-        "worktree, TDD, СТОП перед мерджем)?" % desc,
+        "🛠 Dev-задача принята:\n%s\n\nЗапустить Claude Code (%s, изолированный "
+        "worktree, TDD, СТОП перед мерджем)?" % (desc, _mdl),
         [[{"text": "▶️ Запустить", "callback_data": "devtask:confirm:%s" % tid},
           {"text": "Отмена", "callback_data": "devtask:cancel:%s" % tid}]],
     )
@@ -1470,8 +1472,10 @@ def _devtask_confirm(chat_id, tid: str) -> None:
         return
     # Worktree setup (Variant A: instant --no-checkout add + a ~30-50s DETACHED
     # checkout) happens in the thread, NOT here — it must never block the poll loop.
-    send(chat_id, "🚀 Готовлю изолированный worktree и запускаю Claude Code (opus, TDD). "
-                  "Подготовка ~минуту, выполнение ~10-30 мин; дойду до СТОП — пришлю отчёт.")
+    from app.services.devtask import runner as _r
+    _mdl = _r.resolve_task_model((q.get(tid) or {}).get("desc", ""))
+    send(chat_id, "🚀 Готовлю изолированный worktree и запускаю Claude Code (%s, TDD). "
+                  "Подготовка ~минуту, выполнение ~10-30 мин; дойду до СТОП — пришлю отчёт." % _mdl)
     threading.Thread(target=_devtask_run_body, args=(chat_id, tid), daemon=True,
                      name="devtask_%s" % tid).start()
 
@@ -1537,7 +1541,8 @@ def _devtask_run_body(chat_id, tid: str) -> None:
         stderr_path = str(_P("state/dev_tasks") / tid / "stderr.log")
         prompt = _r.build_prompt(tid, item["desc"])
         session_uuid = str(_uuid.uuid4())
-        argv = _r.build_argv(wt, session_uuid, prompt)
+        argv = _r.build_argv(wt, session_uuid, prompt,
+                             model=_r.resolve_task_model(item["desc"]))
         res = _r.run(argv=argv, cwd=wt, report_path=report_path, stderr_path=stderr_path)
         if res.get("status") == "awaiting_review":
             # Persist cost onto the card (Фаза 8.2): it was previously only shown
