@@ -28,6 +28,38 @@ _TIMEOUT_S = 15
 _CREDIT_LOW = "credit balance is too low"
 _INVALID_KEY = "invalid x-api-key"
 
+DEFAULT_BUDGET_USD = 50.0
+
+
+def budget_from_env() -> float:
+    """Monthly CC budget ceiling from ``BUDGET_CC_MONTHLY`` (USD, default 50.0).
+
+    A malformed value falls back to the default rather than crashing the
+    preflight — a typo in the env must not wedge the whole dev-task queue.
+    """
+    try:
+        return float(os.getenv("BUDGET_CC_MONTHLY", ""))
+    except (TypeError, ValueError):
+        return DEFAULT_BUDGET_USD
+
+
+def preflight_budget_check(spent: float, budget: Optional[float] = None) -> Dict[str, object]:
+    """Refuse a CC spawn once this month's spend hits the budget ceiling.
+
+    ``spent`` is the calendar-month cost from the local ledger
+    (``DevTaskQueue.month_cost(now)``) — computed by the caller so this stays
+    pure and free. ``budget`` defaults to ``BUDGET_CC_MONTHLY`` (env, 50.0).
+    Blocks (``ok=False``) when ``spent >= budget`` with honest spent/budget
+    numbers baked into ``reason`` for the Telegram refusal.
+    """
+    budget = budget_from_env() if budget is None else budget
+    if spent >= budget:
+        return {
+            "ok": False,
+            "reason": "месячный бюджет CC исчерпан (%.2f$/%.2f$)" % (spent, budget),
+        }
+    return {"ok": True, "reason": None}
+
 
 def _default_post(url, **kwargs):
     import requests

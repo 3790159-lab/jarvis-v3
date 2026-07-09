@@ -108,3 +108,50 @@ def test_canary_passes_a_timeout():
     post = _capture_post(_Resp(200))
     preflight.preflight_credit_check(post=post)
     assert post.calls[0].get("timeout")  # a positive, finite timeout is set
+
+
+# ── monthly budget gate (Фаза 8.2): local ledger, $0, no network ────────────
+def test_budget_ok_when_spent_below_default(monkeypatch):
+    monkeypatch.delenv("BUDGET_CC_MONTHLY", raising=False)
+    res = preflight.preflight_budget_check(10.0)
+    assert res["ok"] is True and res["reason"] is None
+
+
+def test_budget_blocks_when_spent_at_default(monkeypatch):
+    # >= is the boundary: spending exactly the budget already blocks.
+    monkeypatch.delenv("BUDGET_CC_MONTHLY", raising=False)
+    res = preflight.preflight_budget_check(50.0)
+    assert res["ok"] is False
+    assert "50" in res["reason"]                     # honest spent/budget numbers
+
+
+def test_budget_blocks_when_spent_above_default(monkeypatch):
+    monkeypatch.delenv("BUDGET_CC_MONTHLY", raising=False)
+    res = preflight.preflight_budget_check(51.23)
+    assert res["ok"] is False
+    assert "51.23" in res["reason"] and "50.00" in res["reason"]
+
+
+def test_budget_reads_env(monkeypatch):
+    monkeypatch.setenv("BUDGET_CC_MONTHLY", "10")
+    res = preflight.preflight_budget_check(12.0)
+    assert res["ok"] is False
+    assert "12.00" in res["reason"] and "10.00" in res["reason"]
+
+
+def test_budget_ok_below_env(monkeypatch):
+    monkeypatch.setenv("BUDGET_CC_MONTHLY", "100")
+    res = preflight.preflight_budget_check(12.0)
+    assert res["ok"] is True
+
+
+def test_budget_explicit_arg_overrides_env(monkeypatch):
+    monkeypatch.setenv("BUDGET_CC_MONTHLY", "999")
+    res = preflight.preflight_budget_check(5.0, budget=4.0)
+    assert res["ok"] is False
+
+
+def test_budget_invalid_env_falls_back_to_default(monkeypatch):
+    monkeypatch.setenv("BUDGET_CC_MONTHLY", "not-a-number")
+    assert preflight.preflight_budget_check(49.0)["ok"] is True    # below default 50
+    assert preflight.preflight_budget_check(50.0)["ok"] is False   # at default 50

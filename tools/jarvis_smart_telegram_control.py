@@ -1422,12 +1422,23 @@ def _devtask_run_body(chat_id, tid: str) -> None:
     import uuid as _uuid
     from pathlib import Path as _P
     from app.services.devtask import runner as _r, queue as _q, git_ops as _g, preflight as _pf
+    from datetime import datetime as _dt
     q = _devtask_queue()
-    # 0. Canary credit preflight ($0) BEFORE any worktree/CC spawn (Фаза 8.1):
-    #    a dead balance answers 400 "credit balance too low" for free, so refuse
-    #    the doomed task HONESTLY here instead of paying to build a worktree and
-    #    spawn a CC that dies on its first request. Fails OPEN on any transport
-    #    error — cc_error (b658603) still insures a mid-run dead balance.
+    # 0. Preflight ($0, BOTH before any worktree/CC spawn):
+    #    (a) monthly-budget gate (Фаза 8.2) — local ledger sum for this calendar
+    #        month vs BUDGET_CC_MONTHLY; a depleted budget refuses HONESTLY with
+    #        spent/budget numbers before we pay to build a worktree; and
+    #    (b) canary credit preflight (Фаза 8.1) — a dead balance answers 400
+    #        "credit balance too low" for free. Fails OPEN on any transport error
+    #        — cc_error (b658603) still insures a mid-run dead balance.
+    bpf = _pf.preflight_budget_check(q.month_cost(_dt.utcnow()))
+    if not bpf.get("ok"):
+        reason = bpf.get("reason") or "unknown"
+        send(chat_id, "🚫 Dev-задача %s отклонена на preflight: %s.\n"
+             "Месячный бюджет CC исчерпан — подними BUDGET_CC_MONTHLY или дождись "
+             "нового месяца." % (tid, reason))
+        _devtask_safe_set_status(q, tid, _q.STATUS_FAILED, error="preflight: %s" % reason)
+        return
     pf = _pf.preflight_credit_check()
     if not pf.get("ok"):
         reason = pf.get("reason") or "unknown"
@@ -1462,15 +1473,21 @@ def _devtask_run_body(chat_id, tid: str) -> None:
         argv = _r.build_argv(wt, session_uuid, prompt)
         res = _r.run(argv=argv, cwd=wt, report_path=report_path, stderr_path=stderr_path)
         if res.get("status") == "awaiting_review":
+            # Persist cost onto the card (Фаза 8.2): it was previously only shown
+            # in the Telegram message and then lost — the monthly ledger needs it.
             _devtask_queue().set_status(tid, _q.STATUS_AWAITING_REVIEW,
-                                        session_id=res.get("session_id"), report_path=report_path)
+                                        session_id=res.get("session_id"), report_path=report_path,
+                                        cost=res.get("cost"))
             send_with_keyboard(
                 chat_id,
                 "🛠 Dev-задача %s дошла до СТОП. Проверь отчёт и выбери действие.\n"
                 "Стоимость: %s" % (tid, res.get("cost")),
                 _devtask_review_keyboard(tid))
         else:
-            _devtask_queue().set_status(tid, _q.STATUS_FAILED, error=res.get("reason"))
+            # cc_error / no_report: partial spend may still have been billed —
+            # persist it so month_cost() counts spend even on doomed runs.
+            _devtask_queue().set_status(tid, _q.STATUS_FAILED, error=res.get("reason"),
+                                        cost=res.get("cost"))
             send(chat_id, "❌ Dev-задача %s не дошла до СТОП: %s. Worktree сохранён для инспекции "
                  "([Откат] чтобы снести)." % (tid, res.get("reason")))
     except Exception as exc:  # thread must never die silently
@@ -1569,8 +1586,10 @@ def _devtask_do_merge(chat_id, tid: str, item: dict, mode: str = "full") -> None
     _bw.write_boot_watch(_devtask_state_dir(), tid, old, new)
     # regress_mode: which gate approved this merge (full regress / targeted / skipped) —
     # persisted so the task record shows how thoroughly it was verified before merge.
+    # cost: re-affirm the final cost on the card (Фаза 8.2) so it survives the
+    # merge transition and stays counted by month_cost().
     _devtask_queue().set_status(tid, _q.STATUS_MERGED, old_head=old, new_head=new,
-                                regress_mode=mode)
+                                regress_mode=mode, cost=item.get("cost"))
     send(chat_id, "✅ FF-мердж %s выполнен (%s→%s). Режим проверки: %s." % (tid, old, new, mode))
     _devtask_restart(chat_id)
 

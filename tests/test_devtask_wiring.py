@@ -325,6 +325,94 @@ def test_run_body_preflight_ok_proceeds_to_worktree(monkeypatch, tmp_path):
     assert q.get(tid)["status"] == STATUS_AWAITING_REVIEW
 
 
+def test_run_body_budget_block_refuses_before_worktree(monkeypatch, tmp_path):
+    # Money-safety (Фаза 8.2): the monthly budget check runs alongside the canary,
+    # BOTH before any worktree/spawn. A depleted monthly budget refuses the task
+    # honestly with spent/budget numbers — no worktree, no CC.
+    from app.services.devtask.queue import STATUS_RUNNING, STATUS_FAILED
+    from app.services.devtask import preflight as _pf
+    q = DevTaskQueue(base_dir=tmp_path)
+    tid = q.add("do X")
+    q.set_status(tid, STATUS_RUNNING)
+    monkeypatch.setattr(mod, "_DEVTASK_QUEUE", q, raising=False)
+    sent = []
+    monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
+    monkeypatch.setattr(_pf, "preflight_credit_check", lambda *a, **k: {"ok": True, "reason": None})
+    monkeypatch.setattr(
+        _pf, "preflight_budget_check",
+        lambda spent, **k: {"ok": False, "reason": "месячный бюджет CC исчерпан (60.00$/50.00$)"})
+    from app.services.devtask import git_ops as g, runner as r
+    monkeypatch.setattr(g, "create_worktree",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("no worktree on budget block")))
+    monkeypatch.setattr(r, "run", lambda **k: (_ for _ in ()).throw(AssertionError("CC must not run")))
+    mod._devtask_run_body(ADMIN, tid)
+    item = q.get(tid)
+    assert item["status"] == STATUS_FAILED                       # terminal
+    assert "бюджет" in item["error"]                             # honest cause
+    blob = " ".join(sent)
+    assert "60.00$/50.00$" in blob                               # honest spent/budget numbers
+
+
+def test_run_body_persists_cost_on_awaiting_review(monkeypatch, tmp_path):
+    # Фаза 8.2 point 1: cost must be persisted onto the card (not only shown in
+    # the Telegram message and then lost) so the monthly ledger can sum it.
+    from app.services.devtask.queue import STATUS_RUNNING, STATUS_AWAITING_REVIEW
+    from app.services.devtask import preflight as _pf
+    q = DevTaskQueue(base_dir=tmp_path)
+    tid = q.add("build X")
+    q.set_status(tid, STATUS_RUNNING)
+    monkeypatch.setattr(mod, "_DEVTASK_QUEUE", q, raising=False)
+    monkeypatch.setattr(mod, "send", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "send_with_keyboard", lambda *a, **k: None)
+    monkeypatch.setattr(_pf, "preflight_credit_check", lambda *a, **k: {"ok": True, "reason": None})
+    from app.services.devtask import git_ops as g, runner as r
+    monkeypatch.setattr(g, "prod_head", lambda *a, **k: "base1")
+    monkeypatch.setattr(g, "create_worktree", lambda tid_, base, **k: f"C:/wt/devtask-{tid_}")
+    monkeypatch.setattr(r, "run", lambda **k: {"status": "awaiting_review", "session_id": "s", "cost": 0.37})
+    mod._devtask_run_body(ADMIN, tid)
+    assert q.get(tid)["status"] == STATUS_AWAITING_REVIEW
+    assert q.get(tid)["cost"] == 0.37                            # persisted onto card
+
+
+def test_run_body_persists_cost_on_failure(monkeypatch, tmp_path):
+    # cc_error / no_report branch: partial cost may still have been billed — persist
+    # it so the monthly ledger counts spend even on doomed runs.
+    from app.services.devtask.queue import STATUS_RUNNING, STATUS_FAILED
+    from app.services.devtask import preflight as _pf
+    q = DevTaskQueue(base_dir=tmp_path)
+    tid = q.add("build X")
+    q.set_status(tid, STATUS_RUNNING)
+    monkeypatch.setattr(mod, "_DEVTASK_QUEUE", q, raising=False)
+    monkeypatch.setattr(mod, "send", lambda *a, **k: None)
+    monkeypatch.setattr(_pf, "preflight_credit_check", lambda *a, **k: {"ok": True, "reason": None})
+    from app.services.devtask import git_ops as g, runner as r
+    monkeypatch.setattr(g, "prod_head", lambda *a, **k: "base1")
+    monkeypatch.setattr(g, "create_worktree", lambda tid_, base, **k: f"C:/wt/devtask-{tid_}")
+    monkeypatch.setattr(r, "run", lambda **k: {"status": "failed", "reason": "cc_error: credit low", "cost": 0.12})
+    mod._devtask_run_body(ADMIN, tid)
+    assert q.get(tid)["status"] == STATUS_FAILED
+    assert q.get(tid)["cost"] == 0.12                            # persisted even on failure
+
+
+def test_merge_preserves_cost(monkeypatch, tmp_path):
+    # Фаза 8.2 point 1: the final cost survives the merge transition so the card
+    # (and the monthly ledger) still reflects what the task cost.
+    q, tid = _seed_awaiting(monkeypatch, tmp_path)
+    q.set_status(tid, STATUS_AWAITING_REVIEW, cost=0.42)
+    monkeypatch.setattr(mod, "send", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "_devtask_run_regress", lambda wt: {"ok": True, "text": ""})
+    from app.services.devtask import git_ops as g, boot_watch as bw
+    monkeypatch.setattr(g, "is_ff_clean", lambda *a, **k: True)
+    monkeypatch.setattr(g, "prod_head", lambda *a, **k: "newsha")
+    monkeypatch.setattr(g, "ff_merge", lambda *a, **k: None)
+    monkeypatch.setattr(bw, "write_pending_restart", lambda *a, **k: None)
+    monkeypatch.setattr(bw, "write_boot_watch", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "_devtask_restart", lambda cid: None)
+    mod._devtask_merge(ADMIN, tid, skip_regress=True)
+    assert q.get(tid)["status"] == STATUS_MERGED
+    assert q.get(tid)["cost"] == 0.42                            # cost survives merge
+
+
 def test_run_body_report_path_is_under_worktree(monkeypatch, tmp_path):
     # Contract: CC writes the report relative to ITS cwd (the worktree). The
     # runner must therefore look for it UNDER the worktree, not under the bot's

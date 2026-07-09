@@ -128,6 +128,34 @@ class DevTaskQueue:
                 return data
         return None
 
+    def month_cost(self, now: datetime) -> float:
+        """Sum of ``cost`` over cards whose ``created_at`` is in ``now``'s month.
+
+        The local CC budget ledger (Фаза 8.2): ``now`` is injected (never
+        ``utcnow()`` here) so tests are deterministic. A card counts iff its
+        ``created_at`` parses to the same calendar (year, month) as ``now``;
+        a missing/None/unparseable ``created_at`` or ``cost`` contributes 0.
+        """
+        from app.services.block_l_common import load_json_safe
+        total = 0.0
+        for f in self._dir().glob("*.json"):
+            data = load_json_safe(f)
+            if not data:
+                continue
+            created = data.get("created_at")
+            try:
+                dt = datetime.fromisoformat(created)
+            except (TypeError, ValueError):
+                continue
+            if (dt.year, dt.month) != (now.year, now.month):
+                continue
+            cost = data.get("cost")
+            try:
+                total += float(cost) if cost is not None else 0.0
+            except (TypeError, ValueError):
+                pass
+        return total
+
     def list_recent(self, limit: int = 10) -> List[Dict[str, Any]]:
         from app.services.block_l_common import load_json_safe
         items = []

@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """Dev-task queue — pure state on tmp, $0, no network, no CC."""
+from datetime import datetime
+
 import app.services.devtask.queue as q
 
 
@@ -79,3 +81,55 @@ def test_claim_only_one_winner(tmp_path):
     tid = dq.add("t")
     results = [dq.claim(tid), dq.claim(tid)]
     assert results.count(True) == 1
+
+
+# ── month_cost (Фаза 8.2): sum of `cost` for cards created this month ────────
+def _seed_cost(dq, created_at, cost, status=q.STATUS_MERGED):
+    tid = dq.add("t")
+    dq.set_status(tid, status, created_at=created_at, cost=cost)
+    return tid
+
+
+def test_month_cost_sums_current_month(tmp_path):
+    dq = q.DevTaskQueue(base_dir=tmp_path)
+    now = datetime(2026, 7, 15, 12, 0, 0)
+    _seed_cost(dq, "2026-07-01T00:00:00", 1.5)
+    _seed_cost(dq, "2026-07-31T23:59:59", 2.25)
+    assert dq.month_cost(now) == 3.75
+
+
+def test_month_cost_excludes_other_months(tmp_path):
+    dq = q.DevTaskQueue(base_dir=tmp_path)
+    now = datetime(2026, 7, 15)
+    _seed_cost(dq, "2026-06-30T23:59:59", 10.0)     # previous month
+    _seed_cost(dq, "2026-08-01T00:00:00", 5.0)      # next month
+    _seed_cost(dq, "2026-07-10T00:00:00", 2.0)      # this month
+    assert dq.month_cost(now) == 2.0
+
+
+def test_month_cost_excludes_same_month_other_year(tmp_path):
+    dq = q.DevTaskQueue(base_dir=tmp_path)
+    now = datetime(2026, 7, 15)
+    _seed_cost(dq, "2025-07-10T00:00:00", 9.0)      # July but wrong year
+    assert dq.month_cost(now) == 0.0
+
+
+def test_month_cost_none_cost_counts_zero(tmp_path):
+    dq = q.DevTaskQueue(base_dir=tmp_path)
+    now = datetime(2026, 7, 15)
+    _seed_cost(dq, "2026-07-05T00:00:00", None, status=q.STATUS_FAILED)
+    _seed_cost(dq, "2026-07-06T00:00:00", 3.0)
+    assert dq.month_cost(now) == 3.0
+
+
+def test_month_cost_empty_is_zero(tmp_path):
+    dq = q.DevTaskQueue(base_dir=tmp_path)
+    assert dq.month_cost(datetime(2026, 7, 15)) == 0.0
+
+
+def test_month_cost_ignores_unparseable_created_at(tmp_path):
+    dq = q.DevTaskQueue(base_dir=tmp_path)
+    now = datetime(2026, 7, 15)
+    _seed_cost(dq, "not-a-date", 4.0)               # must not crash
+    _seed_cost(dq, "2026-07-08T00:00:00", 1.0)
+    assert dq.month_cost(now) == 1.0
