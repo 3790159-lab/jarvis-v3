@@ -1408,6 +1408,23 @@ def _devtask_review_keyboard(tid: str) -> list:
     ]
 
 
+def _regress_full_guard_on() -> bool:
+    """Full-regress guard (Этап 1). While the full regress is sick (OOM/timeout),
+    tapping [✅ Мердж] must warn + ask for confirmation instead of launching the
+    full regress blindly. Default ON; flip REGRESS_FULL_GUARD=0 once Этап 1 heals
+    the full suite. Read at call-time so tests/ops can toggle it live."""
+    return os.getenv("REGRESS_FULL_GUARD", "1").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _devtask_full_guard_keyboard(tid: str) -> list:
+    """Confirm keyboard shown when a guarded [✅ Мердж] tap is intercepted:
+    [Да, полный] proceeds with the real full regress; [Отмена] backs out."""
+    return [
+        [{"text": "Да, полный", "callback_data": "devtask:mergefull:%s" % tid},
+         {"text": "Отмена", "callback_data": "devtask:mergecancel:%s" % tid}],
+    ]
+
+
 _DEVTASK_MIN_FREE_GB = int(os.getenv("DEVTASK_MIN_FREE_GB", "4"))
 
 
@@ -4899,9 +4916,29 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
             _devtask_queue().set_status(tid, "rolled_back")
             send(chat_id, "Отменено. Задача %s не запущена." % tid)
         elif action == "merge":
+            # Full-regress guard (Этап 1): while the full regress is sick, don't
+            # launch it blindly — warn and ask for explicit confirmation. The
+            # regress mechanics are untouched; this is a UX confirmation layer only.
+            if _regress_full_guard_on():
+                answer_callback_query(cq_id, "⚠️")
+                send_with_keyboard(
+                    chat_id,
+                    "⚠️ Полный регресс сейчас нестабилен (OOM), рекомендуется "
+                    "[🎯 таргет]. Точно запустить полный?",
+                    _devtask_full_guard_keyboard(tid))
+            else:
+                answer_callback_query(cq_id, "🧪")
+                threading.Thread(target=_devtask_merge, args=(chat_id, tid), daemon=True,
+                                 name="devtask_merge_%s" % tid).start()
+        elif action == "mergefull":
+            # Confirmed full regress ([Да, полный]) — bypass the guard warning.
             answer_callback_query(cq_id, "🧪")
             threading.Thread(target=_devtask_merge, args=(chat_id, tid), daemon=True,
-                             name="devtask_merge_%s" % tid).start()
+                             name="devtask_mergefull_%s" % tid).start()
+        elif action == "mergecancel":
+            answer_callback_query(cq_id, "Отменено")
+            send(chat_id, "Отменено. Полный регресс не запущен — можно выбрать "
+                 "[🎯 Мердж (таргет-тесты)].")
         elif action == "mergetarget":
             answer_callback_query(cq_id, "🎯")
             threading.Thread(target=_devtask_merge, args=(chat_id, tid), kwargs={"mode": "targeted"},
