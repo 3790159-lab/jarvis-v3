@@ -42,6 +42,10 @@ ALLOWED_CHAT_ID = str(os.getenv("TELEGRAM_ALLOWED_CHAT_ID", "")).strip()
 
 _HEARTBEAT_FILE = Path("state/bot_heartbeat.txt")
 _GUARDIAN_HEARTBEAT_FILE = Path("state/guardian_heartbeat.txt")
+# Persisted getUpdates offset (Этап 1): survives restarts so updates that arrive
+# in the kill→start window are re-delivered (Telegram holds them 24h) and already
+# processed updates are not re-dispatched. Absolute so it never depends on CWD.
+_OFFSET_PATH = _PROJECT_ROOT / "state" / "telegram_offset.json"
 # Absolute so single-instance never depends on the process CWD: a CWD-relative
 # pid write could land outside the guardian's (absolute) bot.pid read and
 # silently defeat the guard. bot.pid stays a guardian TARGET; the OS lock below
@@ -1413,6 +1417,14 @@ def _devtask_free_gb(path: str = "C:/") -> float:
     return _sh.disk_usage(path).free / 1e9
 
 
+def _devtask_is_terminal(item: Dict[str, Any]) -> bool:
+    """True if a dev_task card has reached a terminal status (merged /
+    rolled_back / failed), so a re-delivered stale confirm-callback for it must
+    be ignored rather than re-executed."""
+    from app.services.devtask import queue as _q
+    return item.get("status") in _q._TERMINAL_STATUSES
+
+
 def _devtask_confirm(chat_id, tid: str) -> None:
     q = _devtask_queue()
     item = q.get(tid)
@@ -1640,6 +1652,13 @@ def _devtask_merge(chat_id, tid: str, skip_regress: bool = False,
     if not item:
         send(chat_id, "Задача не найдена.")
         return
+    # Stale confirm-callback guard (Этап 1): a merge tap re-delivered after a
+    # restart for an already-terminal card must NOT re-run the (~4-5 min) regress
+    # or re-merge. Politely acknowledge and stop.
+    if _devtask_is_terminal(item):
+        send(chat_id, "Задача %s уже завершена (%s) — повторный мердж не нужен." %
+             (tid, item.get("status")))
+        return
     if skip_regress:
         _devtask_do_merge(chat_id, tid, item, mode="skipped")
         return
@@ -1662,6 +1681,13 @@ def _devtask_rollback(chat_id, tid: str) -> None:
     item = _devtask_queue().get(tid)
     if not item:
         send(chat_id, "Задача не найдена.")
+        return
+    # Stale confirm-callback guard (Этап 1): a rollback tap re-delivered after a
+    # restart for an already-terminal card must NOT re-remove a worktree that is
+    # gone (or, worse, re-touch a merged one). Politely acknowledge and stop.
+    if _devtask_is_terminal(item):
+        send(chat_id, "Задача %s уже завершена (%s) — откат не требуется." %
+             (tid, item.get("status")))
         return
     try:
         _g.remove_worktree(tid)
@@ -9344,7 +9370,13 @@ def _main_inner() -> None:
             time.sleep(60)
         return
 
-    offset = 0
+    # Resume from the last processed update_id (Этап 1). ``last_processed`` is the
+    # highest update_id we have committed to (-1 = fresh bot). offset = last+1 so
+    # a fresh bot polls from 0 (all pending) and a restarted bot continues past
+    # what it already handled instead of re-fetching from 0.
+    from app.services import telegram_offset as _tg_offset
+    last_processed = _tg_offset.load_last_update_id(_OFFSET_PATH)
+    offset = last_processed + 1
 
     # Start Cowork outbox watcher
     try:
@@ -9392,7 +9424,20 @@ def _main_inner() -> None:
             url = f"{TG}/getUpdates?timeout=30&offset={offset}&allowed_updates={_au}"
             updates = http_json("GET", url, timeout=45).get("result", [])
             for upd in updates:
-                offset = max(offset, int(upd.get("update_id", 0)) + 1)
+                uid = int(upd.get("update_id", 0))
+                # Dedupe: skip anything at or below what we already committed to
+                # (a re-delivered update from a killed poller that never confirmed
+                # it). Critical so a paid confirm callback can't double-fire across
+                # a restart. Note update_id defaults to 0, which is > the -1 fresh
+                # sentinel, so an id-less update is still dispatched exactly once.
+                if uid <= last_processed:
+                    continue
+                offset = max(offset, uid + 1)
+                # Advance + persist BEFORE dispatch: keeps the existing at-most-once
+                # contract (a crash inside process_update does NOT redeliver the
+                # update) and makes the persisted offset the durable ack.
+                last_processed = uid
+                _tg_offset.save_last_update_id(_OFFSET_PATH, uid)
 
                 # Phase-4 unification: the poll loop and the webhook reader now
                 # share one dispatch path. process_update applies the whitelist

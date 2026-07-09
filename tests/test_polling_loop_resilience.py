@@ -96,6 +96,13 @@ def _neutralize_startup(mod, monkeypatch):
     monkeypatch.setattr(
         "app.services.backend_monitor.start_monitor", lambda *a, **k: None, raising=False
     )
+    # Persisted-offset file (Этап 1): isolate to a fresh temp path so these
+    # characterization tests start from the -1 sentinel (offset 0) and never read
+    # or write the real prod/worktree state file.
+    import tempfile
+    monkeypatch.setattr(
+        mod, "_OFFSET_PATH", Path(tempfile.mkdtemp()) / "telegram_offset.json"
+    )
 
 
 def _offset_of(url: str) -> int:
