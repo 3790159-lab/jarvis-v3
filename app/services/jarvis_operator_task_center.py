@@ -192,6 +192,10 @@ class JarvisOperatorTaskCenter:
         return "\n".join(lines)
 
     def send_telegram_message(self, text: str) -> Dict[str, Any]:
+        from app.core.notify_isolation import telegram_send_blocked
+
+        if telegram_send_blocked():
+            return {"ok": False, "reason": "suppressed_test_isolation"}
         env_file = read_env_file(self.project_root)
         token = os.environ.get("TELEGRAM_BOT_TOKEN") or env_file.get("TELEGRAM_BOT_TOKEN")
         chat_id = os.environ.get("TELEGRAM_ALLOWED_CHAT_ID") or env_file.get("TELEGRAM_ALLOWED_CHAT_ID")

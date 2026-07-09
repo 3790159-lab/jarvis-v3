@@ -18,11 +18,46 @@ from app.services.notifications import (
 
 @pytest.fixture(autouse=True)
 def _reset_singleton(monkeypatch):
+    # These tests deliberately exercise the (mocked) transport, so opt in past
+    # the global test-isolation guard that otherwise suppresses sends.
+    monkeypatch.setenv("JARVIS_ALLOW_TELEGRAM_SEND", "1")
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("TELEGRAM_ALLOWED_CHAT_ID", raising=False)
     get_default_notifier.cache_clear()
     yield
     get_default_notifier.cache_clear()
+
+
+# ── test-isolation guard (defensive flag) ────────────────────────────────────
+
+
+def test_send_suppressed_under_pytest_without_optin(monkeypatch):
+    """With the opt-in removed, a fully-configured notifier must NOT hit the
+    network during a pytest run — this is the belt that stops phantoms."""
+    monkeypatch.delenv("JARVIS_ALLOW_TELEGRAM_SEND", raising=False)
+    n = TelegramNotifier(bot_token="testtoken123456", chat_id="42")
+
+    def fake_urlopen(req, timeout):  # noqa: ARG001
+        raise AssertionError("network send attempted under pytest")
+
+    with patch.object(notifications.urllib.request, "urlopen", fake_urlopen):
+        ok = n.send("phantom")
+
+    assert ok is False
+
+
+@pytest.mark.anyio
+async def test_send_async_suppressed_under_pytest_without_optin(monkeypatch):
+    monkeypatch.delenv("JARVIS_ALLOW_TELEGRAM_SEND", raising=False)
+    n = TelegramNotifier(bot_token="abc1234567890", chat_id="555")
+
+    def boom(*a, **k):
+        raise AssertionError("network send attempted under pytest")
+
+    with patch.object(notifications.httpx, "AsyncClient", boom):
+        ok = await n.send_async("phantom")
+
+    assert ok is False
 
 
 # ── configuration / no-op behaviour ──────────────────────────────────────────

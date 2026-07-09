@@ -281,4 +281,22 @@ class TestCheckBackendLegacy:
         assert rec["action"] == "restart_backend_then_recheck"
 
 
+class TestNotifyAdminIsolation:
+    def test_suppressed_under_pytest(self, monkeypatch):
+        """notify_admin must not hit Telegram during a pytest run."""
+        monkeypatch.delenv("JARVIS_ALLOW_TELEGRAM_SEND", raising=False)
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok123456")
+        monkeypatch.setenv("TELEGRAM_ALLOWED_CHAT_ID", "123")
+        calls = {"n": 0}
+
+        def spy(*a, **k):
+            calls["n"] += 1
+            return MagicMock()
+
+        with patch("urllib.request.urlopen", spy):
+            notify_admin("phantom self-heal")
+
+        assert calls["n"] == 0
+
+
 import pytest

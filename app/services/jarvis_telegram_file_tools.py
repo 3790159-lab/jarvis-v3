@@ -22,6 +22,10 @@ def _safe_name(text: str) -> str:
 
 
 def _send_telegram_document(file_path: str, caption: str = "") -> Dict[str, Any]:
+    from app.core.notify_isolation import telegram_send_blocked
+
+    if telegram_send_blocked():
+        return {"ok": False, "suppressed": True, "file_path": file_path}
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     chat_id = os.getenv("TELEGRAM_ALLOWED_CHAT_ID", "").strip()
 

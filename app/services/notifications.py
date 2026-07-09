@@ -21,6 +21,8 @@ from functools import lru_cache
 
 import httpx
 
+from app.core.notify_isolation import telegram_send_blocked
+
 logger = logging.getLogger(__name__)
 
 _TELEGRAM_API = "https://api.telegram.org"
@@ -65,6 +67,9 @@ class TelegramNotifier:
     # -- sync -----------------------------------------------------------------
 
     def send(self, text: str, *, prefix: str = "🔔 Jarvis") -> bool:
+        if telegram_send_blocked():
+            logger.debug("Telegram alert suppressed under test isolation")
+            return False
         if not self.is_configured():
             logger.warning(
                 "Telegram alert skipped: notifier not configured "
@@ -103,6 +108,9 @@ class TelegramNotifier:
     # -- async ----------------------------------------------------------------
 
     async def send_async(self, text: str, *, prefix: str = "🔔 Jarvis") -> bool:
+        if telegram_send_blocked():
+            logger.debug("Telegram alert suppressed under test isolation")
+            return False
         if not self.is_configured():
             logger.warning(
                 "Telegram alert skipped: notifier not configured "

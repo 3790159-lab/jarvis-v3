@@ -191,7 +191,10 @@ class TestSendTelegramAlert:
             wdog.ADMIN_CHAT_ID = orig_chat
         assert result is False
 
-    def test_no_crash_on_network_error(self):
+    def test_no_crash_on_network_error(self, monkeypatch):
+        # Opt in so the real network path (with mocked transport) is exercised
+        # past the test-isolation guard.
+        monkeypatch.setenv("JARVIS_ALLOW_TELEGRAM_SEND", "1")
         import app.services.system_watchdog as wdog
         orig_bot = wdog.BOT_TOKEN
         orig_chat = wdog.ADMIN_CHAT_ID
@@ -201,6 +204,30 @@ class TestSendTelegramAlert:
             result = wdog.send_telegram_alert("test message")
         wdog.BOT_TOKEN = orig_bot
         wdog.ADMIN_CHAT_ID = orig_chat
+        assert result is False
+
+    def test_suppressed_under_pytest(self, monkeypatch):
+        """Configured watchdog must not reach the network during pytest."""
+        monkeypatch.delenv("JARVIS_ALLOW_TELEGRAM_SEND", raising=False)
+        import app.services.system_watchdog as wdog
+        orig_bot = wdog.BOT_TOKEN
+        orig_chat = wdog.ADMIN_CHAT_ID
+        wdog.BOT_TOKEN = "fake_token"
+        wdog.ADMIN_CHAT_ID = "123"
+
+        calls = {"n": 0}
+
+        def spy(*a, **k):
+            calls["n"] += 1
+            return MagicMock()
+
+        try:
+            with patch("urllib.request.urlopen", spy):
+                result = wdog.send_telegram_alert("test message")
+        finally:
+            wdog.BOT_TOKEN = orig_bot
+            wdog.ADMIN_CHAT_ID = orig_chat
+        assert calls["n"] == 0
         assert result is False
 
 

@@ -237,6 +237,11 @@ def cleanup_old_backups(backups_dir: Optional[Path] = None, keep_days: int = 7) 
 
 def notify_admin(message: str) -> None:
     """Send notification to admin via Telegram."""
+    from app.core.notify_isolation import telegram_send_blocked
+
+    if telegram_send_blocked():
+        logger.info("[SelfHealing notify suppressed] %s", message)
+        return
     bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     chat_id = os.getenv("TELEGRAM_ALLOWED_CHAT_ID", "").strip()
     if not bot_token or not chat_id:

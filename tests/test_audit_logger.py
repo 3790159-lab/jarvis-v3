@@ -35,6 +35,24 @@ def _read_jsonl(p: Path) -> list[dict]:
     return [json.loads(line) for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+# ── test-isolation guard (defensive flag) ────────────────────────────────────
+
+
+def test_forward_to_admin_suppressed_under_pytest(monkeypatch):
+    """The real _forward_to_admin body must not hit Telegram during a pytest
+    run — this is what stopped 'petya (555) New user' phantoms leaking."""
+    monkeypatch.delenv("JARVIS_ALLOW_TELEGRAM_SEND", raising=False)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok123456")
+    monkeypatch.setenv("JARVIS_ADMIN_USER_ID", "999")
+
+    def fake_urlopen(req, timeout):  # noqa: ARG001
+        raise AssertionError("network send attempted under pytest")
+
+    monkeypatch.setattr(audit_logger.urllib.request, "urlopen", fake_urlopen)
+    # Must simply return without raising / touching the network.
+    audit_logger._forward_to_admin("👤 phantom (555)\n📸 New user")
+
+
 # ── file writes ──────────────────────────────────────────────────────────────
 
 

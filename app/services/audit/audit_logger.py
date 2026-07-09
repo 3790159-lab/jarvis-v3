@@ -23,6 +23,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from app.core.notify_isolation import telegram_send_blocked
+
 logger = logging.getLogger(__name__)
 
 _DEFAULT_AUDIT_DIR = Path("state/audit")
@@ -161,6 +163,8 @@ def _forward_to_admin(text: str) -> None:
     lives in :func:`_maybe_forward` so tests can spy on this function
     without env-flag interference.
     """
+    if telegram_send_blocked():
+        return
     bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     admin_raw = os.getenv("JARVIS_ADMIN_USER_ID", "").strip()
     if not bot_token or not admin_raw:

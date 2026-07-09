@@ -45,3 +45,19 @@ def _isolate_users_file(monkeypatch, tmp_path):
     ``JARVIS_USERS_FILE`` run after this fixture, so their path still wins.
     """
     monkeypatch.setenv("JARVIS_USERS_FILE", str(tmp_path / "users.json"))
+
+
+@pytest.fixture(autouse=True)
+def _silence_telegram_sends(monkeypatch):
+    """Suppress every outbound Telegram send during tests so no phantom
+    message (``petya (555) New user``, ``RunPod guardian pod_old`` …) leaks
+    into the live admin chat.
+
+    Mirrors :func:`_isolate_users_file`: pin a safe default via env. All
+    network send-paths consult ``app.core.notify_isolation.telegram_send_blocked``,
+    which honours this flag. Tests that genuinely drive the (mocked) transport
+    opt back in with ``JARVIS_ALLOW_TELEGRAM_SEND=1``; that runs after this
+    fixture and wins. This env layer is belt-and-suspenders to the send-path's
+    own ``running_under_pytest()`` auto-detection.
+    """
+    monkeypatch.setenv("JARVIS_DISABLE_TELEGRAM_SEND", "1")
