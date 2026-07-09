@@ -52,6 +52,7 @@ def build_prompt(task_id: str, desc: str) -> str:
 2. Границы worktree: работай ТОЛЬКО в текущей директории (cwd). НЕ трогай {PROD_REPO} (прод), НЕ запускай и НЕ убивай Telegram-бота, НЕ трогай .env, guardian/restart-скрипты, state/-леджеры прода.
 3. Money-safety: тесты ТОЛЬКО на моках. ЛЮБОЙ реальный платный вызов (WaveSpeed/Replicate/Anthropic-generation) или запуск платного пайплайна = НЕМЕДЛЕННЫЙ ПРОВАЛ задачи. НЕ расширяй friend-доступ.
 4. НЕ мерджи, НЕ делай git push, НЕ перезапускай бота. Мердж/откат делает человек через Telegram-кнопки после ревью.
+5. НЕ гоняй полный регресс `pytest tests/` целиком — он OOM/зависает на этом железе и задача умрёт по таймауту (no_report). Прогоняй ТОЛЬКО таргетные тесты своего диффа (перечисляй конкретные файлы: `pytest tests/test_foo.py …`). Полный регресс по объединённому коду делает пайплайн-гейт при мердже, а не ты.
 
 СТОП-КОНТРАКТ (обязателен): дойдя до готовности ИЛИ блокера — ПОСЛЕДНИМ действием запиши файл {report_rel} (Markdown):
   - что сделано, список коммитов (git log --oneline),
@@ -67,6 +68,38 @@ def build_prompt(task_id: str, desc: str) -> str:
 {safe_desc}
 {_TASK_CLOSE}
 """
+
+
+# Live outbound secrets are neutralized in the CC child so a worktree test can
+# never really send/spend with prod credentials — once a leaked [Смерджить
+# merge-коммитом] button reached the admin's real chat because the child
+# inherited the bot's real TELEGRAM_BOT_TOKEN. Blank by NAME PATTERN so a
+# newly-added secret is covered automatically; keep only what CC needs to run.
+# (Gap: *_JSON-suffixed Google creds don't match the pattern — add by name if
+# a task ever needs them neutralized too.)
+_SECRET_ENV_SUFFIXES = ("_TOKEN", "_KEY", "_SECRET", "_PASSWORD")
+_SECRET_ENV_SUBSTRINGS = ("SECRET", "WEBHOOK", "PASSWORD")
+_KEEP_ENV = frozenset({"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"})
+
+
+def _is_secret_env(name: str) -> bool:
+    if name in _KEEP_ENV:
+        return False
+    up = name.upper()
+    return up.endswith(_SECRET_ENV_SUFFIXES) or any(s in up for s in _SECRET_ENV_SUBSTRINGS)
+
+
+def sanitized_child_env(base) -> dict:
+    """A copy of ``base`` env with every live outbound secret blanked (the
+    Anthropic auth CC itself needs is preserved). The dev-task CC child gets this
+    so a worktree test physically cannot reach prod Telegram / paid APIs with real
+    credentials. Non-secret config (e.g. TELEGRAM_ALLOWED_CHAT_ID) is untouched so
+    the suite's admin-chat gate still behaves. The input mapping is not mutated."""
+    out = dict(base)
+    for name in list(out):
+        if _is_secret_env(name):
+            out[name] = ""
+    return out
 
 
 def _resolve_claude(which: Callable[[str], Optional[str]],
@@ -233,9 +266,13 @@ def run(*, argv: List[str], cwd: str, report_path: str,
             # text mode decodes with the locale codec (cp1251 on RU Windows) and
             # Cyrillic in the stream becomes mojibake → result parse fails.
             # stdin=DEVNULL: headless CC waits ~3s for stdin otherwise.
+            # env: neutralize live outbound secrets (real bot token / paid-API
+            # keys) so a worktree test cannot send to the admin's real chat or
+            # spend real money; CC's own Anthropic auth is preserved.
             return subprocess.Popen(a, cwd=k.get("cwd"), stdin=subprocess.DEVNULL,
                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                    text=True, encoding="utf-8", errors="replace")
+                                    text=True, encoding="utf-8", errors="replace",
+                                    env=sanitized_child_env(os.environ))
     if report_exists is None:
         report_exists = lambda p: Path(p).exists()
     if line_iter is None:

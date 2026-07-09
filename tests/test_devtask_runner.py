@@ -227,3 +227,47 @@ def test_run_drains_cc_stderr_to_file(tmp_path):
     assert slog.exists()
     assert "requires --verbose" in slog.read_text(encoding="utf-8", errors="replace")
     assert res["status"] == "failed"
+
+
+# ── Этап 1 hardening: prompt forbids the full-regress deadlock ──────────────
+def test_build_prompt_forbids_full_pytest_and_points_to_targeted():
+    # Root cause of task …_152568 dying no_report: the agent launched the full
+    # `pytest tests/` (OOM/hangs on this box) mid-run and deadlocked waiting on it.
+    # The prompt must forbid the full suite and steer to targeted tests only.
+    p = r.build_prompt("T1", "add a /foo command")
+    low = p.lower()
+    assert "pytest tests/" in low          # the exact forbidden command is named
+    assert "таргет" in low                 # steer to targeted tests of the diff
+
+
+# ── Этап 1 hardening: worktree CC env cannot send/spend with real secrets ───
+def test_sanitized_child_env_blanks_live_secrets_keeps_cc_auth():
+    # Root cause of the leaked [Смерджить merge-коммитом] button reaching the
+    # admin's real chat: the CC subprocess inherited the bot's env (real
+    # TELEGRAM_BOT_TOKEN), so a worktree test really sent. Neutralize outbound
+    # secrets for the child while preserving CC's own Anthropic auth + config.
+    src = {
+        "TELEGRAM_BOT_TOKEN": "123:REAL",
+        "WAVESPEED_API_KEY": "ws",
+        "REPLICATE_API_TOKEN": "rp",
+        "XAI_API_KEY": "x",
+        "N8N_JARVIS_WEBHOOK_SECRET": "s",
+        "OPENAI_API_KEY": "oa",
+        "ANTHROPIC_API_KEY": "sk-ant-KEEP",
+        "TELEGRAM_ALLOWED_CHAT_ID": "237616472",
+        "PATH": "/usr/bin",
+        "LOG_LEVEL": "INFO",
+    }
+    out = r.sanitized_child_env(src)
+    # every live outbound secret neutralized → worktree tests can't send/spend
+    for k in ("TELEGRAM_BOT_TOKEN", "WAVESPEED_API_KEY", "REPLICATE_API_TOKEN",
+              "XAI_API_KEY", "N8N_JARVIS_WEBHOOK_SECRET", "OPENAI_API_KEY"):
+        assert out[k] == "", k
+    # CC's own auth MUST survive or the agent can't run at all
+    assert out["ANTHROPIC_API_KEY"] == "sk-ant-KEEP"
+    # non-secret config survives — the admin-chat gate the devtask tests rely on
+    assert out["TELEGRAM_ALLOWED_CHAT_ID"] == "237616472"
+    assert out["PATH"] == "/usr/bin"
+    assert out["LOG_LEVEL"] == "INFO"
+    # source env is not mutated (we return a copy)
+    assert src["TELEGRAM_BOT_TOKEN"] == "123:REAL"
