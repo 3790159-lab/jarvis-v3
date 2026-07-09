@@ -129,7 +129,11 @@ def _parse_line(line) -> Optional[dict]:
     except ValueError:
         return None
     if msg.get("type") == "result":
-        return {"cost": msg.get("total_cost_usd"), "session_id": msg.get("session_id")}
+        # Carry is_error/subtype/text so run() can surface CC's REAL failure
+        # (e.g. "Credit balance is too low") instead of masking it as no_report.
+        return {"cost": msg.get("total_cost_usd"), "session_id": msg.get("session_id"),
+                "is_error": bool(msg.get("is_error")), "subtype": msg.get("subtype"),
+                "result_text": msg.get("result")}
     return None
 
 
@@ -265,6 +269,14 @@ def run(*, argv: List[str], cwd: str, report_path: str,
         # surface CC's own error (e.g. a bad flag) in the reason, not just "no_result"
         return {"status": "failed",
                 "reason": "no_result" + (f": {err_tail}" if err_tail else ""), "killed": False}
+    if result.get("is_error"):
+        # CC ran but its final result is an error (API failure, depleted credit,
+        # error_during_execution). The real cause lives on stdout, NOT stderr, so
+        # surface it here — otherwise a missing report masquerades as "no_report".
+        detail = result.get("result_text") or result.get("subtype") or "error"
+        return {"status": "failed", "reason": f"cc_error: {detail}"[:300],
+                "cost": result.get("cost"), "session_id": result.get("session_id"),
+                "killed": False}
     present = report_exists(report_path)
     return {
         "status": "awaiting_review" if present else "failed",

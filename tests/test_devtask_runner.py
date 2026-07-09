@@ -148,6 +148,38 @@ def test_run_without_report_is_failed(tmp_path):
     assert res["status"] == "failed" and res["reason"] == "no_report"
 
 
+def test_parse_line_extracts_is_error_subtype_and_text():
+    # CC's result line carries is_error/subtype/result on an API failure (e.g. a
+    # depleted credit balance). _parse_line must surface them, not just cost/sid,
+    # so run() can report the REAL error instead of masking it as "no_report".
+    line = _json.dumps({"type": "result", "subtype": "error_during_execution",
+                        "is_error": True, "result": "Credit balance is too low",
+                        "total_cost_usd": 0.0, "session_id": "sid-err"})
+    parsed = r._parse_line(line)
+    assert parsed["is_error"] is True
+    assert parsed["subtype"] == "error_during_execution"
+    assert parsed["result_text"] == "Credit balance is too low"
+    assert parsed["session_id"] == "sid-err"
+
+
+def test_run_error_result_surfaces_cc_error_not_no_report(tmp_path):
+    # A depleted Anthropic balance makes CC emit a result line with is_error=True
+    # and text "Credit balance is too low", then exit WITHOUT writing report.md.
+    # The old code saw a truthy result + missing report → misleading "no_report".
+    # Now the real cause must surface as reason "cc_error: Credit balance is too low".
+    lines = [_json.dumps({"type": "result", "subtype": "error_during_execution",
+                          "is_error": True, "result": "Credit balance is too low",
+                          "total_cost_usd": 0.0, "session_id": "sid-err"})]
+    proc = _FakeProc(lines)
+    res = r.run(argv=["claude"], cwd=str(tmp_path), spawn=lambda a, **k: proc,
+                report_path=str(tmp_path / "missing.md"), line_iter=lambda p: iter(p.stdout))
+    assert res["status"] == "failed"
+    assert res["reason"].startswith("cc_error:")
+    assert "Credit balance is too low" in res["reason"]
+    assert res["reason"] != "no_report"
+    assert res["session_id"] == "sid-err"
+
+
 def test_run_timeout_kills_child(tmp_path):
     def boom(p):
         raise TimeoutError("silence")
