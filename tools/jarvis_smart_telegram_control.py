@@ -1367,7 +1367,8 @@ def _devtask_review_keyboard(tid: str) -> list:
         [{"text": "✅ Мердж", "callback_data": "devtask:merge:%s" % tid},
          {"text": "↩️ Откат", "callback_data": "devtask:rollback:%s" % tid}],
         [{"text": "📄 Детали", "callback_data": "devtask:details:%s" % tid},
-         {"text": "⚠️ Мердж без регресса", "callback_data": "devtask:mergeforce:%s" % tid}],
+         {"text": "🎯 Мердж (таргет-тесты)", "callback_data": "devtask:mergetarget:%s" % tid}],
+        [{"text": "⚠️ Мердж без регресса", "callback_data": "devtask:mergeforce:%s" % tid}],
     ]
 
 
@@ -1491,13 +1492,59 @@ def _devtask_run_regress(worktree: str) -> dict:
     return {"ok": verdict.startswith("✅"), "text": verdict}
 
 
+def _devtask_run_targeted(worktree: str, base_head: str) -> dict:
+    """Targeted merge gate: run ONLY the tests mapping to the branch diff.
+
+    A conscious bypass of the full regress while the full suite is being repaired
+    (Master-Plan Этап 1). Does NOT touch the full-regress mechanics — it selects
+    a narrower test set (git diff → tests/) and runs pytest against just that set.
+    Verdict is local (no baseline): ok iff zero failures/errors in the subset.
+
+    An empty target set is NEVER an implicit pass — if the diff maps to no tests
+    we return ``ok=False`` with an honest message, so the human either fixes the
+    mapping or uses [⚠️ Мердж без регресса] as a deliberate override.
+    """
+    from tools import jarvis_observe as _jo
+    from app.services.devtask import target_tests as _tt
+    import subprocess as _sp
+    changed = _tt.changed_paths(worktree, base_head)
+    existing = _tt.list_test_files(worktree)
+    targets = _tt.map_paths_to_tests(changed, existing)
+    if not targets:
+        return {"ok": False, "mode": "targeted",
+                "text": "🎯 таргет-режим: дифф не маппится ни на один тест "
+                        "(%d изменённых путей) — не могу верифицировать точечно" % len(changed)}
+    try:
+        proc = _sp.run(
+            [sys.executable, "-m", "pytest", *targets, "-q", "-p", "no:cacheprovider",
+             "--continue-on-collection-errors", "--tb=no"],
+            cwd=worktree, capture_output=True, text=True,
+            timeout=int(os.getenv("REGRESS_TIMEOUT_S", "900")),
+            creationflags=(0x4000 if sys.platform == "win32" else 0),
+            encoding="utf-8", errors="replace")
+    except _sp.TimeoutExpired:
+        return {"ok": False, "mode": "targeted", "text": "⏱ таргет-прогон превысил таймаут"}
+    line = ""
+    for ln in reversed((proc.stdout or "").strip().splitlines()):
+        if "passed" in ln or "failed" in ln or "error" in ln:
+            line = ln.strip()
+            break
+    summary = _jo.parse_pytest_summary(line)
+    ok = summary.get("failed", 0) == 0 and summary.get("errors", 0) == 0
+    icon = "✅" if ok else "🚫"
+    body = "%d failed, %d passed, %d errors" % (
+        summary.get("failed", 0), summary.get("passed", 0), summary.get("errors", 0))
+    return {"ok": ok, "mode": "targeted",
+            "text": "🎯 таргет-тесты по диффу (%d файлов): %s %s" % (len(targets), icon, body)}
+
+
 def _devtask_restart(chat_id) -> None:
     send(chat_id, "🔄 Перезапускаю бота через гардиан (новый код вступает в силу)…")
     time.sleep(3)
     os._exit(0)
 
 
-def _devtask_do_merge(chat_id, tid: str, item: dict) -> None:
+def _devtask_do_merge(chat_id, tid: str, item: dict, mode: str = "full") -> None:
     from app.services.devtask import git_ops as _g, boot_watch as _bw, queue as _q
     if not _g.is_ff_clean(item["branch"], item["base_head"]):
         send(chat_id, "🚫 Прод сдвинулся с момента старта задачи — FF невозможен. "
@@ -1508,25 +1555,43 @@ def _devtask_do_merge(chat_id, tid: str, item: dict) -> None:
     new = _g.prod_head()
     _bw.write_pending_restart(_devtask_state_dir(), tid, old, new)
     _bw.write_boot_watch(_devtask_state_dir(), tid, old, new)
-    _devtask_queue().set_status(tid, _q.STATUS_MERGED, old_head=old, new_head=new)
-    send(chat_id, "✅ FF-мердж %s выполнен (%s→%s)." % (tid, old, new))
+    # regress_mode: which gate approved this merge (full regress / targeted / skipped) —
+    # persisted so the task record shows how thoroughly it was verified before merge.
+    _devtask_queue().set_status(tid, _q.STATUS_MERGED, old_head=old, new_head=new,
+                                regress_mode=mode)
+    send(chat_id, "✅ FF-мердж %s выполнен (%s→%s). Режим проверки: %s." % (tid, old, new, mode))
     _devtask_restart(chat_id)
 
 
-def _devtask_merge(chat_id, tid: str, skip_regress: bool = False) -> None:
+def _devtask_merge(chat_id, tid: str, skip_regress: bool = False,
+                   mode: str = "full") -> None:
+    """Gate the merge on tests, then FF-merge.
+
+    ``mode``: ``"full"`` (default) runs the full regress vs baseline;
+    ``"targeted"`` runs only the tests mapping to the branch diff — a conscious
+    bypass while the full suite is being repaired (Master-Plan Этап 1).
+    ``skip_regress`` (mergeforce) overrides both and records ``mode="skipped"``.
+    """
     q = _devtask_queue()
     item = q.get(tid)
     if not item:
         send(chat_id, "Задача не найдена.")
         return
-    if not skip_regress:
-        send(chat_id, "🧪 Прогоняю регресс по ветке перед мерджем (~4-5 мин)…")
+    if skip_regress:
+        _devtask_do_merge(chat_id, tid, item, mode="skipped")
+        return
+    if mode == "targeted":
+        send(chat_id, "🎯 Прогоняю таргет-тесты по диффу ветки перед мерджем "
+             "(осознанный обход полного регресса)…")
+        verdict = _devtask_run_targeted(item["worktree"], item["base_head"])
+    else:
+        send(chat_id, "🧪 Прогоняю полный регресс по ветке перед мерджем (~4-5 мин)…")
         verdict = _devtask_run_regress(item["worktree"])
-        if not verdict["ok"]:
-            send(chat_id, "🚫 Мердж заблокирован: регресс хуже baseline.\n%s\n"
-                 "Можно принудительно через [⚠️ Мердж без регресса]." % verdict["text"])
-            return
-    _devtask_do_merge(chat_id, tid, item)
+    if not verdict["ok"]:
+        send(chat_id, "🚫 Мердж заблокирован (%s): %s\n"
+             "Можно принудительно через [⚠️ Мердж без регресса]." % (mode, verdict["text"]))
+        return
+    _devtask_do_merge(chat_id, tid, item, mode=mode)
 
 
 def _devtask_rollback(chat_id, tid: str) -> None:
@@ -4685,6 +4750,10 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
             answer_callback_query(cq_id, "🧪")
             threading.Thread(target=_devtask_merge, args=(chat_id, tid), daemon=True,
                              name="devtask_merge_%s" % tid).start()
+        elif action == "mergetarget":
+            answer_callback_query(cq_id, "🎯")
+            threading.Thread(target=_devtask_merge, args=(chat_id, tid), kwargs={"mode": "targeted"},
+                             daemon=True, name="devtask_mergetarget_%s" % tid).start()
         elif action == "mergeforce":
             answer_callback_query(cq_id, "⚠️")
             threading.Thread(target=_devtask_merge, args=(chat_id, tid), kwargs={"skip_regress": True},
