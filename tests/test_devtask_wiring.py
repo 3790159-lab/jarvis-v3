@@ -246,7 +246,8 @@ def test_run_body_worktree_failure_notifies_before_persist(monkeypatch, tmp_path
     monkeypatch.setattr(mod, "_DEVTASK_QUEUE", q, raising=False)
     sent = []
     monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
-    from app.services.devtask import git_ops as g, runner as r
+    from app.services.devtask import git_ops as g, runner as r, preflight as _pf
+    monkeypatch.setattr(_pf, "preflight_credit_check", lambda *a, **k: {"ok": True, "reason": None})
     monkeypatch.setattr(g, "prod_head", lambda *a, **k: "base1")
     monkeypatch.setattr(g, "create_worktree",
                         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("disk full mid-checkout")))
@@ -275,6 +276,55 @@ def test_boot_reconcile_removes_merged_worktree(monkeypatch, tmp_path):
     assert removed == ["T7"]                         # merged worktree cleaned up
 
 
+def test_run_body_preflight_block_refuses_before_worktree(monkeypatch, tmp_path):
+    # Money-safety (Фаза 8.1): a dead balance must be refused HONESTLY in the
+    # queue BEFORE a worktree is built or a doomed CC is spawned — the canary
+    # answers "$0" so we never pay to discover the balance is gone.
+    from app.services.devtask.queue import STATUS_RUNNING, STATUS_FAILED
+    from app.services.devtask import preflight as _pf
+    q = DevTaskQueue(base_dir=tmp_path)
+    tid = q.add("do X")
+    q.set_status(tid, STATUS_RUNNING)
+    monkeypatch.setattr(mod, "_DEVTASK_QUEUE", q, raising=False)
+    sent = []
+    monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
+    monkeypatch.setattr(_pf, "preflight_credit_check",
+                        lambda *a, **k: {"ok": False, "reason": "credit balance too low"})
+    from app.services.devtask import git_ops as g, runner as r
+    monkeypatch.setattr(g, "create_worktree",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("no worktree on block")))
+    monkeypatch.setattr(r, "run", lambda **k: (_ for _ in ()).throw(AssertionError("CC must not run")))
+    mod._devtask_run_body(ADMIN, tid)
+    item = q.get(tid)
+    assert item["status"] == STATUS_FAILED                       # terminal
+    assert item["error"] == "preflight: credit balance too low"  # honest cause
+    blob = " ".join(sent)
+    assert "credit balance too low" in blob                      # honest, not silent
+    assert "баланс" in blob.lower()                              # suggests topping up
+
+
+def test_run_body_preflight_ok_proceeds_to_worktree(monkeypatch, tmp_path):
+    # ok=True (or fail-open) → the normal flow runs: worktree + CC as before.
+    from app.services.devtask.queue import STATUS_RUNNING, STATUS_AWAITING_REVIEW
+    from app.services.devtask import preflight as _pf
+    q = DevTaskQueue(base_dir=tmp_path)
+    tid = q.add("build X")
+    q.set_status(tid, STATUS_RUNNING)
+    monkeypatch.setattr(mod, "_DEVTASK_QUEUE", q, raising=False)
+    monkeypatch.setattr(mod, "send", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "send_with_keyboard", lambda *a, **k: None)
+    monkeypatch.setattr(_pf, "preflight_credit_check", lambda *a, **k: {"ok": True, "reason": None})
+    from app.services.devtask import git_ops as g, runner as r
+    monkeypatch.setattr(g, "prod_head", lambda *a, **k: "base1")
+    built = {"x": False}
+    monkeypatch.setattr(g, "create_worktree",
+                        lambda tid_, base, **k: built.update(x=True) or f"C:/wt/devtask-{tid_}")
+    monkeypatch.setattr(r, "run", lambda **k: {"status": "awaiting_review", "session_id": "s", "cost": 0.1})
+    mod._devtask_run_body(ADMIN, tid)
+    assert built["x"] is True                                    # worktree built after ok preflight
+    assert q.get(tid)["status"] == STATUS_AWAITING_REVIEW
+
+
 def test_run_body_report_path_is_under_worktree(monkeypatch, tmp_path):
     # Contract: CC writes the report relative to ITS cwd (the worktree). The
     # runner must therefore look for it UNDER the worktree, not under the bot's
@@ -286,7 +336,8 @@ def test_run_body_report_path_is_under_worktree(monkeypatch, tmp_path):
     monkeypatch.setattr(mod, "_DEVTASK_QUEUE", q, raising=False)
     monkeypatch.setattr(mod, "send", lambda *a, **k: None)
     monkeypatch.setattr(mod, "send_with_keyboard", lambda *a, **k: None)
-    from app.services.devtask import git_ops as g, runner as r
+    from app.services.devtask import git_ops as g, runner as r, preflight as _pf
+    monkeypatch.setattr(_pf, "preflight_credit_check", lambda *a, **k: {"ok": True, "reason": None})
     monkeypatch.setattr(g, "prod_head", lambda *a, **k: "base1")
     wt = str(tmp_path / "wt")
     monkeypatch.setattr(g, "create_worktree", lambda *a, **k: wt)
@@ -306,7 +357,8 @@ def test_run_body_creates_worktree_then_runs(monkeypatch, tmp_path):
     monkeypatch.setattr(mod, "_DEVTASK_QUEUE", q, raising=False)
     monkeypatch.setattr(mod, "send", lambda *a, **k: None)
     monkeypatch.setattr(mod, "send_with_keyboard", lambda *a, **k: None)
-    from app.services.devtask import git_ops as g, runner as r
+    from app.services.devtask import git_ops as g, runner as r, preflight as _pf
+    monkeypatch.setattr(_pf, "preflight_credit_check", lambda *a, **k: {"ok": True, "reason": None})
     monkeypatch.setattr(g, "prod_head", lambda *a, **k: "base1")
     monkeypatch.setattr(g, "create_worktree", lambda tid_, base, **k: f"C:/wt/devtask-{tid_}")
     monkeypatch.setattr(r, "run", lambda **k: {"status": "awaiting_review", "session_id": "s", "cost": 0.1})

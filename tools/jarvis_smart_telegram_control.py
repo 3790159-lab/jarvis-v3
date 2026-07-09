@@ -1421,8 +1421,20 @@ def _devtask_safe_set_status(q, tid: str, status: str, **kw) -> None:
 def _devtask_run_body(chat_id, tid: str) -> None:
     import uuid as _uuid
     from pathlib import Path as _P
-    from app.services.devtask import runner as _r, queue as _q, git_ops as _g
+    from app.services.devtask import runner as _r, queue as _q, git_ops as _g, preflight as _pf
     q = _devtask_queue()
+    # 0. Canary credit preflight ($0) BEFORE any worktree/CC spawn (Фаза 8.1):
+    #    a dead balance answers 400 "credit balance too low" for free, so refuse
+    #    the doomed task HONESTLY here instead of paying to build a worktree and
+    #    spawn a CC that dies on its first request. Fails OPEN on any transport
+    #    error — cc_error (b658603) still insures a mid-run dead balance.
+    pf = _pf.preflight_credit_check()
+    if not pf.get("ok"):
+        reason = pf.get("reason") or "unknown"
+        send(chat_id, "🚫 Dev-задача %s отклонена на preflight: %s.\n"
+             "Похоже, баланс Anthropic исчерпан — пополни баланс и повтори." % (tid, reason))
+        _devtask_safe_set_status(q, tid, _q.STATUS_FAILED, error="preflight: %s" % reason)
+        return
     # 1. Worktree setup in THIS thread (heavy detached checkout). On failure →
     #    mark failed (not stuck) + explicit admin notify; CC never launches.
     try:
