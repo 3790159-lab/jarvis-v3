@@ -31,7 +31,7 @@ from typing import Any, Awaitable, Callable
 
 from .cost_estimator import CostEstimate, estimate as estimate_cost
 from .engines.factory import get_swap_cold_start_usd, get_swap_cost_per_photo
-from .face_validator import FaceValidator
+from .face_validator import FaceValidator, FaceValidatorUnavailableError
 from .prompt_parser import ParseResult, parse_numbered_prompts
 
 logger = logging.getLogger(__name__)
@@ -232,7 +232,13 @@ class BatchOrchestrator:
         """
         with self._lock:
             sess = self._require(chat_id, {STATE_EXPECTING_SOURCE})
-            face_count = self._validator.count_faces(source_path)
+            try:
+                face_count = self._validator.count_faces(source_path)
+            except FaceValidatorUnavailableError as exc:
+                raise OrchestratorError(
+                    f"Валидация лиц временно недоступна ({exc}). "
+                    "Попробуй позже."
+                ) from exc
             if face_count == 0:
                 # Stay in EXPECTING_SOURCE; user can resend.
                 sess.last_error = "no face detected in source photo"
@@ -318,6 +324,12 @@ class BatchOrchestrator:
                 staged = self._stage_target(chat_id, raw, idx)
                 try:
                     self._validator.count_faces(staged)
+                except FaceValidatorUnavailableError as exc:
+                    sess.targets.append(TargetItem(
+                        path=str(staged), face_count=0, valid=False,
+                        swap_result_path=None, error=f"validator unavailable: {exc}",
+                    ))
+                    continue
                 except Exception as exc:  # noqa: BLE001 — unreadable ⇒ skip, don't crash
                     sess.targets.append(TargetItem(
                         path=str(staged), face_count=0, valid=False,
@@ -376,6 +388,14 @@ class BatchOrchestrator:
                 staged = self._stage_target(chat_id, raw, idx)
                 try:
                     fc = self._validator.count_faces(staged)
+                except FaceValidatorUnavailableError as exc:
+                    sess.targets.append(
+                        TargetItem(
+                            path=str(staged), face_count=0, valid=False,
+                            error=f"validator unavailable: {exc}",
+                        )
+                    )
+                    continue
                 except Exception as exc:  # noqa: BLE001
                     sess.targets.append(
                         TargetItem(
@@ -439,6 +459,14 @@ class BatchOrchestrator:
                 staged = self._stage_target(chat_id, raw, idx)
                 try:
                     fc = self._validator.count_faces(staged)
+                except FaceValidatorUnavailableError as exc:
+                    # Validator infra is down (not a bad photo) — honest skip,
+                    # do NOT wave it through to the paid engine unvalidated.
+                    sess.targets.append(TargetItem(
+                        path=str(staged), face_count=0, valid=False,
+                        error=f"validator unavailable: {exc}",
+                    ))
+                    continue
                 except Exception as exc:  # noqa: BLE001
                     # Unreadable/corrupt image — real skip (can't encode for engine).
                     sess.targets.append(TargetItem(

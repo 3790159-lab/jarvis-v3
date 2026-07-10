@@ -21,6 +21,7 @@ from app.services.block_m2_face_swap.batch_orchestrator import (
     OrchestratorError,
     STATE_TARGETS_RECEIVED,
 )
+from app.services.block_m2_face_swap.face_validator import FaceValidatorUnavailableError
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -159,6 +160,30 @@ def test_unreadable_target_is_excluded(tmp_path):
     # Cost only over 2 readable photos.
     assert est.valid_count == 2
     assert est.skipped_count == 1
+
+
+def test_validator_unavailable_target_is_excluded_and_labeled(tmp_path):
+    """FaceValidatorUnavailableError → real skip, honestly labeled.
+
+    Distinct from "unreadable" (corrupt file) — the validator infra itself is
+    down. Must NOT be waved through to the paid engine like an advisory 0.
+    """
+    val = _make_validator(face_count=1)
+    orch = _orch(tmp_path, validator=val)
+    chat = 5
+    _seed_source(orch, chat, tmp_path)
+
+    photos = [_jpg(tmp_path, f"r{i}.jpg") for i in range(2)]
+    val.count_faces.side_effect = FaceValidatorUnavailableError(
+        "валидация недоступна: ни один backend не загружен"
+    )
+
+    sess, est = orch.add_targets(chat, photos)
+
+    assert all(not t.valid for t in sess.targets)
+    assert all("validator unavailable" in (t.error or "") for t in sess.targets)
+    assert est.valid_count == 0
+    assert est.skipped_count == 2
 
 
 def test_advisory_no_face_count_computed_correctly(tmp_path):

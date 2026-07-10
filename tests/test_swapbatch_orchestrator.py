@@ -26,6 +26,7 @@ from app.services.block_m2_face_swap.batch_orchestrator import (
     STATE_TARGETS_RECEIVED,
     TargetItem,
 )
+from app.services.block_m2_face_swap.face_validator import FaceValidatorUnavailableError
 from app.services.block_m2_face_swap.prompt_parser import PromptParseError
 
 
@@ -88,6 +89,22 @@ def test_submit_source_with_no_face_stays_in_expecting_source(tmp_path):
     assert orch.status(42) == STATE_EXPECTING_SOURCE
 
 
+def test_submit_source_when_validator_unavailable_raises_honest_error(tmp_path):
+    """Validator infra down must NOT look like 'no face detected' — the user
+    would be told to resend a photo that was never actually checked."""
+    img = _make_photo(tmp_path, "src.jpg")
+    validator = MagicMock()
+    validator.count_faces.side_effect = FaceValidatorUnavailableError(
+        "валидация недоступна: ни один backend не загружен"
+    )
+    orch = _make_orch(tmp_path, validator=validator)
+    orch.begin_source(42)
+    with pytest.raises(OrchestratorError, match="недоступна") as excinfo:
+        orch.submit_source(42, img)
+    assert "не найдено лицо" not in str(excinfo.value)
+    assert orch.status(42) == STATE_EXPECTING_SOURCE
+
+
 def test_submit_source_without_begin_raises(tmp_path):
     img = _make_photo(tmp_path, "src.jpg")
     orch = _make_orch(tmp_path)
@@ -123,6 +140,28 @@ def test_submit_targets_computes_cost_estimate(tmp_path):
     assert est.skipped_count == 1
     assert est.total_usd > 0
     assert sess.cost_estimate is not None
+
+
+def test_submit_targets_labels_validator_unavailable_distinctly(tmp_path):
+    """A FaceValidatorUnavailableError must be labeled distinctly from a
+    generic validator failure or 'no face detected' — honest diagnostics."""
+    src = _make_photo(tmp_path, "src.jpg")
+    t1 = _make_photo(tmp_path, "t1.jpg")
+
+    validator = MagicMock()
+    validator.count_faces.side_effect = [
+        1,  # source
+        FaceValidatorUnavailableError("недоступна"),  # target
+    ]
+    orch = _make_orch(tmp_path, validator=validator)
+    orch.begin_source(42)
+    orch.submit_source(42, src)
+    orch.begin_targets(42)
+    sess, est = orch.submit_targets(42, [t1])
+
+    assert sess.targets[0].valid is False
+    assert "validator unavailable" in sess.targets[0].error
+    assert est.valid_count == 0
 
 
 def test_submit_targets_empty_list_raises(tmp_path):
