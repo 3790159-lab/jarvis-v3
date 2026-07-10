@@ -4334,6 +4334,14 @@ def _handle_confirm_run(chat_id, cq_id, cq_uid, state) -> None:
     pend = state.get("pending_confirm") or {}
     cmd = pend.get("cmd", "")
     resume = pend.get("resume") or {}
+    if not pend:
+        # Устаревший/уже погашенный confirm: второй тап по той же кнопке, либо
+        # первый тап уже отработал и обнулил pending_confirm (строка ниже) до
+        # того, как платный вызов упал. Без этого guard пустой resume уходил в
+        # handle_command("") → fall-through «Не знаю такую команду» (сбивает с толку).
+        answer_callback_query(cq_id, "⏳ Кнопка устарела")
+        send(chat_id, "⏳ Кнопка устарела — набери команду заново.")
+        return
     role = _menu_role(cq_uid)
     if role != "admin" and cmd not in FRIEND_ALLOWED_COMMANDS:
         answer_callback_query(cq_id, "🚫 Только для администратора")
@@ -4510,9 +4518,17 @@ def _suggest_tasks_dispatch(chat_id: str) -> None:
         today=datetime.utcnow().date(), since_days=_SUGGEST_TASKS_LOG_SINCE_DAYS,
     )
     system, messages = _sug.build_prompt(signals)
-    reply, err = guard_spend(
-        chat_id, None, _sug.EST_USD, lambda: _suggest_tasks_ask_llm(system, messages),
-    )
+    try:
+        reply, err = guard_spend(
+            chat_id, None, _sug.EST_USD, lambda: _suggest_tasks_ask_llm(system, messages),
+        )
+    except Exception as exc:                   # платный вызов упал (нет кредитов/сеть):
+        # guard_spend не оборачивает do_spend, поэтому исключение раньше пробивало
+        # весь callback насквозь и юзер не видел НИЧЕГО (молча) → пере-тап. cost не
+        # записан (record_cost только при truthy-результате) → честный $0.
+        logger.exception("suggest_tasks: paid LLM call failed chat=%s", chat_id)
+        send(chat_id, "🚫 LLM недоступен — предложения не сгенерированы, $0 (%s)." % (str(exc)[:120]))
+        return
     if err:                                    # лимит → $0 потрачено, честный отказ
         send(chat_id, "🚫 %s — предложения не сгенерированы (LLM не вызывался, $0)." % err)
         return

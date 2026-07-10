@@ -160,6 +160,70 @@ def test_suggest_tasks_confirm_tap_reaches_real_dispatch_e2e(monkeypatch):
     assert not state.get("pending_confirm")
 
 
+def test_suggest_tasks_tap_shows_honest_error_when_llm_raises_e2e(monkeypatch):
+    """Live path (D2): the confirm:run tap reaches the real dispatch, but the paid
+    LLM call raises (Anthropic 400 'credit balance too low', as seen in the prod
+    log). guard_spend does NOT wrap do_spend, so the exception used to propagate
+    out of the whole callback and the user saw NOTHING (silent), then re-tapped.
+    After the fix the user must get an honest '$0 / недоступен' message and the
+    handler must NOT raise — NOT silence, NOT 'Не знаю такую команду'."""
+    def _raising_llm(system, messages):
+        raise RuntimeError("Error code: 400 - Your credit balance is too low")
+
+    # real-guard-like passthrough: do_spend() runs and its exception propagates,
+    # exactly as the production guard_spend (spend_guard.py) does.
+    monkeypatch.setattr(mod, "guard_spend", lambda uid, uname, est, do: (do(), None))
+    monkeypatch.setattr(mod, "_suggest_tasks_ask_llm", _raising_llm)
+    monkeypatch.setattr(mod, "_regress_baseline", lambda: None)
+    monkeypatch.setattr(mod, "save_state", lambda s: None)
+    sent = []
+    monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
+    monkeypatch.setattr(mod, "send_with_keyboard", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "answer_callback_query", lambda *a, **k: None)
+
+    state = {"pending_confirm": {"cmd": "/suggest_tasks",
+                                 "resume": {"kind": "cmd", "cmd": "/suggest_tasks", "query": ""}}}
+    cq = {
+        "id": "cq1", "data": "confirm:run",
+        "message": {"chat": {"id": int(ADMIN)}, "message_id": 55},
+        "from": {"id": int(ADMIN)},
+    }
+    # Must NOT raise out of the handler (the whole point of D2).
+    mod.handle_callback_query(cq, state)
+
+    assert len(sent) == 1
+    assert "не знаю" not in sent[0].lower()
+    assert ("$0" in sent[0]) or ("недоступ" in sent[0].lower())
+
+
+def test_suggest_tasks_stale_confirm_tap_is_not_unknown_command_e2e(monkeypatch):
+    """Live path (D1): a SECOND tap on an already-consumed confirm button, i.e.
+    pending_confirm is None (the first tap cleared it at _handle_confirm_run:4341
+    before the paid call). The old code re-dispatched handle_command with an EMPTY
+    cmd → fall-through 'Не знаю такую команду' (line 8072). After the fix the user
+    must get a 'кнопка устарела' hint and NOTHING must be dispatched."""
+    dispatched = {"n": 0}
+    monkeypatch.setattr(mod, "_suggest_tasks_dispatch",
+                        lambda cid: dispatched.__setitem__("n", dispatched["n"] + 1))
+    monkeypatch.setattr(mod, "save_state", lambda s: None)
+    sent = []
+    monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
+    monkeypatch.setattr(mod, "answer_callback_query", lambda *a, **k: None)
+
+    state = {"pending_confirm": None}      # already consumed by the prior tap
+    cq = {
+        "id": "cq2", "data": "confirm:run",
+        "message": {"chat": {"id": int(ADMIN)}, "message_id": 55},
+        "from": {"id": int(ADMIN)},
+    }
+    mod.handle_callback_query(cq, state)
+
+    assert dispatched["n"] == 0                       # empty resume must NOT dispatch
+    assert len(sent) == 1
+    assert "не знаю" not in sent[0].lower()
+    assert "устарел" in sent[0].lower()
+
+
 def test_suggest_tasks_direct_call_with_token_bypasses_confirm_e2e(monkeypatch):
     """Direct invocation carrying the one-shot confirmed token (e.g. the same
     re-dispatch _handle_confirm_run performs) must reach the real generator
