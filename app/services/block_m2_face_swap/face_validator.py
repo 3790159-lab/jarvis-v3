@@ -4,24 +4,37 @@
 Runs entirely on the bot host (not on RunPod) so we can reject source/target
 photos with no detectable face before spending any pod money.
 
-Backend selection at first call:
+Backend selection at first call, in order:
 
 1. **InsightFace** (preferred) — ``buffalo_l`` model (insightface>=1.0.1),
    auto-downloads ~290MB to ``~/.insightface/models`` on first use. Robust,
    returns face boxes and landmarks. Runs on CPU (``ctx_id=-1``).
 2. **OpenCV Haar cascade** (fallback) — ships with ``opencv-python``; weaker
-   (higher false-positive rate) but no extra deps. Logged when used so we
-   know quality is reduced.
+   (higher false-positive rate) but no extra deps.
+3. **MediaPipe** (last resort) — ``blaze_face_short_range`` model, downloaded
+   (~230KB) to ``~/.mediapipe_models`` on first use. Reads images via Pillow
+   instead of cv2, so it still works when cv2 itself is the thing that's
+   broken. Does not depend on cv2 at all.
+
+Each fallback transition is logged at WARNING so a degraded backend is
+never silent. If **all three** backends fail to load, the validator does
+NOT pretend photos have 0 faces (that silently rejected every real photo
+for weeks in production without anyone noticing — see the 2026-07 incident).
+Instead every detection call raises :class:`FaceValidatorUnavailableError`
+so callers can surface an honest "validation unavailable" error instead of
+a fake "no face detected" / fake pass.
 
 The active backend is recorded in module-level :data:`VALIDATOR_BACKEND`
 after the first detection call. Public accessor:
 :func:`get_active_backend` — triggers the lazy load if needed and returns
-the selected backend name (``"insightface"``, ``"opencv"``, or ``"none"``).
+the selected backend name (``"insightface"``, ``"opencv"``, ``"mediapipe"``,
+or ``"none"``).
 """
 from __future__ import annotations
 
 import logging
 import threading
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -31,7 +44,43 @@ logger = logging.getLogger(__name__)
 
 BACKEND_INSIGHTFACE = "insightface"
 BACKEND_OPENCV = "opencv"
+BACKEND_MEDIAPIPE = "mediapipe"
 BACKEND_NONE = "none"
+
+# MediaPipe Tasks API needs a local .tflite model file (no auto-download
+# built into the library, unlike insightface). Google-hosted public asset,
+# free, documented at ai.google.dev/edge/mediapipe/solutions/vision/face_detector.
+_MEDIAPIPE_MODEL_URL = (
+    "https://storage.googleapis.com/mediapipe-models/face_detector/"
+    "blaze_face_short_range/float16/1/blaze_face_short_range.tflite"
+)
+_MEDIAPIPE_MODEL_PATH = Path.home() / ".mediapipe_models" / "blaze_face_short_range.tflite"
+_MEDIAPIPE_MIN_CONFIDENCE = 0.5
+_MEDIAPIPE_DOWNLOAD_TIMEOUT_SEC = 15
+
+
+class FaceValidatorUnavailableError(RuntimeError):
+    """Raised when no face-detection backend could be loaded.
+
+    Honest failure, on purpose: callers must NOT treat this the same as "0
+    faces detected" (a real, meaningful result) — validation is simply not
+    available right now.
+    """
+
+
+def _ensure_mediapipe_model(dest: Path = _MEDIAPIPE_MODEL_PATH) -> Path:
+    """Download the MediaPipe face-detector model to ``dest`` if missing."""
+    if dest.is_file() and dest.stat().st_size > 0:
+        return dest
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(".tmp")
+    with urllib.request.urlopen(
+        _MEDIAPIPE_MODEL_URL, timeout=_MEDIAPIPE_DOWNLOAD_TIMEOUT_SEC
+    ) as resp:
+        tmp.write_bytes(resp.read())
+    tmp.replace(dest)
+    return dest
+
 
 # ── frame-quality scoring tunables (Веха C / Задача 1) ───────────────────────
 # Stop emitting magic numbers inline — all knobs live here for live tuning.
@@ -49,10 +98,12 @@ VALIDATOR_BACKEND: str = BACKEND_NONE
 
 __all__ = [
     "FaceValidator",
+    "FaceValidatorUnavailableError",
     "FaceScore",
     "VALIDATOR_BACKEND",
     "BACKEND_INSIGHTFACE",
     "BACKEND_OPENCV",
+    "BACKEND_MEDIAPIPE",
     "BACKEND_NONE",
     "get_active_backend",
 ]
@@ -72,7 +123,7 @@ class FaceScore:
     area_fraction: float    # bbox area / image area, 0..1
     frontality: float       # 0..1, 1.0 = perfectly frontal (0.0 if unavailable)
     bbox: tuple[int, int, int, int]
-    backend: str            # "insightface" | "opencv" — surfaces degradation
+    backend: str            # "insightface" | "opencv" | "mediapipe" — surfaces degradation
 
 
 @dataclass(frozen=True)
@@ -81,7 +132,7 @@ class _ScoredDetection:
 
     bbox: tuple[int, int, int, int]
     det_score: float | None  # None when the backend (opencv) provides no score
-    kps: Any | None          # 5 landmarks or None (opencv)
+    kps: Any | None          # 5 landmarks or None (opencv/mediapipe)
 
 
 def _clamp01(value: float) -> float:
@@ -111,6 +162,7 @@ class FaceValidator:
         self._lock = threading.Lock()
         self._insightface_app: Any = None
         self._opencv_cascade: Any = None
+        self._mediapipe_detector: Any = None
         self._loaded = False
 
     # ── public API ──────────────────────────────────────────────────────────
@@ -157,36 +209,47 @@ class FaceValidator:
             raise ValueError(f"image not found: {path}")
         self._ensure_loaded()
 
-        import cv2  # type: ignore[import-not-found]
+        if self._mediapipe_detector is not None:
+            raw, (img_h, img_w) = self._run_mediapipe(path)
+            dets = [
+                _ScoredDetection(bbox=bbox, det_score=score, kps=None)
+                for bbox, score in raw
+            ]
+            return dets, (img_h, img_w), BACKEND_MEDIAPIPE
 
-        img = cv2.imread(str(path))
-        if img is None:
-            raise ValueError(f"cv2 could not read image: {path}")
-        img_h, img_w = img.shape[:2]
+        if self._insightface_app is not None or self._opencv_cascade is not None:
+            import cv2  # type: ignore[import-not-found]
 
-        dets: list[_ScoredDetection] = []
-        if self._insightface_app is not None:
-            for face in self._insightface_app.get(img):
-                bbox = getattr(face, "bbox", None)
-                if bbox is None or len(bbox) < 4:
-                    continue
-                x1, y1, x2, y2 = (int(v) for v in bbox[:4])
-                det_score = getattr(face, "det_score", None)
-                dets.append(
-                    _ScoredDetection(
-                        bbox=(x1, y1, x2, y2),
-                        det_score=None if det_score is None else float(det_score),
-                        kps=getattr(face, "kps", None),
+            img = cv2.imread(str(path))
+            if img is None:
+                raise ValueError(f"cv2 could not read image: {path}")
+            img_h, img_w = img.shape[:2]
+
+            dets: list[_ScoredDetection] = []
+            if self._insightface_app is not None:
+                for face in self._insightface_app.get(img):
+                    bbox = getattr(face, "bbox", None)
+                    if bbox is None or len(bbox) < 4:
+                        continue
+                    x1, y1, x2, y2 = (int(v) for v in bbox[:4])
+                    det_score = getattr(face, "det_score", None)
+                    dets.append(
+                        _ScoredDetection(
+                            bbox=(x1, y1, x2, y2),
+                            det_score=None if det_score is None else float(det_score),
+                            kps=getattr(face, "kps", None),
+                        )
                     )
-                )
-            return dets, (img_h, img_w), BACKEND_INSIGHTFACE
+                return dets, (img_h, img_w), BACKEND_INSIGHTFACE
 
-        if self._opencv_cascade is not None:
             for bbox in self._detect_opencv(path):
                 dets.append(_ScoredDetection(bbox=bbox, det_score=None, kps=None))
             return dets, (img_h, img_w), BACKEND_OPENCV
 
-        return dets, (img_h, img_w), BACKEND_NONE
+        raise FaceValidatorUnavailableError(
+            "валидация недоступна: ни один backend распознавания лиц "
+            "(InsightFace/OpenCV/MediaPipe) не загружен"
+        )
 
     def _compute_score(
         self,
@@ -300,10 +363,38 @@ class FaceValidator:
                 self._opencv_cascade = cascade
                 VALIDATOR_BACKEND = BACKEND_OPENCV
                 logger.info("FaceValidator: using OpenCV Haar cascade")
+                self._loaded = True
+                return
+            except Exception as exc:  # noqa: BLE001 - fallback intentional
+                logger.warning(
+                    "FaceValidator: OpenCV unavailable (%s); "
+                    "falling back to MediaPipe",
+                    exc,
+                )
+
+            try:
+                import mediapipe as mp  # type: ignore[import-not-found]
+                from mediapipe.tasks.python import vision as mp_vision  # type: ignore[import-not-found]
+                from mediapipe.tasks.python.core.base_options import (  # type: ignore[import-not-found]
+                    BaseOptions as MPBaseOptions,
+                )
+
+                model_path = _ensure_mediapipe_model()
+                options = mp_vision.FaceDetectorOptions(
+                    base_options=MPBaseOptions(model_asset_path=str(model_path)),
+                    min_detection_confidence=_MEDIAPIPE_MIN_CONFIDENCE,
+                )
+                self._mediapipe_detector = mp_vision.FaceDetector.create_from_options(
+                    options
+                )
+                VALIDATOR_BACKEND = BACKEND_MEDIAPIPE
+                logger.info(
+                    "FaceValidator: using MediaPipe (blaze_face_short_range)"
+                )
             except Exception as exc:  # noqa: BLE001 - last-resort backend
                 logger.error(
-                    "FaceValidator: no backend available — every photo will "
-                    "report 0 faces (%s)",
+                    "FaceValidator: no backend available — validation is "
+                    "DISABLED, not simulated (%s)",
                     exc,
                 )
                 VALIDATOR_BACKEND = BACKEND_NONE
@@ -320,7 +411,12 @@ class FaceValidator:
             return self._detect_insightface(path)
         if self._opencv_cascade is not None:
             return self._detect_opencv(path)
-        return []
+        if self._mediapipe_detector is not None:
+            return self._detect_mediapipe(path)
+        raise FaceValidatorUnavailableError(
+            "валидация недоступна: ни один backend распознавания лиц "
+            "(InsightFace/OpenCV/MediaPipe) не загружен"
+        )
 
     def _detect_insightface(
         self, path: Path
@@ -354,3 +450,31 @@ class FaceValidator:
             gray, scaleFactor=1.1, minNeighbors=3, minSize=(40, 40)
         )
         return [(int(x), int(y), int(x + w), int(y + h)) for (x, y, w, h) in rects]
+
+    def _run_mediapipe(
+        self, path: Path
+    ) -> tuple[list[tuple[tuple[int, int, int, int], float | None]], tuple[int, int]]:
+        """Run the MediaPipe detector. Reads via Pillow — no cv2 dependency,
+        so this still works when cv2 itself is the broken piece."""
+        import numpy as np  # type: ignore[import-not-found]
+        import mediapipe as mp  # type: ignore[import-not-found]
+        from PIL import Image as PILImage
+
+        pil_img = PILImage.open(path).convert("RGB")
+        arr = np.ascontiguousarray(np.asarray(pil_img))
+        img_h, img_w = arr.shape[:2]
+        mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=arr)
+        result = self._mediapipe_detector.detect(mp_img)
+
+        out: list[tuple[tuple[int, int, int, int], float | None]] = []
+        for det in result.detections:
+            bb = det.bounding_box
+            x1, y1 = int(bb.origin_x), int(bb.origin_y)
+            x2, y2 = x1 + int(bb.width), y1 + int(bb.height)
+            score = float(det.categories[0].score) if det.categories else None
+            out.append(((x1, y1, x2, y2), score))
+        return out, (img_h, img_w)
+
+    def _detect_mediapipe(self, path: Path) -> list[tuple[int, int, int, int]]:
+        dets, _ = self._run_mediapipe(path)
+        return [bbox for bbox, _ in dets]

@@ -92,3 +92,6 @@ replicate==1.0.7
 insightface==1.0.1
 onnxruntime==1.26.0
 opencv-python==4.13.0.92
+# Last-resort face-detection fallback when cv2 itself is broken (reads via
+# Pillow, not cv2). See face_validator.py fallback chain docstring.
+mediapipe==0.10.35
