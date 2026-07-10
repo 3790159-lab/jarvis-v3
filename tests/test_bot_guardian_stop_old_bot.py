@@ -42,6 +42,12 @@ def _run_ps(body: str, root: Path, timeout: int = 40) -> subprocess.CompletedPro
     return subprocess.run(
         ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command],
         capture_output=True, text=True, timeout=timeout,
+        # Pin decoding so the test is hermetic to the ambient locale: under
+        # PYTHONUTF8=1 (the merge-gate env) a naive text=True would try to utf-8-
+        # decode PowerShell's OEM-codepage output (the guardian logs Cyrillic via
+        # Write-Host) and raise. errors="replace" keeps the ascii tokens we assert
+        # on ("True"/"False"/digits) intact regardless of codepage.
+        encoding="utf-8", errors="replace",
     )
 
 
@@ -74,10 +80,15 @@ def _write_fake_bot(path: Path, spawn_child: bool) -> None:
 
 
 def _pid_alive(pid: int) -> bool:
+    # BYTES, not text=True: tasklist prints in the OEM console codepage
+    # (cp866/cp850 on RU Windows), which fails a strict utf-8 decode under
+    # PYTHONUTF8=1 — the merge-gate env. That made result.stdout blow up and the
+    # test go red in the gate while green in the worktree. Matching the ascii pid
+    # in the raw bytes is codepage-independent (ascii is a subset of every OEM cp).
     result = subprocess.run(
-        ["tasklist", "/FI", f"PID eq {pid}"], capture_output=True, text=True, timeout=10
+        ["tasklist", "/FI", f"PID eq {pid}"], capture_output=True, timeout=10
     )
-    return str(pid) in result.stdout
+    return str(pid).encode("ascii") in (result.stdout or b"")
 
 
 @pytest.fixture
@@ -94,7 +105,8 @@ def test_stop_old_bot_kills_pid_file_process_and_its_child_tree(fake_root):
     fake_bot = fake_root / "jarvis_smart_telegram_control.py"
     _write_fake_bot(fake_bot, spawn_child=True)
     proc = subprocess.Popen(
-        [sys.executable, str(fake_bot)], stdout=subprocess.PIPE, text=True
+        [sys.executable, str(fake_bot)], stdout=subprocess.PIPE, text=True,
+        encoding="utf-8", errors="replace",  # locale-independent (PYTHONUTF8 gate env)
     )
     try:
         child_pid_line = proc.stdout.readline().strip()
