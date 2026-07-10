@@ -30,8 +30,46 @@ _DATEFMT = "%Y-%m-%d %H:%M:%S"
 _MAX_BYTES = 5 * 1024 * 1024  # 5 MB
 _BACKUP_COUNT = 5
 
+_TEST_LOG_FILENAME = "test_run.log"
+_PRODUCTION_LOG_NAMES = {"jarvis.log", "jarvis_bot.log"}
+
 # project root: app/core/logging_setup.py -> app/core -> app -> ROOT
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+
+def _running_under_pytest() -> bool:
+    # PYTEST_CURRENT_TEST is only set once a test is actually executing
+    # (setup/call/teardown); PYTEST_VERSION is set by pytest's own bootstrap
+    # for the whole process, including collection -- before any module-level
+    # `setup_app_logging(...)` call (e.g. app/main.py) would otherwise slip
+    # a line into the production log ahead of the first test running.
+    return bool(os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("PYTEST_VERSION"))
+
+
+def strip_production_file_handlers() -> list[str]:
+    """Remove any root-logger RotatingFileHandler that targets a production
+    log file (jarvis.log / jarvis_bot.log).
+
+    Safety net for handlers attached some other way than
+    ``setup_app_logging`` (e.g. a stray ``logging.FileHandler`` pointed
+    directly at a production path). See root conftest.py.
+
+    Returns the basenames removed.
+    """
+    root = logging.getLogger()
+    removed: list[str] = []
+    for handler in list(root.handlers):
+        if not isinstance(handler, logging.handlers.RotatingFileHandler):
+            continue
+        try:
+            name = Path(handler.baseFilename).name
+        except Exception:
+            continue
+        if name in _PRODUCTION_LOG_NAMES:
+            root.removeHandler(handler)
+            handler.close()
+            removed.append(name)
+    return removed
 
 
 def _logs_dir() -> Path:
@@ -60,6 +98,9 @@ def setup_app_logging(
     Returns:
         Absolute path to the log file.
     """
+    if _running_under_pytest():
+        log_filename = _TEST_LOG_FILENAME
+
     log_path = _logs_dir() / log_filename
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
