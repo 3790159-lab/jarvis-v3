@@ -97,3 +97,85 @@ def test_suggest_tasks_command_gated_by_money_gate_without_token(monkeypatch):
     state = {}
     mod.handle_command(ADMIN, "/suggest_tasks", "", state)
     assert fired["dispatch"] == 0 and fired["confirm"] == 1
+
+
+# ── e2e: /suggest_tasks → pending confirm → tap → real dispatch (bug repro) ──
+# Reported symptom: money-confirm shows correctly, but tapping [▶️ Запустить]
+# replies "Не знаю такую команду" — as if the confirm callback never reaches
+# handle_command's "/suggest_tasks" dispatch branch. Unlike the unit tests
+# above (which stub handle_command or _suggest_tasks_dispatch away), this test
+# drives the REAL handle_command + handle_callback_query + _handle_confirm_run
+# + _suggest_tasks_dispatch chain end-to-end — only the network (send/
+# send_with_keyboard/answer_callback_query), guard_spend and the LLM call are
+# mocked (money-safety: zero real spend, zero real Anthropic calls).
+def _mock_llm_and_money(monkeypatch, llm_reply):
+    calls = {"llm": 0}
+
+    def _fake_llm(system, messages):
+        calls["llm"] += 1
+        return llm_reply
+
+    monkeypatch.setattr(mod, "guard_spend", lambda uid, uname, est, do: (do(), None))
+    monkeypatch.setattr(mod, "_suggest_tasks_ask_llm", _fake_llm)
+    monkeypatch.setattr(mod, "_regress_baseline", lambda: None)
+    monkeypatch.setattr(mod, "save_state", lambda s: None)
+    return calls
+
+
+def test_suggest_tasks_confirm_tap_reaches_real_dispatch_e2e(monkeypatch):
+    calls = _mock_llm_and_money(
+        monkeypatch,
+        '[{"title": "T1", "signal": "s", "rationale": "r", "draft": "d1", "size": "S"}]',
+    )
+    sent, kb_sent, acked = [], [], []
+    monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
+    monkeypatch.setattr(mod, "send_with_keyboard", lambda cid, t, kb, *a, **k: kb_sent.append((t, kb)))
+    monkeypatch.setattr(mod, "answer_callback_query", lambda *a, **k: acked.append(a))
+
+    state = {}
+    # Step 1: admin types /suggest_tasks — money-confirm must show, NOT dispatch.
+    mod.handle_command(ADMIN, "/suggest_tasks", "", state)
+    assert calls["llm"] == 0
+    assert len(kb_sent) == 1
+    assert "/suggest_tasks" in kb_sent[0][0]
+    assert any(btn.get("callback_data") == "confirm:run"
+               for row in kb_sent[0][1] for btn in row)
+    assert state["pending_confirm"]["cmd"] == "/suggest_tasks"
+
+    # Step 2: admin taps [▶️ Запустить] — a real confirm:run callback_query.
+    cq = {
+        "id": "cq1", "data": "confirm:run",
+        "message": {"chat": {"id": int(ADMIN)}, "message_id": 55},
+        "from": {"id": int(ADMIN)},
+    }
+    mod.handle_callback_query(cq, state)
+
+    # The generator must actually run (LLM mock called exactly once) and the
+    # top-3 suggestions must reach the chat — NOT "Не знаю такую команду".
+    assert calls["llm"] == 1
+    assert len(sent) == 1
+    assert "не знаю" not in sent[0].lower()
+    assert "T1" in sent[0]
+    assert "/dev_task" in sent[0]
+    assert not state.get("pending_confirm")
+
+
+def test_suggest_tasks_direct_call_with_token_bypasses_confirm_e2e(monkeypatch):
+    """Direct invocation carrying the one-shot confirmed token (e.g. the same
+    re-dispatch _handle_confirm_run performs) must reach the real generator
+    without showing a second confirm — no UI round-trip required."""
+    calls = _mock_llm_and_money(
+        monkeypatch,
+        '[{"title": "T2", "signal": "s", "rationale": "r", "draft": "d2", "size": "M"}]',
+    )
+    sent, kb_sent = [], []
+    monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
+    monkeypatch.setattr(mod, "send_with_keyboard", lambda cid, t, kb, *a, **k: kb_sent.append((t, kb)))
+
+    state = {"_paid_confirmed": "/suggest_tasks"}
+    mod.handle_command(ADMIN, "/suggest_tasks", "", state)
+
+    assert kb_sent == []               # no second confirm prompt
+    assert calls["llm"] == 1
+    assert len(sent) == 1
+    assert "T2" in sent[0]
