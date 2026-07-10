@@ -366,6 +366,7 @@ def _send_local_photo(chat_id, path, caption: str = "") -> None:
     if not p.exists():
         send(str(chat_id), f"⚠️ Photo file not found: {p}")
         return
+    _remember_last_media(chat_id, p)   # источник для /ig_post «last»
     with p.open("rb") as fh:
         _req.post(
             f"{TG}/sendPhoto",
@@ -4614,6 +4615,174 @@ def _ig_caption_dispatch(chat_id: str, topic: str) -> None:
     send(chat_id, "📝 Подпись для IG:\n\n%s" % caption)
 
 
+# ── /ig_post (Этап 3, кирпич #1): первый живой IG-пост ─────────────────────
+# Флоу: /ig_post <путь-или-last> <тема> → host_for_ig (R2) → caption (guard_spend)
+# → превью-карточка [📤 Опубликовать]/[✏️ Переген подпись]/[Отмена]. Публикация
+# ТОЛЬКО по тапу [📤] — необратимо, семантика money-gate (fail-closed: любой сбой
+# = НЕ публикуем + честная ошибка). Admin-only (нет в FRIEND_ALLOWED_*).
+
+# In-process «последняя генерация» на чат (кормится из _send_local_photo).
+# Не персистится: рестарт бота → пусто → честная просьба указать путь к файлу.
+_LAST_IG_MEDIA: Dict[str, str] = {}
+
+
+def _remember_last_media(chat_id, path) -> None:
+    """Запомнить последнее отправленное локальное фото как источник для /ig_post."""
+    try:
+        _LAST_IG_MEDIA[str(chat_id)] = str(path)
+    except Exception:  # noqa: BLE001 — учёт «последней» не должен ронять доставку
+        pass
+
+
+def _ig_post_host_media(path: str) -> str:
+    """prepare_for_ig + R2-upload → публичный URL. Обёртка: тесты мокают ЕЁ
+    (ноль реальной сети/R2), как ``_ig_caption_ask_llm`` для LLM."""
+    from app.services.ig_media_prep import host_for_ig
+    return host_for_ig(path)
+
+
+def _ig_post_generate_caption(chat_id, topic: str):
+    """Платный шаг подписи под guard_spend (тот же money-путь, что /ig_caption).
+    Возврат ``(caption, err)`` — как у ``guard_spend``."""
+    from app.services import ig_caption as _cap
+    brief = {
+        "business": _IG_CAPTION_BUSINESS,
+        "topic": topic,
+        "cta": _IG_CAPTION_CTA,
+    }
+    return guard_spend(
+        chat_id, None, _cap.EST_USD,
+        lambda: _cap.generate_caption(brief, ask_llm=_ig_caption_ask_llm),
+    )
+
+
+def _ig_post_keyboard() -> list:
+    return [
+        [{"text": "📤 Опубликовать", "callback_data": "igpost:publish"}],
+        [{"text": "✏️ Переген подпись", "callback_data": "igpost:regen"},
+         {"text": "Отмена", "callback_data": "igpost:cancel"}],
+    ]
+
+
+def _ig_post_dispatch(chat_id, query: str, state: Dict[str, Any]) -> None:
+    """``/ig_post <путь-или-last> <тема>`` — подготовить медиа+подпись и показать
+    превью-карточку. Публикация НЕ здесь — только по тапу [📤] (см. callback)."""
+    from pathlib import Path as _P
+
+    from app.services import ig_post as _igp
+
+    source, topic = _igp.parse_ig_post_args(query)
+    if not topic:
+        send(chat_id, "🖼 Формат: /ig_post <путь-или-last> <тема поста>")
+        return
+    try:
+        src_path = _igp.resolve_source(source, _LAST_IG_MEDIA.get(str(chat_id)))
+    except _igp.IGPostError as exc:
+        send(chat_id, "✏️ %s" % exc)
+        return
+    if not _P(src_path).exists():
+        send(chat_id, "🚫 Файл не найден: %s" % src_path)
+        return
+    # 1) подготовка + хостинг медиа (R2). Бесплатно, но сеть → честный сбой.
+    try:
+        photo_url = _ig_post_host_media(src_path)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("ig_post: host_for_ig failed chat=%s", chat_id)
+        send(chat_id, "🚫 Медиа не подготовлено к публикации ($0): %s" % (str(exc)[:120]))
+        return
+    # 2) подпись (платно, guard_spend — money-safety как у /ig_caption)
+    try:
+        caption, err = _ig_post_generate_caption(chat_id, topic)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("ig_post: caption gen failed chat=%s", chat_id)
+        send(chat_id, "🚫 LLM недоступен — подпись не сгенерирована, $0 (%s)." % (str(exc)[:120]))
+        return
+    if err:
+        send(chat_id, "🚫 %s — подпись не сгенерирована (LLM не вызывался, $0)." % err)
+        return
+    if not caption:
+        send(chat_id, "🤷 не удалось сгенерировать подпись (пустой ответ LLM).")
+        return
+    # 3) pending + превью-карточка с кнопками
+    state[_igp.IG_POST_PENDING_KEY] = {
+        "photo_url": photo_url,
+        "caption": caption,
+        "topic": topic,
+        "source": src_path,
+    }
+    save_state(state)
+    try:
+        _send_photo_url(chat_id, photo_url, caption="🖼 Превью IG-поста")
+    except Exception:  # noqa: BLE001 — превью-картинка не критична для карточки
+        pass
+    send_with_keyboard(
+        chat_id, _igp.build_preview_text(photo_url, caption, topic), _ig_post_keyboard()
+    )
+
+
+def _ig_post_regen(chat_id, message_id, state: Dict[str, Any]) -> None:
+    """Тап [✏️ Переген подпись] — новый платный caption, обновить карточку."""
+    from app.services import ig_post as _igp
+
+    pending = state.get(_igp.IG_POST_PENDING_KEY)
+    if not pending:
+        return
+    topic = pending.get("topic", "")
+    try:
+        caption, err = _ig_post_generate_caption(chat_id, topic)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("ig_post: regen caption failed chat=%s", chat_id)
+        send(chat_id, "🚫 LLM недоступен — подпись не переген., $0 (%s)." % (str(exc)[:120]))
+        return
+    if err:
+        send(chat_id, "🚫 %s — подпись не переген. (LLM не вызывался, $0)." % err)
+        return
+    if not caption:
+        send(chat_id, "🤷 пустой ответ LLM — подпись оставлена прежней.")
+        return
+    pending["caption"] = caption
+    state[_igp.IG_POST_PENDING_KEY] = pending
+    save_state(state)
+    edit_message_with_keyboard(
+        chat_id, message_id,
+        _igp.build_preview_text(pending.get("photo_url", ""), caption, topic),
+        _ig_post_keyboard(),
+    )
+
+
+def _ig_post_publish(chat_id, state: Dict[str, Any], message_id=None) -> None:
+    """Тап [📤 Опубликовать] — НЕОБРАТИМО. Fail-closed: любой сбой контейнера/
+    публикации = НЕ опубликовано + честная ошибка, pending сохранён для ретрая.
+    Успех → permalink в чат, pending очищен. Публикация бесплатна (не биллим)."""
+    from app.services import ig_post as _igp
+    from app.services.instagram_api import InstagramAPI, InstagramAPIError
+
+    pending = state.get(_igp.IG_POST_PENDING_KEY)
+    if not pending:
+        send(chat_id, "🚫 Нечего публиковать — карточка устарела.")
+        return
+    photo_url = pending.get("photo_url", "")
+    caption = pending.get("caption", "")
+    try:
+        result = InstagramAPI().publish_photo(photo_url, caption)
+    except InstagramAPIError as exc:
+        logger.warning("ig_post: publish blocked/failed chat=%s: %s", chat_id, exc)
+        send(chat_id, _igp.format_publish_error(exc))
+        return
+    except Exception as exc:  # noqa: BLE001 — любой иной сбой тоже fail-closed
+        logger.exception("ig_post: publish crashed chat=%s", chat_id)
+        send(chat_id, "🚫 Публикация не удалась — пост НЕ размещён (%s)." % (str(exc)[:120]))
+        return
+    state.pop(_igp.IG_POST_PENDING_KEY, None)
+    save_state(state)
+    if message_id is not None:
+        try:
+            edit_message_with_keyboard(chat_id, message_id, "📤 Пост опубликован ✅", [])
+        except Exception:  # noqa: BLE001
+            pass
+    send(chat_id, _igp.build_published_text(result.get("permalink"), result.get("id", "")))
+
+
 def _ir2_route(chat_id: str, text: str, candidates, state: Dict[str, Any]) -> None:
     """IR-2 каскад: uncertain-фраза → Haiku-классификатор (под guard_spend) → команда.
 
@@ -5234,6 +5403,38 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
             else:
                 answer_callback_query(cq_id)
                 send(chat_id, item.hint)
+            return
+        answer_callback_query(cq_id)
+        return
+
+    # ── /ig_post (Этап 3): admin-only (igpost: NOT in friend prefixes) ─────────
+    # publish = необратимое наружу действие (семантика money-gate): исполняется
+    # ТОЛЬКО этим тапом, fail-closed внутри _ig_post_publish. cancel/regen/publish.
+    if data.startswith("igpost:"):
+        if not (_is_admin_id(_cq_uid) or str(_cq_uid) == ALLOWED_CHAT_ID):
+            answer_callback_query(cq_id, "🚫 Только для администратора")
+            return
+        from app.services import ig_post as _igp
+        action = parts[1] if len(parts) > 1 else ""
+        if action == "cancel":
+            state.pop(_igp.IG_POST_PENDING_KEY, None)
+            save_state(state)
+            answer_callback_query(cq_id, "Отменено")
+            try:
+                edit_message_with_keyboard(chat_id, message_id, "❌ Публикация отменена.", [])
+            except Exception:  # noqa: BLE001
+                pass
+            return
+        if not state.get(_igp.IG_POST_PENDING_KEY):
+            answer_callback_query(cq_id, "⏳ Карточка устарела")
+            return
+        if action == "regen":
+            answer_callback_query(cq_id, "✏️")
+            _ig_post_regen(chat_id, message_id, state)
+            return
+        if action == "publish":
+            answer_callback_query(cq_id, "📤 Публикую…")
+            _ig_post_publish(chat_id, state, message_id)
             return
         answer_callback_query(cq_id)
         return
@@ -7287,6 +7488,7 @@ _SELF_GATING_PAID: frozenset = frozenset({
     "/animate_batch", "/animate_batch_go",   # → _swapbatch_dispatch → engine menu
     "/dev_task",                             # → own task-preview confirm + buttons
     "/videoref",                             # → arms upload-await; paid step later
+    "/ig_post",                              # → preview card; caption step guard_spend'd inside
 })
 
 
@@ -7412,6 +7614,10 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
 
     if cmd == "/ig_caption":
         _ig_caption_dispatch(chat_id, query)
+        return
+
+    if cmd == "/ig_post":
+        _ig_post_dispatch(chat_id, query, state)
         return
 
     if cmd in ("/browse_check", "/browse_watch", "/browse_watch_stop", "/browse_status"):
