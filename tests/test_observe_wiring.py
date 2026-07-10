@@ -67,9 +67,13 @@ def test_health_command_sends_snapshot(monkeypatch):
 def test_regress_reports_verdict(monkeypatch):
     sent = []
     monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
-    monkeypatch.setattr(mod, "_regress_run_pytest",
-                        lambda: "130 failed, 3353 passed, 10 skipped, 4 errors in 255s")
+    # batched runner now supplies the aggregate result; verdict vs baseline unchanged
+    monkeypatch.setattr(mod, "_run_regress_batched",
+                        lambda **kw: {"status": "complete",
+                                      "summary": {"failed": 130, "passed": 3353, "errors": 4},
+                                      "batches_run": 5, "batches_total": 5})
     monkeypatch.setattr(mod, "_regress_baseline", lambda: {"failed": 130})
+    monkeypatch.setattr(mod._regress_batches, "write_baseline", lambda *a, **k: None)
     mod._REGRESS_RUNNING = False
     mod._regress_run(ADMIN)
     assert any("✅" in s for s in sent)  # not worse than baseline

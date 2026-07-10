@@ -37,6 +37,7 @@ from app.services.audit import audit_logger as _audit
 from app.services.audit import cost_tracker as _cost
 from app.services.auth.spend_guard import guard_spend
 from app.services.devtask import regress_watch as _regress_watch
+from app.services.devtask import regress_batches as _regress_batches
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 ALLOWED_CHAT_ID = str(os.getenv("TELEGRAM_ALLOWED_CHAT_ID", "")).strip()
@@ -1590,34 +1591,80 @@ def _devtask_pytest_env() -> Dict[str, str]:
     return env
 
 
-def _devtask_run_regress(worktree: str) -> dict:
-    """Run the suite in the worktree, verdict vs baseline. {ok, text}.
+def _regress_discover_tests(root: str) -> List[str]:
+    """Repo-relative paths of every ``tests/**/test_*.py`` under ``root`` (sorted).
 
-    Spawned under the detached watchdog (run_guarded records the pytest
-    PID-group + deadline) so an orphaned run can't grind forever — the pytest
-    invocation itself is unchanged."""
+    Recurses subdirs (tests/services, tests/test_tools, …) so batching covers the
+    whole suite. An empty result (dir missing, e.g. a synthetic test cwd) lets the
+    caller fall back to a single ``tests/`` batch — the historical behaviour."""
+    base = os.path.join(root, "tests")
+    out: List[str] = []
+    for dirpath, _dirs, files in os.walk(base):
+        for name in files:
+            if name.startswith("test_") and name.endswith(".py"):
+                rel = os.path.relpath(os.path.join(dirpath, name), root)
+                out.append(rel.replace("\\", "/"))
+    return sorted(out)
+
+
+def _run_regress_batched(*, cwd: str, env, timeout_s: int, creationflags: int,
+                         state_dir, label_prefix: str) -> dict:
+    """Run the suite as sequential RAM-guarded batches under the watchdog and
+    return :func:`regress_batches.run_batched_regress`'s rich result dict.
+
+    Each batch is an UNCHANGED ``pytest <files>`` spawn through
+    ``regress_watch.run_guarded`` (PID-group + per-batch deadline marker); a batch
+    timeout becomes ``None`` so the runner reports an honest ``timeout``. The
+    RAM-guard refuses to start a batch below ``REGRESS_MIN_FREE_GB`` free."""
     from tools import jarvis_observe as _jo
     import subprocess as _sp
-    try:
-        proc = _regress_watch.run_guarded(
-            [sys.executable, "-m", "pytest", "tests/", "-q", "-p", "no:cacheprovider",
-             "--continue-on-collection-errors", "--tb=no"],
-            cwd=worktree,
-            timeout_s=int(os.getenv("REGRESS_TIMEOUT_S", "900")),
-            creationflags=(0x4000 if sys.platform == "win32" else 0),
-            env=_devtask_pytest_env(),
-            state_dir=_REGRESS_WATCH_DIR, label="merge-gate")
-    except _sp.TimeoutExpired:
-        return {"ok": False, "text": "⏱ регресс-прогон превысил таймаут"}
-    line = ""
-    for ln in reversed((proc.stdout or "").strip().splitlines()):
-        if "passed" in ln or "failed" in ln or "error" in ln:
-            line = ln.strip()
-            break
-    summary = _jo.parse_pytest_summary(line)
-    baseline = _regress_baseline()
-    verdict = _jo.regress_verdict(summary, baseline)
-    return {"ok": verdict.startswith("✅"), "text": verdict}
+
+    tests = _regress_discover_tests(cwd)
+    if not tests:
+        tests = ["tests/"]                       # whole-dir fallback (single batch)
+
+    def _run_batch(batch, label):
+        try:
+            proc = _regress_watch.run_guarded(
+                [sys.executable, "-m", "pytest", *batch, "-q", "-p", "no:cacheprovider",
+                 "--continue-on-collection-errors", "--tb=no"],
+                cwd=cwd, timeout_s=timeout_s, creationflags=creationflags,
+                env=env, state_dir=state_dir, label="%s-%s" % (label_prefix, label))
+        except _sp.TimeoutExpired:
+            return None                          # → runner reports honest timeout
+        line = ""
+        for ln in reversed((proc.stdout or "").strip().splitlines()):
+            if "passed" in ln or "failed" in ln or "error" in ln:
+                line = ln.strip()
+                break
+        return _jo.parse_pytest_summary(line)
+
+    return _regress_batches.run_batched_regress(
+        tests,
+        batch_size=_regress_batches.batch_size_from_env(),
+        min_free_gb=_regress_batches.min_free_gb_from_env(),
+        run_batch_fn=_run_batch,
+        free_gb_fn=_regress_batches.free_gb,
+        sleep_fn=time.sleep,
+        ram_retries=_regress_batches.ram_retries_from_env(),
+        ram_pause_s=_regress_batches.ram_pause_s_from_env(),
+        log_fn=lambda m: logger.info("regress-batched: %s", m))
+
+
+def _devtask_run_regress(worktree: str) -> dict:
+    """Run the suite in the worktree as RAM-guarded batches, verdict vs baseline.
+
+    The full suite in one process OOMs/swaps on 16 GB (Этап 1); it is now chopped
+    into deterministic batches with a pre-batch RAM-guard, each spawned under the
+    detached watchdog. Returns {ok, text} exactly as before."""
+    from tools import jarvis_observe as _jo
+    res = _run_regress_batched(
+        cwd=worktree, env=_devtask_pytest_env(),
+        timeout_s=int(os.getenv("REGRESS_TIMEOUT_S", "900")),
+        creationflags=(0x4000 if sys.platform == "win32" else 0),
+        state_dir=_REGRESS_WATCH_DIR, label_prefix="merge-gate")
+    return _regress_batches.summarize_result(
+        res, _regress_baseline(), verdict_fn=_jo.regress_verdict)
 
 
 def _devtask_run_targeted(worktree: str, base_head: str) -> dict:
@@ -7033,29 +7080,6 @@ _REGRESS_TIMEOUT_S = int(os.getenv("REGRESS_TIMEOUT_S", "600"))
 _BELOW_NORMAL_PRIORITY_CLASS = 0x4000  # Windows creationflags
 
 
-def _regress_run_pytest() -> str:
-    """Run the suite read-only; return pytest's summary tail line (or a note).
-
-    Spawned under the detached watchdog (run_guarded records the pytest
-    PID-group + deadline) so a hung/orphaned /regress can't grind forever."""
-    import subprocess as _sp
-    flags = _BELOW_NORMAL_PRIORITY_CLASS if sys.platform == "win32" else 0
-    try:
-        proc = _regress_watch.run_guarded(
-            [sys.executable, "-m", "pytest", "tests/", "-q", "-p", "no:cacheprovider",
-             "--continue-on-collection-errors", "--tb=no"],
-            cwd="C:/jarvis", timeout_s=_REGRESS_TIMEOUT_S, creationflags=flags,
-            env=None, state_dir=_REGRESS_WATCH_DIR, label="regress",
-        )
-    except _sp.TimeoutExpired:
-        return f"⏱ прогон превысил {_REGRESS_TIMEOUT_S}с"
-    out = (proc.stdout or "").strip().splitlines()
-    for line in reversed(out):
-        if "passed" in line or "failed" in line or "error" in line:
-            return line.strip()
-    return out[-1].strip() if out else "(нет вывода pytest)"
-
-
 def _regress_baseline():
     """Read state/regress_baseline.json ({'failed': N, ...}) or None."""
     from tools import jarvis_observe as jobserve
@@ -7066,18 +7090,25 @@ def _regress_baseline():
 
 
 def _regress_run(chat_id: str) -> None:
-    """Thread body: run pytest, compute verdict vs baseline, report. Frees flag."""
+    """Thread body: run the full suite as RAM-guarded batches, verdict vs baseline,
+    refresh the baseline after the first clean full run, report. Frees flag."""
     global _REGRESS_RUNNING
     _REGRESS_RUNNING = True
     try:
         from tools import jarvis_observe as jobserve
-        out = _regress_run_pytest()
-        if out.startswith("⏱"):
-            send(chat_id, out)
-            return
-        summary = jobserve.parse_pytest_summary(out)
-        verdict = jobserve.regress_verdict(summary, _regress_baseline())
-        send(chat_id, "🧪 Регресс завершён:\n" + verdict)
+        flags = _BELOW_NORMAL_PRIORITY_CLASS if sys.platform == "win32" else 0
+        res = _run_regress_batched(
+            cwd="C:/jarvis", env=None, timeout_s=_REGRESS_TIMEOUT_S,
+            creationflags=flags, state_dir=_REGRESS_WATCH_DIR, label_prefix="regress")
+        baseline = _regress_baseline()
+        out = _regress_batches.summarize_result(
+            res, baseline, verdict_fn=jobserve.regress_verdict)
+        # Fresh baseline (req 3): only after a COMPLETE run, and only when not
+        # worse — an aborted/ram-exhausted run must never re-floor the baseline.
+        if _regress_batches.should_update_baseline(
+                res.get("status"), res.get("summary", {}), baseline):
+            _regress_batches.write_baseline(jobserve.BASELINE_PATH, res.get("summary", {}))
+        send(chat_id, "🧪 Регресс завершён:\n" + out["text"])
     finally:
         _REGRESS_RUNNING = False
 

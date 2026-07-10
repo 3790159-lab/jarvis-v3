@@ -58,6 +58,7 @@ def test_full_regress_gate_uses_run_guarded(monkeypatch):
     captured = {}
     monkeypatch.setattr(mod._regress_watch, "run_guarded",
                         lambda cmd, **kw: captured.update(cmd=cmd, kw=kw) or _Done())
+    monkeypatch.setattr(mod._regress_batches, "free_gb", lambda *a, **k: 8.0)  # RAM ok
     monkeypatch.setattr(mod, "_regress_baseline", lambda: {"failed": 0})
     monkeypatch.setattr(mod, "_devtask_pytest_env", lambda: {"E": "1"})
     mod._devtask_run_regress("C:/wt")
@@ -85,17 +86,22 @@ def test_slash_regress_uses_run_guarded(monkeypatch):
     captured = {}
     monkeypatch.setattr(mod._regress_watch, "run_guarded",
                         lambda cmd, **kw: captured.update(cmd=cmd, kw=kw) or _Done())
-    out = mod._regress_run_pytest()
+    monkeypatch.setattr(mod._regress_batches, "free_gb", lambda *a, **k: 8.0)  # RAM ok
+    res = mod._run_regress_batched(
+        cwd="C:/jarvis", env=None, timeout_s=600, creationflags=0,
+        state_dir=mod._REGRESS_WATCH_DIR, label_prefix="regress")
     assert "pytest" in captured["cmd"]
     assert captured["kw"]["cwd"] == "C:/jarvis"
-    assert captured["kw"]["label"]
-    assert "passed" in out
+    assert "regress" in captured["kw"]["label"]
+    assert res["status"] == "complete"
 
 
 def test_run_guarded_timeout_surfaces_as_timeout_message(monkeypatch):
     def boom(cmd, **kw):
         raise subprocess.TimeoutExpired(cmd="pytest", timeout=kw.get("timeout_s"))
     monkeypatch.setattr(mod._regress_watch, "run_guarded", boom)
+    monkeypatch.setattr(mod._regress_batches, "free_gb", lambda *a, **k: 8.0)  # RAM ok
     monkeypatch.setattr(mod, "_devtask_pytest_env", lambda: {"E": "1"})
+    monkeypatch.setattr(mod, "_regress_baseline", lambda: {"failed": 0})
     res = mod._devtask_run_regress("C:/wt")
     assert res["ok"] is False and "таймаут" in res["text"]
