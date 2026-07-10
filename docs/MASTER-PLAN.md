@@ -62,14 +62,22 @@ dev_task с падающим регрессом не предлагает [Ме�
    (ручная уборка 8e1dc8 2026-07-09).
 3. `[ ]` **Изоляция тестовых уведомлений от прод-чата** — регресс/тесты не должны слать
    в реальный чат админа (протечка petya/555; см. [[jarvis-devtask-regress-gate-techdebt]]).
-4. `[~]` **RAM-guard + батчи регресса** — полный pytest одним процессом не влезает на
-   8→16 ГБ; бить на батчи + сторожить память, обновлять baseline. **Код+тесты готовы**
-   (`app/services/devtask/regress_batches.py` + wiring в merge-gate/`/regress`,
-   detached-watchdog на каждый батч, `REGRESS_BATCH_SIZE`/`REGRESS_MIN_FREE_GB`=3.0/
-   `REGRESS_RAM_RETRIES`/`REGRESS_RAM_PAUSE_S`; ram_exhausted = честный провал, а не
-   голодание; baseline обновляется только после первого чистого полного прогона).
-   Осталось: **живой полный прогон** (только Daniil тапом `/regress` — CC не гоняет
-   полный регресс на этом железе по рамкам задачи).
+4. `[x]` **RAM-guard + батчи регресса** — ✅ 2026-07-10 ЗАКРЫТ живым полным прогоном.
+   Пре-батчевый гейт + батчи были готовы; в эту сессию добавлен **интра-батчевый
+   RAM-guard** (`regress_watch.run_guarded` фоновый сэмплер: free RAM < `REGRESS_BATCH_KILL_FREE_GB`
+   =2.5ГБ каждые `REGRESS_BATCH_SAMPLE_S`=2с → tree-kill батча → `RegressRamKilled`;
+   оркестратор помечает батч failed, **называет файлы, продолжает остальные**, baseline
+   не обновляет — третий триггер сторожа по ПАМЯТИ, которого не было у orphan/deadline).
+   **Найден и пофикшен ИСХОДНЫЙ КОРЕНЬ всех OOM** (`6b48293`, влит в прод): не тяжёлый
+   тест, а test-pollution пара — `test_replicate_engine.py::test_router_imports_without_replicate_sdk`
+   (sys.modules/meta_path хирургия) отравляла `test_runpod_comfy_engine.py::test_generate_raises_after_max_cold_start_attempts`
+   → poll-loop крутил `AsyncMock.call_args_list` → 13ГБ; фикс = subprocess-изоляция.
+   См. [[jarvis-oom-root-cause-comfy-replicate]]. **Живая приёмка (все 8 батчей):**
+   status=complete 8/8, **33 failed / 3966 passed / 0 errors** (≤ baseline 129 → ✅),
+   **пик RAM 5.94ГБ used / 9.99ГБ free** (порог не тронут), **285с**, baseline
+   обновлён 129→33. Прод-бот+backend пережили прогон. `REGRESS_BATCH_SIZE`/
+   `REGRESS_MIN_FREE_GB`=3.0/`REGRESS_RAM_RETRIES`/`REGRESS_RAM_PAUSE_S`/
+   `REGRESS_BATCH_KILL_FREE_GB`=2.5/`REGRESS_BATCH_SAMPLE_S`=2.
 5. `[ ]` **Таргет-режим регресса** — ветка `devtask-…cf31a4` (коммит `272f292`,
    awaiting_review) уже реализует обход полного регресса по диффу; верифицировать и
    влить как часть Этапа 1.
@@ -131,6 +139,17 @@ dev_task с падающим регрессом не предлагает [Ме�
     LLM-вызовов бота (роутер/IR/completion) не переиспользуют кэш. Добавить стабильный
     префикс + `cache_control` на системные блоки роутера, чтобы поднять hit-rate. Это
     про bot-spend (API-ключ), отдельно от dev_task (у того кэш здоров). Низкий приоритет.
+12. `[ ]` **(Бэклог) comfy `terminate_pod` мок-мисматч** — `tests/test_runpod_comfy_engine.py`
+    (12 пре-существующих фейлов, всплыли при бисекции батча 5, 2026-07-10, НЕ OOM):
+    тесты ассертят `client.stop_pod`, а движок зовёт `await client.terminate_pod(pod_id)`
+    (P22: terminate ≠ stop) — но мок `client` не отдаёт `terminate_pod` как `AsyncMock`
+    (`'MagicMock' object can't be awaited` → cleanup-except глотает → `stop_pod` не зовётся).
+    Починить моки (добавить `terminate_pod=AsyncMock`) / привести тест к движку. Не блокер.
+13. `[ ]` **(Бэклог) Лог-контаминация pytest → боевой `logs/jarvis_bot.log`** — pytest-
+    подпроцессы регресса импортируют бот-модуль → инициализируют app-logging → пишут в
+    ЖИВОЙ `logs/jarvis_bot.log` (напр., строка `test_regress_watch_wiring.py` «boom»
+    протекла туда во время прогона и читается как живой сбой heartbeat). Развести:
+    тест-подпроцессам — отдельный лог-сток / отключать файловый логгер под pytest.
 
 ### Этап 2 — Генератор задач v0 (зачаток самостроительства)
 **Что:** команда `/suggest_tasks`: Brain прогоняет логи + бэклог из этого файла →

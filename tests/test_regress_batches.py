@@ -246,3 +246,56 @@ def test_summarize_result_timeout_is_failure():
            "batches_run": 2, "batches_total": 5}
     out = rb.summarize_result(res, None, verdict_fn=_fake_verdict)
     assert out["ok"] is False and "аймаут" in out["text"] and "2/5" in out["text"]
+
+
+# ── intra-batch RAM kill: mark failed, name files, CONTINUE the rest ─────────
+def test_run_batched_regress_ram_killed_batch_continues_and_flags():
+    files = [f"tests/test_{i}.py" for i in range(6)]   # 3 batches of 2
+
+    ran = []
+
+    def _run_batch(batch, label):
+        ran.append(label)
+        if "2/3" in label:                       # 2nd batch balloons → killed on the fly
+            return {"ram_killed": True, "free_gb": 1.1}
+        return {"failed": 0, "passed": len(batch), "errors": 0}
+
+    res = rb.run_batched_regress(
+        files, batch_size=2, min_free_gb=3.0,
+        run_batch_fn=_run_batch, free_gb_fn=lambda: 8.0, sleep_fn=lambda s: None,
+        ram_retries=1, ram_pause_s=1)
+
+    assert res["status"] == "ram_killed"
+    # the kill did NOT abort the run — every batch was still attempted
+    assert ran == ["regress-batch-1/3", "regress-batch-2/3", "regress-batch-3/3"]
+    assert len(res["ram_killed"]) == 1
+    k = res["ram_killed"][0]
+    assert k["idx"] == 2 and k["free_gb"] == 1.1
+    assert k["files"] == ["tests/test_2.py", "tests/test_3.py"]     # names the victims
+    # aggregate covers only the batches that produced a real summary (1 & 3 → 4 passed)
+    assert res["summary"] == {"failed": 0, "passed": 4, "errors": 0}
+    assert res["batches_total"] == 3
+
+
+def test_should_update_baseline_never_on_ram_killed():
+    assert rb.should_update_baseline("ram_killed", {"failed": 0}, None) is False
+
+
+def test_summarize_result_ram_killed_is_honest_failure_naming_files():
+    res = {"status": "ram_killed",
+           "summary": {"failed": 0, "passed": 4, "errors": 0},
+           "batches_run": 2, "batches_total": 3,
+           "ram_killed": [{"idx": 2, "free_gb": 1.1,
+                           "files": ["tests/test_2.py", "tests/test_3.py"]}]}
+    out = rb.summarize_result(res, None, verdict_fn=_fake_verdict)
+    assert out["ok"] is False
+    assert "test_2.py" in out["text"] and "1.1" in out["text"]
+
+
+def test_batch_ram_guard_knobs_from_env():
+    assert rb.batch_kill_free_gb_from_env({}) == rb.DEFAULT_BATCH_KILL_FREE_GB
+    assert rb.batch_kill_free_gb_from_env({"REGRESS_BATCH_KILL_FREE_GB": "1.5"}) == 1.5
+    assert rb.batch_kill_free_gb_from_env(
+        {"REGRESS_BATCH_KILL_FREE_GB": "bad"}) == rb.DEFAULT_BATCH_KILL_FREE_GB
+    assert rb.batch_sample_s_from_env({}) == rb.DEFAULT_BATCH_SAMPLE_S
+    assert rb.batch_sample_s_from_env({"REGRESS_BATCH_SAMPLE_S": "3"}) == 3

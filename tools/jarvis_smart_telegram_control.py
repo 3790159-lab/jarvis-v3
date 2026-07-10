@@ -1629,9 +1629,15 @@ def _run_regress_batched(*, cwd: str, env, timeout_s: int, creationflags: int,
                 [sys.executable, "-m", "pytest", *batch, "-q", "-p", "no:cacheprovider",
                  "--continue-on-collection-errors", "--tb=no"],
                 cwd=cwd, timeout_s=timeout_s, creationflags=creationflags,
-                env=env, state_dir=state_dir, label="%s-%s" % (label_prefix, label))
+                env=env, state_dir=state_dir, label="%s-%s" % (label_prefix, label),
+                free_gb_fn=_regress_batches.free_gb,
+                kill_free_gb=_regress_batches.batch_kill_free_gb_from_env(),
+                sample_s=_regress_batches.batch_sample_s_from_env())
         except _sp.TimeoutExpired:
             return None                          # → runner reports honest timeout
+        except _regress_watch.RegressRamKilled as exc:
+            # batch ballooned mid-flight → runner marks it failed + continues
+            return {"ram_killed": True, "free_gb": exc.free_gb}
         line = ""
         for ln in reversed((proc.stdout or "").strip().splitlines()):
             if "passed" in ln or "failed" in ln or "error" in ln:

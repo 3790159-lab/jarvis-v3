@@ -23,11 +23,28 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Callable, Optional
 
 WATCH_NAME = "regress_watch.json"
+
+
+class RegressRamKilled(Exception):
+    """A batch was tree-killed mid-flight because free RAM crossed the hard floor.
+
+    Distinct from :class:`subprocess.TimeoutExpired` so the batched runner can
+    tell "this batch ate the machine" (mark it failed, keep going) apart from a
+    wall-clock hang (abort). Carries the offending PID-group leader and the free
+    RAM (GiB) measured at the kill."""
+
+    def __init__(self, pid, free_gb):
+        super().__init__(
+            "regress batch pid=%s killed: free RAM %.2f GB below floor"
+            % (pid, float(free_gb)))
+        self.pid = pid
+        self.free_gb = float(free_gb)
 
 
 # ── durable marker (state/regress_watch.json) ───────────────────────────────
@@ -73,6 +90,14 @@ def is_expired(watch: dict, now: float) -> bool:
 
 def is_orphaned(watch: dict, parent_alive: bool) -> bool:
     return not bool(parent_alive)
+
+
+def ram_breach(free_gb, floor_gb) -> bool:
+    """True when free RAM has crossed BELOW the hard floor (kill the batch now).
+
+    Strict ``<`` — the boundary itself is NOT a breach (mirrors :func:`ram_ok`'s
+    boundary in the batched runner, kept the opposite sense on purpose)."""
+    return float(free_gb) < float(floor_gb)
 
 
 def runaway_reason(watch: dict, now: float, parent_alive: bool) -> Optional[str]:
@@ -159,14 +184,26 @@ def run_guarded(cmd, *, cwd, env, timeout_s: int, creationflags: int,
                 bot_pid: Optional[int] = None,
                 now_fn: Callable[[], float] = time.time,
                 popen_factory: Optional[Callable[..., object]] = None,
-                kill_fn: Optional[Callable[[int], bool]] = None):
+                kill_fn: Optional[Callable[[int], bool]] = None,
+                free_gb_fn: Optional[Callable[[], float]] = None,
+                kill_free_gb: Optional[float] = None,
+                sample_s: float = 2.0):
     """Spawn ``cmd`` exactly as the callers' ``subprocess.run`` did (same args,
     cwd, env, creationflags, timeout) but record a watch marker with the child
     PID + deadline before waiting, and clear it in ``finally``.
 
     Returns a :class:`subprocess.CompletedProcess` on success. On timeout it
     tree-kills the PID-group, then re-raises :class:`subprocess.TimeoutExpired`
-    so callers keep their existing ``except TimeoutExpired`` handling."""
+    so callers keep their existing ``except TimeoutExpired`` handling.
+
+    Intra-batch RAM guard: when both ``free_gb_fn`` and ``kill_free_gb`` are
+    given, a daemon sampler watches free RAM every ``sample_s`` seconds while the
+    batch runs; the first time it drops BELOW ``kill_free_gb`` the PID-group is
+    tree-killed and :class:`RegressRamKilled` is raised — so a batch that
+    balloons memory from the inside (parent alive, deadline not reached: the
+    watchdog's blind spot) is contained instead of taking the host down. The
+    sampler is inert (no thread) when the knobs are absent, so existing callers
+    are byte-for-byte unchanged."""
     if popen_factory is None:
         popen_factory = subprocess.Popen
     if kill_fn is None:
@@ -179,8 +216,33 @@ def run_guarded(cmd, *, cwd, env, timeout_s: int, creationflags: int,
     record(state_dir, pid=proc.pid,
            bot_pid=bot_pid if bot_pid is not None else os.getpid(),
            deadline_epoch=now + int(timeout_s), label=label, started_epoch=now)
+
+    ram = {"killed": False, "free": None}
+    stop_evt = threading.Event()
+    sampler: Optional[threading.Thread] = None
+
+    def _sample() -> None:
+        while not stop_evt.is_set():
+            try:
+                free = float(free_gb_fn())
+            except Exception:
+                free = None
+            if free is not None and ram_breach(free, kill_free_gb):
+                ram["killed"] = True
+                ram["free"] = free
+                kill_fn(proc.pid)        # tree-kill → communicate() unblocks
+                return
+            stop_evt.wait(sample_s)
+
+    if free_gb_fn is not None and kill_free_gb is not None:
+        sampler = threading.Thread(target=_sample, name="regress-ram-guard",
+                                   daemon=True)
+        sampler.start()
+
     try:
         out, err = proc.communicate(timeout=timeout_s)
+        if ram["killed"]:
+            raise RegressRamKilled(proc.pid, ram["free"])
         return subprocess.CompletedProcess(cmd, proc.returncode, out, err)
     except subprocess.TimeoutExpired:
         kill_fn(proc.pid)          # kill the whole group, not just the leader
@@ -190,4 +252,7 @@ def run_guarded(cmd, *, cwd, env, timeout_s: int, creationflags: int,
             pass
         raise
     finally:
+        stop_evt.set()
+        if sampler is not None:
+            sampler.join(timeout=5)
         clear(state_dir)

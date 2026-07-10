@@ -6,6 +6,7 @@ Processes are mocked, wall-clock is injected — no real pytest, no real kills.
 """
 import json
 import subprocess
+import threading
 
 import pytest
 
@@ -177,3 +178,67 @@ def test_run_guarded_passes_through_popen_kwargs(tmp_path):
     assert captured["kwargs"]["creationflags"] == 0x4000
     assert captured["kwargs"]["stdout"] is subprocess.PIPE
     assert captured["kwargs"]["stderr"] is subprocess.PIPE
+
+
+# ── intra-batch RAM guard (Этап 1, хвост #4 добор: kill a ballooning batch) ──
+def test_ram_breach_below_floor_only():
+    assert rw.ram_breach(2.0, 2.5) is True
+    assert rw.ram_breach(2.5, 2.5) is False   # boundary is NOT a breach
+    assert rw.ram_breach(3.0, 2.5) is False
+
+
+class _RamFakePopen:
+    """communicate() blocks until the RAM guard kills us (event set by kill_fn),
+    or returns healthy after a short safety wait when never killed."""
+
+    def __init__(self, pid):
+        self.pid = pid
+        self.returncode = None
+        self._dead = threading.Event()
+
+    def communicate(self, timeout=None):
+        fired = self._dead.wait(2.0)
+        self.returncode = -9 if fired else 0
+        return ("killed" if fired else "1 passed in 1.0s", "")
+
+
+def test_run_guarded_ram_kill_raises_and_clears(tmp_path):
+    fake = _RamFakePopen(pid=999)
+    killed = []
+
+    def _kill(pid):
+        killed.append(pid)
+        fake._dead.set()          # unblock communicate → the "process" dies
+        return True
+
+    with pytest.raises(rw.RegressRamKilled) as ei:
+        rw.run_guarded(
+            ["python", "-m", "pytest"], cwd="C:/j", env=None, timeout_s=900,
+            creationflags=0, state_dir=tmp_path, bot_pid=7, now_fn=lambda: 0,
+            popen_factory=lambda *a, **k: fake, kill_fn=_kill,
+            free_gb_fn=lambda: 1.0, kill_free_gb=2.5, sample_s=0.01)
+
+    assert ei.value.pid == 999 and ei.value.free_gb == 1.0
+    assert killed == [999]                 # the whole group was tree-killed
+    assert rw.read(tmp_path) is None        # marker cleared even on a RAM kill
+
+
+def test_run_guarded_ram_guard_healthy_completes_normally(tmp_path):
+    fake = _FakePopen(pid=222, out="3 passed in 1.0s")
+    res = rw.run_guarded(
+        ["python", "-m", "pytest"], cwd="C:/j", env=None, timeout_s=900,
+        creationflags=0, state_dir=tmp_path, bot_pid=7, now_fn=lambda: 0,
+        popen_factory=lambda *a, **k: fake, kill_fn=lambda p: True,
+        free_gb_fn=lambda: 8.0, kill_free_gb=2.5, sample_s=0.01)
+    assert res.returncode == 0 and "passed" in res.stdout
+    assert rw.read(tmp_path) is None
+
+
+def test_run_guarded_without_ram_knobs_is_unchanged(tmp_path):
+    # no free_gb_fn/kill_free_gb → no sampler thread, classic behaviour
+    fake = _FakePopen(pid=333, out="5 passed in 1.0s")
+    res = rw.run_guarded(
+        ["python", "-m", "pytest"], cwd="C:/j", env=None, timeout_s=900,
+        creationflags=0, state_dir=tmp_path, bot_pid=7, now_fn=lambda: 0,
+        popen_factory=lambda *a, **k: fake, kill_fn=lambda p: True)
+    assert res.returncode == 0 and "passed" in res.stdout

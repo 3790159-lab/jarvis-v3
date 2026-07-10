@@ -25,10 +25,12 @@ from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 # ── env defaults ────────────────────────────────────────────────────────────
-DEFAULT_BATCH_SIZE = 40      # test files per batch (deterministic chunk)
-DEFAULT_MIN_FREE_GB = 3.0    # do not start a batch below this free RAM
-DEFAULT_RAM_RETRIES = 6      # pause+recheck this many times before honest fail
-DEFAULT_RAM_PAUSE_S = 10     # seconds between RAM rechecks
+DEFAULT_BATCH_SIZE = 40         # test files per batch (deterministic chunk)
+DEFAULT_MIN_FREE_GB = 3.0       # do not START a batch below this free RAM
+DEFAULT_RAM_RETRIES = 6         # pause+recheck this many times before honest fail
+DEFAULT_RAM_PAUSE_S = 10        # seconds between RAM rechecks
+DEFAULT_BATCH_KILL_FREE_GB = 2.5  # kill a RUNNING batch if free RAM drops below this
+DEFAULT_BATCH_SAMPLE_S = 2.0      # sample free RAM this often while a batch runs
 
 
 def _norm(path: str) -> str:
@@ -125,6 +127,7 @@ def run_batched_regress(test_files: Iterable[str], *,
     batches = plan_batches(test_files, batch_size)
     total = len(batches)
     summaries: List[dict] = []
+    ram_killed: List[dict] = []
     for idx, batch in enumerate(batches, start=1):
         ok, free = wait_for_ram(min_free_gb, free_gb_fn=free_gb_fn,
                                 sleep_fn=sleep_fn, retries=ram_retries,
@@ -147,8 +150,25 @@ def run_batched_regress(test_files: Iterable[str], *,
             return {"status": "timeout",
                     "summary": aggregate_summaries(summaries),
                     "batches_run": idx - 1, "batches_total": total,
-                    "min_free_gb": min_free_gb}
+                    "ram_killed": ram_killed, "min_free_gb": min_free_gb}
+        if summ.get("ram_killed"):
+            # Batch ballooned mid-flight and the intra-batch guard tree-killed it.
+            # Mark it failed, name its files, and KEEP GOING with the rest —
+            # one poisoned batch must not blind the whole regress.
+            killed_free = summ.get("free_gb")
+            ram_killed.append({"idx": idx, "free_gb": killed_free,
+                               "files": list(batch)})
+            if log_fn:
+                log_fn("🛑 RAM-guard: батч %d/%d убит на лету (свободно %.1f ГБ) — "
+                       "помечен failed, продолжаю остальные"
+                       % (idx, total, float(killed_free or 0.0)))
+            continue
         summaries.append(summ)
+    if ram_killed:
+        return {"status": "ram_killed",
+                "summary": aggregate_summaries(summaries),
+                "batches_run": total - len(ram_killed), "batches_total": total,
+                "ram_killed": ram_killed, "min_free_gb": min_free_gb}
     return {"status": "complete",
             "summary": aggregate_summaries(summaries),
             "batches_run": total, "batches_total": total,
@@ -218,6 +238,16 @@ def ram_pause_s_from_env(env=None) -> float:
                       "REGRESS_RAM_PAUSE_S", DEFAULT_RAM_PAUSE_S)
 
 
+def batch_kill_free_gb_from_env(env=None) -> float:
+    return _float_env(os.environ if env is None else env,
+                      "REGRESS_BATCH_KILL_FREE_GB", DEFAULT_BATCH_KILL_FREE_GB)
+
+
+def batch_sample_s_from_env(env=None) -> float:
+    return _float_env(os.environ if env is None else env,
+                      "REGRESS_BATCH_SAMPLE_S", DEFAULT_BATCH_SAMPLE_S)
+
+
 # ── result → human verdict (verdict_fn injected to stay decoupled) ──────────
 def summarize_result(result: dict, baseline: Optional[dict], *,
                      verdict_fn: Callable[[dict, Optional[dict]], str]) -> dict:
@@ -238,6 +268,19 @@ def summarize_result(result: dict, baseline: Optional[dict], *,
     if status == "timeout":
         return {"ok": False,
                 "text": "⏱ батч регресса превысил таймаут (прогнано %d/%d)" % (run, tot)}
+    if status == "ram_killed":
+        killed = result.get("ram_killed", [])
+        lines = "\n".join(
+            "  • батч %s/%d (свободно %.1f ГБ): %s"
+            % (k.get("idx"), tot, float(k.get("free_gb") or 0.0),
+               ", ".join(k.get("files", [])))
+            for k in killed)
+        verdict = verdict_fn(result.get("summary", {}), baseline)
+        return {"ok": False,
+                "text": ("🛑 регресс: %d батч(ей) убито RAM-guard'ом на лету "
+                         "(память ниже порога) — помечены failed:\n%s\n"
+                         "остальные прогнаны (%d/%d):\n%s"
+                         % (len(killed), lines, run, tot, verdict))}
     verdict = verdict_fn(result.get("summary", {}), baseline)
     return {"ok": verdict.startswith("✅"),
             "text": "🧪 регресс батчами (%d/%d):\n%s" % (run, tot, verdict)}
