@@ -182,6 +182,71 @@ def test_parse_suggestions_returns_empty_on_non_list_json():
     assert sug.parse_suggestions('{"title": "not a list"}') == []
 
 
+# ── parse_suggestions: dirty real-world variants (live-incident hardening) ──
+# The 15:57 prod incident (paid call succeeded, parse still failed) never
+# persisted the raw reply anywhere in logs — see report.md. These variants
+# cover the failure modes a Sonnet reply realistically hits: markdown code
+# fences, prose preambles/trailers around the fences, and max_tokens
+# truncation cutting the array off mid-object.
+_ONE_ITEM_JSON = ('{"title": "T", "signal": "s", "rationale": "r", '
+                   '"draft": "d", "size": "M"}')
+
+
+def test_parse_suggestions_strips_markdown_json_fence():
+    reply = "```json\n[%s]\n```" % _ONE_ITEM_JSON
+    out = sug.parse_suggestions(reply)
+    assert len(out) == 1
+    assert out[0]["title"] == "T"
+
+
+def test_parse_suggestions_strips_preamble_and_trailer_around_fence():
+    reply = "Конечно! Вот топ-3:\n```json\n[%s]\n```\nНадеюсь, помогло!" % _ONE_ITEM_JSON
+    out = sug.parse_suggestions(reply)
+    assert len(out) == 1
+    assert out[0]["title"] == "T"
+
+
+def test_parse_suggestions_strips_plain_fence_without_json_tag():
+    reply = "```\n[%s]\n```" % _ONE_ITEM_JSON
+    out = sug.parse_suggestions(reply)
+    assert len(out) == 1
+
+
+def test_parse_suggestions_salvages_truncated_array_mid_object():
+    # simulates a max_tokens cutoff: first object complete, second cut mid-string
+    reply = (
+        '[{"title": "T1", "signal": "s", "rationale": "r", "draft": "d1", "size": "S"},'
+        '{"title": "T2", "signal": "s", "rationale": "r", "draft": "d2 cut off without closing'
+    )
+    out = sug.parse_suggestions(reply)
+    assert len(out) == 1
+    assert out[0]["title"] == "T1"
+
+
+def test_parse_suggestions_salvages_truncated_array_cut_right_after_comma():
+    reply = '[{"title": "T1", "signal": "s", "rationale": "r", "draft": "d1", "size": "S"},'
+    out = sug.parse_suggestions(reply)
+    assert len(out) == 1
+    assert out[0]["title"] == "T1"
+
+
+def test_parse_suggestions_returns_empty_when_first_object_itself_is_truncated():
+    reply = '[{"title": "T1", "signal": "s", "rationale": "r", "draft": "cut mid str'
+    assert sug.parse_suggestions(reply) == []
+
+
+# ── build_prompt: hardened system instructions ──────────────────────────────
+def test_build_prompt_system_forbids_markdown_wrapping():
+    system, _ = sug.build_prompt({"regress": "x", "backlog": [], "errors": []})
+    assert "```" in system or "markdown" in system.lower() or "фенс" in system.lower() \
+        or "оболоч" in system.lower()
+
+
+# ── output token budget ──────────────────────────────────────────────────────
+def test_max_output_tokens_raised_to_fit_full_top3_json():
+    assert sug.MAX_OUTPUT_TOKENS >= 3000
+
+
 # ── format_suggestions ───────────────────────────────────────────────────────
 def test_format_suggestions_renders_all_fields():
     suggestions = [
@@ -200,3 +265,16 @@ def test_format_suggestions_empty_list_is_honest_not_fabricated():
     text = sug.format_suggestions([])
     assert text  # non-empty message
     assert "не удалось" in text.lower() or "пуст" in text.lower()
+
+
+def test_format_suggestions_empty_list_includes_raw_reply_snippet_for_diagnosis():
+    raw = "x" * 200 + "TAIL_MARKER_BEYOND_200_CHARS"
+    text = sug.format_suggestions([], raw_reply=raw)
+    assert "не удалось" in text.lower()
+    assert raw[:200] in text
+    assert "TAIL_MARKER_BEYOND_200_CHARS" not in text  # capped at 200 chars
+
+
+def test_format_suggestions_empty_list_without_raw_reply_still_honest():
+    text = sug.format_suggestions([], raw_reply=None)
+    assert "не удалось" in text.lower()

@@ -81,6 +81,55 @@ def test_suggest_tasks_dispatch_honest_fallback_on_garbage_reply(monkeypatch):
     assert "не удалось" in sent["t"].lower()
 
 
+def test_suggest_tasks_dispatch_error_includes_raw_reply_snippet_for_diagnosis(monkeypatch):
+    """(5) битый ответ → сообщение об ошибке должно нести первые 200 симв.
+    сырого ответа LLM, иначе живой инцидент (15:57) снова не диагностировать."""
+    dirty = "totally not json at all, sorry about that, here is some prose " * 5
+    monkeypatch.setattr(mod, "guard_spend", lambda uid, uname, est, do: (do(), None))
+    monkeypatch.setattr(mod, "_suggest_tasks_ask_llm", lambda s, m: dirty)
+    monkeypatch.setattr(mod, "_regress_baseline", lambda: None)
+    sent = {}
+    monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.setdefault("t", t))
+
+    mod._suggest_tasks_dispatch(ADMIN)
+
+    assert "не удалось" in sent["t"].lower()
+    assert dirty[:100] in sent["t"]
+
+
+def test_suggest_tasks_ask_llm_uses_raised_max_tokens(monkeypatch):
+    """(3) max_tokens=1500 was tight enough to truncate a full top-3 JSON reply
+    (draft fields are full /dev_task specs) — must be raised well above that."""
+    from app.services.devtask import suggest as sug
+
+    captured = {}
+
+    class _Block:
+        type = "text"
+        text = "[]"
+
+    class _Resp:
+        content = [_Block()]
+
+    class _Messages:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+            return _Resp()
+
+    class _FakeClient:
+        messages = _Messages()
+
+    monkeypatch.setattr(
+        "app.services.unified.llm_router.llm_client.build_anthropic_client",
+        lambda: _FakeClient(),
+    )
+
+    mod._suggest_tasks_ask_llm("sys", [{"role": "user", "content": "x"}])
+
+    assert captured["max_tokens"] == sug.MAX_OUTPUT_TOKENS
+    assert captured["max_tokens"] > 1500
+
+
 def test_suggest_tasks_command_dispatches(monkeypatch):
     fired = {}
     monkeypatch.setattr(mod, "_suggest_tasks_dispatch", lambda cid: fired.setdefault("cid", cid))

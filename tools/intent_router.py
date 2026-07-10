@@ -102,7 +102,7 @@ PRICE: Dict[str, float] = {
     "/videoref": 0.37, "/menu_photo": 0.04, "/social_post": 0.05,
     "/pro_food": 0.04, "/smart_photo": 0.04, "/party_promo": 0.05,
     "/persona_video": 0.40, "/persona_photo": 0.10, "/faceswap": 0.005,
-    "/enhance": 0.01, "/dev_task": 0.90, "/suggest_tasks": 0.03,
+    "/enhance": 0.01, "/dev_task": 0.90, "/suggest_tasks": 0.08,
 }
 
 

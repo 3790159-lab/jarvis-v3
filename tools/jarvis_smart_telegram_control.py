@@ -4484,7 +4484,7 @@ def _suggest_tasks_ask_llm(system: str, messages: list) -> str:
     if client is None:
         return ""
     resp = client.messages.create(
-        model=_sug.MODEL, max_tokens=1500, system=system, messages=messages,
+        model=_sug.MODEL, max_tokens=_sug.MAX_OUTPUT_TOKENS, system=system, messages=messages,
     )
     for b in (getattr(resp, "content", None) or []):
         if getattr(b, "type", None) == "text":
@@ -4533,8 +4533,11 @@ def _suggest_tasks_dispatch(chat_id: str) -> None:
         send(chat_id, "🚫 %s — предложения не сгенерированы (LLM не вызывался, $0)." % err)
         return
     suggestions = _sug.parse_suggestions(reply or "")
-    send(chat_id, "💡 Топ-3 предложения dev-задач:\n\n" + _sug.format_suggestions(suggestions) +
-         "\n\nСкопируй понравившийся черновик в /dev_task — автозапуска нет.")
+    if suggestions:
+        send(chat_id, "💡 Топ-3 предложения dev-задач:\n\n" + _sug.format_suggestions(suggestions) +
+             "\n\nСкопируй понравившийся черновик в /dev_task — автозапуска нет.")
+    else:
+        send(chat_id, _sug.format_suggestions(suggestions, raw_reply=reply))
 
 
 def _ir2_route(chat_id: str, text: str, candidates, state: Dict[str, Any]) -> None:

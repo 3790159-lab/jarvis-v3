@@ -19,11 +19,15 @@ from datetime import date, datetime
 from typing import Dict, List, Optional, Tuple
 
 MODEL = "claude-sonnet-4-6"
-EST_USD = 0.03  # ориентир на ~1.5к output токенов sonnet-тира (guard_spend резервирует)
+# 1500 truncated a real reply (15:57 incident): top-3 full /dev_task drafts
+# routinely run past it, cutting the JSON array mid-object.
+MAX_OUTPUT_TOKENS = 4000
+EST_USD = 0.08  # ориентир на ~4к output токенов sonnet-тира (guard_spend резервирует)
 
 _BACKLOG_ITEM_RE = re.compile(r"^\s*\d+\.\s*`\[ \]`\s*\*\*(.+?)\*\*", re.MULTILINE)
 _LOG_LINE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}) \d{2}:\d{2}:\d{2} \| (\w+)\s*\| ")
 _SIZE_VALUES = frozenset({"S", "M", "L"})
+_FENCE_RE = re.compile(r"```(?:json)?", re.IGNORECASE)
 
 
 def regress_signal(baseline: Optional[dict]) -> str:
@@ -88,7 +92,9 @@ _SYSTEM = (
     '{"title": str, "signal": str, "rationale": str, "draft": str, "size": "S"|"M"|"L"}. '
     "`signal` — какой из трёх входных сигналов породил эту задачу. `draft` — готовый "
     "текст для команды /dev_task: краткая конкретная спека на русском, которую можно "
-    "скопировать как есть. `size` — оценка объёма (S: часы, M: около дня, L: несколько дней)."
+    "скопировать как есть. `size` — оценка объёма (S: часы, M: около дня, L: несколько дней). "
+    "Ответ должен быть ТОЛЬКО валидным JSON-массивом целиком — без markdown-фенсов "
+    "(```), без преамбулы, без пояснений до или после массива, без обёрток."
 )
 
 
@@ -107,6 +113,48 @@ def build_prompt(signals: Dict[str, object]) -> Tuple[str, List[dict]]:
     return _SYSTEM, [{"role": "user", "content": "\n".join(lines)}]
 
 
+def _extract_json_array(text: str) -> Optional[str]:
+    """Best-effort slice of the first top-level JSON array in ``text``.
+
+    Strips markdown code fences, ignores prose before/after the array, and
+    salvages truncated output (max_tokens cutoff mid-array) by keeping only
+    the complete top-level objects emitted before the cut and closing the
+    array — a live incident hit exactly this (1500 tokens was too tight for
+    a full top-3 reply).
+    """
+    text = _FENCE_RE.sub("", text)
+    start = text.find("[")
+    if start == -1:
+        return None
+    depth = 0
+    in_string = False
+    escape = False
+    last_complete_element_end = None
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch in "[{":
+            depth += 1
+        elif ch in "]}":
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+            if depth == 1 and ch == "}":
+                last_complete_element_end = i
+    if last_complete_element_end is not None:
+        return text[start:last_complete_element_end + 1] + "]"
+    return None
+
+
 def parse_suggestions(reply: Optional[str]) -> List[dict]:
     """Defensively parse the LLM's JSON-array reply into <=3 validated suggestions.
 
@@ -115,11 +163,11 @@ def parse_suggestions(reply: Optional[str]) -> List[dict]:
     """
     if not reply:
         return []
-    start, end = reply.find("["), reply.rfind("]")
-    if start == -1 or end == -1 or end < start:
+    candidate = _extract_json_array(reply)
+    if candidate is None:
         return []
     try:
-        raw = json.loads(reply[start:end + 1])
+        raw = json.loads(candidate)
     except (ValueError, TypeError):
         return []
     if not isinstance(raw, list):
@@ -147,10 +195,19 @@ def parse_suggestions(reply: Optional[str]) -> List[dict]:
     return out
 
 
-def format_suggestions(suggestions: List[dict]) -> str:
-    """Telegram-friendly text: numbered, draft in a code block for easy copy-paste."""
+def format_suggestions(suggestions: List[dict], raw_reply: Optional[str] = None) -> str:
+    """Telegram-friendly text: numbered, draft in a code block for easy copy-paste.
+
+    ``raw_reply``, when given and ``suggestions`` is empty, is echoed (first
+    200 chars) so a busted reply can actually be diagnosed — the 15:57
+    incident left zero trace of what the LLM sent back.
+    """
     if not suggestions:
-        return "🤷 не удалось сгенерировать предложения (пустой/битый ответ LLM)."
+        text = "🤷 не удалось сгенерировать предложения (пустой/битый ответ LLM)."
+        if raw_reply:
+            text += ("\n\nСырой ответ LLM (первые 200 симв.):\n```\n%s\n```"
+                      % raw_reply.strip()[:200])
+        return text
     parts = []
     for i, s in enumerate(suggestions, start=1):
         parts.append(
