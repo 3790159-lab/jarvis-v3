@@ -8,10 +8,10 @@ Confirmed by live spike (Задача 0):
     download are reused from :class:`WaveSpeedHTTPClient` (no duplication).
 
 Input delivery: RIFE needs a PUBLIC video URL, so the local mp4 is hosted via
-the in-house litterbox uploader first. That upload happens BEFORE the billable
-RIFE POST, so a hosting failure never creates a billable prediction. The
-litterbox URL is ephemeral — we use it only within this single
-upload -> submit -> poll -> download pass and never persist it.
+the MEDIA_STORAGE backend (R2 by default, litterbox fallback) first. That
+upload happens BEFORE the billable RIFE POST, so a hosting failure never
+creates a billable prediction. The hosted URL is ephemeral — we use it only
+within this single upload -> submit -> poll -> download pass.
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from pathlib import Path
 
 import httpx
 
-from ..litterbox_uploader import upload_to_litterbox
+from ...media_delivery import host_media
 from .wavespeed_http import (
     BASE_URL,
     WaveSpeedEngineError,
@@ -48,9 +48,10 @@ class WaveSpeedRifeClient(WaveSpeedHTTPClient):
 
     def __init__(self, api_key: str | None = None, *, uploader=None, **kw) -> None:
         super().__init__(api_key, **kw)
-        # Default: host on litterbox with a short retention (URL is single-use).
+        # Default: host via the MEDIA_STORAGE backend with a short retention
+        # (the URL is single-use — only consumed within this one RIFE pass).
         self._uploader = uploader or functools.partial(
-            upload_to_litterbox, retention="1h")
+            host_media, retention="1h")
 
     async def interpolate(self, local_mp4: Path, *, num_frames: int = 1) -> Path:
         """Return a smoothed copy of ``local_mp4`` (x2 fps at num_frames=1).

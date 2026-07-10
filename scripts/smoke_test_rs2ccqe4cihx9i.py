@@ -23,10 +23,7 @@ from app.services.block_m2_video.engines.engine_protocol import (
 from app.services.block_m2_video.engines.runpod_comfy_engine import (
     RunpodComfyEngine,
 )
-from app.services.block_m2_video.litterbox_uploader import (
-    LitterboxError,
-    upload_to_litterbox,
-)
+from app.services.media_delivery import MediaDeliveryError, host_media
 
 POD_URL = "https://rs2ccqe4cihx9i-8188.proxy.runpod.net"
 
@@ -89,13 +86,13 @@ async def main() -> int:
 
         t0 = time.monotonic()
         try:
-            public_url = await upload_to_litterbox(output_path, retention="24h")
+            public_url = await host_media(output_path, retention="24h")
             print(
-                f"[smoke] litterbox OK ({time.monotonic()-t0:.1f}s) "
+                f"[smoke] media host OK ({time.monotonic()-t0:.1f}s) "
                 f"-> {public_url}"
             )
-        except LitterboxError as exc:
-            print(f"[smoke] litterbox FAILED: {exc}", file=sys.stderr)
+        except MediaDeliveryError as exc:
+            print(f"[smoke] media host FAILED: {exc}", file=sys.stderr)
             public_url = None
 
         total = time.monotonic() - overall_t0
@@ -103,7 +100,7 @@ async def main() -> int:
         print("=" * 60)
         print(f"[smoke] TOTAL TIME    = {total:.1f}s ({total/60:.2f} min)")
         print(f"[smoke] OUTPUT MP4    = {output_path}")
-        print(f"[smoke] LITTERBOX URL = {public_url}")
+        print(f"[smoke] PUBLIC URL    = {public_url}")
         print("=" * 60)
         return 0
     finally:

@@ -27,7 +27,7 @@ from app.services.block_m2_video.engines.runpod_comfy_engine import (
     RunpodComfyError,
     _WORKFLOW_FILE,
 )
-from app.services.block_m2_video.litterbox_uploader import LitterboxError
+from app.services.media_delivery import MediaDeliveryError
 from app.services.block_m2_video.runpod.runpod_client import (
     GpuType,
     PodInfo,
@@ -859,15 +859,15 @@ def _happy_path_engine_and_request(tmp_path):
 async def test_generate_sets_public_url_on_successful_upload(tmp_path, monkeypatch):
     engine, req = _happy_path_engine_and_request(tmp_path)
 
-    upload_mock = AsyncMock(return_value="https://litter.catbox.moe/x.mp4")
+    upload_mock = AsyncMock(return_value="https://pub-abc.r2.dev/media/x.mp4")
     monkeypatch.setattr(
-        "app.services.block_m2_video.engines.runpod_comfy_engine.upload_to_litterbox",
+        "app.services.block_m2_video.engines.runpod_comfy_engine.host_media",
         upload_mock,
     )
 
     result = await engine.generate(req)
 
-    assert result.public_url == "https://litter.catbox.moe/x.mp4"
+    assert result.public_url == "https://pub-abc.r2.dev/media/x.mp4"
     upload_mock.assert_awaited_once()
     args, kwargs = upload_mock.await_args
     # The uploader is called with the local output path and retention="24h".
@@ -881,9 +881,9 @@ async def test_generate_returns_result_without_public_url_on_upload_failure(
 ):
     engine, req = _happy_path_engine_and_request(tmp_path)
 
-    upload_mock = AsyncMock(side_effect=LitterboxError("network down"))
+    upload_mock = AsyncMock(side_effect=MediaDeliveryError("network down"))
     monkeypatch.setattr(
-        "app.services.block_m2_video.engines.runpod_comfy_engine.upload_to_litterbox",
+        "app.services.block_m2_video.engines.runpod_comfy_engine.host_media",
         upload_mock,
     )
 
@@ -896,7 +896,7 @@ async def test_generate_returns_result_without_public_url_on_upload_failure(
     assert result.output_path.exists()
     upload_mock.assert_awaited_once()
     assert any(
-        "Litterbox upload failed" in rec.message for rec in caplog.records
+        "Media upload failed" in rec.message for rec in caplog.records
     )
 
 

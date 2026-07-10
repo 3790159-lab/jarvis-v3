@@ -30,7 +30,7 @@ from typing import Any
 
 import httpx
 
-from ..litterbox_uploader import LitterboxError, upload_to_litterbox
+from ...media_delivery import MediaDeliveryError, host_media
 from ..runpod.runpod_client import (
     PodInfo,
     RunpodApiError,
@@ -283,12 +283,12 @@ class RunpodComfyEngine:
                 },
             )
             try:
-                result.public_url = await upload_to_litterbox(
+                result.public_url = await host_media(
                     output_path, retention="24h"
                 )
-            except LitterboxError as exc:
+            except MediaDeliveryError as exc:
                 logger.warning(
-                    "Litterbox upload failed; returning local-only result: %s",
+                    "Media upload failed; returning local-only result: %s",
                     exc,
                 )
             return result
