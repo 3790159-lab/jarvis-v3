@@ -152,8 +152,8 @@ class InstagramAPI:
     def publish_container(self, container_id: str) -> str:
         """Step 2: publish a previously created container. Returns media id.
 
-        IRREVERSIBLE outward. Not fired live in this task (mock-tested only);
-        the first real publish runs in a separate confirm-gated task.
+        IRREVERSIBLE outward. Fired live ONLY behind an explicit confirm-tap
+        ([📤 Опубликовать]) in the bot; mock-tested here.
         """
         self._require_token()
         ig_id = self.get_ig_user_id()
@@ -165,6 +165,39 @@ class InstagramAPI:
         if not media_id:
             raise InstagramAPIError(f"No media id in publish response: {data!r}")
         return str(media_id)
+
+    def get_permalink(self, media_id: str) -> str:
+        """Fetch the public permalink of a published media node.
+
+        Read-only, cheap; used after publish to hand the poster the post URL.
+        """
+        self._require_token()
+        data = _graph_request(f"{media_id}", {
+            "fields": "permalink",
+            "access_token": self.access_token,
+        }, method="GET")
+        permalink = data.get("permalink")
+        if not permalink:
+            raise InstagramAPIError(f"No permalink in response: {data!r}")
+        return str(permalink)
+
+    def publish_photo(self, image_url: str, caption: str = "") -> Dict[str, Optional[str]]:
+        """Full two-step photo publish: container -> publish (-> permalink).
+
+        Returns ``{"id", "container_id", "permalink"}``. IRREVERSIBLE outward:
+        fired live ONLY behind the [📤] confirm-tap. Fail-closed — any error in
+        the container/publish steps propagates as :class:`InstagramAPIError`
+        (nothing gets published silently). The permalink lookup is best-effort:
+        once ``media_publish`` succeeds the post is live, so a permalink failure
+        is NOT a publish failure — we return ``permalink=None`` honestly.
+        """
+        container_id = self.create_media_container(image_url, caption)
+        media_id = self.publish_container(container_id)
+        try:
+            permalink: Optional[str] = self.get_permalink(media_id)
+        except InstagramAPIError:
+            permalink = None
+        return {"id": media_id, "container_id": container_id, "permalink": permalink}
 
 
 def exchange_to_long_lived(short_token: str, app_id: Optional[str] = None,

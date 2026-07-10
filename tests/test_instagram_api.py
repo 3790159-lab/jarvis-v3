@@ -173,6 +173,126 @@ def test_publish_container_no_id_raises():
             pass
 
 
+# ---- get_permalink --------------------------------------------------------
+
+
+def test_get_permalink_returns_url():
+    from app.services.instagram_api import InstagramAPI
+
+    api = InstagramAPI(access_token="t", ig_user_id="IGID")
+    captured = {}
+
+    def fake_urlopen(req, timeout=None):
+        captured["url"] = req.full_url
+        return _FakeResp({"permalink": "https://www.instagram.com/p/AbC/", "id": "media_5"})
+
+    with mock.patch("app.services.instagram_api.urllib.request.urlopen", fake_urlopen):
+        link = api.get_permalink("media_5")
+    assert link == "https://www.instagram.com/p/AbC/"
+    assert "media_5" in captured["url"]
+    assert "fields=permalink" in captured["url"]
+
+
+def test_get_permalink_missing_raises():
+    from app.services.instagram_api import InstagramAPI, InstagramAPIError
+
+    api = InstagramAPI(access_token="t", ig_user_id="IGID")
+    with mock.patch("app.services.instagram_api.urllib.request.urlopen",
+                    return_value=_FakeResp({"id": "media_5"})):
+        try:
+            api.get_permalink("media_5")
+            assert False, "should raise"
+        except InstagramAPIError:
+            pass
+
+
+# ---- publish_photo (two-step container->publish, mock-only, never live) ----
+
+
+def _routed_urlopen(routes, log):
+    """Build a fake urlopen dispatching by substring match on the request URL.
+
+    ``routes`` maps a URL substring -> either a payload dict (returned as
+    _FakeResp) or an Exception instance (raised). ``log`` collects hit URLs so a
+    test can assert the two-step order (media -> media_publish)."""
+    def fake_urlopen(req, timeout=None):
+        url = req.full_url
+        log.append(url)
+        for needle, outcome in routes.items():
+            if needle in url:
+                if isinstance(outcome, Exception):
+                    raise outcome
+                return _FakeResp(outcome)
+        raise AssertionError(f"unexpected URL: {url}")
+    return fake_urlopen
+
+
+def test_publish_photo_two_step_returns_id_and_permalink():
+    from app.services.instagram_api import InstagramAPI
+
+    api = InstagramAPI(access_token="t", ig_user_id="IGID")
+    log = []
+    routes = {
+        "IGID/media_publish": {"id": "media_77"},
+        "IGID/media": {"id": "cont_1"},          # checked after media_publish
+        "media_77": {"permalink": "https://www.instagram.com/p/ZZZ/"},
+    }
+    with mock.patch("app.services.instagram_api.urllib.request.urlopen",
+                    _routed_urlopen(routes, log)):
+        result = api.publish_photo("https://pub/x.jpg", "Смачно 🌮 #їжа")
+    assert result["id"] == "media_77"
+    assert result["permalink"] == "https://www.instagram.com/p/ZZZ/"
+    # two-step: container creation BEFORE publish
+    assert any("IGID/media?" in u or "IGID/media" in u and "publish" not in u for u in log)
+    assert any("media_publish" in u for u in log)
+    idx_container = next(i for i, u in enumerate(log) if "IGID/media" in u and "publish" not in u)
+    idx_publish = next(i for i, u in enumerate(log) if "media_publish" in u)
+    assert idx_container < idx_publish
+
+
+def test_publish_photo_quota_error_not_published():
+    from app.services.instagram_api import InstagramAPI, InstagramAPIError
+
+    api = InstagramAPI(access_token="t", ig_user_id="IGID")
+    log = []
+    quota = _http_error({"error": {
+        "message": "The media posting limit has been reached.",
+        "code": 9, "error_subcode": 2207042, "fbtrace_id": "Q1",
+    }}, code=400)
+    routes = {
+        "IGID/media_publish": quota,
+        "IGID/media": {"id": "cont_1"},
+    }
+    with mock.patch("app.services.instagram_api.urllib.request.urlopen",
+                    _routed_urlopen(routes, log)):
+        try:
+            api.publish_photo("https://pub/x.jpg", "cap")
+            assert False, "should raise (fail-closed)"
+        except InstagramAPIError as e:
+            assert e.code == 9
+            assert e.subcode == 2207042
+    # never reached permalink lookup — nothing was published
+    assert not any("permalink" in u for u in log)
+
+
+def test_publish_photo_permalink_failure_still_returns_media_id():
+    from app.services.instagram_api import InstagramAPI
+
+    api = InstagramAPI(access_token="t", ig_user_id="IGID")
+    log = []
+    routes = {
+        "IGID/media_publish": {"id": "media_88"},
+        "IGID/media": {"id": "cont_2"},
+        "media_88": _http_error({"error": {"message": "transient", "code": 1}}, code=500),
+    }
+    with mock.patch("app.services.instagram_api.urllib.request.urlopen",
+                    _routed_urlopen(routes, log)):
+        result = api.publish_photo("https://pub/x.jpg", "cap")
+    # published (irreversible done) but permalink unavailable — honest None
+    assert result["id"] == "media_88"
+    assert result["permalink"] is None
+
+
 # ---- Graph error envelope -------------------------------------------------
 
 
