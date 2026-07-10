@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import ast
 import importlib
-import importlib.abc
 import importlib.util
 import json
+import os
+import subprocess
 import sys
+import textwrap
 from pathlib import Path
 
 import httpx
@@ -96,45 +98,53 @@ def test_module_does_not_import_replicate_sdk():
     assert not offenders, f"engine must not import the replicate SDK: {offenders}"
 
 
-def test_router_imports_without_replicate_sdk(monkeypatch):
+def test_router_imports_without_replicate_sdk():
     """Reproduces the prod crash: importing the router must NOT drag in the
-    ``replicate`` SDK. We ban ``replicate`` at the import machinery, evict the
-    cached engine modules, and re-import the router fresh.
+    ``replicate`` SDK. We ban ``replicate`` at the import machinery and re-import
+    the router + engine fresh.
 
-    Mutation: re-adding ``import replicate`` to the engine → ImportError → fails.
+    Runs in a SUBPROCESS on purpose. Banning ``replicate`` at ``sys.meta_path``
+    and evicting/re-importing the engine modules mutates interpreter-global state
+    that does NOT fully restore in-process — a leaked re-import armed
+    ``test_runpod_comfy_engine``'s poll loop into an unbounded ``AsyncMock`` spin
+    (~13 GB, the batch-5 OOM root, 2026-07-10). A child interpreter is discarded
+    on exit, so no state can leak back into the parent suite.
+
+    Mutation: re-adding ``import replicate`` to the engine → ImportError in the
+    child → non-zero exit → this fails.
     """
-    monkeypatch.setenv("REPLICATE_API_TOKEN", "t")
+    script = textwrap.dedent(
+        f"""
+        import importlib, importlib.abc, sys
 
-    class _BlockReplicate(importlib.abc.MetaPathFinder):
-        def find_spec(self, name, path=None, target=None):
-            if name == "replicate" or name.startswith("replicate."):
-                raise ImportError("replicate SDK is banned on the animation path")
-            return None
+        class _BlockReplicate(importlib.abc.MetaPathFinder):
+            def find_spec(self, name, path=None, target=None):
+                if name == "replicate" or name.startswith("replicate."):
+                    raise ImportError("replicate SDK is banned on the animation path")
+                return None
 
-    blocker = _BlockReplicate()
-    saved = dict(sys.modules)
-
-    def _evict():
-        for m in list(sys.modules):
-            if (
-                m == "replicate"
-                or m.startswith("replicate.")
-                or "block_m2_video.engines" in m
-            ):
-                sys.modules.pop(m, None)
-
-    _evict()
-    sys.meta_path.insert(0, blocker)
-    try:
-        router = importlib.import_module(_ROUTER_MOD)
-        assert hasattr(router, "EngineRouter")
-        eng_mod = importlib.import_module(_ENGINE_MOD)
+        sys.meta_path.insert(0, _BlockReplicate())
+        router = importlib.import_module({_ROUTER_MOD!r})
+        assert hasattr(router, "EngineRouter"), "router lost EngineRouter"
+        eng_mod = importlib.import_module({_ENGINE_MOD!r})
         eng = eng_mod.ReplicateEngine()
-        assert eng.engine_name == "replicate"
-    finally:
-        sys.meta_path.remove(blocker)
-        _evict()
-        sys.modules.update({k: v for k, v in saved.items() if k not in sys.modules})
+        assert eng.engine_name == "replicate", "unexpected engine_name"
+        """
+    )
+    env = dict(os.environ)
+    env["REPLICATE_API_TOKEN"] = "t"
+    proc = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=str(Path(__file__).resolve().parents[1]),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert proc.returncode == 0, (
+        "router/engine import under a replicate-SDK ban failed in the child:\n"
+        f"stdout={proc.stdout}\nstderr={proc.stderr}"
+    )
 
 
 def test_live_smoke_import_no_mocks():
