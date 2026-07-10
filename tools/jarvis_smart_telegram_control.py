@@ -4552,6 +4552,68 @@ def _suggest_tasks_dispatch(chat_id: str) -> None:
         send(chat_id, _sug.format_suggestions(suggestions, raw_reply=reply))
 
 
+# ── /ig_caption (Этап 3, кирпич #1): генератор IG-подписей ─────────────────
+# brief-поля business/tone/cta не собираются из юзер-конфига клиента (тот
+# артефакт — clients/<name>/brand.md — ещё не построен, см. skill
+# smm-instagram §6) — MVP берёт их из env с честными дефолтами.
+_IG_CAPTION_BUSINESS = os.getenv("JARVIS_IG_BUSINESS", "наш бізнес")
+_IG_CAPTION_CTA = os.getenv("JARVIS_IG_CTA", "напиши в директ")
+
+
+def _ig_caption_ask_llm(system: str, messages: list) -> str:
+    """Один платный LLM-вызов «brief -> caption». Тот же паттерн, что
+    ``_suggest_tasks_ask_llm``: тесты мокают ИМЕННО эту функцию, ноль реальных API.
+    """
+    from app.services import ig_caption as _cap
+    from app.services.unified.llm_router.llm_client import build_anthropic_client
+    client = build_anthropic_client()
+    if client is None:
+        return ""
+    resp = client.messages.create(
+        model=_cap.MODEL, max_tokens=_cap.MAX_OUTPUT_TOKENS, system=system, messages=messages,
+    )
+    for b in (getattr(resp, "content", None) or []):
+        if getattr(b, "type", None) == "text":
+            return (getattr(b, "text", "") or "").strip()
+    return ""
+
+
+def _ig_caption_dispatch(chat_id: str, topic: str) -> None:
+    """``/ig_caption <тема>`` — быстрая ручная генерация подписи под guard_spend.
+
+    brief собирается из темы (обязательна) + честных env-дефолтов бизнеса/CTA;
+    LLM-вызов изолирован (money-safety), record_cost — только при успехе
+    (``guard_spend``).
+    """
+    from app.services import ig_caption as _cap
+
+    topic = (topic or "").strip()
+    if not topic:
+        send(chat_id, "✏️ Укажи тему: /ig_caption <тема поста>")
+        return
+    brief = {
+        "business": _IG_CAPTION_BUSINESS,
+        "topic": topic,
+        "cta": _IG_CAPTION_CTA,
+    }
+    try:
+        caption, err = guard_spend(
+            chat_id, None, _cap.EST_USD,
+            lambda: _cap.generate_caption(brief, ask_llm=_ig_caption_ask_llm),
+        )
+    except Exception as exc:                   # платный вызов упал (нет кредитов/сеть)
+        logger.exception("ig_caption: paid LLM call failed chat=%s", chat_id)
+        send(chat_id, "🚫 LLM недоступен — подпись не сгенерирована, $0 (%s)." % (str(exc)[:120]))
+        return
+    if err:                                    # лимит → $0 потрачено, честный отказ
+        send(chat_id, "🚫 %s — подпись не сгенерирована (LLM не вызывался, $0)." % err)
+        return
+    if not caption:
+        send(chat_id, "🤷 не удалось сгенерировать подпись (пустой ответ LLM).")
+        return
+    send(chat_id, "📝 Подпись для IG:\n\n%s" % caption)
+
+
 def _ir2_route(chat_id: str, text: str, candidates, state: Dict[str, Any]) -> None:
     """IR-2 каскад: uncertain-фраза → Haiku-классификатор (под guard_spend) → команда.
 
@@ -7346,6 +7408,10 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
 
     if cmd == "/suggest_tasks":
         _suggest_tasks_dispatch(chat_id)
+        return
+
+    if cmd == "/ig_caption":
+        _ig_caption_dispatch(chat_id, query)
         return
 
     if cmd in ("/browse_check", "/browse_watch", "/browse_watch_stop", "/browse_status"):
