@@ -87,6 +87,37 @@ def test_no_face_refuses_without_grok_or_charge(tmp_path):
     assert any("❌" in c.args[1] for c in snd.call_args_list)
 
 
+# ── 2b. validator unavailable → honest error, NOT "no face", Grok 0, charge 0 ──
+
+
+def test_validator_unavailable_refuses_honestly_without_grok_or_charge(tmp_path):
+    """A broken FaceValidator backend must not look like 'no face detected' —
+    that was the exact silent-simulation defect that hid a broken cv2 install
+    for weeks in production (mass swap idx failures)."""
+    from app.services.block_m2_face_swap.face_validator import (
+        FaceValidatorUnavailableError,
+    )
+
+    bot = _get_bot_module()
+    _arm_pending(bot, tmp_path)
+    grok = MagicMock()
+    with patch.object(bot, "_check_limit", return_value=(True, "")), \
+         patch.object(
+             bot, "select_best_frame",
+             side_effect=FaceValidatorUnavailableError("недоступна"),
+         ), \
+         patch.object(bot, "generate_video_motion_prompt", grok), \
+         patch.object(bot._cost, "record_cost") as rec, \
+         patch.object(bot, "send") as snd:
+        bot._videoref_motion_run("123")
+
+    grok.assert_not_called()
+    rec.assert_not_called()
+    sent = [c.args[1] for c in snd.call_args_list]
+    assert any("недоступна" in s for s in sent)
+    assert not any("❌ Не нашёл лицо" in s for s in sent)
+
+
 # ── 3. refusal → record_cost 0 (user not charged), cost logged, admin notified ─
 
 

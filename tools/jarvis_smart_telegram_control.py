@@ -2371,8 +2371,14 @@ def _videoref_apply_custom_motion(chat_id, result) -> None:
         if frames_dir else []
     )
     # Best frame (free, local). Нет лица -> свапать нечего, платного вызова нет.
-    from app.services.block_m2_face_swap.face_validator import FaceValidator
-    best = select_best_frame(frames, FaceValidator())
+    from app.services.block_m2_face_swap.face_validator import (
+        FaceValidator, FaceValidatorUnavailableError,
+    )
+    try:
+        best = select_best_frame(frames, FaceValidator())
+    except FaceValidatorUnavailableError:
+        send(chat_id, "⚠️ Валидация лиц временно недоступна — попробуй позже.")
+        return
     if best is None:
         send(chat_id, "❌ Не нашёл лицо в кадрах — свапать нечего.")
         return
@@ -2440,8 +2446,14 @@ def _videoref_motion_run(chat_id) -> None:
         return
 
     # 2. Best frame (free, local). No face -> nothing to swap -> no paid call.
-    from app.services.block_m2_face_swap.face_validator import FaceValidator
-    best = select_best_frame(frames, FaceValidator())
+    from app.services.block_m2_face_swap.face_validator import (
+        FaceValidator, FaceValidatorUnavailableError,
+    )
+    try:
+        best = select_best_frame(frames, FaceValidator())
+    except FaceValidatorUnavailableError:
+        send(chat_id, "⚠️ Валидация лиц временно недоступна — попробуй позже.")
+        return
     if best is None:
         send(chat_id, "❌ Не нашёл лицо в кадрах — свапать нечего.")
         return

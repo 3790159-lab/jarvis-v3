@@ -98,6 +98,29 @@ def test_manual_path_no_face_no_pending(monkeypatch):
     assert any("лицо" in t for t in sent)
 
 
+def test_manual_path_validator_unavailable_sends_honest_error(monkeypatch):
+    """Broken validator backend must be reported honestly, not as 'no face'."""
+    from app.services.block_m2_face_swap.face_validator import (
+        FaceValidatorUnavailableError,
+    )
+
+    mod = _get_mod()
+    sent = []
+    monkeypatch.setattr(mod, "send", lambda cid, txt, *a, **k: sent.append(txt))
+
+    def _raise(frames, validator):
+        raise FaceValidatorUnavailableError("недоступна")
+
+    monkeypatch.setattr(mod, "select_best_frame", _raise)
+    mod._VIDEOREF_PENDING[CHAT] = {"frames_dir": None, "duration": 5}
+
+    mod._videoref_apply_custom_motion(str(CHAT), _result())
+
+    assert CHAT not in mod._VIDEOREF_SWAP_PENDING
+    assert any("недоступна" in t for t in sent)
+    assert not any("Не нашёл лицо" in t for t in sent)
+
+
 def test_custom_toggle_arms_then_disarms(monkeypatch):
     """Сброс-зуб: тоггл vref:custom. Первый тап арм-ит, повторный — снимает."""
     mod = _get_mod()
