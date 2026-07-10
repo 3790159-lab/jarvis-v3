@@ -278,6 +278,22 @@ def test_build_prompt_forbids_full_pytest_and_points_to_targeted():
     assert "таргет" in low                 # steer to targeted tests of the diff
 
 
+def test_build_prompt_headless_contract_forbids_waiting_for_async_notification():
+    # Root cause of task …_6b132e dying no_report (2026-07-11): in headless
+    # `claude -p` one-shot there is NO interactive loop — a slow targeted test got
+    # auto-backgrounded, the agent scheduled a wakeup and ended its turn to await a
+    # "completion notification" that never fires, so CC exited before writing
+    # report.md. The prompt must state the headless contract explicitly: no async
+    # notifications, run/await tests in the foreground, and report.md is mandatory
+    # on ANY outcome (even BLOCKED / tests-not-finished).
+    p = r.build_prompt("T1", "add a /foo command")
+    low = p.lower()
+    assert "headless" in low                # names the execution mode
+    assert "foreground" in low              # tests run/awaited synchronously
+    assert "не разбудят" in low             # background/ScheduleWakeup won't resume you
+    assert "любом исходе" in low            # report.md is the last action on ANY outcome
+
+
 # ── Этап 1 hardening: worktree CC env cannot send/spend with real secrets ───
 def test_sanitized_child_env_blanks_live_secrets_keeps_cc_auth():
     # Root cause of the leaked [Смерджить merge-коммитом] button reaching the
