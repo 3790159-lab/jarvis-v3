@@ -1,10 +1,14 @@
 # -*- coding: utf-8 -*-
 """/suggest_tasks — генератор задач v0 (Master-Plan Этап 2, зачаток самостроительства).
 
-Собирает три сигнала (регресс-baseline, нерешённый бэклог Master-Plan, свежие
-ошибки боевого лога), строит промпт для одного LLM-вызова и разбирает ответ в
-топ-3 черновика dev-задачи. Только ПРЕДЛОЖЕНИЯ — админ сам копирует
-понравившийся черновик в ``/dev_task``, автозапуска нет.
+Собирает четыре сигнала (регресс-baseline, нерешённый бэклог Master-Plan,
+уже реализованные пункты Master-Plan, свежие ошибки боевого лога), строит
+промпт для одного LLM-вызова и разбирает ответ в топ-3 черновика dev-задачи.
+Сигнал «уже реализовано» и жёсткая инструкция в системном промпте — защита от
+v0.2 бага: генератор предлагал budget-preflight/таргет-режим регресса, давно
+закрытые в проде, потому что не сверялся с текущим состоянием. Только
+ПРЕДЛОЖЕНИЯ — админ сам копирует понравившийся черновик в ``/dev_task``,
+автозапуска нет.
 
 Чистый модуль: ноль сети, ноль файлового IO. Файлы читает и LLM зовёт (под
 ``guard_spend``) обвязка в ``tools/jarvis_smart_telegram_control.py`` — та же
@@ -25,6 +29,7 @@ MAX_OUTPUT_TOKENS = 4000
 EST_USD = 0.08  # ориентир на ~4к output токенов sonnet-тира (guard_spend резервирует)
 
 _BACKLOG_ITEM_RE = re.compile(r"^\s*\d+\.\s*`\[ \]`\s*\*\*(.+?)\*\*", re.MULTILINE)
+_DONE_ITEM_RE = re.compile(r"^\s*\d+\.\s*`\[[xX]\]`\s*\*\*(.+?)\*\*", re.MULTILINE)
 _LOG_LINE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}) \d{2}:\d{2}:\d{2} \| (\w+)\s*\| ")
 _SIZE_VALUES = frozenset({"S", "M", "L"})
 _FENCE_RE = re.compile(r"```(?:json)?", re.IGNORECASE)
@@ -45,7 +50,19 @@ def backlog_signal(master_plan_text: Optional[str], limit: int = 8) -> List[str]
     return [it.strip() for it in items[:limit]]
 
 
-def recent_error_lines(lines: List[str], today: date, since_days: int = 3,
+def done_signal(master_plan_text: Optional[str], limit: int = 8) -> List[str]:
+    """Checked ``[x]`` bullet titles from MASTER-PLAN.md — already shipped work.
+
+    Fed back to the LLM as an explicit "don't re-suggest this" list (v0.2 fix:
+    the generator proposed budget-preflight and target-mode regress, both long
+    closed in prod, because it only read the raw backlog/log signals without
+    cross-checking what MASTER-PLAN already marks done).
+    """
+    items = _DONE_ITEM_RE.findall(master_plan_text or "")
+    return [it.strip() for it in items[:limit]]
+
+
+def recent_error_lines(lines: List[str], today: date, since_days: int = 2,
                        levels: Tuple[str, ...] = ("ERROR", "CRITICAL"),
                        limit: int = 20) -> List[str]:
     """Log lines at ``levels`` within the last ``since_days`` days (by date prefix).
@@ -74,23 +91,30 @@ def recent_error_lines(lines: List[str], today: date, since_days: int = 3,
 
 
 def build_signals(*, baseline: Optional[dict], master_plan_text: Optional[str],
-                  log_lines: List[str], today: date, since_days: int = 3) -> Dict[str, object]:
-    """Combine the three raw inputs into the signals dict :func:`build_prompt` expects."""
+                  log_lines: List[str], today: date, since_days: int = 2) -> Dict[str, object]:
+    """Combine the raw inputs into the signals dict :func:`build_prompt` expects."""
     return {
         "regress": regress_signal(baseline),
         "backlog": backlog_signal(master_plan_text),
+        "done": done_signal(master_plan_text),
         "errors": recent_error_lines(log_lines, today, since_days=since_days),
     }
 
 
 _SYSTEM = (
     "Ты — технический соучредитель проекта Jarvis V3 (Telegram-бот + AI-конвейер). "
-    "Тебе даны три сигнала: baseline регресса, нерешённые пункты бэклога из "
-    "мастер-плана, последние ошибки боевого лога. Предложи РОВНО топ-3 dev-задачи, "
-    "отсортированные по важности. Отвечай СТРОГО JSON-массивом (никакого текста "
+    "Тебе даны четыре сигнала: baseline регресса, нерешённые пункты бэклога из "
+    "мастер-плана, СИГНАЛ 4 — что уже реализовано (закрытые пункты мастер-плана), "
+    "последние ошибки боевого лога. Предложи РОВНО топ-3 dev-задачи, "
+    "отсортированные по важности. "
+    "ВАЖНО: перед тем как предложить задачу, сверь её тему с Сигналом 4 (уже "
+    "реализовано) — если тема там уже упомянута как сделанная (даже если по "
+    "формулировке из бэклога или ошибки лога кажется, что она ещё не решена), "
+    "НЕ ПРЕДЛАГАЙ её снова, пропусти и возьми следующую по важности. "
+    "Отвечай СТРОГО JSON-массивом (никакого текста "
     "вне JSON) из объектов вида "
     '{"title": str, "signal": str, "rationale": str, "draft": str, "size": "S"|"M"|"L"}. '
-    "`signal` — какой из трёх входных сигналов породил эту задачу. `draft` — готовый "
+    "`signal` — какой из входных сигналов породил эту задачу. `draft` — готовый "
     "текст для команды /dev_task: краткая конкретная спека на русском, которую можно "
     "скопировать как есть. `size` — оценка объёма (S: часы, M: около дня, L: несколько дней). "
     "Ответ должен быть ТОЛЬКО валидным JSON-массивом целиком — без markdown-фенсов "
@@ -101,6 +125,7 @@ _SYSTEM = (
 def build_prompt(signals: Dict[str, object]) -> Tuple[str, List[dict]]:
     """System + messages for the single LLM call. Pure text assembly, no network."""
     backlog = signals.get("backlog") or []
+    done = signals.get("done") or []
     errors = signals.get("errors") or []
     lines = [
         "Сигнал 1 — регресс: %s" % signals.get("regress", "нет данных"),
@@ -108,6 +133,8 @@ def build_prompt(signals: Dict[str, object]) -> Tuple[str, List[dict]]:
         "Сигнал 2 — бэклог (нерешённые пункты мастер-плана):",
     ]
     lines += (["  • " + b for b in backlog] if backlog else ["  (пусто)"])
+    lines += ["", "Сигнал 4 — уже реализовано (НЕ предлагай это снова):"]
+    lines += (["  • " + d for d in done] if done else ["  (пусто)"])
     lines += ["", "Сигнал 3 — последние ошибки лога:"]
     lines += (["  • " + e for e in errors] if errors else ["  (нет свежих ошибок)"])
     return _SYSTEM, [{"role": "user", "content": "\n".join(lines)}]

@@ -96,6 +96,31 @@ def test_recent_error_lines_empty_input():
     assert sug.recent_error_lines([], today=date(2026, 7, 10)) == []
 
 
+# ── done_signal (v0.2: "уже реализовано" — не предлагать снова) ─────────────
+def test_done_signal_extracts_only_checked_items_in_order():
+    items = sug.done_signal(_MASTER_PLAN_SAMPLE)
+    assert items == [
+        "Single-instance guard, слои B+C",
+        "RAM-guard + батчи регресса",
+    ]
+
+
+def test_done_signal_ignores_unchecked_items():
+    items = sug.done_signal(_MASTER_PLAN_SAMPLE)
+    assert not any("Ancestor-check" in it for it in items)
+    assert not any("Таргет-режим" in it for it in items)
+
+
+def test_done_signal_respects_limit():
+    items = sug.done_signal(_MASTER_PLAN_SAMPLE, limit=1)
+    assert len(items) == 1
+
+
+def test_done_signal_empty_text_returns_empty_list():
+    assert sug.done_signal("") == []
+    assert sug.done_signal(None) == []
+
+
 # ── build_signals ─────────────────────────────────────────────────────────────
 def test_build_signals_combines_all_three():
     signals = sug.build_signals(
@@ -110,9 +135,20 @@ def test_build_signals_combines_all_three():
     assert any("recent critical" in ln for ln in signals["errors"])
 
 
+def test_build_signals_includes_done_signal():
+    signals = sug.build_signals(
+        baseline=None, master_plan_text=_MASTER_PLAN_SAMPLE, log_lines=[],
+        today=date(2026, 7, 10),
+    )
+    assert signals["done"] == [
+        "Single-instance guard, слои B+C",
+        "RAM-guard + батчи регресса",
+    ]
+
+
 # ── build_prompt ───────────────────────────────────────────────────────────────
 def test_build_prompt_returns_system_and_user_message():
-    signals = {"regress": "33 failed", "backlog": ["item A"], "errors": ["err B"]}
+    signals = {"regress": "33 failed", "backlog": ["item A"], "errors": ["err B"], "done": []}
     system, messages = sug.build_prompt(signals)
     assert "JSON" in system
     assert isinstance(messages, list) and len(messages) == 1
@@ -123,8 +159,31 @@ def test_build_prompt_returns_system_and_user_message():
 
 
 def test_build_prompt_handles_empty_signals():
-    system, messages = sug.build_prompt({"regress": "нет данных", "backlog": [], "errors": []})
+    system, messages = sug.build_prompt(
+        {"regress": "нет данных", "backlog": [], "errors": [], "done": []}
+    )
     assert messages[0]["content"]  # no crash on empty lists
+
+
+# ── build_prompt: "уже реализовано" (v0.2 — don't re-suggest done work) ─────
+def test_build_prompt_includes_done_section_in_user_message():
+    signals = {"regress": "x", "backlog": [], "errors": [],
+               "done": ["Таргет-режим регресса"]}
+    _, messages = sug.build_prompt(signals)
+    assert "Таргет-режим регресса" in messages[0]["content"]
+    assert "уже реализовано" in messages[0]["content"].lower()
+
+
+def test_build_prompt_done_section_empty_is_honest_not_omitted():
+    signals = {"regress": "x", "backlog": [], "errors": [], "done": []}
+    _, messages = sug.build_prompt(signals)
+    assert "уже реализовано" in messages[0]["content"].lower()
+
+
+def test_build_prompt_system_instructs_to_skip_items_already_done():
+    system, _ = sug.build_prompt({"regress": "x", "backlog": [], "errors": [], "done": []})
+    assert "уже реализовано" in system.lower()
+    assert "пропусти" in system.lower() or "не предлагай" in system.lower()
 
 
 # ── parse_suggestions ────────────────────────────────────────────────────────

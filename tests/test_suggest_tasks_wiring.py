@@ -16,6 +16,11 @@ def test_suggest_tasks_is_admin_only_not_friend():
     assert "/suggest_tasks" not in mod.FRIEND_ALLOWED_COMMANDS
 
 
+# ── v0.2: log-error freshness window defaults to 2 days, env-overridable ────
+def test_suggest_tasks_log_since_days_defaults_to_2():
+    assert mod._SUGGEST_TASKS_LOG_SINCE_DAYS == 2
+
+
 def test_suggest_tasks_is_paid():
     from tools import intent_router as _ir
     assert _ir.is_paid("/suggest_tasks") is True

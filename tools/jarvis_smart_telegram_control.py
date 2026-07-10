@@ -4468,7 +4468,7 @@ def _ir2_ask_haiku(system: str, messages: list) -> str:
 
 
 # ── /suggest_tasks (Этап 2): генератор задач v0 ─────────────────────────────
-_SUGGEST_TASKS_LOG_SINCE_DAYS = int(os.getenv("SUGGEST_TASKS_LOG_DAYS", "3"))
+_SUGGEST_TASKS_LOG_SINCE_DAYS = int(os.getenv("SUGGEST_TASKS_LOG_DAYS", "2"))
 
 
 def _suggest_tasks_ask_llm(system: str, messages: list) -> str:
