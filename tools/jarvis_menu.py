@@ -217,6 +217,7 @@ _DEVOPS = Category("devops", "🛠 Разработка", (
         hint="/dev_task <описание> — Claude Code выполнит задачу в изолированном "
              "worktree по TDD и остановится перед мерджем; ты получишь отчёт и "
              "кнопки [Мердж]/[Откат]/[Детали]."),
+    _mi("/suggest_tasks", "топ-3 черновика dev-задач (LLM)", "exec", False),
 ))
 
 # 🌐 Браузер (browser-use, BU-1): admin-only. Команды требуют URL/текст → hint.

@@ -4459,6 +4459,68 @@ def _ir2_ask_haiku(system: str, messages: list) -> str:
     return ""
 
 
+# ── /suggest_tasks (Этап 2): генератор задач v0 ─────────────────────────────
+_SUGGEST_TASKS_LOG_SINCE_DAYS = int(os.getenv("SUGGEST_TASKS_LOG_DAYS", "3"))
+
+
+def _suggest_tasks_ask_llm(system: str, messages: list) -> str:
+    """Один платный LLM-вызов «сигналы → топ-3 предложения». Возвращает сырой текст.
+
+    Изолирован ради money-safety (тот же паттерн, что ``_ir2_ask_haiku``): тесты
+    мокают ИМЕННО эту функцию, ноль реальных API. Пустая строка (нет ключа/сбой)
+    → falsy → guard_spend не спишет.
+    """
+    from app.services.devtask import suggest as _sug
+    from app.services.unified.llm_router.llm_client import build_anthropic_client
+    client = build_anthropic_client()
+    if client is None:
+        return ""
+    resp = client.messages.create(
+        model=_sug.MODEL, max_tokens=1500, system=system, messages=messages,
+    )
+    for b in (getattr(resp, "content", None) or []):
+        if getattr(b, "type", None) == "text":
+            return (getattr(b, "text", "") or "").strip()
+    return ""
+
+
+def _suggest_tasks_dispatch(chat_id: str) -> None:
+    """Собрать сигналы (регресс-baseline, бэклог мастер-плана, свежие ошибки лога),
+    прогнать через один LLM-вызов под guard_spend, прислать топ-3 черновика.
+
+    Только предложения — ничего не ставится в очередь dev_task автоматически;
+    админ сам копирует понравившийся черновик в /dev_task.
+    """
+    from app.services.devtask import suggest as _sug
+    from tools import jarvis_observe as jobserve
+
+    baseline = _regress_baseline()
+    try:
+        master_plan_text = Path("docs/MASTER-PLAN.md").read_text(encoding="utf-8")
+    except FileNotFoundError:
+        master_plan_text = ""
+    try:
+        raw_lines = jobserve.LOG_PATH.read_text(encoding="utf-8", errors="replace").splitlines()
+    except FileNotFoundError:
+        raw_lines = []
+    log_lines = jobserve.filter_log_noise(raw_lines)
+
+    signals = _sug.build_signals(
+        baseline=baseline, master_plan_text=master_plan_text, log_lines=log_lines,
+        today=datetime.utcnow().date(), since_days=_SUGGEST_TASKS_LOG_SINCE_DAYS,
+    )
+    system, messages = _sug.build_prompt(signals)
+    reply, err = guard_spend(
+        chat_id, None, _sug.EST_USD, lambda: _suggest_tasks_ask_llm(system, messages),
+    )
+    if err:                                    # лимит → $0 потрачено, честный отказ
+        send(chat_id, "🚫 %s — предложения не сгенерированы (LLM не вызывался, $0)." % err)
+        return
+    suggestions = _sug.parse_suggestions(reply or "")
+    send(chat_id, "💡 Топ-3 предложения dev-задач:\n\n" + _sug.format_suggestions(suggestions) +
+         "\n\nСкопируй понравившийся черновик в /dev_task — автозапуска нет.")
+
+
 def _ir2_route(chat_id: str, text: str, candidates, state: Dict[str, Any]) -> None:
     """IR-2 каскад: uncertain-фраза → Haiku-классификатор (под guard_spend) → команда.
 
@@ -7249,6 +7311,10 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
 
     if cmd == "/dev_task":
         _devtask_dispatch(chat_id, query)
+        return
+
+    if cmd == "/suggest_tasks":
+        _suggest_tasks_dispatch(chat_id)
         return
 
     if cmd in ("/browse_check", "/browse_watch", "/browse_watch_stop", "/browse_status"):

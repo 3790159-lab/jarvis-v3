@@ -156,6 +156,16 @@ dev_task с падающим регрессом не предлагает [Ме�
 предлагает топ-3 dev_task с обоснованием. Daniil тапает — задача уходит в конвейер.
 **Граница:** предлагает и исполняет — да; авто-мердж — НЕТ.
 **Оценка:** 2–3 дня.
+**Статус:** код+тесты готовы (2026-07-10), ждёт живого прогона в проде. `/suggest_tasks`
+(admin-only, PAID+guard_spend+record_cost) собирает три сигнала — regress baseline
+(`state/regress_baseline.json`), нерешённый `[ ]`-бэклог этого файла, свежие
+ERROR/CRITICAL строки `logs/jarvis_bot.log` за `SUGGEST_TASKS_LOG_DAYS`(=3) дней —
+одним LLM-вызовом (sonnet) получает топ-3 JSON-черновика {title, signal, rationale,
+draft, size}, шлёт текстом. Только предложения — ничего не ставится в очередь
+автоматически, админ сам копирует черновик в `/dev_task`. Чистая логика —
+`app/services/devtask/suggest.py` (21 unit-тест); обвязка/money-гейт —
+`tools/jarvis_smart_telegram_control.py::_suggest_tasks_dispatch` (7 wiring-тестов,
+мутация в обе стороны). Живой тест ещё не проведён (нужен Daniil).
 
 ### Этап 3 — Арка «Мастер-Инстаграм», кирпич #1: автопостинг
 - **3a. R2-хостинг медиа** — замена litterbox (нет SLA, 24ч жизни) на Cloudflare R2.

@@ -94,7 +94,7 @@ PAID: FrozenSet[str] = frozenset({
     # Агенты/бэкенды (платные вызовы)
     "/research", "/brain", "/engineer", "/table", "/gen",
     # Dev / браузер
-    "/dev_task", "/browse_check", "/browse_watch",
+    "/dev_task", "/suggest_tasks", "/browse_check", "/browse_watch",
 })
 
 # Ориентировочная цена $ для подписи confirm-кнопки (де-факто прайс хендлеров).
@@ -102,7 +102,7 @@ PRICE: Dict[str, float] = {
     "/videoref": 0.37, "/menu_photo": 0.04, "/social_post": 0.05,
     "/pro_food": 0.04, "/smart_photo": 0.04, "/party_promo": 0.05,
     "/persona_video": 0.40, "/persona_photo": 0.10, "/faceswap": 0.005,
-    "/enhance": 0.01, "/dev_task": 0.90,
+    "/enhance": 0.01, "/dev_task": 0.90, "/suggest_tasks": 0.03,
 }
 
 
