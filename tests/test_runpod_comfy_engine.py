@@ -104,7 +104,7 @@ def _mock_runpod_client(pod: PodInfo) -> MagicMock:
     client.start_pod = AsyncMock(return_value=pod)
     client.wait_for_ready = AsyncMock(return_value=pod)
     client.get_pod_public_url = AsyncMock(return_value="http://test-pod:8188")
-    client.stop_pod = AsyncMock(return_value=True)
+    client.terminate_pod = AsyncMock(return_value=True)
     # Wired so cold-start guard tests can assert it is *not* awaited; a bare
     # MagicMock attribute would make assert_not_awaited a no-op.
     client.execute_command = AsyncMock()
@@ -240,7 +240,7 @@ async def test_generate_happy_path_with_mocks(tmp_path):
     assert result.generation_id.startswith("gen_")
     client.start_pod.assert_awaited_once()
     client.wait_for_ready.assert_awaited_once_with("pod_abc", timeout_sec=600)
-    client.stop_pod.assert_awaited_once_with("pod_abc")
+    client.terminate_pod.assert_awaited_once_with("pod_abc")
 
     # Verify the workflow we submitted carried the uploaded filename and seed.
     submit_call = http.post.await_args_list[1]
@@ -270,7 +270,7 @@ async def test_generate_stops_pod_on_failure(tmp_path):
     )
     # First GET is the /system_stats health check; subsequent calls (the
     # /history poll) fail with HTTP 500 — generation must abort, but
-    # stop_pod still has to fire from the finally block.
+    # terminate_pod still has to fire from the finally block.
     http.get = AsyncMock(
         side_effect=[
             _json_response({"system": {"os": "linux"}}),
@@ -293,7 +293,7 @@ async def test_generate_stops_pod_on_failure(tmp_path):
     )
     with pytest.raises(RunpodComfyError):
         await engine.generate(req)
-    client.stop_pod.assert_awaited_once_with("pod_abc")
+    client.terminate_pod.assert_awaited_once_with("pod_abc")
 
 
 # ── B-48: cold-start must not shell into the pod (no podExec auto-start) ─────
@@ -928,7 +928,7 @@ async def test_generate_no_cold_start_retry_when_first_pod_healthy(tmp_path):
     stopped (no retry loop overhead).
 
     Guards against a buggy retry loop that would re-enter even on the happy
-    path — start_pod must be awaited exactly once and stop_pod exactly once.
+    path — start_pod must be awaited exactly once and terminate_pod exactly once.
     """
     image = _make_image(tmp_path)
     pod = _mock_pod()
@@ -970,7 +970,7 @@ async def test_generate_no_cold_start_retry_when_first_pod_healthy(tmp_path):
 
     assert isinstance(result, VideoResult)
     assert client.start_pod.await_count == 1
-    assert client.stop_pod.await_count == 1
+    assert client.terminate_pod.await_count == 1
 
 
 @pytest.mark.anyio
@@ -1003,7 +1003,7 @@ async def test_generate_retries_cold_start_and_succeeds_on_second_pod(
     client.start_pod = AsyncMock(side_effect=[pod_bad, pod_good])
     client.wait_for_ready = AsyncMock(side_effect=[pod_bad, pod_good])
     client.get_pod_public_url = AsyncMock(return_value="http://test-pod:8188")
-    client.stop_pod = AsyncMock(return_value=True)
+    client.terminate_pod = AsyncMock(return_value=True)
     client.execute_command = AsyncMock()
     client.aclose = AsyncMock()
 
@@ -1050,7 +1050,7 @@ async def test_generate_retries_cold_start_and_succeeds_on_second_pod(
     # Two spawns: pod_bad failed cold-start, pod_good succeeded.
     assert client.start_pod.await_count == 2
     # Both pods stopped: pod_bad after cold-start failure; pod_good in finally.
-    stop_targets = [call.args[0] for call in client.stop_pod.await_args_list]
+    stop_targets = [call.args[0] for call in client.terminate_pod.await_args_list]
     assert stop_targets == ["pod_bad", "pod_good"]
 
 
@@ -1080,7 +1080,7 @@ async def test_generate_raises_after_max_cold_start_attempts(
     client.start_pod = AsyncMock(side_effect=pods)
     client.wait_for_ready = AsyncMock(side_effect=pods)
     client.get_pod_public_url = AsyncMock(return_value="http://test-pod:8188")
-    client.stop_pod = AsyncMock(return_value=True)
+    client.terminate_pod = AsyncMock(return_value=True)
     client.execute_command = AsyncMock()
     client.aclose = AsyncMock()
 
@@ -1107,6 +1107,6 @@ async def test_generate_raises_after_max_cold_start_attempts(
 
     assert client.start_pod.await_count == engine_mod._COLD_START_MAX_ATTEMPTS
     # Every failed pod stopped — no leaks.
-    assert client.stop_pod.await_count == engine_mod._COLD_START_MAX_ATTEMPTS
+    assert client.terminate_pod.await_count == engine_mod._COLD_START_MAX_ATTEMPTS
     # Workflow steps never ran.
     http.post.assert_not_awaited()
