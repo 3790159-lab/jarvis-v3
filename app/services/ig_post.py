@@ -28,6 +28,7 @@ __all__ = [
     "QUOTA_CODES",
     "QUOTA_SUBCODES",
     "parse_ig_post_args",
+    "parse_ig_post_caption",
     "is_last_token",
     "resolve_source",
     "build_preview_text",
@@ -67,6 +68,24 @@ def parse_ig_post_args(query: Optional[str]) -> Tuple[str, str]:
     if len(parts) == 1:
         return (parts[0], "")
     return (parts[0], parts[1].strip())
+
+
+def parse_ig_post_caption(caption: Optional[str]) -> Tuple[bool, str]:
+    """Разобрать подпись к фото как команду ``/ig_post``.
+
+    Возвращает ``(is_ig_post, topic)``. Срабатывает, когда первый токен подписи —
+    ровно ``/ig_post`` (без учёта регистра, с опциональным ``@botname``); тема —
+    весь остаток. Иначе ``(False, "")``. Не матчит другие команды (например
+    ``/ig_poster``), чтобы фото-подписи-вопросы шли в обычный анализ.
+    """
+    parts = (caption or "").strip().split(None, 1)
+    if not parts:
+        return (False, "")
+    cmd = parts[0].split("@", 1)[0].lower()
+    if cmd != "/ig_post":
+        return (False, "")
+    topic = parts[1].strip() if len(parts) > 1 else ""
+    return (True, topic)
 
 
 def is_last_token(source: Optional[str]) -> bool:

@@ -39,6 +39,55 @@ def test_ig_post_command_dispatches(monkeypatch):
     assert fired == {"cid": ADMIN, "query": "pic.jpg свежий кофе"}
 
 
+# ---- photo-with-caption routing (bug: /ig_post caption -> vision) ---------
+
+
+def _photo_msg(caption):
+    return {"photo": [{"file_id": "fid", "file_unique_id": "u"}], "caption": caption}
+
+
+def test_photo_caption_ig_post_routes_to_dispatch(monkeypatch, tmp_path):
+    """A photo captioned '/ig_post <topic>' must reach _ig_post_dispatch,
+    NOT the vision analyzer."""
+    img = tmp_path / "photo.jpg"
+    img.write_bytes(b"\xff\xd8\xff")
+    monkeypatch.setattr(mod, "_extract_file_from_msg",
+                        lambda m: ("fid", "photo.jpg", "image/jpeg"))
+    monkeypatch.setattr(mod, "_download_telegram_file", lambda fid, fn: str(img))
+    fired = {}
+    monkeypatch.setattr(mod, "_ig_post_dispatch",
+                        lambda cid, query, state: fired.update(cid=cid, query=query))
+    sent = []
+    monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
+
+    mod._handle_file_message(ADMIN, _photo_msg("/ig_post кофе с корицей"), {})
+
+    assert fired.get("query") == "last кофе с корицей"
+    # the just-uploaded photo becomes the ig_post source
+    assert mod._LAST_IG_MEDIA.get(ADMIN) == str(img)
+    # vision analyzer was never invoked
+    assert not any("Анализирую изображение" in t for t in sent)
+
+
+def test_photo_caption_ig_post_no_topic_asks_for_topic(monkeypatch, tmp_path):
+    img = tmp_path / "photo.jpg"
+    img.write_bytes(b"\xff\xd8\xff")
+    monkeypatch.setattr(mod, "_extract_file_from_msg",
+                        lambda m: ("fid", "photo.jpg", "image/jpeg"))
+    monkeypatch.setattr(mod, "_download_telegram_file", lambda fid, fn: str(img))
+    calls = {"dispatch": 0}
+    monkeypatch.setattr(mod, "_ig_post_dispatch",
+                        lambda *a, **k: calls.__setitem__("dispatch", 1))
+    sent = []
+    monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
+
+    mod._handle_file_message(ADMIN, _photo_msg("/ig_post"), {})
+
+    assert calls["dispatch"] == 0
+    assert any("тем" in t.lower() for t in sent)          # prompts for a topic
+    assert not any("Анализирую изображение" in t for t in sent)
+
+
 # ---- dispatch (prepare media + caption + preview card) --------------------
 
 

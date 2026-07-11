@@ -8488,6 +8488,26 @@ def _handle_file_message(chat_id: str, msg: Dict[str, Any], state: Dict[str, Any
     caption = (msg.get("caption") or "").strip()
     is_forward = bool(msg.get("forward_from") or msg.get("forward_sender_name") or msg.get("forward_origin"))
 
+    # ── /ig_post via photo caption ────────────────────────────────────────────
+    # A photo carries its command in `caption`, not `text`, so it never reaches
+    # the command dispatcher — without this it falls through to Vision analysis.
+    # An explicit /ig_post caption consumes THIS photo as the post source, so it
+    # takes priority over the ambient photo-flow intercepts below.
+    if bool(msg.get("photo")):
+        from app.services import ig_post as _igp
+        _is_igpost, _igpost_topic = _igp.parse_ig_post_caption(caption)
+        if _is_igpost:
+            local_path = _download_telegram_file(file_id, filename)
+            if not local_path:
+                send(chat_id, "❌ Не смог скачать фото. Попробуй отправить ещё раз.")
+                return
+            _remember_last_media(chat_id, local_path)   # this photo = ig_post source
+            if not _igpost_topic:
+                send(chat_id, "🖼 Добавь тему поста: подпиши фото как «/ig_post <тема>».")
+                return
+            _ig_post_dispatch(chat_id, f"last {_igpost_topic}", state)
+            return
+
     # ── Me-Persona seed collection (/me_seed flow) ────────────────────────────
     is_photo = bool(msg.get("photo"))
     if is_photo:

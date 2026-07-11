@@ -13,6 +13,44 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 
+# ---- parse_ig_post_caption (photo-with-caption routing) -------------------
+
+
+def test_caption_plain_command_no_topic():
+    from app.services.ig_post import parse_ig_post_caption
+
+    assert parse_ig_post_caption("/ig_post") == (True, "")
+
+
+def test_caption_command_with_topic():
+    from app.services.ig_post import parse_ig_post_caption
+
+    assert parse_ig_post_caption("/ig_post кофе с корицей") == (True, "кофе с корицей")
+
+
+def test_caption_command_with_botname_mention():
+    from app.services.ig_post import parse_ig_post_caption
+
+    assert parse_ig_post_caption("/ig_post@JarvisBot осенний сет") == (True, "осенний сет")
+
+
+def test_caption_command_leading_whitespace_and_case():
+    from app.services.ig_post import parse_ig_post_caption
+
+    assert parse_ig_post_caption("   /IG_POST  Осень  ")[0] is True
+    assert parse_ig_post_caption("   /IG_POST  Осень  ")[1] == "Осень"
+
+
+def test_caption_not_ig_post_is_false():
+    from app.services.ig_post import parse_ig_post_caption
+
+    assert parse_ig_post_caption("что это на фото?") == (False, "")
+    assert parse_ig_post_caption("/ig_caption тема") == (False, "")
+    assert parse_ig_post_caption("") == (False, "")
+    # must not match a different command that merely starts with the same prefix
+    assert parse_ig_post_caption("/ig_poster тема") == (False, "")
+
+
 # ---- parse_ig_post_args ---------------------------------------------------
 
 
