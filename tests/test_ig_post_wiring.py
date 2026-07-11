@@ -106,6 +106,35 @@ def test_dispatch_requires_topic(monkeypatch):
     assert "тем" in sent["t"].lower()
 
 
+def test_dispatch_bare_no_args_shows_usage_hint(monkeypatch):
+    """Bare /ig_post as text (no photo, no args) must show the friendly usage
+    hint, not a raw 'file not found'."""
+    calls = {"host": 0}
+    monkeypatch.setattr(mod, "_ig_post_host_media", lambda p: calls.__setitem__("host", 1) or "u")
+    sent = {}
+    monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.setdefault("t", t))
+    mod._ig_post_dispatch(ADMIN, "", {})
+    assert calls["host"] == 0
+    assert "📸" in sent["t"]
+    assert "/ig_post" in sent["t"]
+    assert "last" in sent["t"].lower()
+
+
+def test_dispatch_bogus_source_shows_usage_hint_not_file_not_found(monkeypatch):
+    """A first token that is neither an existing file nor 'last' (e.g. a
+    stray word from natural-language phrasing) should show the same friendly
+    usage hint instead of a raw 'Файл не найден' path dump."""
+    calls = {"host": 0}
+    monkeypatch.setattr(mod, "_ig_post_host_media", lambda p: calls.__setitem__("host", 1) or "u")
+    sent = {}
+    monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.setdefault("t", t))
+    mod._ig_post_dispatch(ADMIN, "первый пост про кофе", {})
+    assert calls["host"] == 0
+    assert "📸" in sent["t"]
+    assert "Файл не найден" not in sent["t"]
+    assert "первый" not in sent["t"]
+
+
 def test_dispatch_happy_stores_pending_and_shows_card(monkeypatch, tmp_path):
     img = tmp_path / "pic.jpg"
     img.write_bytes(b"\xff\xd8\xff")  # not read — existence only

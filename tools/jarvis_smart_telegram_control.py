@@ -4625,6 +4625,14 @@ def _ig_caption_dispatch(chat_id: str, topic: str) -> None:
 # Не персистится: рестарт бота → пусто → честная просьба указать путь к файлу.
 _LAST_IG_MEDIA: Dict[str, str] = {}
 
+# Дружелюбная подсказка синтаксиса: и для bare /ig_post без аргументов, и для
+# первого аргумента, который не existing-файл и не 'last' (частая ошибка —
+# юзер пишет тему текстом, не приложив фото).
+_IG_POST_USAGE_HINT = (
+    "📸 Использование: пришли фото с подписью /ig_post <тема>, "
+    "или текстом /ig_post last <тема> для последней картинки"
+)
+
 
 def _remember_last_media(chat_id, path) -> None:
     """Запомнить последнее отправленное локальное фото как источник для /ig_post."""
@@ -4673,15 +4681,19 @@ def _ig_post_dispatch(chat_id, query: str, state: Dict[str, Any]) -> None:
 
     source, topic = _igp.parse_ig_post_args(query)
     if not topic:
-        send(chat_id, "🖼 Формат: /ig_post <путь-или-last> <тема поста>")
+        send(chat_id, _IG_POST_USAGE_HINT)
         return
+    was_last = _igp.is_last_token(source)
     try:
         src_path = _igp.resolve_source(source, _LAST_IG_MEDIA.get(str(chat_id)))
     except _igp.IGPostError as exc:
         send(chat_id, "✏️ %s" % exc)
         return
     if not _P(src_path).exists():
-        send(chat_id, "🚫 Файл не найден: %s" % src_path)
+        if was_last:
+            send(chat_id, "🚫 Файл не найден: %s" % src_path)
+        else:
+            send(chat_id, _IG_POST_USAGE_HINT)
         return
     # 1) подготовка + хостинг медиа (R2). Бесплатно, но сеть → честный сбой.
     try:
