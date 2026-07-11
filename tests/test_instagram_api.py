@@ -75,10 +75,14 @@ def test_get_ig_user_id_from_env_no_network():
         up.assert_not_called()
 
 
-def test_get_ig_user_id_discovers_via_pages():
+def test_get_ig_user_id_discovers_via_pages(monkeypatch):
     from app.services.instagram_api import InstagramAPI
 
-    api = InstagramAPI(access_token="t", ig_user_id="")
+    # Path A (Facebook Login) discovery — pin login_type so ambient
+    # IG_LOGIN_TYPE/IG_GRAPH_BASE from a loaded .env can't flip the branch.
+    monkeypatch.delenv("IG_LOGIN_TYPE", raising=False)
+    monkeypatch.delenv("IG_GRAPH_BASE", raising=False)
+    api = InstagramAPI(access_token="t", ig_user_id="", login_type="facebook")
     payload = {"data": [
         {"id": "pageA"},
         {"id": "pageB", "instagram_business_account": {"id": "17841409999999999"}},
@@ -88,10 +92,12 @@ def test_get_ig_user_id_discovers_via_pages():
         assert api.get_ig_user_id() == "17841409999999999"
 
 
-def test_get_ig_user_id_none_linked_raises():
+def test_get_ig_user_id_none_linked_raises(monkeypatch):
     from app.services.instagram_api import InstagramAPI, InstagramAPIError
 
-    api = InstagramAPI(access_token="t", ig_user_id="")
+    monkeypatch.delenv("IG_LOGIN_TYPE", raising=False)
+    monkeypatch.delenv("IG_GRAPH_BASE", raising=False)
+    api = InstagramAPI(access_token="t", ig_user_id="", login_type="facebook")
     with mock.patch("app.services.instagram_api.urllib.request.urlopen",
                     return_value=_FakeResp({"data": [{"id": "pageA"}]})):
         try:

@@ -29,7 +29,28 @@ import urllib.request
 from typing import Dict, Optional
 
 GRAPH_API_BASE = "https://graph.facebook.com/v21.0"
+# Instagram API with Instagram Login (Path B) talks to this host instead.
+INSTAGRAM_GRAPH_BASE = "https://graph.instagram.com"
 _TIMEOUT = 30
+
+
+def _resolve_base(base_url: Optional[str], login_type: Optional[str]) -> str:
+    """Pick the Graph host.
+
+    Precedence: explicit ``base_url`` arg > ``IG_GRAPH_BASE`` env >
+    Instagram-Login (``login_type``/``IG_LOGIN_TYPE`` == "instagram") >
+    the default Facebook Graph host (back-compat).
+    """
+    if base_url:
+        return base_url.rstrip("/")
+    env_base = os.getenv("IG_GRAPH_BASE", "").strip()
+    if env_base:
+        return env_base.rstrip("/")
+    lt = (login_type if login_type is not None
+          else os.getenv("IG_LOGIN_TYPE", "")).strip().lower()
+    if lt == "instagram":
+        return INSTAGRAM_GRAPH_BASE
+    return GRAPH_API_BASE
 
 
 class InstagramAPIError(RuntimeError):
@@ -60,12 +81,15 @@ def _error_from_http(exc: urllib.error.HTTPError) -> InstagramAPIError:
     )
 
 
-def _graph_request(path: str, params: Dict[str, str], method: str = "GET") -> Dict:
+def _graph_request(path: str, params: Dict[str, str], method: str = "GET",
+                   base: Optional[str] = None) -> Dict:
     """Perform a Graph API request and return parsed JSON.
 
-    Raises InstagramAPIError on Graph error envelopes or network failures.
+    ``base`` selects the Graph host (defaults to the Facebook Graph host for
+    back-compat). Raises InstagramAPIError on Graph error envelopes or network
+    failures.
     """
-    url = f"{GRAPH_API_BASE}/{path.lstrip('/')}"
+    url = f"{(base or GRAPH_API_BASE).rstrip('/')}/{path.lstrip('/')}"
     encoded = urllib.parse.urlencode(params)
     if method.upper() == "GET":
         full = f"{url}?{encoded}" if encoded else url
@@ -94,7 +118,9 @@ class InstagramAPI:
     """
 
     def __init__(self, access_token: Optional[str] = None,
-                 ig_user_id: Optional[str] = None):
+                 ig_user_id: Optional[str] = None,
+                 base_url: Optional[str] = None,
+                 login_type: Optional[str] = None):
         self.access_token = (
             access_token if access_token is not None
             else os.getenv("IG_ACCESS_TOKEN", "")
@@ -103,6 +129,11 @@ class InstagramAPI:
             ig_user_id if ig_user_id is not None
             else os.getenv("IG_USER_ID", "")
         ).strip()
+        self.login_type = (
+            login_type if login_type is not None
+            else os.getenv("IG_LOGIN_TYPE", "")
+        ).strip().lower()
+        self.base_url = _resolve_base(base_url, self.login_type)
 
     def _require_token(self) -> None:
         if not self.access_token:
@@ -115,16 +146,29 @@ class InstagramAPI:
     def get_ig_user_id(self) -> str:
         """Return the Instagram Business account id.
 
-        Uses IG_USER_ID from config if set (no network); otherwise discovers it
-        by scanning the token's Facebook Pages for a linked IG Business account.
+        Uses IG_USER_ID from config if set (no network). Otherwise discovers it:
+        Instagram Login (Path B) reads ``me?fields=user_id`` directly; Facebook
+        Login (Path A) scans the token's Facebook Pages for a linked IG account.
         """
         self._require_token()
         if self.ig_user_id:
             return self.ig_user_id
+        if self.login_type == "instagram":
+            data = _graph_request("me", {
+                "fields": "user_id",
+                "access_token": self.access_token,
+            }, base=self.base_url)
+            uid = data.get("user_id")
+            if uid:
+                self.ig_user_id = str(uid)
+                return self.ig_user_id
+            raise InstagramAPIError(
+                f"No user_id returned by graph.instagram.com/me: {data!r}"
+            )
         data = _graph_request("me/accounts", {
             "fields": "instagram_business_account",
             "access_token": self.access_token,
-        })
+        }, base=self.base_url)
         for page in data.get("data", []):
             iba = page.get("instagram_business_account")
             if iba and iba.get("id"):
@@ -135,6 +179,19 @@ class InstagramAPI:
             "token. Convert the IG account to Professional and link it to a Page."
         )
 
+    def get_profile(self, fields: str = "user_id,username,account_type,media_count") -> Dict:
+        """Read-only profile fetch (verification / health).
+
+        Hits ``me`` on the configured Graph host. For Instagram Login this
+        returns ``user_id``/``username``; extra fields (account_type,
+        media_count) are best-effort and may be omitted by the API.
+        """
+        self._require_token()
+        return _graph_request("me", {
+            "fields": fields,
+            "access_token": self.access_token,
+        }, base=self.base_url)
+
     def create_media_container(self, image_url: str, caption: str = "") -> str:
         """Step 1: create a media container for a photo. Returns container_id."""
         self._require_token()
@@ -143,7 +200,7 @@ class InstagramAPI:
             "image_url": image_url,
             "caption": caption,
             "access_token": self.access_token,
-        }, method="POST")
+        }, method="POST", base=self.base_url)
         container_id = data.get("id")
         if not container_id:
             raise InstagramAPIError(f"No container id in response: {data!r}")
@@ -160,7 +217,7 @@ class InstagramAPI:
         data = _graph_request(f"{ig_id}/media_publish", {
             "creation_id": container_id,
             "access_token": self.access_token,
-        }, method="POST")
+        }, method="POST", base=self.base_url)
         media_id = data.get("id")
         if not media_id:
             raise InstagramAPIError(f"No media id in publish response: {data!r}")
@@ -175,7 +232,7 @@ class InstagramAPI:
         data = _graph_request(f"{media_id}", {
             "fields": "permalink",
             "access_token": self.access_token,
-        }, method="GET")
+        }, method="GET", base=self.base_url)
         permalink = data.get("permalink")
         if not permalink:
             raise InstagramAPIError(f"No permalink in response: {data!r}")
@@ -231,4 +288,25 @@ def exchange_to_long_lived(short_token: str, app_id: Optional[str] = None,
     token = data.get("access_token")
     if not token:
         raise InstagramAPIError(f"No access_token in exchange response: {data!r}")
+    return str(token)
+
+
+def refresh_long_lived_token(access_token: str, base: Optional[str] = None) -> str:
+    """Refresh an Instagram-Login long-lived token (Path B), extending it ~60 days.
+
+    Uses ``GET graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token``.
+    No app secret required — only the current (still-valid) long-lived token,
+    which must be >24h old and <60 days. Fail-closed: raises if the response
+    carries no ``access_token`` so callers never overwrite a good token with an
+    empty one.
+    """
+    if not access_token:
+        raise InstagramAPIError("access_token is required to refresh.")
+    data = _graph_request("refresh_access_token", {
+        "grant_type": "ig_refresh_token",
+        "access_token": access_token,
+    }, base=base or INSTAGRAM_GRAPH_BASE)
+    token = data.get("access_token")
+    if not token:
+        raise InstagramAPIError(f"No access_token in refresh response: {data!r}")
     return str(token)
