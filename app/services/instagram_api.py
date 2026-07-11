@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -223,6 +224,45 @@ class InstagramAPI:
             raise InstagramAPIError(f"No media id in publish response: {data!r}")
         return str(media_id)
 
+    def get_container_status(self, container_id: str) -> str:
+        """Return a media container's ``status_code`` (read-only, cheap).
+
+        One of: FINISHED, IN_PROGRESS, ERROR, EXPIRED, PUBLISHED (or "" if the
+        field is absent). Same host as the rest of the client (graph.instagram.com
+        under Instagram Login).
+        """
+        self._require_token()
+        data = _graph_request(f"{container_id}", {
+            "fields": "status_code",
+            "access_token": self.access_token,
+        }, method="GET", base=self.base_url)
+        return str(data.get("status_code") or "")
+
+    def wait_until_ready(self, container_id: str, max_status_checks: int = 8,
+                         delay_seconds: float = 2.0) -> None:
+        """Poll the container until it is FINISHED, then return.
+
+        Content-publishing containers are created asynchronously; calling
+        media_publish before the container is FINISHED yields "Media ID is not
+        available". Fail-closed: ERROR/EXPIRED or exceeding ``max_status_checks``
+        (still IN_PROGRESS) raises — the caller must NOT publish.
+        """
+        for attempt in range(max_status_checks):
+            status = self.get_container_status(container_id)
+            if status == "FINISHED":
+                return
+            if status in ("ERROR", "EXPIRED"):
+                raise InstagramAPIError(
+                    f"Media container {status.lower()} (id={container_id}) — not published."
+                )
+            # IN_PROGRESS / PUBLISHED / unknown → wait and re-check (unless last)
+            if attempt < max_status_checks - 1:
+                time.sleep(delay_seconds)
+        raise InstagramAPIError(
+            f"Media container not ready after {max_status_checks} checks "
+            f"(still processing) — not published."
+        )
+
     def get_permalink(self, media_id: str) -> str:
         """Fetch the public permalink of a published media node.
 
@@ -238,17 +278,21 @@ class InstagramAPI:
             raise InstagramAPIError(f"No permalink in response: {data!r}")
         return str(permalink)
 
-    def publish_photo(self, image_url: str, caption: str = "") -> Dict[str, Optional[str]]:
-        """Full two-step photo publish: container -> publish (-> permalink).
+    def publish_photo(self, image_url: str, caption: str = "",
+                      max_status_checks: int = 8) -> Dict[str, Optional[str]]:
+        """Full photo publish: container -> wait until FINISHED -> publish (-> permalink).
 
         Returns ``{"id", "container_id", "permalink"}``. IRREVERSIBLE outward:
         fired live ONLY behind the [📤] confirm-tap. Fail-closed — any error in
-        the container/publish steps propagates as :class:`InstagramAPIError`
-        (nothing gets published silently). The permalink lookup is best-effort:
-        once ``media_publish`` succeeds the post is live, so a permalink failure
-        is NOT a publish failure — we return ``permalink=None`` honestly.
+        the container/status/publish steps propagates as :class:`InstagramAPIError`
+        (nothing gets published silently). The container-status poll prevents the
+        "Media ID is not available" race (publishing before FINISHED). The
+        permalink lookup is best-effort: once ``media_publish`` succeeds the post
+        is live, so a permalink failure is NOT a publish failure — we return
+        ``permalink=None`` honestly.
         """
         container_id = self.create_media_container(image_url, caption)
+        self.wait_until_ready(container_id, max_status_checks=max_status_checks)
         media_id = self.publish_container(container_id)
         try:
             permalink: Optional[str] = self.get_permalink(media_id)

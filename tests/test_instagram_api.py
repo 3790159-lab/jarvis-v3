@@ -241,6 +241,7 @@ def test_publish_photo_two_step_returns_id_and_permalink():
     routes = {
         "IGID/media_publish": {"id": "media_77"},
         "IGID/media": {"id": "cont_1"},          # checked after media_publish
+        "cont_1?fields=status_code": {"status_code": "FINISHED"},
         "media_77": {"permalink": "https://www.instagram.com/p/ZZZ/"},
     }
     with mock.patch("app.services.instagram_api.urllib.request.urlopen",
@@ -248,12 +249,11 @@ def test_publish_photo_two_step_returns_id_and_permalink():
         result = api.publish_photo("https://pub/x.jpg", "Смачно 🌮 #їжа")
     assert result["id"] == "media_77"
     assert result["permalink"] == "https://www.instagram.com/p/ZZZ/"
-    # two-step: container creation BEFORE publish
-    assert any("IGID/media?" in u or "IGID/media" in u and "publish" not in u for u in log)
-    assert any("media_publish" in u for u in log)
-    idx_container = next(i for i, u in enumerate(log) if "IGID/media" in u and "publish" not in u)
+    # three-step: container creation -> status poll (FINISHED) -> publish
+    idx_container = next(i for i, u in enumerate(log) if "IGID/media" in u and "publish" not in u and "status_code" not in u)
+    idx_status = next(i for i, u in enumerate(log) if "status_code" in u)
     idx_publish = next(i for i, u in enumerate(log) if "media_publish" in u)
-    assert idx_container < idx_publish
+    assert idx_container < idx_status < idx_publish
 
 
 def test_publish_photo_quota_error_not_published():
@@ -268,6 +268,7 @@ def test_publish_photo_quota_error_not_published():
     routes = {
         "IGID/media_publish": quota,
         "IGID/media": {"id": "cont_1"},
+        "cont_1?fields=status_code": {"status_code": "FINISHED"},
     }
     with mock.patch("app.services.instagram_api.urllib.request.urlopen",
                     _routed_urlopen(routes, log)):
@@ -289,6 +290,7 @@ def test_publish_photo_permalink_failure_still_returns_media_id():
     routes = {
         "IGID/media_publish": {"id": "media_88"},
         "IGID/media": {"id": "cont_2"},
+        "cont_2?fields=status_code": {"status_code": "FINISHED"},
         "media_88": _http_error({"error": {"message": "transient", "code": 1}}, code=500),
     }
     with mock.patch("app.services.instagram_api.urllib.request.urlopen",
@@ -297,6 +299,93 @@ def test_publish_photo_permalink_failure_still_returns_media_id():
     # published (irreversible done) but permalink unavailable — honest None
     assert result["id"] == "media_88"
     assert result["permalink"] is None
+
+
+# ---- container status polling (fix: "Media ID is not available") ----------
+
+
+def test_get_container_status_returns_code():
+    from app.services.instagram_api import InstagramAPI
+
+    api = InstagramAPI(access_token="t", ig_user_id="IGID")
+    captured = {}
+
+    def fake_urlopen(req, timeout=None):
+        captured["url"] = req.full_url
+        return _FakeResp({"status_code": "FINISHED", "id": "cont_1"})
+
+    with mock.patch("app.services.instagram_api.urllib.request.urlopen", fake_urlopen):
+        assert api.get_container_status("cont_1") == "FINISHED"
+    assert "cont_1" in captured["url"]
+    assert "fields=status_code" in captured["url"]
+
+
+def _status_sequence_urlopen(statuses, log):
+    """Container GET returns the next status each call; create/publish fixed."""
+    seq = list(statuses)
+
+    def fake_urlopen(req, timeout=None):
+        url = req.full_url
+        log.append(url)
+        if "status_code" in url:
+            return _FakeResp({"status_code": seq.pop(0) if seq else "FINISHED"})
+        if "media_publish" in url:
+            return _FakeResp({"id": "media_99"})
+        if "IGID/media" in url:
+            return _FakeResp({"id": "cont_1"})
+        if "media_99" in url:
+            return _FakeResp({"permalink": "https://www.instagram.com/p/OK/"})
+        raise AssertionError(f"unexpected URL: {url}")
+    return fake_urlopen
+
+
+def test_publish_photo_polls_until_finished(monkeypatch):
+    from app.services.instagram_api import InstagramAPI
+
+    api = InstagramAPI(access_token="t", ig_user_id="IGID")
+    slept = []
+    monkeypatch.setattr("app.services.instagram_api.time.sleep", lambda s: slept.append(s))
+    log = []
+    # IN_PROGRESS twice, then FINISHED -> publishes
+    with mock.patch("app.services.instagram_api.urllib.request.urlopen",
+                    _status_sequence_urlopen(["IN_PROGRESS", "IN_PROGRESS", "FINISHED"], log)):
+        result = api.publish_photo("https://pub/x.jpg", "cap")
+    assert result["id"] == "media_99"
+    assert len(slept) == 2                      # waited between the two IN_PROGRESS polls
+    assert any("media_publish" in u for u in log)
+
+
+def test_publish_photo_container_error_fail_closed(monkeypatch):
+    from app.services.instagram_api import InstagramAPI, InstagramAPIError
+
+    api = InstagramAPI(access_token="t", ig_user_id="IGID")
+    monkeypatch.setattr("app.services.instagram_api.time.sleep", lambda s: None)
+    log = []
+    with mock.patch("app.services.instagram_api.urllib.request.urlopen",
+                    _status_sequence_urlopen(["ERROR"], log)):
+        try:
+            api.publish_photo("https://pub/x.jpg", "cap")
+            assert False, "should raise (fail-closed on ERROR)"
+        except InstagramAPIError as e:
+            assert "error" in str(e).lower()
+    assert not any("media_publish" in u for u in log)   # never published
+
+
+def test_publish_photo_container_timeout_fail_closed(monkeypatch):
+    from app.services.instagram_api import InstagramAPI, InstagramAPIError
+
+    api = InstagramAPI(access_token="t", ig_user_id="IGID")
+    monkeypatch.setattr("app.services.instagram_api.time.sleep", lambda s: None)
+    log = []
+    # always IN_PROGRESS -> times out, never publishes
+    with mock.patch("app.services.instagram_api.urllib.request.urlopen",
+                    _status_sequence_urlopen(["IN_PROGRESS"] * 50, log)):
+        try:
+            api.publish_photo("https://pub/x.jpg", "cap", max_status_checks=4)
+            assert False, "should raise (fail-closed on timeout)"
+        except InstagramAPIError as e:
+            assert "not ready" in str(e).lower() or "process" in str(e).lower()
+    assert not any("media_publish" in u for u in log)
 
 
 # ---- Graph error envelope -------------------------------------------------
