@@ -4783,6 +4783,119 @@ def _ig_post_publish(chat_id, state: Dict[str, Any], message_id=None) -> None:
     send(chat_id, _igp.build_published_text(result.get("permalink"), result.get("id", "")))
 
 
+# ── /ig_gen (Этап 3): полный цикл в одну команду ────────────────────────────
+# /ig_gen <тема> = сгенерировать фото по теме (money-gated) → host_for_ig (R2)
+# → ig_caption (money-gated) → ТА ЖЕ превью-карточка/кнопки, что у /ig_post
+# (igpost:publish/regen/cancel, IG_POST_PENDING_KEY) — новый шаг только
+# добавляет генерацию медиа ПЕРЕД уже существующим ig_post-флоу. НЕ
+# self-gating (в отличие от /ig_post): фото генерируется с нуля и стоит
+# заметно дороже подписи, поэтому получает свой blanket money-confirm тап на
+# входе (тот же chokepoint, что /ig_caption, /menu_photo) — публикация
+# остаётся отдельным необратимым тапом на карточке.
+
+_IG_GEN_PHOTO_EST_USD = float(os.getenv("JARVIS_IG_GEN_PHOTO_USD", "0.06"))
+
+
+def _ig_gen_generate_photo(topic: str) -> str:
+    """Платный шаг генерации фото по теме (FLUX/Replicate) → remote URL.
+
+    Изолирована ради money-safety — тесты мокают ИМЕННО эту функцию, ноль
+    реальной сети (тот же паттерн, что ``_ig_post_host_media``/``_ig_caption_ask_llm``).
+    """
+    from app.services.replicate_image_gen import generate_images_replicate
+    urls = generate_images_replicate(topic, num_images=1, aspect_ratio="4:5")
+    if not urls:
+        raise RuntimeError("пустой ответ генератора фото")
+    return urls[0]
+
+
+def _ig_gen_download_photo(url: str) -> str:
+    """Скачать сгенерированное фото в локальный temp-файл.
+
+    ``ig_media_prep.host_for_ig`` работает с локальным путём (Pillow), а
+    генераторы (Replicate) отдают remote URL — этот шаг просто перекладывает
+    уже оплаченный результат на диск, отдельных денег не стоит.
+    """
+    import tempfile
+    import requests as _req
+    resp = _req.get(url, timeout=60)
+    resp.raise_for_status()
+    fd, tmp_name = tempfile.mkstemp(prefix="ig_gen_", suffix=".jpg")
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(resp.content)
+    return tmp_name
+
+
+def _ig_gen_dispatch(chat_id, query: str, state: Dict[str, Any]) -> None:
+    """``/ig_gen <тема>`` — сгенерировать фото по теме, подготовить+захостить
+    медиа, сгенерить подпись (тот же money-путь, что /ig_post) и показать ТУ
+    ЖЕ превью-карточку. Публикация НЕ здесь — только по тапу [📤] (igpost:
+    callback, общий с /ig_post)."""
+    from app.services import ig_post as _igp
+
+    topic = (query or "").strip()
+    if not topic:
+        send(chat_id, "🖼 Формат: /ig_gen <тема поста>")
+        return
+    # 1) генерация фото (платно, guard_spend — money-safety как у /ig_post)
+    try:
+        photo_remote_url, err = guard_spend(
+            chat_id, None, _IG_GEN_PHOTO_EST_USD, lambda: _ig_gen_generate_photo(topic),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("ig_gen: photo gen failed chat=%s", chat_id)
+        send(chat_id, "🚫 Генератор фото недоступен — фото не создано, $0 (%s)." % (str(exc)[:120]))
+        return
+    if err:
+        send(chat_id, "🚫 %s — фото не сгенерировано (генератор не вызывался, $0)." % err)
+        return
+    if not photo_remote_url:
+        send(chat_id, "🤷 не удалось сгенерировать фото (пустой ответ генератора).")
+        return
+    # 2) скачать в локальный файл (сеть, но уже оплачено — доп. $0)
+    try:
+        local_path = _ig_gen_download_photo(photo_remote_url)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("ig_gen: download failed chat=%s", chat_id)
+        send(chat_id, "🚫 Фото сгенерировано, но скачать для публикации не удалось (%s)." % (str(exc)[:120]))
+        return
+    # 3) подготовка + хостинг медиа (R2) — переиспользуем ig_post-обёртку
+    try:
+        photo_url = _ig_post_host_media(local_path)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("ig_gen: host_for_ig failed chat=%s", chat_id)
+        send(chat_id, "🚫 Медиа не подготовлено к публикации ($0 доп.): %s" % (str(exc)[:120]))
+        return
+    # 4) подпись (платно, guard_spend — переиспользуем /ig_post-обёртку)
+    try:
+        caption, err = _ig_post_generate_caption(chat_id, topic)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("ig_gen: caption gen failed chat=%s", chat_id)
+        send(chat_id, "🚫 LLM недоступен — подпись не сгенерирована, $0 (%s)." % (str(exc)[:120]))
+        return
+    if err:
+        send(chat_id, "🚫 %s — подпись не сгенерирована (LLM не вызывался, $0)." % err)
+        return
+    if not caption:
+        send(chat_id, "🤷 не удалось сгенерировать подпись (пустой ответ LLM).")
+        return
+    # 5) pending + превью-карточка — ТА ЖЕ, что у /ig_post (igpost:publish/regen/cancel)
+    state[_igp.IG_POST_PENDING_KEY] = {
+        "photo_url": photo_url,
+        "caption": caption,
+        "topic": topic,
+        "source": local_path,
+    }
+    save_state(state)
+    try:
+        _send_photo_url(chat_id, photo_url, caption="🖼 Превью IG-поста (сгенерировано)")
+    except Exception:  # noqa: BLE001 — превью-картинка не критична для карточки
+        pass
+    send_with_keyboard(
+        chat_id, _igp.build_preview_text(photo_url, caption, topic), _ig_post_keyboard()
+    )
+
+
 def _ir2_route(chat_id: str, text: str, candidates, state: Dict[str, Any]) -> None:
     """IR-2 каскад: uncertain-фраза → Haiku-классификатор (под guard_spend) → команда.
 
@@ -7618,6 +7731,10 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
 
     if cmd == "/ig_post":
         _ig_post_dispatch(chat_id, query, state)
+        return
+
+    if cmd == "/ig_gen":
+        _ig_gen_dispatch(chat_id, query, state)
         return
 
     if cmd in ("/browse_check", "/browse_watch", "/browse_watch_stop", "/browse_status"):
