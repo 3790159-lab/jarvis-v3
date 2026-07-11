@@ -4615,6 +4615,52 @@ def _ig_caption_dispatch(chat_id: str, topic: str) -> None:
     send(chat_id, "📝 Подпись для IG:\n\n%s" % caption)
 
 
+# ── /ig_stats: базовая статистика аккаунта (read-only, $0) ─────────────────
+# Профиль (followers_count/media_count) + последние 5 постов (like_count/
+# comments_count с media-узла + reach/total_interactions из insights). Fail-
+# closed: сбой профиля/списка постов -> честная ошибка, ничего не показываем;
+# сбой insights ОДНОГО поста -> его строка деградирует до "н/д", карточка не
+# падает целиком (лайки/комменты не зависят от insights-разрешения).
+
+def _ig_stats_dispatch(chat_id) -> None:
+    from app.services import ig_stats as _igs
+    from app.services.instagram_api import InstagramAPI, InstagramAPIError
+
+    api = InstagramAPI()
+    try:
+        profile = api.get_profile(fields=_igs.PROFILE_FIELDS)
+    except InstagramAPIError as exc:
+        send(chat_id, "🚫 Не удалось получить профиль IG: %s" % exc)
+        return
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("ig_stats: get_profile crashed chat=%s", chat_id)
+        send(chat_id, "🚫 Не удалось получить профиль IG (%s)." % (str(exc)[:120]))
+        return
+
+    try:
+        media_list = api.list_recent_media(limit=_igs.RECENT_MEDIA_LIMIT, fields=_igs.MEDIA_FIELDS)
+    except InstagramAPIError as exc:
+        send(chat_id, "🚫 Не удалось получить список постов IG: %s" % exc)
+        return
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("ig_stats: list_recent_media crashed chat=%s", chat_id)
+        send(chat_id, "🚫 Не удалось получить список постов IG (%s)." % (str(exc)[:120]))
+        return
+
+    insights_by_id: Dict[str, Any] = {}
+    for media in media_list:
+        media_id = media.get("id")
+        if not media_id:
+            continue
+        try:
+            insights_by_id[media_id] = api.get_media_insights(media_id, _igs.INSIGHTS_METRICS)
+        except Exception:  # noqa: BLE001 — одна карточка не роняет всю статистику
+            logger.warning("ig_stats: insights unavailable for media=%s chat=%s", media_id, chat_id)
+            insights_by_id[media_id] = None
+
+    send(chat_id, _igs.build_stats_text(profile, media_list, insights_by_id))
+
+
 # ── /ig_post (Этап 3, кирпич #1): первый живой IG-пост ─────────────────────
 # Флоу: /ig_post <путь-или-last> <тема> → host_for_ig (R2) → caption (guard_spend)
 # → превью-карточка [📤 Опубликовать]/[✏️ Переген подпись]/[Отмена]. Публикация
@@ -7739,6 +7785,10 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
 
     if cmd == "/ig_caption":
         _ig_caption_dispatch(chat_id, query)
+        return
+
+    if cmd == "/ig_stats":
+        _ig_stats_dispatch(chat_id)
         return
 
     if cmd == "/ig_post":

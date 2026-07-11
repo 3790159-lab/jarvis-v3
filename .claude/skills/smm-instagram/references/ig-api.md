@@ -51,3 +51,17 @@ Graph API сам НЕ хранит расписание — планировщи
   утверждения контент-плана.
 - Неудачная публикация ≠ повторная генерация. Медиа уже в R2 — ретраить публикацию.
 - Каждый шаг цепочки логировать в леджер операций (пост-ID, аккаунт, статус).
+
+## Read-only: профиль и метрики (проверено 2026-07-12, /ig_stats)
+- Профиль: `GET /me?fields=username,followers_count,media_count` —
+  followers_count/media_count требуют только `instagram_business_basic`
+  (не insights).
+- Медиа-лист: `GET /{ig-user-id}/media?fields=...&limit=N` — like_count/
+  comments_count живут на самом media-узле, тоже без insights-разрешения.
+- Per-media insights: `GET /{media-id}/insights?metric=reach,total_interactions`
+  — требует `instagram_business_manage_insights`. **impressions задеприкейчен
+  для медиа, созданных после 2024-07-02** — не запрашивать, честный постоянный
+  сбой. `reach` доступен для FEED/REELS/STORY (Story истекает за 24ч).
+- Fail-closed по-честному: сбой профиля/списка постов — вся карточка не
+  показывается (нечего показать честно); сбой insights ОДНОГО поста — его
+  строка деградирует до «н/д», карточка не падает целиком.

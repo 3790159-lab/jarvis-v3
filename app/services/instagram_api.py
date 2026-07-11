@@ -263,6 +263,47 @@ class InstagramAPI:
             f"(still processing) — not published."
         )
 
+    def list_recent_media(self, limit: int = 5, fields: Optional[str] = None) -> list:
+        """Read-only: last ``limit`` media items on the account (newest first).
+
+        Hits ``{ig-user-id}/media``. ``fields`` defaults to metadata + engagement
+        counts that live on the media node itself (``like_count``/``comments_count``
+        need no insights permission, unlike reach/impressions below).
+        """
+        self._require_token()
+        ig_id = self.get_ig_user_id()
+        data = _graph_request(f"{ig_id}/media", {
+            "fields": fields or (
+                "id,caption,media_type,media_product_type,timestamp,"
+                "permalink,like_count,comments_count"
+            ),
+            "limit": str(limit),
+            "access_token": self.access_token,
+        }, base=self.base_url)
+        return list(data.get("data") or [])
+
+    def get_media_insights(self, media_id: str, metrics: str = "reach,total_interactions") -> Dict[str, int]:
+        """Read-only per-media insights (``reach``/``total_interactions`` by default).
+
+        Requires ``instagram_business_manage_insights``. Raises
+        :class:`InstagramAPIError` on failure (e.g. missing permission, or a
+        metric unsupported for this media's type) — the caller decides whether
+        to degrade a single card line or abort (fail-closed either way: never
+        fabricate a number).
+        """
+        self._require_token()
+        data = _graph_request(f"{media_id}/insights", {
+            "metric": metrics,
+            "access_token": self.access_token,
+        }, base=self.base_url)
+        result: Dict[str, int] = {}
+        for item in data.get("data") or []:
+            name = item.get("name")
+            values = item.get("values") or []
+            if name and values:
+                result[str(name)] = values[0].get("value")
+        return result
+
     def get_permalink(self, media_id: str) -> str:
         """Fetch the public permalink of a published media node.
 

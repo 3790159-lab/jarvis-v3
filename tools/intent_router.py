@@ -75,6 +75,7 @@ FREE_AUTOEXEC: FrozenSet[str] = frozenset({
     "/party_themes", "/dish_styles",                   # списки (read)
     "/swapbatch_status",                               # статус батча (read)
     "/agents", "/tasks",                               # статусы (read)
+    "/ig_stats",                                        # статистика IG-аккаунта (read)
 })
 # /regress НЕ в FREE_AUTOEXEC: бесплатно, но тяжело (~5 мин) → confirm.
 
