@@ -110,6 +110,12 @@ app.include_router(jarvis_live_operator_router)
 app.include_router(claude_ecosystem.router)
 app.include_router(time_brain.router)
 
+try:
+    from app.routers.oauth_callback_router import router as oauth_callback_router
+    app.include_router(oauth_callback_router)
+except Exception as _oauth_cb_exc:
+    print(f"[jarvis:oauth_callback_router] load failed: {_oauth_cb_exc}")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
