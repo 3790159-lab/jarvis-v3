@@ -8,8 +8,16 @@ missed run (PC off on the exact day) can't let the token lapse.
 
 Fail-closed by construction:
   * The refresh call must return a non-empty access_token, or we abort.
-  * The old token in .env is overwritten ONLY after a successful refresh.
-  * ANY failure -> the .env is left untouched and a Telegram ALARM is sent.
+  * The old token is overwritten ONLY after a successful refresh.
+  * ANY failure -> the old token is left untouched and a Telegram ALARM is sent.
+
+Multi-account (see ``app.services.ig_accounts``): when
+``state/ig_accounts.json`` has entries, every account is walked and refreshed
+independently — its own age-gate (per-account ``token_refreshed_at`` field,
+not a shared stamp file) and its own alarm naming the account. No json yet
+(pre-migration machines) -> falls back to the original single-account ``.env``
+flow untouched (``_refresh_legacy`` — same functions/behaviour as before
+multi-account support existed).
 
 Standalone: loads .env via env_bootstrap (does NOT depend on the live bot).
 Notifications go straight to the Bot API (TELEGRAM_BOT_TOKEN +
@@ -50,6 +58,18 @@ def read_age_days(stamp_path: str) -> "float | None":
     try:
         ts = float(p.read_text(encoding="utf-8").strip())
     except (ValueError, OSError):
+        return None
+    return (time.time() - ts) / 86400.0
+
+
+def age_days_from_timestamp(ts) -> "float | None":
+    """Same as :func:`read_age_days` but from an in-memory timestamp (used for
+    the per-account ``token_refreshed_at`` field instead of a stamp file)."""
+    if ts is None:
+        return None
+    try:
+        ts = float(ts)
+    except (TypeError, ValueError):
         return None
     return (time.time() - ts) / 86400.0
 
@@ -120,16 +140,9 @@ def send_telegram(text: str) -> bool:
 
 # ── orchestration ──────────────────────────────────────────────────────────
 
-def main(argv=None) -> int:
-    argv = argv if argv is not None else sys.argv[1:]
-    force = "--force" in argv
-
-    # load .env into os.environ (P2), same as the guardians
-    try:
-        import app.env_bootstrap  # noqa: F401  side-effect: loads .env
-    except Exception as exc:
-        logger.error("ig_token_refresh: env bootstrap failed: %s", exc)
-
+def _refresh_legacy(force: bool) -> int:
+    """Original single-account flow — unchanged, used only when
+    ``state/ig_accounts.json`` has no accounts yet (pre-migration)."""
     age = read_age_days(str(STAMP_PATH))
     if not force and not should_refresh(age):
         age_str = f"{age:.1f}d" if age is not None else "n/a"
@@ -159,6 +172,73 @@ def main(argv=None) -> int:
                   f"prefix={new_token[:8]}…, обновлён в .env.")
     logger.info("ig_token_refresh: success, token refreshed (prefix=%s...)", new_token[:8])
     return 0
+
+
+def _refresh_account(account_key: str, acct: dict, force: bool) -> int:
+    """Age-gate + refresh ONE account from the json store. Fail-closed: the
+    stored token is overwritten only after a successful refresh; any failure
+    leaves it untouched and alarms the admin BY ACCOUNT NAME."""
+    from app.services import ig_accounts as _iga
+
+    age = age_days_from_timestamp(acct.get("token_refreshed_at"))
+    if not force and not should_refresh(age):
+        age_str = f"{age:.1f}d" if age is not None else "n/a"
+        logger.info("ig_token_refresh[%s]: token age %s < %.0fd — skip",
+                    account_key, age_str, MIN_AGE_DAYS)
+        return 0
+
+    current = str(acct.get("access_token") or "").strip()
+    if not current:
+        send_telegram(f"⚠️ IG token refresh ALARM [{account_key}]: access_token отсутствует "
+                      f"в state/ig_accounts.json — не могу обновить.")
+        logger.error("ig_token_refresh[%s]: no access_token — abort", account_key)
+        return 2
+
+    try:
+        from app.services.instagram_api import refresh_long_lived_token
+        new_token = refresh_long_lived_token(current)          # fail-closed inside
+        _iga.save_account(
+            account_key, ig_user_id=str(acct.get("ig_user_id") or ""),
+            username=str(acct.get("username") or ""),
+            access_token=new_token, token_refreshed_at=time.time(),
+        )
+    except Exception as exc:
+        # FAIL-CLOSED: save_account only called on success, old token kept.
+        send_telegram(f"⚠️ IG token refresh ПРОВАЛ [{account_key}]: {exc}. "
+                      f"Старый токен НЕ тронут, он ещё жив. Разберись до истечения ~60д.")
+        logger.error("ig_token_refresh[%s]: FAILED (old token kept): %s", account_key, exc)
+        return 1
+
+    send_telegram(f"✅ IG token обновлён [{account_key}] (long-lived, ещё ~60 дней). "
+                  f"prefix={new_token[:8]}…")
+    logger.info("ig_token_refresh[%s]: success, token refreshed (prefix=%s...)",
+               account_key, new_token[:8])
+    return 0
+
+
+def main(argv=None) -> int:
+    argv = argv if argv is not None else sys.argv[1:]
+    force = "--force" in argv
+
+    # load .env into os.environ (P2), same as the guardians
+    try:
+        import app.env_bootstrap  # noqa: F401  side-effect: loads .env
+    except Exception as exc:
+        logger.error("ig_token_refresh: env bootstrap failed: %s", exc)
+
+    from app.services import ig_accounts as _iga
+    _iga.ensure_migrated()
+    accounts = _iga.list_accounts()
+
+    if not accounts:
+        return _refresh_legacy(force)
+
+    overall_rc = 0
+    for account_key, acct in accounts.items():
+        rc = _refresh_account(account_key, acct, force)
+        if rc != 0 and overall_rc == 0:
+            overall_rc = rc
+    return overall_rc
 
 
 if __name__ == "__main__":

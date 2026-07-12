@@ -208,6 +208,90 @@ def test_dispatch_caption_gate_block_stores_no_pending(monkeypatch, tmp_path):
     assert "лимит" in sent["t"]
 
 
+# ---- multi-account (@<account_key>) ----------------------------------------
+
+
+def test_dispatch_account_arg_stripped_and_stored_in_pending(monkeypatch, tmp_path):
+    img = tmp_path / "pic.jpg"
+    img.write_bytes(b"\xff\xd8\xff")
+    _patch_caption(monkeypatch)
+    monkeypatch.setattr(mod, "_ig_post_host_media", lambda p: "https://pub/x.jpg")
+    monkeypatch.setattr(mod, "save_state", lambda s: None)
+    monkeypatch.setattr(mod, "_send_photo_url", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "send_with_keyboard", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "send", lambda *a, **k: None)
+
+    state = {}
+    mod._ig_post_dispatch(ADMIN, f"@vera_ai_ua {img} новий напій", state)
+
+    p = state[PENDING_KEY]
+    assert p["account_key"] == "vera_ai_ua"
+    assert p["topic"] == "новий напій"
+
+
+def test_dispatch_no_account_arg_pending_has_none(monkeypatch, tmp_path):
+    img = tmp_path / "pic.jpg"
+    img.write_bytes(b"\xff\xd8\xff")
+    _patch_caption(monkeypatch)
+    monkeypatch.setattr(mod, "_ig_post_host_media", lambda p: "https://pub/x.jpg")
+    monkeypatch.setattr(mod, "save_state", lambda s: None)
+    monkeypatch.setattr(mod, "_send_photo_url", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "send_with_keyboard", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "send", lambda *a, **k: None)
+
+    state = {}
+    mod._ig_post_dispatch(ADMIN, f"{img} тема", state)
+
+    assert state[PENDING_KEY]["account_key"] is None
+
+
+def test_publish_tap_uses_account_key_from_pending(monkeypatch):
+    seen = {}
+
+    class _FakeIG:
+        def __init__(self, *a, account_key=None, **k):
+            seen["account_key"] = account_key
+
+        def publish_photo(self, url, caption):
+            return {"id": "media_1", "permalink": "https://www.instagram.com/p/AAA/"}
+
+    monkeypatch.setattr("app.services.instagram_api.InstagramAPI", _FakeIG)
+    monkeypatch.setattr(mod, "save_state", lambda s: None)
+    monkeypatch.setattr(mod, "answer_callback_query", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "edit_message_with_keyboard", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "send", lambda *a, **k: None)
+
+    state = {PENDING_KEY: {"photo_url": "https://pub/x.jpg", "caption": "c",
+                           "topic": "t", "source": "s", "account_key": "vera_ai_ua"}}
+    mod.handle_callback_query(_cq("igpost:publish"), state)
+
+    assert seen["account_key"] == "vera_ai_ua"
+
+
+def test_publish_tap_pending_without_account_key_defaults_to_none(monkeypatch):
+    """Old-shape pending dicts (no account_key, e.g. persisted before this
+    feature) must not crash — default account, same as before."""
+    seen = {}
+
+    class _FakeIG:
+        def __init__(self, *a, account_key=None, **k):
+            seen["account_key"] = account_key
+
+        def publish_photo(self, url, caption):
+            return {"id": "media_1", "permalink": None}
+
+    monkeypatch.setattr("app.services.instagram_api.InstagramAPI", _FakeIG)
+    monkeypatch.setattr(mod, "save_state", lambda s: None)
+    monkeypatch.setattr(mod, "answer_callback_query", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "edit_message_with_keyboard", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "send", lambda *a, **k: None)
+
+    state = {PENDING_KEY: {"photo_url": "u", "caption": "c", "topic": "t", "source": "s"}}
+    mod.handle_callback_query(_cq("igpost:publish"), state)
+
+    assert seen["account_key"] is None
+
+
 # ---- publish tap (irreversible, fail-closed) ------------------------------
 
 

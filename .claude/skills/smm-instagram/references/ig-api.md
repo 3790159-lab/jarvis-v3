@@ -52,6 +52,21 @@ Graph API сам НЕ хранит расписание — планировщи
 - Неудачная публикация ≠ повторная генерация. Медиа уже в R2 — ретраить публикацию.
 - Каждый шаг цепочки логировать в леджер операций (пост-ID, аккаунт, статус).
 
+## Мультиаккаунт credentials (проверено 2026-07-12)
+Несколько IG-аккаунтов (напр. `jtest_lab_`, `vera_ai_ua`) хранятся в
+`state/ig_accounts.json` (`app.services.ig_accounts`; не в git, `state/` в
+`.gitignore` целиком) — ключ `account_key` → `{ig_user_id, username,
+access_token, token_refreshed_at}`. `/ig_stats`, `/ig_post`, `/ig_gen`
+принимают опциональный префикс `@<account_key>` (напр. `/ig_gen @vera_ai_ua
+тема`); `/ig_gen`/`/ig_caption` без явного `@` берут account_key из
+`client=<name>` → `clients/<name>/brand.md` (`account_key`-поле, иначе имя
+клиента как account_key). Без аргумента — дефолт: env `IG_DEFAULT_ACCOUNT`,
+иначе `jtest_lab_`. Пока json не создан — легаси `.env` `IG_ACCESS_TOKEN`/
+`IG_USER_ID` работают как раньше (авто-миграция в json при первом резолве
+credentials). Auto-refresh (`scripts/ig_token_refresh.py`, ежедневная задача)
+обходит все аккаунты из json независимо, свой age-gate и алярм с именем
+аккаунта на каждый.
+
 ## Read-only: профиль и метрики (проверено 2026-07-12, /ig_stats)
 - Профиль: `GET /me?fields=username,followers_count,media_count` —
   followers_count/media_count требуют только `instagram_business_basic`

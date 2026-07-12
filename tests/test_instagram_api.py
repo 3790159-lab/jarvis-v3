@@ -63,6 +63,84 @@ def test_reads_env_when_args_omitted(monkeypatch):
     assert api.ig_user_id == "envuser"
 
 
+# ---- multi-account (account_key -> app.services.ig_accounts) --------------
+
+
+def test_account_key_selects_correct_account(monkeypatch, tmp_path):
+    import json as _json
+    from app.services.instagram_api import InstagramAPI
+
+    f = tmp_path / "ig_accounts.json"
+    f.write_text(_json.dumps({"accounts": {
+        "jtest_lab_": {"account_key": "jtest_lab_", "ig_user_id": "111",
+                       "username": "jtest_lab_", "access_token": "TOK_JTEST",
+                       "token_refreshed_at": 1000.0},
+        "vera_ai_ua": {"account_key": "vera_ai_ua", "ig_user_id": "222",
+                       "username": "vera.ai.ua", "access_token": "TOK_VERA",
+                       "token_refreshed_at": 2000.0},
+    }}), encoding="utf-8")
+    monkeypatch.setenv("IG_ACCOUNTS_FILE", str(f))
+
+    api = InstagramAPI(account_key="vera_ai_ua")
+    assert api.access_token == "TOK_VERA"
+    assert api.ig_user_id == "222"
+
+    api2 = InstagramAPI(account_key="jtest_lab_")
+    assert api2.access_token == "TOK_JTEST"
+    assert api2.ig_user_id == "111"
+
+
+def test_account_key_omitted_uses_default_account(monkeypatch, tmp_path):
+    import json as _json
+    from app.services.instagram_api import InstagramAPI
+
+    f = tmp_path / "ig_accounts.json"
+    f.write_text(_json.dumps({"accounts": {
+        "jtest_lab_": {"account_key": "jtest_lab_", "ig_user_id": "111",
+                       "username": "jtest_lab_", "access_token": "TOK_JTEST",
+                       "token_refreshed_at": 1000.0},
+    }}), encoding="utf-8")
+    monkeypatch.setenv("IG_ACCOUNTS_FILE", str(f))
+    monkeypatch.delenv("IG_DEFAULT_ACCOUNT", raising=False)
+
+    api = InstagramAPI()
+    assert api.access_token == "TOK_JTEST"
+
+
+def test_unknown_account_key_raises(monkeypatch, tmp_path):
+    import json as _json
+
+    from app.services.ig_accounts import IGAccountError
+    from app.services.instagram_api import InstagramAPI
+
+    f = tmp_path / "ig_accounts.json"
+    f.write_text(_json.dumps({"accounts": {
+        "jtest_lab_": {"account_key": "jtest_lab_", "ig_user_id": "111",
+                       "username": "jtest_lab_", "access_token": "TOK_JTEST",
+                       "token_refreshed_at": 1000.0},
+    }}), encoding="utf-8")
+    monkeypatch.setenv("IG_ACCOUNTS_FILE", str(f))
+
+    try:
+        InstagramAPI(account_key="nope")
+        assert False, "should raise"
+    except IGAccountError as exc:
+        assert "nope" in str(exc)
+
+
+def test_explicit_access_token_bypasses_account_store(monkeypatch, tmp_path):
+    """Explicit access_token/ig_user_id args must still win outright — the
+    account store must not even be touched (no accidental FS read)."""
+    from app.services.instagram_api import InstagramAPI
+
+    monkeypatch.setenv("IG_ACCOUNTS_FILE", str(tmp_path / "does_not_exist.json"))
+    api = InstagramAPI(access_token="explicit_tok", ig_user_id="explicit_uid",
+                       account_key="whatever_unused")
+    assert api.access_token == "explicit_tok"
+    assert api.ig_user_id == "explicit_uid"
+    assert not (tmp_path / "does_not_exist.json").exists()
+
+
 # ---- get_ig_user_id -------------------------------------------------------
 
 

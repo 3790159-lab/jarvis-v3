@@ -48,6 +48,16 @@ def _isolate_users_file(monkeypatch, tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_ig_accounts_file(monkeypatch, tmp_path):
+    """Point the IG multi-account store at a per-test tmp file so no test can
+    read/write the live ``state/ig_accounts.json`` (same rationale as
+    ``_isolate_users_file`` above — ``ig_accounts._state_file()`` falls back to
+    the *relative* default when ``IG_ACCOUNTS_FILE`` is unset, and credential
+    resolution can auto-migrate/write on first touch)."""
+    monkeypatch.setenv("IG_ACCOUNTS_FILE", str(tmp_path / "ig_accounts.json"))
+
+
+@pytest.fixture(autouse=True)
 def _silence_telegram_sends(monkeypatch):
     """Suppress every outbound Telegram send during tests so no phantom
     message (``petya (555) New user``, ``RunPod guardian pod_old`` …) leaks

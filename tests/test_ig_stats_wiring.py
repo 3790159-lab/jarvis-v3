@@ -28,9 +28,10 @@ def test_ig_stats_admin_only():
 
 def test_ig_stats_command_dispatches(monkeypatch):
     fired = {}
-    monkeypatch.setattr(mod, "_ig_stats_dispatch", lambda cid: fired.update(cid=cid))
-    mod.handle_command(ADMIN, "/ig_stats", "", {})
-    assert fired == {"cid": ADMIN}
+    monkeypatch.setattr(mod, "_ig_stats_dispatch",
+                        lambda cid, query="": fired.update(cid=cid, query=query))
+    mod.handle_command(ADMIN, "/ig_stats", "@vera_ai_ua", {})
+    assert fired == {"cid": ADMIN, "query": "@vera_ai_ua"}
 
 
 # ---- dispatch ---------------------------------------------------------------
@@ -139,6 +140,59 @@ def test_dispatch_single_media_insights_failure_degrades_not_crashes(monkeypatch
     assert len(sent) == 1
     assert "reach 20" in sent[0]
     assert "reach н/д" in sent[0]
+
+
+# ---- multi-account (@<account_key>) ----------------------------------------
+
+
+def test_dispatch_account_arg_selects_account(monkeypatch):
+    seen = {}
+
+    def _fake_ig_ctor(*a, account_key=None, **k):
+        seen["account_key"] = account_key
+        return _FakeIG(profile={"username": "vera.ai.ua", "followers_count": 3,
+                                "media_count": 0}, media=[])
+
+    monkeypatch.setattr("app.services.instagram_api.InstagramAPI", _fake_ig_ctor)
+    sent = []
+    monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
+
+    mod._ig_stats_dispatch(ADMIN, "@vera_ai_ua")
+
+    assert seen["account_key"] == "vera_ai_ua"
+    assert "vera.ai.ua" in sent[0]
+
+
+def test_dispatch_no_account_arg_uses_default(monkeypatch):
+    seen = {}
+
+    def _fake_ig_ctor(*a, account_key=None, **k):
+        seen["account_key"] = account_key
+        return _FakeIG(profile={"username": "jtest_lab_", "followers_count": 1,
+                                "media_count": 0}, media=[])
+
+    monkeypatch.setattr("app.services.instagram_api.InstagramAPI", _fake_ig_ctor)
+    monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: None)
+
+    mod._ig_stats_dispatch(ADMIN, "")
+
+    assert seen["account_key"] is None
+
+
+def test_dispatch_unknown_account_is_honest(monkeypatch):
+    from app.services.ig_accounts import IGAccountError
+
+    def _raising(*a, **k):
+        raise IGAccountError("IG-аккаунт 'nope' не найден")
+
+    monkeypatch.setattr("app.services.instagram_api.InstagramAPI", _raising)
+    sent = []
+    monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
+
+    mod._ig_stats_dispatch(ADMIN, "@nope")
+
+    assert "nope" in sent[0]
+    assert "🚫" in sent[0]
 
 
 def test_dispatch_no_posts_is_honest(monkeypatch):

@@ -249,6 +249,78 @@ def test_ig_gen_dispatch_without_client_config_is_unchanged(monkeypatch):
     assert photo_prompts == ["новий сезонний напій"]  # no brand -> prompt untouched
 
 
+# ---- multi-account (@<account_key> / client=<name> brand mapping) ---------
+
+
+def test_ig_gen_dispatch_explicit_account_arg_stored_in_pending(monkeypatch):
+    _patch_photo(monkeypatch)
+    _patch_caption(monkeypatch)
+    _patch_guard_spend_passthrough(monkeypatch)
+    monkeypatch.setattr(mod, "_ig_post_host_media", lambda p: "https://pub/x.jpg")
+    monkeypatch.setattr(mod, "save_state", lambda s: None)
+    monkeypatch.setattr(mod, "_send_photo_url", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "send_with_keyboard", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "send", lambda *a, **k: None)
+
+    state = {}
+    mod._ig_gen_dispatch(ADMIN, "@vera_ai_ua тема поста", state)
+
+    assert state[PENDING_KEY]["account_key"] == "vera_ai_ua"
+    assert state[PENDING_KEY]["topic"] == "тема поста"
+
+
+def test_ig_gen_dispatch_client_arg_maps_to_account_key(monkeypatch):
+    """No explicit @account_key -> client=vera_ai_ua's brand.md maps to
+    account_key 'vera_ai_ua' (dir-name convention, no account_key field set
+    in this fixture brand.md)."""
+    _patch_photo(monkeypatch)
+    _patch_caption(monkeypatch)
+    _patch_guard_spend_passthrough(monkeypatch)
+    monkeypatch.setattr(mod, "_ig_post_host_media", lambda p: "https://pub/x.jpg")
+    monkeypatch.setattr(mod, "save_state", lambda s: None)
+    monkeypatch.setattr(mod, "_send_photo_url", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "send_with_keyboard", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "send", lambda *a, **k: None)
+
+    state = {}
+    mod._ig_gen_dispatch(ADMIN, "client=vera_ai_ua тема поста", state)
+
+    assert state[PENDING_KEY]["account_key"] == "vera_ai_ua"
+
+
+def test_ig_gen_dispatch_no_account_or_client_pending_account_key_none(monkeypatch):
+    monkeypatch.delenv("IG_CLIENT", raising=False)
+    _patch_photo(monkeypatch)
+    _patch_caption(monkeypatch)
+    _patch_guard_spend_passthrough(monkeypatch)
+    monkeypatch.setattr(mod, "_ig_post_host_media", lambda p: "https://pub/x.jpg")
+    monkeypatch.setattr(mod, "save_state", lambda s: None)
+    monkeypatch.setattr(mod, "_send_photo_url", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "send_with_keyboard", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "send", lambda *a, **k: None)
+
+    state = {}
+    mod._ig_gen_dispatch(ADMIN, "тема поста", state)
+
+    assert state[PENDING_KEY]["account_key"] is None
+
+
+def test_ig_gen_dispatch_explicit_account_wins_over_client_mapping(monkeypatch):
+    _patch_photo(monkeypatch)
+    _patch_caption(monkeypatch)
+    _patch_guard_spend_passthrough(monkeypatch)
+    monkeypatch.setattr(mod, "_ig_post_host_media", lambda p: "https://pub/x.jpg")
+    monkeypatch.setattr(mod, "save_state", lambda s: None)
+    monkeypatch.setattr(mod, "_send_photo_url", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "send_with_keyboard", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "send", lambda *a, **k: None)
+
+    state = {}
+    mod._ig_gen_dispatch(ADMIN, "@other_account client=vera_ai_ua тема", state)
+
+    assert state[PENDING_KEY]["account_key"] == "other_account"
+
+
 # ---- reuse of the existing ig_post preview/publish flow --------------------
 
 

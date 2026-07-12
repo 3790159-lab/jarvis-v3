@@ -4614,6 +4614,18 @@ def _ig_resolve_client(explicit: Optional[str]) -> Optional[str]:
     return explicit or os.getenv("IG_CLIENT") or None
 
 
+def _ig_resolve_account_key(explicit: Optional[str], client: Optional[str],
+                            brand: Optional[Dict[str, Any]]) -> Optional[str]:
+    """IG account_key: явный ``@<account_key>`` > ``account_key`` из brand.md
+    клиента > имя самого клиента (соглашение: dir-имя == account_key) > ``None``
+    (старое поведение — дефолт-аккаунт, см. ``app.services.ig_accounts``)."""
+    if explicit:
+        return explicit
+    if brand and brand.get("account_key"):
+        return str(brand["account_key"])
+    return client
+
+
 def _ig_gen_photo_prompt(topic: str, brand: Optional[Dict[str, Any]]) -> str:
     """Подмешать визуальный стиль клиента (``brand.md``) в промпт генерации фото."""
     style = (brand or {}).get("visual_style")
@@ -4669,11 +4681,19 @@ def _ig_caption_dispatch(chat_id: str, topic: str) -> None:
 # сбой insights ОДНОГО поста -> его строка деградирует до "н/д", карточка не
 # падает целиком (лайки/комменты не зависят от insights-разрешения).
 
-def _ig_stats_dispatch(chat_id) -> None:
+def _ig_stats_dispatch(chat_id, query: str = "") -> None:
+    """Опциональный ``@<account_key>`` в начале ``query`` выбирает IG-аккаунт
+    (см. ``app.services.ig_accounts``); без него — дефолт-аккаунт как раньше."""
+    from app.services import ig_accounts as _iga
     from app.services import ig_stats as _igs
     from app.services.instagram_api import InstagramAPI, InstagramAPIError
 
-    api = InstagramAPI()
+    account_key, _rest = _iga.parse_account_arg(query)
+    try:
+        api = InstagramAPI(account_key=account_key)
+    except (InstagramAPIError, _iga.IGAccountError) as exc:
+        send(chat_id, "🚫 %s" % exc)
+        return
     try:
         profile = api.get_profile(fields=_igs.PROFILE_FIELDS)
     except InstagramAPIError as exc:
@@ -4771,12 +4791,17 @@ def _ig_post_keyboard() -> list:
 
 
 def _ig_post_dispatch(chat_id, query: str, state: Dict[str, Any]) -> None:
-    """``/ig_post <путь-или-last> <тема>`` — подготовить медиа+подпись и показать
-    превью-карточку. Публикация НЕ здесь — только по тапу [📤] (см. callback)."""
+    """``/ig_post [@<account_key>] <путь-или-last> <тема>`` — подготовить
+    медиа+подпись и показать превью-карточку. Публикация НЕ здесь — только по
+    тапу [📤] (см. callback); account_key сохраняется в pending-карточке, чтобы
+    ``_ig_post_publish`` (async callback, без доступа к исходной query)
+    опубликовал под тем же аккаунтом."""
     from pathlib import Path as _P
 
+    from app.services import ig_accounts as _iga
     from app.services import ig_post as _igp
 
+    account_key, query = _iga.parse_account_arg(query)
     source, topic = _igp.parse_ig_post_args(query)
     if not topic:
         send(chat_id, _IG_POST_USAGE_HINT)
@@ -4819,6 +4844,7 @@ def _ig_post_dispatch(chat_id, query: str, state: Dict[str, Any]) -> None:
         "caption": caption,
         "topic": topic,
         "source": src_path,
+        "account_key": account_key,
     }
     save_state(state)
     try:
@@ -4873,8 +4899,9 @@ def _ig_post_publish(chat_id, state: Dict[str, Any], message_id=None) -> None:
         return
     photo_url = pending.get("photo_url", "")
     caption = pending.get("caption", "")
+    account_key = pending.get("account_key")
     try:
-        result = InstagramAPI().publish_photo(photo_url, caption)
+        result = InstagramAPI(account_key=account_key).publish_photo(photo_url, caption)
     except InstagramAPIError as exc:
         logger.warning("ig_post: publish blocked/failed chat=%s: %s", chat_id, exc)
         send(chat_id, _igp.format_publish_error(exc))
@@ -4937,18 +4964,22 @@ def _ig_gen_download_photo(url: str) -> str:
 
 
 def _ig_gen_dispatch(chat_id, query: str, state: Dict[str, Any]) -> None:
-    """``/ig_gen <тема>`` — сгенерировать фото по теме, подготовить+захостить
-    медиа, сгенерить подпись (тот же money-путь, что /ig_post) и показать ТУ
-    ЖЕ превью-карточку. Публикация НЕ здесь — только по тапу [📤] (igpost:
-    callback, общий с /ig_post).
+    """``/ig_gen [@<account_key>] <тема>`` — сгенерировать фото по теме,
+    подготовить+захостить медиа, сгенерить подпись (тот же money-путь, что
+    /ig_post) и показать ТУ ЖЕ превью-карточку. Публикация НЕ здесь — только
+    по тапу [📤] (igpost: callback, общий с /ig_post).
 
     Клиентский бренд-конфиг (``client=<name>`` в начале темы или env
     ``IG_CLIENT`` — см. ``app.services.brand_config``) подмешивается и в
     промпт генерации фото (``visual_style``), и в подпись; нет клиента ->
-    поведение не меняется."""
+    поведение не меняется. IG-аккаунт для публикации: явный ``@<account_key>``
+    > ``account_key`` из brand.md клиента > имя клиента > дефолт-аккаунт (см.
+    ``_ig_resolve_account_key``); сохраняется в pending-карточке для тапа [📤]."""
     from app.services import brand_config as _bc
+    from app.services import ig_accounts as _iga
     from app.services import ig_post as _igp
 
+    account_arg, query = _iga.parse_account_arg(query)
     client_arg, topic = _bc.parse_client_arg(query)
     topic = topic.strip()
     if not topic:
@@ -4956,6 +4987,7 @@ def _ig_gen_dispatch(chat_id, query: str, state: Dict[str, Any]) -> None:
         return
     client = _ig_resolve_client(client_arg)
     brand = _bc.load_brand_config(client) if client else None
+    account_key = _ig_resolve_account_key(account_arg, client, brand)
     photo_prompt = _ig_gen_photo_prompt(topic, brand)
     # 1) генерация фото (платно, guard_spend — money-safety как у /ig_post)
     try:
@@ -5005,6 +5037,7 @@ def _ig_gen_dispatch(chat_id, query: str, state: Dict[str, Any]) -> None:
         "caption": caption,
         "topic": topic,
         "source": local_path,
+        "account_key": account_key,
     }
     save_state(state)
     try:
@@ -7917,7 +7950,7 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
         return
 
     if cmd == "/ig_stats":
-        _ig_stats_dispatch(chat_id)
+        _ig_stats_dispatch(chat_id, query)
         return
 
     if cmd == "/ig_post":

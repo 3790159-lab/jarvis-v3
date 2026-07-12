@@ -9,6 +9,7 @@ from __future__ import annotations
 import importlib.util
 import os
 import sys
+import time
 from pathlib import Path
 
 _SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "ig_token_refresh.py"
@@ -103,3 +104,128 @@ def test_read_age_days_from_timestamp(tmp_path, monkeypatch):
     monkeypatch.setattr(mod.time, "time", lambda: now)
     age = mod.read_age_days(str(stamp))
     assert abs(age - 10.0) < 0.01
+
+
+def test_age_days_from_timestamp_none_returns_none():
+    mod = _load_module()
+    assert mod.age_days_from_timestamp(None) is None
+
+
+def test_age_days_from_timestamp_computes_days(monkeypatch):
+    mod = _load_module()
+    now = 1_000_000_000.0
+    monkeypatch.setattr(mod.time, "time", lambda: now)
+    age = mod.age_days_from_timestamp(now - 15 * 86400)
+    assert abs(age - 15.0) < 0.01
+
+
+def test_age_days_from_timestamp_bad_value_returns_none():
+    mod = _load_module()
+    assert mod.age_days_from_timestamp("not-a-number") is None
+
+
+# ── multi-account main() (state/ig_accounts.json) ──────────────────────────
+
+
+def test_main_no_accounts_json_falls_back_to_legacy(tmp_path, monkeypatch):
+    mod = _load_module()
+    monkeypatch.setenv("IG_ACCOUNTS_FILE", str(tmp_path / "ig_accounts.json"))
+    monkeypatch.delenv("IG_ACCESS_TOKEN", raising=False)  # nothing to migrate
+    calls = {"legacy": 0}
+    monkeypatch.setattr(mod, "_refresh_legacy", lambda force: calls.__setitem__("legacy", 1) or 0)
+
+    rc = mod.main([])
+
+    assert calls["legacy"] == 1
+    assert rc == 0
+
+
+def test_main_two_accounts_force_refreshes_both(tmp_path, monkeypatch):
+    mod = _load_module()
+    monkeypatch.setenv("IG_ACCOUNTS_FILE", str(tmp_path / "ig_accounts.json"))
+    from app.services import ig_accounts as iga
+    iga.save_account("jtest_lab_", ig_user_id="111", username="jtest_lab_",
+                     access_token="OLD_JTEST", token_refreshed_at=1000.0)
+    iga.save_account("vera_ai_ua", ig_user_id="222", username="vera.ai.ua",
+                     access_token="OLD_VERA", token_refreshed_at=1000.0)
+
+    monkeypatch.setattr("app.services.instagram_api.refresh_long_lived_token",
+                        lambda tok, base=None: f"NEW_{tok}")
+    sent = []
+    monkeypatch.setattr(mod, "send_telegram", lambda text: sent.append(text) or True)
+
+    rc = mod.main(["--force"])
+
+    assert rc == 0
+    accounts = iga.list_accounts()
+    assert accounts["jtest_lab_"]["access_token"] == "NEW_OLD_JTEST"
+    assert accounts["vera_ai_ua"]["access_token"] == "NEW_OLD_VERA"
+    assert any("jtest_lab_" in t for t in sent)
+    assert any("vera_ai_ua" in t for t in sent)
+
+
+def test_main_per_account_age_gate_only_refreshes_stale(tmp_path, monkeypatch):
+    mod = _load_module()
+    monkeypatch.setenv("IG_ACCOUNTS_FILE", str(tmp_path / "ig_accounts.json"))
+    from app.services import ig_accounts as iga
+    now = time.time()
+    iga.save_account("jtest_lab_", access_token="TOK_A", token_refreshed_at=now - 5 * 86400)
+    iga.save_account("vera_ai_ua", access_token="TOK_B", token_refreshed_at=now - 40 * 86400)
+
+    calls = []
+    monkeypatch.setattr("app.services.instagram_api.refresh_long_lived_token",
+                        lambda tok, base=None: calls.append(tok) or f"NEW_{tok}")
+    monkeypatch.setattr(mod, "send_telegram", lambda text: True)
+
+    rc = mod.main([])                          # no --force -> age-gated
+
+    assert calls == ["TOK_B"]                   # only the stale account refreshed
+    accounts = iga.list_accounts()
+    assert accounts["jtest_lab_"]["access_token"] == "TOK_A"     # untouched, fresh
+    assert accounts["vera_ai_ua"]["access_token"] == "NEW_TOK_B"
+    assert rc == 0
+
+
+def test_main_account_refresh_failure_alarms_by_name_others_unaffected(tmp_path, monkeypatch):
+    mod = _load_module()
+    monkeypatch.setenv("IG_ACCOUNTS_FILE", str(tmp_path / "ig_accounts.json"))
+    from app.services import ig_accounts as iga
+    iga.save_account("jtest_lab_", access_token="TOK_A", token_refreshed_at=1000.0)
+    iga.save_account("vera_ai_ua", access_token="TOK_B", token_refreshed_at=1000.0)
+
+    def _refresh(tok, base=None):
+        if tok == "TOK_A":
+            raise RuntimeError("Graph API rejected token")
+        return f"NEW_{tok}"
+
+    monkeypatch.setattr("app.services.instagram_api.refresh_long_lived_token", _refresh)
+    sent = []
+    monkeypatch.setattr(mod, "send_telegram", lambda text: sent.append(text) or True)
+
+    rc = mod.main(["--force"])
+
+    assert rc == 1                              # honest non-zero: one account failed
+    accounts = iga.list_accounts()
+    assert accounts["jtest_lab_"]["access_token"] == "TOK_A"      # fail-closed, kept
+    assert accounts["vera_ai_ua"]["access_token"] == "NEW_TOK_B"  # other account unaffected
+    assert any("jtest_lab_" in t and "ПРОВАЛ" in t for t in sent)
+    assert any("vera_ai_ua" in t and "✅" in t for t in sent)
+
+
+def test_main_account_missing_token_alarms_and_skips(tmp_path, monkeypatch):
+    mod = _load_module()
+    monkeypatch.setenv("IG_ACCOUNTS_FILE", str(tmp_path / "ig_accounts.json"))
+    from app.services import ig_accounts as iga
+    iga.save_account("jtest_lab_", access_token="", token_refreshed_at=1000.0)
+
+    calls = {"refresh": 0}
+    monkeypatch.setattr("app.services.instagram_api.refresh_long_lived_token",
+                        lambda tok, base=None: calls.__setitem__("refresh", 1) or "NEW")
+    sent = []
+    monkeypatch.setattr(mod, "send_telegram", lambda text: sent.append(text) or True)
+
+    rc = mod.main(["--force"])
+
+    assert calls["refresh"] == 0
+    assert rc == 2
+    assert any("jtest_lab_" in t for t in sent)

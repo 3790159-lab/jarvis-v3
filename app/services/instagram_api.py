@@ -13,7 +13,11 @@ Money / safety note (Этап 3, кирпич 3b):
     real post. Media generation (the costly part) happens upstream, only after
     a content plan is approved.
 
-Config comes from .env:
+Credentials (multi-account, see app.services.ig_accounts):
+    InstagramAPI(account_key=...) resolves access_token/ig_user_id from
+    state/ig_accounts.json when it exists; if it doesn't yet, falls back to
+    the legacy .env vars below (unchanged behaviour, auto-migrates on first
+    resolve). IG_APP_ID/IG_APP_SECRET stay .env-only (token exchange, rare).
     IG_ACCESS_TOKEN  — long-lived user/page token (see exchange_to_long_lived)
     IG_USER_ID       — Instagram Business account id (optional; discoverable)
     IG_APP_ID        — Meta app id     (Settings -> Basic) — for token exchange
@@ -115,20 +119,30 @@ def _graph_request(path: str, params: Dict[str, str], method: str = "GET",
 class InstagramAPI:
     """Two-step IG Content Publishing client (photo posts).
 
-    Args override .env; omit to read IG_ACCESS_TOKEN / IG_USER_ID.
+    Args override .env; omit to read from the multi-account store
+    (``app.services.ig_accounts``) — ``account_key`` selects which account
+    (default: env ``IG_DEFAULT_ACCOUNT``, falls back to ``jtest_lab_``). If no
+    account json exists yet, this transparently falls back to the legacy
+    ``IG_ACCESS_TOKEN``/``IG_USER_ID`` env vars — same behaviour as before
+    multi-account support existed.
     """
 
     def __init__(self, access_token: Optional[str] = None,
                  ig_user_id: Optional[str] = None,
                  base_url: Optional[str] = None,
-                 login_type: Optional[str] = None):
+                 login_type: Optional[str] = None,
+                 account_key: Optional[str] = None):
+        if access_token is None or ig_user_id is None:
+            from app.services.ig_accounts import resolve_credentials
+            _resolved_token, _resolved_uid = resolve_credentials(account_key)
+        else:
+            _resolved_token, _resolved_uid = "", ""
+        self.account_key = account_key
         self.access_token = (
-            access_token if access_token is not None
-            else os.getenv("IG_ACCESS_TOKEN", "")
+            access_token if access_token is not None else _resolved_token
         ).strip()
         self.ig_user_id = (
-            ig_user_id if ig_user_id is not None
-            else os.getenv("IG_USER_ID", "")
+            ig_user_id if ig_user_id is not None else _resolved_uid
         ).strip()
         self.login_type = (
             login_type if login_type is not None
