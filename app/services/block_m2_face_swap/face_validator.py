@@ -37,7 +37,7 @@ import threading
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +100,7 @@ __all__ = [
     "FaceValidator",
     "FaceValidatorUnavailableError",
     "FaceScore",
+    "ValidationResult",
     "VALIDATOR_BACKEND",
     "BACKEND_INSIGHTFACE",
     "BACKEND_OPENCV",
@@ -107,6 +108,21 @@ __all__ = [
     "BACKEND_NONE",
     "get_active_backend",
 ]
+
+
+class ValidationResult(NamedTuple):
+    """Result of :meth:`FaceValidator.validate` — ``(ok, confidence, reason)``.
+
+    Fail-closed contract: this is only ever returned for a real, observed
+    outcome (face found / not found). When no detection backend is
+    available, ``validate()`` raises :class:`FaceValidatorUnavailableError`
+    instead of returning a result here — see the module docstring for why
+    a silent negative is never acceptable.
+    """
+
+    ok: bool
+    confidence: float
+    reason: str
 
 
 @dataclass(frozen=True)
@@ -197,6 +213,21 @@ class FaceValidator:
             dets, key=lambda d: (d.bbox[2] - d.bbox[0]) * (d.bbox[3] - d.bbox[1])
         )
         return self._compute_score(largest, img_w, img_h, backend)
+
+    def validate(self, image_path: Path) -> "ValidationResult":
+        """Validate one photo for face-swap suitability.
+
+        Returns ``(ok, confidence, reason)``. ``ok`` is ``True`` iff a face
+        was detected; ``confidence`` is the same 0..1 composite score as
+        :meth:`score_largest_face` (0.0 when no face). Fail-closed: raises
+        :class:`FaceValidatorUnavailableError` when no backend is available
+        instead of returning a result — callers must not treat "engine
+        unavailable" as "no face" (see module docstring).
+        """
+        score = self.score_largest_face(image_path)
+        if score is None:
+            return ValidationResult(ok=False, confidence=0.0, reason="no_face_detected")
+        return ValidationResult(ok=True, confidence=score.composite, reason="ok")
 
     # ── internals ───────────────────────────────────────────────────────────
 

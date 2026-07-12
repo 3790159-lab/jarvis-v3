@@ -63,3 +63,21 @@ def test_insightface_detects_faces_on_bundled_image(tmp_path):
     assert v.count_faces(sample) >= 1
     # And the backend actually used was InsightFace.
     assert v._insightface_app is not None
+
+
+def test_validate_ok_true_on_bundled_image_with_real_insightface(tmp_path):
+    """``validate()`` end-to-end on the real InsightFace primary backend."""
+    import cv2
+    import insightface.data as ifdata
+
+    img = ifdata.get_image("t1")
+    sample = tmp_path / "t1.jpg"
+    cv2.imwrite(str(sample), img)
+
+    v = FaceValidator(prefer_insightface=True)
+    ok, confidence, reason = v.validate(sample)
+
+    assert ok is True
+    assert 0.0 < confidence <= 1.0
+    assert reason == "ok"
+    assert v._insightface_app is not None
