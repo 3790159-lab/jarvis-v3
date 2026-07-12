@@ -4645,6 +4645,13 @@ def _ig_gen_photo_prompt(topic: str, brand: Optional[Dict[str, Any]]) -> str:
     return f"{topic}, {style}" if style else topic
 
 
+def _ig_gen_photo_prompt_persona(topic: str, persona_media: Optional[Dict[str, Any]]) -> str:
+    """Промпт кадра персоны: тема + дефолтный стиль кадра из ``persona_media``
+    (секция ``brand.md``, см. ``_ig_gen_dispatch``)."""
+    style = (persona_media or {}).get("style")
+    return f"{topic}, {style}" if style else topic
+
+
 def _ig_caption_dispatch(chat_id: str, topic: str) -> None:
     """``/ig_caption <тема>`` — быстрая ручная генерация подписи под guard_spend.
 
@@ -4959,6 +4966,33 @@ def _ig_gen_generate_photo(topic: str) -> str:
     return urls[0]
 
 
+def _ig_gen_generate_photo_persona(persona_id: str, prompt: str) -> str:
+    """Платный шаг генерации фото ЧЕРЕЗ персону (LoRA) — существующий
+    persona_photo-механизм (``PhotoGenerator``, тот же движок, что и
+    ``/persona_photo``). Изолирована ради money-safety — тесты мокают ИМЕННО
+    эту функцию, ноль реальной генерации/сети.
+    """
+    import asyncio
+
+    from app.services.block_m_common.cost_tracker import CostTracker
+    from app.services.block_m_common.persona_storage import PersonaStorage
+    from app.services.block_m_common.replicate_video_client import ReplicateVideoClient
+    from app.services.block_m1_persona.photo_generator import PhotoGenerator
+
+    async def _async() -> dict:
+        storage = PersonaStorage()
+        client = ReplicateVideoClient()
+        tracker = CostTracker()
+        gen = PhotoGenerator(client, storage, tracker)
+        return await gen.generate_photo(persona_id, prompt)
+
+    result = asyncio.run(_async())
+    image_url = (result or {}).get("image_url")
+    if not image_url:
+        raise RuntimeError("персона-движок не вернул image_url")
+    return image_url
+
+
 def _ig_gen_download_photo(url: str) -> str:
     """Скачать сгенерированное фото в локальный temp-файл.
 
@@ -4977,23 +5011,35 @@ def _ig_gen_download_photo(url: str) -> str:
 
 
 def _ig_gen_dispatch(chat_id, query: str, state: Dict[str, Any]) -> None:
-    """``/ig_gen [@<account_key>] <тема>`` — сгенерировать фото по теме,
-    подготовить+захостить медиа, сгенерить подпись (тот же money-путь, что
-    /ig_post) и показать ТУ ЖЕ превью-карточку. Публикация НЕ здесь — только
-    по тапу [📤] (igpost: callback, общий с /ig_post).
+    """``/ig_gen [@<account_key>] [client=<name>] [nopersona] <тема>`` —
+    сгенерировать фото по теме, подготовить+захостить медиа, сгенерить
+    подпись (тот же money-путь, что /ig_post) и показать ТУ ЖЕ
+    превью-карточку. Публикация НЕ здесь — только по тапу [📤] (igpost:
+    callback, общий с /ig_post).
 
     Клиентский бренд-конфиг (``client=<name>`` в начале темы или env
-    ``IG_CLIENT`` — см. ``app.services.brand_config``) подмешивается и в
-    промпт генерации фото (``visual_style``), и в подпись; нет клиента ->
-    поведение не меняется. IG-аккаунт для публикации: явный ``@<account_key>``
-    > ``account_key`` из brand.md клиента > имя клиента > дефолт-аккаунт (см.
+    ``IG_CLIENT`` — см. ``app.services.brand_config``) подмешивается в
+    подпись и в промпт генерации фото; нет клиента -> поведение не меняется.
+
+    Персона (``brand.md`` секция ``persona_media: {persona_id, style}``):
+    если у клиента настроен ``persona_id`` -> фото генерится ЧЕРЕЗ персону
+    (``_ig_gen_generate_photo_persona``, тот же persona_photo-движок с LoRA,
+    что и ``/persona_photo``), промпт = тема + ``persona_media.style``.
+    Явный флаг ``nopersona`` перед темой форсирует старый путь (генерик FLUX
+    + ``visual_style``) даже если у клиента настроена персона — для рубрик
+    вроде «Пост дня», где нужна чистая эстетика без ШІ-аватара. Нет
+    ``persona_id`` в конфиге -> поведение как раньше (старый путь).
+
+    IG-аккаунт для публикации: явный ``@<account_key>`` > ``account_key`` из
+    brand.md клиента > имя клиента > дефолт-аккаунт (см.
     ``_ig_resolve_account_key``); сохраняется в pending-карточке для тапа [📤]."""
     from app.services import brand_config as _bc
     from app.services import ig_accounts as _iga
     from app.services import ig_post as _igp
 
     account_arg, query = _iga.parse_account_arg(query)
-    client_arg, topic = _bc.parse_client_arg(query)
+    client_arg, query = _bc.parse_client_arg(query)
+    nopersona, topic = _bc.parse_nopersona_arg(query)
     topic = topic.strip()
     if not topic:
         send(chat_id, "🖼 Формат: /ig_gen <тема поста>")
@@ -5001,11 +5047,21 @@ def _ig_gen_dispatch(chat_id, query: str, state: Dict[str, Any]) -> None:
     client = _ig_resolve_client(client_arg)
     brand = _bc.load_brand_config(client) if client else None
     account_key = _ig_resolve_account_key(account_arg, client, brand)
-    photo_prompt = _ig_gen_photo_prompt(topic, brand)
+
+    persona_media = (brand or {}).get("persona_media") or {}
+    persona_id = str(persona_media.get("persona_id") or "").strip()
+    use_persona = bool(persona_id) and not nopersona
+
+    if use_persona:
+        photo_prompt = _ig_gen_photo_prompt_persona(topic, persona_media)
+        _do_generate_photo = lambda: _ig_gen_generate_photo_persona(persona_id, photo_prompt)
+    else:
+        photo_prompt = _ig_gen_photo_prompt(topic, brand)
+        _do_generate_photo = lambda: _ig_gen_generate_photo(photo_prompt)
     # 1) генерация фото (платно, guard_spend — money-safety как у /ig_post)
     try:
         photo_remote_url, err = guard_spend(
-            chat_id, None, _IG_GEN_PHOTO_EST_USD, lambda: _ig_gen_generate_photo(photo_prompt),
+            chat_id, None, _IG_GEN_PHOTO_EST_USD, _do_generate_photo,
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("ig_gen: photo gen failed chat=%s", chat_id)

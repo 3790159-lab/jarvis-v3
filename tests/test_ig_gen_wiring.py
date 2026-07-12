@@ -59,6 +59,7 @@ def test_ig_gen_command_dispatches_with_confirmed_token(monkeypatch):
 
 def _patch_photo(monkeypatch, url="https://replicate/gen.jpg", local="C:/tmp/ig_gen_x.jpg"):
     monkeypatch.setattr(mod, "_ig_gen_generate_photo", lambda topic: url)
+    monkeypatch.setattr(mod, "_ig_gen_generate_photo_persona", lambda pid, prompt: url)
     monkeypatch.setattr(mod, "_ig_gen_download_photo", lambda u: local)
 
 
@@ -199,6 +200,9 @@ def test_ig_gen_dispatch_happy_stores_pending_and_shows_card(monkeypatch):
 
 
 def test_ig_gen_dispatch_client_arg_merges_brand_into_photo_prompt_and_caption(monkeypatch):
+    # vera_ai_ua/brand.md has persona_media.persona_id configured -> nopersona
+    # forces the old generic-photo path (see persona routing tests below) so
+    # this test can keep exercising visual_style merging in isolation.
     photo_prompts = []
     monkeypatch.setattr(mod, "_ig_gen_generate_photo",
                         lambda prompt: photo_prompts.append(prompt) or "https://replicate/gen.jpg")
@@ -220,13 +224,109 @@ def test_ig_gen_dispatch_client_arg_merges_brand_into_photo_prompt_and_caption(m
     monkeypatch.setattr(mod, "_ig_caption_ask_llm", _fake_llm)
 
     state = {}
-    mod._ig_gen_dispatch(ADMIN, "client=vera_ai_ua новий пост про ші", state)
+    mod._ig_gen_dispatch(ADMIN, "client=vera_ai_ua nopersona новий пост про ші", state)
 
     assert photo_prompts == ["новий пост про ші, генеративна естетика ШІ-аватара Віри: "
                              "яскраві акценти, чисті кадри, сучасний технологічний стиль "
                              "без кітчу і без фотореалістичних людей"]
     assert "молодий" in captured["messages"][0]["content"]
     assert state[PENDING_KEY]["topic"] == "новий пост про ші"
+
+
+def _patch_brand(monkeypatch, brand):
+    monkeypatch.setattr("app.services.brand_config.load_brand_config", lambda client: brand)
+
+
+def _patch_common(monkeypatch):
+    _patch_guard_spend_passthrough(monkeypatch)
+    monkeypatch.setattr(mod, "_ig_gen_download_photo", lambda u: "C:/tmp/ig_gen_x.jpg")
+    _patch_caption(monkeypatch)
+    monkeypatch.setattr(mod, "_ig_post_host_media", lambda p: "https://pub/x.jpg")
+    monkeypatch.setattr(mod, "save_state", lambda s: None)
+    monkeypatch.setattr(mod, "_send_photo_url", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "send_with_keyboard", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "send", lambda *a, **k: None)
+
+
+def test_ig_gen_dispatch_persona_id_routes_to_persona_engine_with_lora(monkeypatch):
+    """С persona_id в brand.md (secция persona_media) вызов уходит в
+    persona-движок с LoRA (_ig_gen_generate_photo_persona), а не в генерик
+    FLUX (_ig_gen_generate_photo)."""
+    _patch_brand(monkeypatch, {
+        "persona_media": {"persona_id": "persona_af2f54ee",
+                          "style": "реалізм, тепле світло, сучасний контекст"},
+    })
+    _patch_common(monkeypatch)
+    persona_calls = {}
+    monkeypatch.setattr(
+        mod, "_ig_gen_generate_photo_persona",
+        lambda pid, prompt: persona_calls.update(pid=pid, prompt=prompt) or "https://lora/gen.jpg",
+    )
+    old_calls = {"n": 0}
+    monkeypatch.setattr(
+        mod, "_ig_gen_generate_photo",
+        lambda prompt: old_calls.__setitem__("n", old_calls["n"] + 1) or "u",
+    )
+
+    state = {}
+    mod._ig_gen_dispatch(ADMIN, "client=vera_ai_ua перше знайомство: хто така Віра", state)
+
+    assert persona_calls["pid"] == "persona_af2f54ee"
+    assert persona_calls["prompt"] == (
+        "перше знайомство: хто така Віра, реалізм, тепле світло, сучасний контекст"
+    )
+    assert old_calls["n"] == 0
+    assert state[PENDING_KEY]["photo_url"] == "https://pub/x.jpg"
+
+
+def test_ig_gen_dispatch_nopersona_forces_old_path_even_with_persona_id(monkeypatch):
+    """Явный оверрайд ``nopersona`` — генерит без персоны (напр. рубрика
+    «Пост дня» с чистой эстетикой), даже если у клиента настроена персона."""
+    _patch_brand(monkeypatch, {
+        "persona_media": {"persona_id": "persona_af2f54ee", "style": "реалізм"},
+        "visual_style": "чисті кадри",
+    })
+    _patch_common(monkeypatch)
+    persona_calls = {"n": 0}
+    monkeypatch.setattr(
+        mod, "_ig_gen_generate_photo_persona",
+        lambda pid, prompt: persona_calls.__setitem__("n", persona_calls["n"] + 1) or "u",
+    )
+    old_prompts = []
+    monkeypatch.setattr(
+        mod, "_ig_gen_generate_photo",
+        lambda prompt: old_prompts.append(prompt) or "https://replicate/gen.jpg",
+    )
+
+    state = {}
+    mod._ig_gen_dispatch(ADMIN, "client=vera_ai_ua nopersona пост дня", state)
+
+    assert persona_calls["n"] == 0
+    assert old_prompts == ["пост дня, чисті кадри"]
+    assert state[PENDING_KEY]["topic"] == "пост дня"
+
+
+def test_ig_gen_dispatch_client_without_persona_id_uses_old_path(monkeypatch):
+    """Клиент с brand.md, но БЕЗ persona_media/persona_id -> старое поведение
+    (генерик FLUX), persona-движок не трогается."""
+    _patch_brand(monkeypatch, {"visual_style": "чисті кадри"})
+    _patch_common(monkeypatch)
+    persona_calls = {"n": 0}
+    monkeypatch.setattr(
+        mod, "_ig_gen_generate_photo_persona",
+        lambda pid, prompt: persona_calls.__setitem__("n", persona_calls["n"] + 1) or "u",
+    )
+    old_prompts = []
+    monkeypatch.setattr(
+        mod, "_ig_gen_generate_photo",
+        lambda prompt: old_prompts.append(prompt) or "https://replicate/gen.jpg",
+    )
+
+    state = {}
+    mod._ig_gen_dispatch(ADMIN, "client=some_client тема", state)
+
+    assert persona_calls["n"] == 0
+    assert old_prompts == ["тема, чисті кадри"]
 
 
 def test_ig_gen_dispatch_without_client_config_is_unchanged(monkeypatch):

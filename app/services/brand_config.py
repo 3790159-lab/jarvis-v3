@@ -19,6 +19,7 @@ import yaml
 CLIENTS_DIR = Path(__file__).resolve().parents[2] / "clients"
 
 _CLIENT_ARG_RE = re.compile(r"^client=([\w\-]+)$", re.IGNORECASE)
+_NOPERSONA_ARG_RE = re.compile(r"^nopersona$", re.IGNORECASE)
 
 
 def brand_md_path(client: str) -> Path:
@@ -63,3 +64,20 @@ def parse_client_arg(query: Optional[str]) -> Tuple[Optional[str], str]:
         return None, (query or "").strip()
     rest = parts[1].strip() if len(parts) > 1 else ""
     return m.group(1), rest
+
+
+def parse_nopersona_arg(query: Optional[str]) -> Tuple[bool, str]:
+    """Вытащить необязательный флаг ``nopersona`` из текста команды.
+
+    Явный оверрайд для ``/ig_gen`` — генерить фото БЕЗ персоны, даже если у
+    клиента в ``brand.md`` настроена ``persona_media`` (см. рубрику «Пост
+    дня» — чиста естетика без ШІ-аватара). ``"nopersona тема"`` -> ``(True,
+    "тема")``. Без флага -> ``(False, query.strip())`` — как ``parse_client_arg``.
+    """
+    parts = (query or "").strip().split(None, 1)
+    if not parts:
+        return False, ""
+    if not _NOPERSONA_ARG_RE.match(parts[0]):
+        return False, (query or "").strip()
+    rest = parts[1].strip() if len(parts) > 1 else ""
+    return True, rest

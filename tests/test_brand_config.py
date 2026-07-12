@@ -17,6 +17,8 @@ def test_load_brand_config_reads_real_vera_ai_ua_frontmatter():
     assert "молодий" in brand["tone"]
     assert "політика" in brand["forbidden"]
     assert brand["hashtags_count"] == 7
+    assert brand["persona_media"]["persona_id"] == "persona_af2f54ee"
+    assert brand["persona_media"]["style"]
 
 
 def test_load_brand_config_returns_none_for_unknown_client():
@@ -73,4 +75,34 @@ def test_parse_client_arg_empty_query():
 def test_parse_client_arg_client_only_no_topic():
     client, rest = bc.parse_client_arg("client=vera_ai_ua")
     assert client == "vera_ai_ua"
+    assert rest == ""
+
+
+def test_parse_nopersona_arg_extracts_flag():
+    flag, rest = bc.parse_nopersona_arg("nopersona пост дня")
+    assert flag is True
+    assert rest == "пост дня"
+
+
+def test_parse_nopersona_arg_case_insensitive():
+    flag, rest = bc.parse_nopersona_arg("NOPERSONA тема")
+    assert flag is True
+    assert rest == "тема"
+
+
+def test_parse_nopersona_arg_no_flag_returns_false_and_full_query():
+    flag, rest = bc.parse_nopersona_arg("звичайна тема без флагу")
+    assert flag is False
+    assert rest == "звичайна тема без флагу"
+
+
+def test_parse_nopersona_arg_empty_query():
+    flag, rest = bc.parse_nopersona_arg("")
+    assert flag is False
+    assert rest == ""
+
+
+def test_parse_nopersona_arg_flag_only_no_topic():
+    flag, rest = bc.parse_nopersona_arg("nopersona")
+    assert flag is True
     assert rest == ""

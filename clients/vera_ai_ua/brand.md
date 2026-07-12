@@ -3,6 +3,9 @@ client: vera_ai_ua
 business: "Віра — ШІ-аватар (persona_af2f54ee, FLUX), яка відкрито веде акаунт про ШІ-контент та автоматизацію соцмереж для малого бізнесу України"
 persona_id: persona_af2f54ee
 persona_model: FLUX
+persona_media:
+  persona_id: persona_af2f54ee
+  style: "реалізм, тепле світло, сучасний контекст"
 tone: ["молодий", "енергійний", "живий"]
 lang: uk
 cta: "напиши в директ, якщо хочеш такий самий ШІ-контент для свого бізнесу"
