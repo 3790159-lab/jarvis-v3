@@ -56,6 +56,58 @@ def test_suggest_tasks_dispatch_calls_llm_under_guard_spend(monkeypatch, tmp_pat
     assert kb[0][0]["callback_data"].startswith("sugtask:run:")
 
 
+# ── v0.3: merged dev_task cards feed the dedup gate end-to-end ──────────────
+def test_suggest_tasks_dispatch_flags_candidate_matching_a_merged_task(monkeypatch, tmp_path):
+    from app.services.devtask.queue import DevTaskQueue, STATUS_MERGED
+    q = DevTaskQueue(base_dir=tmp_path / "queue")
+    tid = q.add("Изоляция log-контаминации между тестами")
+    q.set_status(tid, STATUS_MERGED, merged_at="2026-07-10T00:00:00")
+    monkeypatch.setattr(mod, "_devtask_queue", lambda: q)
+
+    monkeypatch.setattr(mod, "guard_spend", lambda uid, uname, est, do: (do(), None))
+    monkeypatch.setattr(
+        mod, "_suggest_tasks_ask_llm", lambda s, m:
+        '[{"title": "Изолировать log-контаминацию в тестах", "signal": "s", '
+        '"rationale": "r", "draft": "d", "size": "M"}]',
+    )
+    monkeypatch.setattr(mod, "_regress_baseline", lambda: None)
+    monkeypatch.setattr(mod, "_SUGGESTED_TASKS_STATE_PATH", tmp_path / "suggested_tasks_last.json")
+    kb_sent = []
+    monkeypatch.setattr(mod, "send_with_keyboard", lambda cid, t, kb, *a, **k: kb_sent.append((t, kb)))
+
+    mod._suggest_tasks_dispatch(ADMIN)
+
+    assert len(kb_sent) == 1
+    text, _ = kb_sent[0]
+    assert "⚠️ возможно уже решено" in text
+    assert "2026-07-10" in text
+
+
+def test_suggest_tasks_dispatch_fresh_candidate_not_flagged(monkeypatch, tmp_path):
+    from app.services.devtask.queue import DevTaskQueue, STATUS_MERGED
+    q = DevTaskQueue(base_dir=tmp_path / "queue")
+    tid = q.add("Изоляция log-контаминации между тестами")
+    q.set_status(tid, STATUS_MERGED, merged_at="2026-07-10T00:00:00")
+    monkeypatch.setattr(mod, "_devtask_queue", lambda: q)
+
+    monkeypatch.setattr(mod, "guard_spend", lambda uid, uname, est, do: (do(), None))
+    monkeypatch.setattr(
+        mod, "_suggest_tasks_ask_llm", lambda s, m:
+        '[{"title": "Добавить дашборд метрик Instagram Reels", "signal": "s", '
+        '"rationale": "r", "draft": "d", "size": "M"}]',
+    )
+    monkeypatch.setattr(mod, "_regress_baseline", lambda: None)
+    monkeypatch.setattr(mod, "_SUGGESTED_TASKS_STATE_PATH", tmp_path / "suggested_tasks_last.json")
+    kb_sent = []
+    monkeypatch.setattr(mod, "send_with_keyboard", lambda cid, t, kb, *a, **k: kb_sent.append((t, kb)))
+
+    mod._suggest_tasks_dispatch(ADMIN)
+
+    assert len(kb_sent) == 1
+    text, _ = kb_sent[0]
+    assert "⚠️" not in text
+
+
 def test_suggest_tasks_dispatch_honest_fallback_when_gate_blocks(monkeypatch):
     seen = {"llm": 0}
 

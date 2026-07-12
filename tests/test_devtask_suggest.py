@@ -121,6 +121,68 @@ def test_done_signal_empty_text_returns_empty_list():
     assert sug.done_signal(None) == []
 
 
+# ── merged_task_signal (v0.3: "уже реализовано" from merged dev_task cards) ─
+def test_merged_task_signal_extracts_title_and_date():
+    merged = [{"desc": "Log-контаминация: изолировать test-pollution", "merged_at": "2026-07-10T22:31:45.612522"}]
+    items = sug.merged_task_signal(merged)
+    assert items == [{"title": "Log-контаминация: изолировать test-pollution", "date": "2026-07-10"}]
+
+
+def test_merged_task_signal_uses_first_line_of_desc_as_title():
+    merged = [{"desc": "Полная спека\nвторая строка не входит", "merged_at": "2026-07-10T22:00:00"}]
+    items = sug.merged_task_signal(merged)
+    assert items[0]["title"] == "Полная спека"
+
+
+def test_merged_task_signal_truncates_long_titles():
+    merged = [{"desc": "x" * 200, "merged_at": "2026-07-10T00:00:00"}]
+    items = sug.merged_task_signal(merged)
+    assert len(items[0]["title"]) <= 120
+    assert items[0]["title"].endswith("...")
+
+
+def test_merged_task_signal_honest_when_date_missing():
+    merged = [{"desc": "no merge date on this card", "merged_at": None}]
+    items = sug.merged_task_signal(merged)
+    assert items[0]["date"] == "дата неизвестна"
+
+
+def test_merged_task_signal_respects_limit():
+    merged = [{"desc": f"task {i}", "merged_at": "2026-07-10T00:00:00"} for i in range(5)]
+    items = sug.merged_task_signal(merged, limit=2)
+    assert len(items) == 2
+
+
+def test_merged_task_signal_empty_input():
+    assert sug.merged_task_signal(None) == []
+    assert sug.merged_task_signal([]) == []
+
+
+def test_merged_task_signal_skips_blank_desc():
+    items = sug.merged_task_signal([{"desc": "  ", "merged_at": "2026-07-10T00:00:00"}])
+    assert items == []
+
+
+# ── done_signal_records (structured Сигнал 4: MASTER-PLAN + merged cards) ───
+def test_done_signal_records_combines_master_plan_and_merged():
+    merged = [{"desc": "RAM-guard fix", "merged_at": "2026-07-10T00:00:00"}]
+    records = sug.done_signal_records(_MASTER_PLAN_SAMPLE, merged_tasks=merged)
+    titles = [r["title"] for r in records]
+    assert "Single-instance guard, слои B+C" in titles
+    assert "RAM-guard fix" in titles
+
+
+def test_done_signal_records_master_plan_items_have_no_date():
+    records = sug.done_signal_records(_MASTER_PLAN_SAMPLE)
+    assert all(r["date"] is None for r in records)
+
+
+def test_done_signal_records_merged_items_carry_date():
+    merged = [{"desc": "shipped fix", "merged_at": "2026-07-11T00:00:00"}]
+    records = sug.done_signal_records(None, merged_tasks=merged)
+    assert records == [{"title": "shipped fix", "date": "2026-07-11"}]
+
+
 # ── build_signals ─────────────────────────────────────────────────────────────
 def test_build_signals_combines_all_three():
     signals = sug.build_signals(
@@ -144,6 +206,25 @@ def test_build_signals_includes_done_signal():
         "Single-instance guard, слои B+C",
         "RAM-guard + батчи регресса",
     ]
+
+
+# ── build_signals: merged dev_task cards feed Сигнал 4 too (v0.3) ───────────
+def test_build_signals_done_includes_merged_tasks_with_date():
+    signals = sug.build_signals(
+        baseline=None, master_plan_text=None, log_lines=[], today=date(2026, 7, 10),
+        merged_tasks=[{"desc": "Log-контаминация фикс", "merged_at": "2026-07-09T00:00:00"}],
+    )
+    assert "Log-контаминация фикс (2026-07-09)" in signals["done"]
+
+
+def test_build_signals_exposes_done_records_for_post_parse_matching():
+    signals = sug.build_signals(
+        baseline=None, master_plan_text=_MASTER_PLAN_SAMPLE, log_lines=[], today=date(2026, 7, 10),
+        merged_tasks=[{"desc": "Merged fix", "merged_at": "2026-07-09T00:00:00"}],
+    )
+    titles = [r["title"] for r in signals["done_records"]]
+    assert "Single-instance guard, слои B+C" in titles
+    assert "Merged fix" in titles
 
 
 # ── build_prompt ───────────────────────────────────────────────────────────────
@@ -294,11 +375,120 @@ def test_parse_suggestions_returns_empty_when_first_object_itself_is_truncated()
     assert sug.parse_suggestions(reply) == []
 
 
+# ── find_duplicate_match / flag_duplicate_suggestions (v0.3 dedup gate) ─────
+_DONE_RECORDS = [
+    {"title": "Изоляция log-контаминации test-pollution", "date": "2026-07-10"},
+    {"title": "Регресс-сторож RAM-guard + батчи", "date": None},
+]
+
+
+def test_find_duplicate_match_finds_close_wording():
+    match = sug.find_duplicate_match("Изолировать log-контаминацию между тестами", _DONE_RECORDS)
+    assert match is not None
+    assert match["title"] == "Изоляция log-контаминации test-pollution"
+
+
+def test_find_duplicate_match_returns_none_for_fresh_topic():
+    match = sug.find_duplicate_match("Добавить дашборд метрик Instagram Reels", _DONE_RECORDS)
+    assert match is None
+
+
+def test_find_duplicate_match_returns_none_on_empty_done_records():
+    assert sug.find_duplicate_match("Что угодно", []) is None
+    assert sug.find_duplicate_match("Что угодно", None) is None
+
+
+def test_flag_duplicate_suggestions_tags_duplicate_candidate():
+    suggestions = [
+        {"title": "Изолировать log-контаминацию между тестами", "signal": "s", "rationale": "r",
+         "draft": "d", "size": "M"},
+    ]
+    out = sug.flag_duplicate_suggestions(suggestions, _DONE_RECORDS)
+    assert "duplicate_warning" in out[0]
+    assert "⚠️ возможно уже решено" in out[0]["duplicate_warning"]
+    assert "2026-07-10" in out[0]["duplicate_warning"]
+
+
+def test_flag_duplicate_suggestions_leaves_fresh_candidate_unflagged():
+    suggestions = [
+        {"title": "Добавить дашборд метрик Instagram Reels", "signal": "s", "rationale": "r",
+         "draft": "d", "size": "M"},
+    ]
+    out = sug.flag_duplicate_suggestions(suggestions, _DONE_RECORDS)
+    assert "duplicate_warning" not in out[0]
+
+
+def test_flag_duplicate_suggestions_mixed_batch_flags_only_the_duplicate():
+    suggestions = [
+        {"title": "Изолировать log-контаминацию между тестами", "signal": "s", "rationale": "r",
+         "draft": "d1", "size": "M"},
+        {"title": "Добавить дашборд метрик Instagram Reels", "signal": "s", "rationale": "r",
+         "draft": "d2", "size": "M"},
+    ]
+    out = sug.flag_duplicate_suggestions(suggestions, _DONE_RECORDS)
+    assert len(out) == 2                                    # never dropped, both survive
+    assert "duplicate_warning" in out[0]
+    assert "duplicate_warning" not in out[1]
+
+
+def test_flag_duplicate_suggestions_does_not_mutate_input():
+    suggestions = [
+        {"title": "Изолировать log-контаминацию между тестами", "signal": "s", "rationale": "r",
+         "draft": "d", "size": "M"},
+    ]
+    sug.flag_duplicate_suggestions(suggestions, _DONE_RECORDS)
+    assert "duplicate_warning" not in suggestions[0]         # original dict untouched
+
+
+# ── count_matched_backlog_items / flag_packaged_suggestions (v0.3: no packing) ─
+_TWO_BACKLOG_ITEMS = [
+    "Ancestor-check влитых веток в конвейере",
+    "Изоляция тестовых уведомлений от прод-чата",
+]
+
+
+def test_count_matched_backlog_items_counts_distinct_matches():
+    draft = ("Реализуй ancestor-check влитых веток в конвейере, а заодно "
+             "изоляцию тестовых уведомлений от прод-чата в одном PR")
+    assert sug.count_matched_backlog_items(draft, _TWO_BACKLOG_ITEMS) == 2
+
+
+def test_count_matched_backlog_items_single_topic_counts_one():
+    draft = "Реализуй ancestor-check влитых веток в конвейере"
+    assert sug.count_matched_backlog_items(draft, _TWO_BACKLOG_ITEMS) == 1
+
+
+def test_flag_packaged_suggestions_tags_multi_issue_draft():
+    suggestions = [{
+        "title": "Ancestor-check + изоляция уведомлений", "signal": "s", "rationale": "r",
+        "draft": ("Реализуй ancestor-check влитых веток в конвейере, а заодно "
+                  "изоляцию тестовых уведомлений от прод-чата"),
+        "size": "M",
+    }]
+    out = sug.flag_packaged_suggestions(suggestions, _TWO_BACKLOG_ITEMS)
+    assert "packaged_warning" in out[0]
+
+
+def test_flag_packaged_suggestions_leaves_single_issue_draft_unflagged():
+    suggestions = [{
+        "title": "Ancestor-check", "signal": "s", "rationale": "r",
+        "draft": "Реализуй ancestor-check влитых веток в конвейере", "size": "M",
+    }]
+    out = sug.flag_packaged_suggestions(suggestions, _TWO_BACKLOG_ITEMS)
+    assert "packaged_warning" not in out[0]
+
+
 # ── build_prompt: hardened system instructions ──────────────────────────────
 def test_build_prompt_system_forbids_markdown_wrapping():
     system, _ = sug.build_prompt({"regress": "x", "backlog": [], "errors": []})
     assert "```" in system or "markdown" in system.lower() or "фенс" in system.lower() \
         or "оболоч" in system.lower()
+
+
+# ── build_prompt: one-issue-per-draft rule (v0.3) ────────────────────────────
+def test_build_prompt_system_forbids_packaging_multiple_issues():
+    system, _ = sug.build_prompt({"regress": "x", "backlog": [], "errors": [], "done": []})
+    assert "одна проблема" in system.lower() or "не склеивай" in system.lower()
 
 
 # ── output token budget ──────────────────────────────────────────────────────
@@ -365,6 +555,27 @@ def test_format_suggestion_card_handles_missing_signal_and_rationale():
     s = {"title": "T", "draft": "d", "size": "S"}
     text = sug.format_suggestion_card(s, 0, 1)
     assert text  # no crash on missing optional fields
+
+
+# ── format_suggestion_card: v0.3 duplicate/packaged warnings surface to admin ─
+def test_format_suggestion_card_shows_duplicate_warning():
+    s = {"title": "T", "signal": "s", "rationale": "r", "draft": "d", "size": "S",
+         "duplicate_warning": "⚠️ возможно уже решено: Old fix (2026-07-10)"}
+    text = sug.format_suggestion_card(s, 0, 1)
+    assert "⚠️ возможно уже решено: Old fix (2026-07-10)" in text
+
+
+def test_format_suggestion_card_shows_packaged_warning():
+    s = {"title": "T", "signal": "s", "rationale": "r", "draft": "d", "size": "S",
+         "packaged_warning": "⚠️ похоже, черновик объединяет несколько пунктов бэклога — раздели на отдельные /dev_task"}
+    text = sug.format_suggestion_card(s, 0, 1)
+    assert "объединяет несколько пунктов" in text
+
+
+def test_format_suggestion_card_no_warning_when_absent():
+    s = {"title": "T", "signal": "s", "rationale": "r", "draft": "d", "size": "S"}
+    text = sug.format_suggestion_card(s, 0, 1)
+    assert "⚠️" not in text
 
 
 # ── build_suggestions_state / resolve_suggestion (stale-guard) ──────────────

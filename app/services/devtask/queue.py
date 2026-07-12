@@ -201,3 +201,19 @@ class DevTaskQueue:
             if len(items) >= limit:
                 break
         return items
+
+    def merged_history(self, limit: int = 8) -> List[Dict[str, Any]]:
+        """Merged cards as ``{"desc", "merged_at"}``, newest first — feeds
+        /suggest_tasks' auto-populated "уже реализовано" section (v0.3) so the
+        generator stops re-proposing work the pipeline already shipped, instead
+        of relying solely on the (often stale) MASTER-PLAN checklist."""
+        from app.services.block_l_common import load_json_safe
+        out: List[Dict[str, Any]] = []
+        for f in sorted(self._dir().glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+            data = load_json_safe(f)
+            if not data or data.get("status") != STATUS_MERGED:
+                continue
+            out.append({"desc": data.get("desc", ""), "merged_at": data.get("merged_at")})
+            if len(out) >= limit:
+                break
+        return out

@@ -190,3 +190,36 @@ def test_mark_reminded_sets_flag_without_changing_status(tmp_path):
     item = dq.get(tid)
     assert item["reminded"] is True
     assert item["status"] == q.STATUS_QUEUED          # status untouched
+
+
+# ── merged_history (v0.3: /suggest_tasks "уже реализовано" source) ──────────
+def test_merged_history_returns_only_merged_cards_with_desc_and_date(tmp_path):
+    dq = q.DevTaskQueue(base_dir=tmp_path)
+    tid = dq.add("shipped fix")
+    dq.set_status(tid, q.STATUS_MERGED, merged_at="2026-07-10T22:31:45")
+    other = dq.add("still running")
+    dq.set_status(other, q.STATUS_RUNNING)
+    history = dq.merged_history()
+    assert history == [{"desc": "shipped fix", "merged_at": "2026-07-10T22:31:45"}]
+
+
+def test_merged_history_excludes_non_merged_statuses(tmp_path):
+    dq = q.DevTaskQueue(base_dir=tmp_path)
+    for status in (q.STATUS_QUEUED, q.STATUS_RUNNING, q.STATUS_AWAITING_REVIEW,
+                   q.STATUS_ROLLED_BACK, q.STATUS_FAILED):
+        tid = dq.add("t")
+        dq.set_status(tid, status)
+    assert dq.merged_history() == []
+
+
+def test_merged_history_respects_limit(tmp_path):
+    dq = q.DevTaskQueue(base_dir=tmp_path)
+    for i in range(5):
+        tid = dq.add(f"t{i}")
+        dq.set_status(tid, q.STATUS_MERGED, merged_at="2026-07-10T00:00:00")
+    assert len(dq.merged_history(limit=2)) == 2
+
+
+def test_merged_history_empty_queue_returns_empty_list(tmp_path):
+    dq = q.DevTaskQueue(base_dir=tmp_path)
+    assert dq.merged_history() == []

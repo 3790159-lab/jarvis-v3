@@ -1772,7 +1772,8 @@ def _devtask_merge_commit(chat_id, tid: str) -> None:
     _bw.write_pending_restart(_devtask_state_dir(), tid, old, new)
     _bw.write_boot_watch(_devtask_state_dir(), tid, old, new)
     _devtask_queue().set_status(tid, _q.STATUS_MERGED, old_head=old, new_head=new,
-                                regress_mode="merge_commit", cost=item.get("cost"))
+                                regress_mode="merge_commit", cost=item.get("cost"),
+                                merged_at=datetime.utcnow().isoformat())
     send(chat_id, "✅ Merge-коммит %s выполнен (%s→%s). Режим проверки: merge_commit "
          "(таргет-тесты по объединённому коду)." % (tid, old, new))
     _devtask_restart(chat_id)
@@ -1802,7 +1803,8 @@ def _devtask_close_already_merged(chat_id, tid: str, item: dict) -> None:
     old = item.get("base_head")
     new = _g.prod_head()
     _devtask_queue().set_status(tid, _q.STATUS_MERGED, old_head=old, new_head=new,
-                                regress_mode="already_merged", cost=item.get("cost"))
+                                regress_mode="already_merged", cost=item.get("cost"),
+                                merged_at=datetime.utcnow().isoformat())
     send(chat_id, "✅ Ветка %s уже влита в прод — карточка %s закрыта как merged "
          "(%s→%s), регресс не гонял." % (item.get("branch"), tid, old, new))
 
@@ -1830,7 +1832,8 @@ def _devtask_do_merge(chat_id, tid: str, item: dict, mode: str = "full") -> None
     # cost: re-affirm the final cost on the card (Фаза 8.2) so it survives the
     # merge transition and stays counted by month_cost().
     _devtask_queue().set_status(tid, _q.STATUS_MERGED, old_head=old, new_head=new,
-                                regress_mode=mode, cost=item.get("cost"))
+                                regress_mode=mode, cost=item.get("cost"),
+                                merged_at=datetime.utcnow().isoformat())
     send(chat_id, "✅ FF-мердж %s выполнен (%s→%s). Режим проверки: %s." % (tid, old, new, mode))
     _devtask_restart(chat_id)
 
@@ -4534,10 +4537,12 @@ def _suggest_tasks_dispatch(chat_id: str) -> None:
     except FileNotFoundError:
         raw_lines = []
     log_lines = jobserve.filter_log_noise(raw_lines)
+    merged_tasks = _devtask_queue().merged_history()
 
     signals = _sug.build_signals(
         baseline=baseline, master_plan_text=master_plan_text, log_lines=log_lines,
         today=datetime.utcnow().date(), since_days=_SUGGEST_TASKS_LOG_SINCE_DAYS,
+        merged_tasks=merged_tasks,
     )
     system, messages = _sug.build_prompt(signals)
     try:
@@ -4555,6 +4560,8 @@ def _suggest_tasks_dispatch(chat_id: str) -> None:
         send(chat_id, "🚫 %s — предложения не сгенерированы (LLM не вызывался, $0)." % err)
         return
     suggestions = _sug.parse_suggestions(reply or "")
+    suggestions = _sug.flag_duplicate_suggestions(suggestions, signals.get("done_records"))
+    suggestions = _sug.flag_packaged_suggestions(suggestions, signals.get("backlog"))
     if not suggestions:
         send(chat_id, _sug.format_suggestions(suggestions, raw_reply=reply))
         return
