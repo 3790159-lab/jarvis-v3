@@ -104,6 +104,10 @@ def _enhance_prompt(prompt: str) -> str:
     p = prompt.lower()
     is_people = any(k in p for k in PEOPLE_KEYWORDS)
 
+    # Тільки ПОЗИТИВНІ фото-якорі. Інлайн-негативи ("no anime/illustration/cgi")
+    # прибрано: FLUX не має negative_prompt, а згадка терміна у позитивному
+    # промпті ПРИЗИВАЄ його (той самий бекфайр, що доведено на persona-шляху
+    # 2026-07-12: з негативами → аніме+watermark, без → фото).
     if is_people:
         return (
             f"{prompt}, "
@@ -112,8 +116,7 @@ def _enhance_prompt(prompt: str) -> str:
             "shallow depth of field, sharp focus on subject, "
             "real human, hyperrealistic skin texture, "
             "shot on Canon EOS R5, 85mm f/1.4 lens, "
-            "DSLR quality, no illustration, no anime, no cgi, "
-            "magazine cover quality, 8k resolution"
+            "DSLR quality, magazine cover quality, 8k resolution"
         )
 
     return (
@@ -121,7 +124,7 @@ def _enhance_prompt(prompt: str) -> str:
         "photorealistic photography, professional camera, "
         "natural lighting, sharp focus, high detail, "
         "shot on Canon EOS R5, 50mm lens, f/1.8, "
-        "DSLR quality, hyperrealistic, no illustration, "
+        "DSLR quality, hyperrealistic, "
         "real photo, 4k resolution, professional photo"
     )
 

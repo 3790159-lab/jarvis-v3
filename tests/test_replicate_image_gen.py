@@ -370,13 +370,13 @@ class TestPromptEnhancement:
         result = _enhance_prompt("девушка на пляже")
         assert "photorealistic" in result
         assert "Canon" in result or "lens" in result
-        assert "no illustration" in result
+        assert "DSLR quality" in result  # позитивний фото-якір (не інлайн-негатив)
 
     def test_object_prompt_has_realistic_terms(self):
         from app.services.replicate_image_gen import _enhance_prompt
         result = _enhance_prompt("красивый кот")
         assert "photorealistic" in result
-        assert "no illustration" in result
+        assert "real photo" in result  # позитивний якір замість "no illustration"
 
     def test_people_prompt_includes_original(self):
         from app.services.replicate_image_gen import _enhance_prompt
@@ -393,7 +393,19 @@ class TestPromptEnhancement:
         result = _enhance_prompt("girl on beach")
         assert "DSLR quality" in result
 
-    def test_people_prompt_no_anime(self):
+    def test_people_prompt_has_no_inline_negatives(self):
+        """FLUX (1.1 Pro) не має negative_prompt; інлайн "no anime/illustration/cgi"
+        у позитивному промпті ПРИЗИВАЄ те, що забороняє (той самий бекфайр, що
+        доведено на persona-шляху 2026-07-12). Тільки позитивні фото-якорі."""
         from app.services.replicate_image_gen import _enhance_prompt
         result = _enhance_prompt("woman portrait")
-        assert "no anime" in result
+        assert "no anime" not in result
+        assert "no illustration" not in result
+        assert "no cgi" not in result
+        assert "natural lighting" in result  # позитивні якорі лишаються
+
+    def test_default_prompt_has_no_inline_negatives(self):
+        from app.services.replicate_image_gen import _enhance_prompt
+        result = _enhance_prompt("синий цветок")
+        assert "no illustration" not in result
+        assert "no anime" not in result
