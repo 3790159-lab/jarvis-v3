@@ -409,3 +409,34 @@ class TestPromptEnhancement:
         result = _enhance_prompt("синий цветок")
         assert "no illustration" not in result
         assert "no anime" not in result
+
+    def test_visual_style_forbidding_photorealistic_people_skips_anchors_uk(self):
+        """nopersona-шлях мержить topic+visual_style в один текст ДО _enhance_prompt
+        (див. _ig_gen_photo_prompt) — коли visual_style явно забороняє
+        фотореалістичних людей (напр. clients/vera_ai_ua/brand.md), анкори
+        photorealistic/DSLR/hyperrealistic-skin НЕ повинні дописуватись, навіть
+        якщо тема поста згадує людину/портрет."""
+        from app.services.replicate_image_gen import _enhance_prompt
+        prompt = (
+            "портрет команди, генеративна естетика ШІ-аватара Віри: "
+            "яскраві акценти, чисті кадри, без кітчу і без фотореалістичних людей"
+        )
+        result = _enhance_prompt(prompt)
+        assert result == prompt
+        assert "DSLR quality" not in result
+        assert "hyperrealistic skin texture" not in result
+        assert "shot on Canon EOS R5" not in result
+
+    def test_visual_style_forbidding_photorealistic_people_skips_anchors_en(self):
+        from app.services.replicate_image_gen import _enhance_prompt
+        prompt = "team update post, no photorealistic people in the visuals"
+        result = _enhance_prompt(prompt)
+        assert result == prompt
+        assert "DSLR quality" not in result
+        assert "hyperrealistic skin texture" not in result
+
+    def test_visual_style_without_forbid_marker_still_gets_anchors(self):
+        """Регрес: звичайний бренд без заборони й далі отримує анкори як раніше."""
+        from app.services.replicate_image_gen import _enhance_prompt
+        result = _enhance_prompt("портрет дівчини, реалізм, тепле світло")
+        assert "DSLR quality" in result

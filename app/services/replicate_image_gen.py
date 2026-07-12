@@ -99,8 +99,28 @@ def _select_model(prompt: str) -> str:
     return _MODELS["default"]
 
 
+# Марки заборони фотореалістичних людей у ``visual_style`` (nopersona-шлях
+# мержить topic+visual_style в один текст ДО виклику _enhance_prompt, див.
+# ``_ig_gen_photo_prompt`` — тому перевіряємо ЦІЛИЙ вхідний prompt: сцена
+# (visual_style) розведена з темою поста саме тут, а не окремим полем).
+_NO_PHOTOREALISTIC_PEOPLE_MARKERS = [
+    "без фотореалістичних людей",
+    "без фотореалистичных людей",
+    "no photorealistic people",
+    "without photorealistic people",
+]
+
+
+def _forbids_photorealistic_people(prompt: str) -> bool:
+    p = prompt.lower()
+    return any(marker in p for marker in _NO_PHOTOREALISTIC_PEOPLE_MARKERS)
+
+
 def _enhance_prompt(prompt: str) -> str:
     """Enhance user prompt for photorealistic results."""
+    if _forbids_photorealistic_people(prompt):
+        return prompt
+
     p = prompt.lower()
     is_people = any(k in p for k in PEOPLE_KEYWORDS)
 
