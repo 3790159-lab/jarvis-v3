@@ -1693,6 +1693,9 @@ def _devtask_run_targeted(worktree: str, base_head: str) -> dict:
     existing = _tt.list_test_files(worktree)
     targets = _tt.map_paths_to_tests(changed, existing)
     if not targets:
+        if _tt.is_docs_only_diff(changed):
+            return {"ok": True, "mode": "docs_only",
+                    "text": "📄 docs-only дифф (%d файлов) — тесты не требуются" % len(changed)}
         return {"ok": False, "mode": "targeted",
                 "text": "🎯 таргет-режим: дифф не маппится ни на один тест "
                         "(%d изменённых путей) — не могу верифицировать точечно" % len(changed)}
@@ -1874,6 +1877,8 @@ def _devtask_merge(chat_id, tid: str, skip_regress: bool = False,
         send(chat_id, "🚫 Мердж заблокирован (%s): %s\n"
              "Можно принудительно через [⚠️ Мердж без регресса]." % (mode, verdict["text"]))
         return
+    if verdict.get("mode") == "docs_only":
+        send(chat_id, verdict["text"])
     _devtask_do_merge(chat_id, tid, item, mode=mode)
 
 

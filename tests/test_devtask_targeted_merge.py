@@ -139,7 +139,52 @@ def test_targeted_empty_targets_blocks_merge(monkeypatch, tmp_path):
 # ── _devtask_run_targeted: real function, mocked git + pytest ───────────────
 def test_run_targeted_no_targets_returns_not_ok(monkeypatch):
     from app.services.devtask import target_tests as tt
-    monkeypatch.setattr(tt, "changed_paths", lambda *a, **k: ["docs/x.md"])
+    # non-doc .py change with no name-derivable test → honest "can't verify" block
+    monkeypatch.setattr(tt, "changed_paths", lambda *a, **k: ["app/services/devtask/runner.py"])
+    monkeypatch.setattr(tt, "list_test_files", lambda *a, **k: ["tests/test_queue.py"])
+    res = mod._devtask_run_targeted("C:/wt", "base1")
+    assert res["ok"] is False and res["mode"] == "targeted"
+
+
+# ── docs-only diff: skip merge gate instead of blocking "не маппится" ───────
+def test_run_targeted_docs_only_diff_skips_with_message(monkeypatch):
+    from app.services.devtask import target_tests as tt
+    monkeypatch.setattr(tt, "changed_paths",
+                        lambda *a, **k: ["docs/MASTER-PLAN.md", "README.md"])
+    monkeypatch.setattr(tt, "list_test_files", lambda *a, **k: ["tests/test_queue.py"])
+    res = mod._devtask_run_targeted("C:/wt", "base1")
+    assert res["ok"] is True and res["mode"] == "docs_only"
+    assert "📄" in res["text"] and "docs-only" in res["text"]
+
+
+def test_docs_only_merge_sends_marker_message_and_proceeds(monkeypatch, tmp_path):
+    # End-to-end through _devtask_merge: docs-only verdict must surface the
+    # "📄 docs-only" marker to the human and still complete the FF-merge.
+    q, tid = _seed_awaiting(monkeypatch, tmp_path)
+    sent = []
+    monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
+    monkeypatch.setattr(mod, "_devtask_run_targeted",
+                        lambda wt, base: {"ok": True, "mode": "docs_only",
+                                          "text": "📄 docs-only дифф (2 файлов) — тесты не требуются"})
+    from app.services.devtask import git_ops as g, boot_watch as bw
+    monkeypatch.setattr(g, "is_merged", lambda *a, **k: False)
+    monkeypatch.setattr(g, "is_ff_clean", lambda *a, **k: True)
+    monkeypatch.setattr(g, "prod_head", lambda *a, **k: "n")
+    monkeypatch.setattr(g, "ff_merge", lambda *a, **k: None)
+    monkeypatch.setattr(bw, "write_pending_restart", lambda *a, **k: None)
+    monkeypatch.setattr(bw, "write_boot_watch", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "_devtask_restart", lambda cid: None)
+
+    mod._devtask_merge(ADMIN, tid, mode="targeted")
+    assert any("📄" in s and "docs-only" in s for s in sent)
+    assert q.get(tid)["status"] == STATUS_MERGED
+
+
+def test_run_targeted_docs_plus_code_diff_is_not_docs_only(monkeypatch):
+    # docs + py with no mapped test → still blocked as before (not docs-only)
+    from app.services.devtask import target_tests as tt
+    monkeypatch.setattr(tt, "changed_paths",
+                        lambda *a, **k: ["docs/MASTER-PLAN.md", "app/services/devtask/runner.py"])
     monkeypatch.setattr(tt, "list_test_files", lambda *a, **k: ["tests/test_queue.py"])
     res = mod._devtask_run_targeted("C:/wt", "base1")
     assert res["ok"] is False and res["mode"] == "targeted"

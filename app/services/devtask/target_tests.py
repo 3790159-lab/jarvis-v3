@@ -54,6 +54,28 @@ def map_paths_to_tests(changed_paths: Iterable[str],
     return sorted(selected)
 
 
+def _is_doc_path(path: str) -> bool:
+    return (path.endswith(".md")
+            or path.startswith("docs/")
+            or path.startswith("research/")
+            or path.startswith("artifacts/"))
+
+
+def is_docs_only_diff(changed_paths: Iterable[str]) -> bool:
+    """True iff every changed path is documentation (``*.md``, ``docs/``,
+    ``research/``, ``artifacts/**``) — no code/config/test/script changes.
+
+    ``artifacts/**`` counts as docs-only regardless of a file's own extension
+    (e.g. archived ``.py`` patch backups under ``artifacts/patch_backups/``).
+    An empty diff is NOT docs-only — there is nothing to classify, so the
+    caller falls back to its normal "no targets" handling.
+    """
+    paths = [_norm(p) for p in changed_paths if _norm(p)]
+    if not paths:
+        return False
+    return all(_is_doc_path(p) for p in paths)
+
+
 def changed_paths(worktree: str, base_head: str, *,
                   run: Callable = subprocess.run) -> List[str]:
     """``git diff --name-only <base_head>`` inside ``worktree`` → changed paths.

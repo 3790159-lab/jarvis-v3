@@ -51,6 +51,36 @@ def test_non_python_changes_map_to_nothing():
     assert tt.map_paths_to_tests(changed, existing) == []
 
 
+# ── docs-only classifier: *.md, docs/, research/, artifacts/** ───────────────
+def test_docs_only_diff_true_for_markdown_files():
+    assert tt.is_docs_only_diff(["README.md", "docs/MASTER-PLAN.md"]) is True
+
+
+def test_docs_only_diff_true_for_research_and_artifacts_dirs():
+    # artifacts/** counts as docs-only regardless of the file's own extension
+    # (e.g. archived .py patch backups under artifacts/patch_backups/).
+    changed = ["research/notes.md",
+               "artifacts/patch_backups/jarvis_brain_v2/main_20260429_130339.py"]
+    assert tt.is_docs_only_diff(changed) is True
+
+
+def test_docs_only_diff_false_when_any_code_file_present():
+    changed = ["docs/plan.md", "app/services/devtask/queue.py"]
+    assert tt.is_docs_only_diff(changed) is False
+
+
+def test_docs_only_diff_false_for_config_or_script_files():
+    assert tt.is_docs_only_diff(["config/settings.yaml"]) is False
+
+
+def test_docs_only_diff_false_when_empty():
+    assert tt.is_docs_only_diff([]) is False
+
+
+def test_docs_only_diff_normalizes_backslash_paths():
+    assert tt.is_docs_only_diff(["docs\\MASTER-PLAN.md", "research\\notes.md"]) is True
+
+
 # ── git seam: `git diff --name-only <base_head>` in the worktree ─────────────
 def test_changed_paths_calls_git_diff_and_splits_lines():
     calls = {}
