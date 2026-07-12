@@ -242,3 +242,44 @@ def format_suggestions(suggestions: List[dict], raw_reply: Optional[str] = None)
             % (i, s["title"], s["size"], s["signal"] or "—", s["rationale"] or "—", s["draft"])
         )
     return "\n\n".join(parts)
+
+
+def format_suggestion_card(suggestion: dict, index: int, total: int) -> str:
+    """Compact one-suggestion Telegram card: title/size/signal/rationale only —
+    NEVER the ``draft`` body. The old all-in-one message put every draft (a full
+    /dev_task spec) into one ``send()``, which silently truncates at ~3900 chars
+    and made long drafts uncopyable. The draft now stays server-side (see
+    ``build_suggestions_state``) and reaches ``/dev_task`` intact via the
+    [🛠 Запустить как dev_task] button, not via chat text.
+    """
+    return (
+        "💡 %d/%d **%s** [%s]\n"
+        "сигнал: %s\n"
+        "почему: %s\n\n"
+        "Тап [🛠 Запустить как dev_task] поставит черновик в очередь с обычным "
+        "подтверждением (▶️ Запустить) — автозапуска нет."
+        % (index + 1, total, suggestion.get("title", ""), suggestion.get("size", ""),
+           suggestion.get("signal") or "—", suggestion.get("rationale") or "—")
+    )
+
+
+def build_suggestions_state(suggestions: List[dict], gen_id: str, created_at: str) -> Dict[str, object]:
+    """JSON-serializable snapshot persisted so a button tap can recover the FULL
+    draft text later — Telegram's 64-byte ``callback_data`` cap can't carry it.
+    ``gen_id`` doubles as the stale-guard (see ``resolve_suggestion``): a new
+    ``/suggest_tasks`` run overwrites this with a fresh id, so buttons from a
+    previous generation stop resolving instead of silently firing a stale draft.
+    """
+    return {"gen_id": gen_id, "created_at": created_at, "suggestions": suggestions}
+
+
+def resolve_suggestion(state: Optional[dict], gen_id: str, index: int) -> Optional[dict]:
+    """Look up suggestion ``index`` from a persisted state, iff ``gen_id`` matches
+    the CURRENT generation. Any mismatch (no state, stale gen_id, bad index)
+    returns ``None`` — the caller must treat that as "устарело, сгенерируй заново"."""
+    if not state or state.get("gen_id") != gen_id:
+        return None
+    items = state.get("suggestions") or []
+    if not (0 <= index < len(items)):
+        return None
+    return items[index]

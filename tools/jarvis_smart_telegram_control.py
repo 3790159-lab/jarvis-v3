@@ -4482,6 +4482,10 @@ def _ir2_ask_haiku(system: str, messages: list) -> str:
 
 # ── /suggest_tasks (Этап 2): генератор задач v0 ─────────────────────────────
 _SUGGEST_TASKS_LOG_SINCE_DAYS = int(os.getenv("SUGGEST_TASKS_LOG_DAYS", "2"))
+# One-tap UX (v0.3): full drafts persist here (callback_data's 64-byte cap
+# can't carry them); gen_id inside doubles as the stale-guard for buttons from
+# a previous /suggest_tasks generation. Absolute so it never depends on CWD.
+_SUGGESTED_TASKS_STATE_PATH = _PROJECT_ROOT / "state" / "suggested_tasks_last.json"
 
 
 def _suggest_tasks_ask_llm(system: str, messages: list) -> str:
@@ -4546,11 +4550,35 @@ def _suggest_tasks_dispatch(chat_id: str) -> None:
         send(chat_id, "🚫 %s — предложения не сгенерированы (LLM не вызывался, $0)." % err)
         return
     suggestions = _sug.parse_suggestions(reply or "")
-    if suggestions:
-        send(chat_id, "💡 Топ-3 предложения dev-задач:\n\n" + _sug.format_suggestions(suggestions) +
-             "\n\nСкопируй понравившийся черновик в /dev_task — автозапуска нет.")
-    else:
+    if not suggestions:
         send(chat_id, _sug.format_suggestions(suggestions, raw_reply=reply))
+        return
+    import uuid as _uuid
+    from app.services.block_l_common import save_json_safe
+    gen_id = _uuid.uuid4().hex[:10]
+    state = _sug.build_suggestions_state(suggestions, gen_id, datetime.utcnow().isoformat())
+    save_json_safe(_SUGGESTED_TASKS_STATE_PATH, state)
+    total = len(suggestions)
+    for i, s in enumerate(suggestions):
+        send_with_keyboard(
+            chat_id, _sug.format_suggestion_card(s, i, total),
+            [[{"text": "🛠 Запустить как dev_task", "callback_data": "sugtask:run:%s:%d" % (gen_id, i)}]],
+        )
+
+
+def _sugtask_run_dispatch(chat_id, gen_id: str, index: int) -> None:
+    """Button tap on a ``/suggest_tasks`` card: pull the FULL draft out of
+    ``_SUGGESTED_TASKS_STATE_PATH`` by ``gen_id``/``index`` and feed it into the
+    standard ``/dev_task`` confirm gate — same [▶️ Запустить] tap the user would
+    get for a hand-typed ``/dev_task``, no bypass, no auto-run."""
+    from app.services.block_l_common import load_json_safe
+    from app.services.devtask import suggest as _sug
+    state = load_json_safe(_SUGGESTED_TASKS_STATE_PATH)
+    suggestion = _sug.resolve_suggestion(state, gen_id, index)
+    if suggestion is None:
+        send(chat_id, "⚠️ устарело, сгенерируй заново — /suggest_tasks")
+        return
+    _devtask_dispatch(chat_id, suggestion["draft"])
 
 
 # ── /ig_caption (Этап 3, кирпич #1): генератор IG-подписей ─────────────────
@@ -5703,6 +5731,26 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
         elif action == "details":
             answer_callback_query(cq_id)
             _devtask_details(chat_id, tid)
+        else:
+            answer_callback_query(cq_id)
+        return
+
+    # ── /suggest_tasks one-tap run (Этап 2 v0.3): admin-only (sugtask: NOT in
+    # friend prefixes) — feeds the full persisted draft into the standard
+    # /dev_task confirm gate, never bypasses it. ────────────────────────────
+    if data.startswith("sugtask:"):
+        if not (_is_admin_id(_cq_uid) or str(_cq_uid) == ALLOWED_CHAT_ID):
+            answer_callback_query(cq_id, "🚫 Только для администратора")
+            return
+        action = parts[1] if len(parts) > 1 else ""
+        if action == "run":
+            gen_id = parts[2] if len(parts) > 2 else ""
+            try:
+                idx = int(parts[3]) if len(parts) > 3 else -1
+            except ValueError:
+                idx = -1
+            answer_callback_query(cq_id, "🛠")
+            _sugtask_run_dispatch(chat_id, gen_id, idx)
         else:
             answer_callback_query(cq_id)
         return

@@ -26,7 +26,7 @@ def test_suggest_tasks_is_paid():
     assert _ir.is_paid("/suggest_tasks") is True
 
 
-def test_suggest_tasks_dispatch_calls_llm_under_guard_spend(monkeypatch):
+def test_suggest_tasks_dispatch_calls_llm_under_guard_spend(monkeypatch, tmp_path):
     calls = {"llm": 0, "guard_spend_args": None}
 
     def _fake_guard_spend(uid, uname, est, do):
@@ -41,15 +41,19 @@ def test_suggest_tasks_dispatch_calls_llm_under_guard_spend(monkeypatch):
     monkeypatch.setattr(mod, "guard_spend", _fake_guard_spend)
     monkeypatch.setattr(mod, "_suggest_tasks_ask_llm", _fake_llm)
     monkeypatch.setattr(mod, "_regress_baseline", lambda: {"failed": 1, "passed": 2, "errors": 0})
-    sent = {}
-    monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.setdefault("t", t))
+    monkeypatch.setattr(mod, "_SUGGESTED_TASKS_STATE_PATH", tmp_path / "suggested_tasks_last.json")
+    kb_sent = []
+    monkeypatch.setattr(mod, "send_with_keyboard", lambda cid, t, kb, *a, **k: kb_sent.append((t, kb)))
 
     mod._suggest_tasks_dispatch(ADMIN)
 
     assert calls["llm"] == 1
     assert calls["guard_spend_args"][0] == ADMIN
-    assert "T" in sent["t"]
-    assert "/dev_task" in sent["t"]  # nudges admin to copy the draft, not auto-run it
+    assert len(kb_sent) == 1                     # one card per suggestion (here: one)
+    text, kb = kb_sent[0]
+    assert "T" in text
+    assert "🛠" in kb[0][0]["text"]               # tappable run-as-dev_task button
+    assert kb[0][0]["callback_data"].startswith("sugtask:run:")
 
 
 def test_suggest_tasks_dispatch_honest_fallback_when_gate_blocks(monkeypatch):
@@ -176,11 +180,12 @@ def _mock_llm_and_money(monkeypatch, llm_reply):
     return calls
 
 
-def test_suggest_tasks_confirm_tap_reaches_real_dispatch_e2e(monkeypatch):
+def test_suggest_tasks_confirm_tap_reaches_real_dispatch_e2e(monkeypatch, tmp_path):
     calls = _mock_llm_and_money(
         monkeypatch,
         '[{"title": "T1", "signal": "s", "rationale": "r", "draft": "d1", "size": "S"}]',
     )
+    monkeypatch.setattr(mod, "_SUGGESTED_TASKS_STATE_PATH", tmp_path / "suggested_tasks_last.json")
     sent, kb_sent, acked = [], [], []
     monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
     monkeypatch.setattr(mod, "send_with_keyboard", lambda cid, t, kb, *a, **k: kb_sent.append((t, kb)))
@@ -204,13 +209,15 @@ def test_suggest_tasks_confirm_tap_reaches_real_dispatch_e2e(monkeypatch):
     }
     mod.handle_callback_query(cq, state)
 
-    # The generator must actually run (LLM mock called exactly once) and the
-    # top-3 suggestions must reach the chat — NOT "Не знаю такую команду".
+    # The generator must actually run (LLM mock called exactly once) and a
+    # tappable suggestion card must reach the chat — NOT "Не знаю такую команду".
     assert calls["llm"] == 1
-    assert len(sent) == 1
-    assert "не знаю" not in sent[0].lower()
-    assert "T1" in sent[0]
-    assert "/dev_task" in sent[0]
+    assert len(kb_sent) == 2                     # money-confirm card + 1 suggestion card
+    text, kb = kb_sent[1]
+    assert "не знаю" not in text.lower()
+    assert "T1" in text
+    assert kb[0][0]["callback_data"].startswith("sugtask:run:")
+    assert not sent                               # no plain send() in the happy path
     assert not state.get("pending_confirm")
 
 
@@ -278,7 +285,7 @@ def test_suggest_tasks_stale_confirm_tap_is_not_unknown_command_e2e(monkeypatch)
     assert "устарел" in sent[0].lower()
 
 
-def test_suggest_tasks_direct_call_with_token_bypasses_confirm_e2e(monkeypatch):
+def test_suggest_tasks_direct_call_with_token_bypasses_confirm_e2e(monkeypatch, tmp_path):
     """Direct invocation carrying the one-shot confirmed token (e.g. the same
     re-dispatch _handle_confirm_run performs) must reach the real generator
     without showing a second confirm — no UI round-trip required."""
@@ -286,6 +293,7 @@ def test_suggest_tasks_direct_call_with_token_bypasses_confirm_e2e(monkeypatch):
         monkeypatch,
         '[{"title": "T2", "signal": "s", "rationale": "r", "draft": "d2", "size": "M"}]',
     )
+    monkeypatch.setattr(mod, "_SUGGESTED_TASKS_STATE_PATH", tmp_path / "suggested_tasks_last.json")
     sent, kb_sent = [], []
     monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
     monkeypatch.setattr(mod, "send_with_keyboard", lambda cid, t, kb, *a, **k: kb_sent.append((t, kb)))
@@ -293,7 +301,227 @@ def test_suggest_tasks_direct_call_with_token_bypasses_confirm_e2e(monkeypatch):
     state = {"_paid_confirmed": "/suggest_tasks"}
     mod.handle_command(ADMIN, "/suggest_tasks", "", state)
 
-    assert kb_sent == []               # no second confirm prompt
+    assert len(kb_sent) == 1           # exactly one suggestion card, no confirm prompt
     assert calls["llm"] == 1
+    assert not sent
+    assert "T2" in kb_sent[0][0]
+
+
+# ── One-tap run (v0.3): compact card + [🛠 Запустить как dev_task] button ───
+def _seed_suggestions_state(monkeypatch, tmp_path, suggestions, gen_id="gen1"):
+    from app.services.devtask import suggest as _sug
+    from app.services.block_l_common import save_json_safe
+    path = tmp_path / "suggested_tasks_last.json"
+    monkeypatch.setattr(mod, "_SUGGESTED_TASKS_STATE_PATH", path)
+    save_json_safe(path, _sug.build_suggestions_state(suggestions, gen_id, "2026-07-12T08:00:00"))
+    return path
+
+
+def test_sugtask_prefix_is_admin_only_not_friend():
+    assert "sugtask:" not in mod.FRIEND_ALLOWED_CALLBACK_PREFIXES
+
+
+def test_suggest_tasks_multiple_drafts_send_separate_cards_not_one_blob(monkeypatch, tmp_path):
+    """(4) several drafts -> separate messages, one per suggestion, so the total
+    never has to fit Telegram's 4096-char single-message limit."""
+    calls = _mock_llm_and_money(
+        monkeypatch,
+        '[{"title": "T1", "signal": "s", "rationale": "r", "draft": "d1", "size": "S"},'
+        '{"title": "T2", "signal": "s", "rationale": "r", "draft": "d2", "size": "M"},'
+        '{"title": "T3", "signal": "s", "rationale": "r", "draft": "d3", "size": "L"}]',
+    )
+    monkeypatch.setattr(mod, "_SUGGESTED_TASKS_STATE_PATH", tmp_path / "suggested_tasks_last.json")
+    kb_sent = []
+    monkeypatch.setattr(mod, "send", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "send_with_keyboard", lambda cid, t, kb, *a, **k: kb_sent.append((t, kb)))
+
+    mod._suggest_tasks_dispatch(ADMIN)
+
+    assert calls["llm"] == 1
+    assert len(kb_sent) == 3
+    titles = [t for t, kb in kb_sent]
+    assert any("T1" in t for t in titles)
+    assert any("T2" in t for t in titles)
+    assert any("T3" in t for t in titles)
+    # each card carries its own distinct index so a tap knows which draft to pull
+    datas = [kb[0][0]["callback_data"] for _, kb in kb_sent]
+    assert len(set(datas)) == 3
+    assert all(d.startswith("sugtask:run:") for d in datas)
+
+
+def test_suggest_tasks_dispatch_persists_full_drafts_to_state(monkeypatch, tmp_path):
+    """(1) the full draft text (not just the compact card) must be recoverable
+    from state — cards never carry the draft body themselves."""
+    path = tmp_path / "suggested_tasks_last.json"
+    monkeypatch.setattr(mod, "_SUGGESTED_TASKS_STATE_PATH", path)
+    _mock_llm_and_money(
+        monkeypatch,
+        '[{"title": "T1", "signal": "s", "rationale": "r", '
+        '"draft": "FULL_DRAFT_TEXT_MARKER", "size": "S"}]',
+    )
+    monkeypatch.setattr(mod, "send", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "send_with_keyboard", lambda *a, **k: None)
+
+    mod._suggest_tasks_dispatch(ADMIN)
+
+    import json
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert saved["suggestions"][0]["draft"] == "FULL_DRAFT_TEXT_MARKER"
+    assert saved["gen_id"]
+
+
+def test_sugtask_run_tap_dispatches_full_draft_into_standard_devtask_confirm_e2e(monkeypatch, tmp_path):
+    """Tapping [🛠 Запустить как dev_task] must land on the SAME confirm gate a
+    hand-typed /dev_task gets ([▶️ Запустить]/[Отмена] keyboard) — the button
+    only prefills the text, it never bypasses confirmation."""
+    from app.services.devtask.queue import DevTaskQueue
+    q = DevTaskQueue(base_dir=tmp_path / "queue")
+    monkeypatch.setattr(mod, "_DEVTASK_QUEUE", q, raising=False)
+    _seed_suggestions_state(
+        monkeypatch, tmp_path,
+        [{"title": "T1", "signal": "s", "rationale": "r",
+          "draft": "FULL_DRAFT_TEXT_MARKER", "size": "S"}],
+        gen_id="gen1",
+    )
+    kb_sent, acked = [], []
+    monkeypatch.setattr(mod, "send", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "send_with_keyboard", lambda cid, t, kb, *a, **k: kb_sent.append((t, kb)))
+    monkeypatch.setattr(mod, "answer_callback_query", lambda *a, **k: acked.append(a))
+
+    cq = {
+        "id": "cq1", "data": "sugtask:run:gen1:0",
+        "message": {"chat": {"id": int(ADMIN)}, "message_id": 55},
+        "from": {"id": int(ADMIN)},
+    }
+    mod.handle_callback_query(cq, {})
+
+    assert len(kb_sent) == 1
+    text, kb = kb_sent[0]
+    assert "FULL_DRAFT_TEXT_MARKER" in text
+    datas = [b["callback_data"] for row in kb for b in row]
+    assert any(d.startswith("devtask:confirm:") for d in datas)
+    assert any(d.startswith("devtask:cancel:") for d in datas)
+    # the queued card really carries the full draft, not a truncated echo
+    active = q.list_recent(1)[0]
+    assert active["desc"] == "FULL_DRAFT_TEXT_MARKER"
+
+
+def test_sugtask_run_tap_from_stale_generation_is_rejected(monkeypatch, tmp_path):
+    """(5) buttons from a PREVIOUS /suggest_tasks generation must not silently
+    fire a stale draft after a fresh /suggest_tasks overwrote the state."""
+    from app.services.devtask.queue import DevTaskQueue
+    q = DevTaskQueue(base_dir=tmp_path / "queue")
+    monkeypatch.setattr(mod, "_DEVTASK_QUEUE", q, raising=False)
+    _seed_suggestions_state(
+        monkeypatch, tmp_path,
+        [{"title": "T1", "signal": "s", "rationale": "r", "draft": "d1", "size": "S"}],
+        gen_id="fresh_gen",
+    )
+    sent, kb_sent, acked = [], [], []
+    monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
+    monkeypatch.setattr(mod, "send_with_keyboard", lambda cid, t, kb, *a, **k: kb_sent.append((t, kb)))
+    monkeypatch.setattr(mod, "answer_callback_query", lambda *a, **k: acked.append(a))
+
+    cq = {
+        "id": "cq1", "data": "sugtask:run:stale_gen_from_previous_batch:0",
+        "message": {"chat": {"id": int(ADMIN)}, "message_id": 55},
+        "from": {"id": int(ADMIN)},
+    }
+    mod.handle_callback_query(cq, {})
+
+    assert kb_sent == []                          # never reached the devtask confirm gate
     assert len(sent) == 1
-    assert "T2" in sent[0]
+    assert "устарел" in sent[0].lower()
+    assert q.list_recent(5) == []                  # nothing queued
+
+
+def test_sugtask_run_tap_out_of_range_index_is_rejected(monkeypatch, tmp_path):
+    from app.services.devtask.queue import DevTaskQueue
+    q = DevTaskQueue(base_dir=tmp_path / "queue")
+    monkeypatch.setattr(mod, "_DEVTASK_QUEUE", q, raising=False)
+    _seed_suggestions_state(
+        monkeypatch, tmp_path,
+        [{"title": "T1", "signal": "s", "rationale": "r", "draft": "d1", "size": "S"}],
+        gen_id="gen1",
+    )
+    sent, kb_sent = [], []
+    monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
+    monkeypatch.setattr(mod, "send_with_keyboard", lambda cid, t, kb, *a, **k: kb_sent.append((t, kb)))
+    monkeypatch.setattr(mod, "answer_callback_query", lambda *a, **k: None)
+
+    cq = {
+        "id": "cq1", "data": "sugtask:run:gen1:7",
+        "message": {"chat": {"id": int(ADMIN)}, "message_id": 55},
+        "from": {"id": int(ADMIN)},
+    }
+    mod.handle_callback_query(cq, {})
+
+    assert kb_sent == []
+    assert len(sent) == 1
+    assert "устарел" in sent[0].lower()
+
+
+def test_sugtask_button_from_previous_generation_is_stale_after_regenerate_e2e(monkeypatch, tmp_path):
+    """Literal spec scenario: /suggest_tasks runs TWICE (admin regenerates), then
+    a button captured from the FIRST batch is tapped — must be rejected as
+    stale, not silently fire the (now superseded) first-batch draft."""
+    from app.services.devtask.queue import DevTaskQueue
+    q = DevTaskQueue(base_dir=tmp_path / "queue")
+    monkeypatch.setattr(mod, "_DEVTASK_QUEUE", q, raising=False)
+    monkeypatch.setattr(mod, "_SUGGESTED_TASKS_STATE_PATH", tmp_path / "suggested_tasks_last.json")
+    monkeypatch.setattr(mod, "_regress_baseline", lambda: None)
+    monkeypatch.setattr(mod, "guard_spend", lambda uid, uname, est, do: (do(), None))
+    monkeypatch.setattr(mod, "send", lambda *a, **k: None)
+    kb_sent = []
+    monkeypatch.setattr(mod, "send_with_keyboard", lambda cid, t, kb, *a, **k: kb_sent.append((t, kb)))
+
+    # Generation 1: capture the button's callback_data.
+    monkeypatch.setattr(mod, "_suggest_tasks_ask_llm", lambda s, m:
+                         '[{"title": "OLD", "signal": "s", "rationale": "r", "draft": "OLD_DRAFT", "size": "S"}]')
+    mod._suggest_tasks_dispatch(ADMIN)
+    old_callback_data = kb_sent[-1][1][0][0]["callback_data"]
+
+    # Generation 2: admin regenerates — overwrites state with a fresh gen_id.
+    monkeypatch.setattr(mod, "_suggest_tasks_ask_llm", lambda s, m:
+                         '[{"title": "NEW", "signal": "s", "rationale": "r", "draft": "NEW_DRAFT", "size": "S"}]')
+    mod._suggest_tasks_dispatch(ADMIN)
+
+    # Now tap the button captured from generation 1.
+    sent2 = []
+    monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent2.append(t))
+    monkeypatch.setattr(mod, "answer_callback_query", lambda *a, **k: None)
+    kb_sent.clear()
+    cq = {
+        "id": "cq1", "data": old_callback_data,
+        "message": {"chat": {"id": int(ADMIN)}, "message_id": 55},
+        "from": {"id": int(ADMIN)},
+    }
+    mod.handle_callback_query(cq, {})
+
+    assert kb_sent == []                # never reached the devtask confirm gate
+    assert sent2 and "устарел" in sent2[0].lower()
+    assert q.list_recent(5) == []       # OLD_DRAFT never queued
+
+
+def test_sugtask_callback_rejected_for_non_admin(monkeypatch, tmp_path):
+    _seed_suggestions_state(
+        monkeypatch, tmp_path,
+        [{"title": "T1", "signal": "s", "rationale": "r", "draft": "d1", "size": "S"}],
+        gen_id="gen1",
+    )
+    acked = []
+    monkeypatch.setattr(mod, "answer_callback_query", lambda cid, t="": acked.append(t))
+    dispatched = {"n": 0}
+    monkeypatch.setattr(mod, "_sugtask_run_dispatch",
+                        lambda *a, **k: dispatched.__setitem__("n", dispatched["n"] + 1))
+    monkeypatch.setattr(mod, "_is_admin_id", lambda uid: False)
+
+    cq = {
+        "id": "cq1", "data": "sugtask:run:gen1:0",
+        "message": {"chat": {"id": 999}, "message_id": 55},
+        "from": {"id": 999},
+    }
+    mod.handle_callback_query(cq, {})
+
+    assert dispatched["n"] == 0
+    assert acked and "администратор" in acked[0].lower()

@@ -337,3 +337,67 @@ def test_format_suggestions_empty_list_includes_raw_reply_snippet_for_diagnosis(
 def test_format_suggestions_empty_list_without_raw_reply_still_honest():
     text = sug.format_suggestions([], raw_reply=None)
     assert "не удалось" in text.lower()
+
+
+# ── format_suggestion_card (one-tap /suggest_tasks UX) ──────────────────────
+# The compact per-suggestion card sent to Telegram: title/size/signal/
+# rationale ONLY — never the (potentially long) draft, which is what used to
+# get silently truncated by ``send``'s 3900-char cap and made uncopyable.
+def test_format_suggestion_card_renders_title_size_signal_rationale():
+    s = {"title": "Таргет-режим", "signal": "бэклог", "rationale": "ускорит гейт",
+         "draft": "Реализуй таргет-режим по диффу " * 50, "size": "M"}
+    text = sug.format_suggestion_card(s, 0, 3)
+    assert "Таргет-режим" in text
+    assert "бэклог" in text
+    assert "ускорит гейт" in text
+    assert "M" in text
+    assert "1" in text and "3" in text          # 1/3 position marker
+
+
+def test_format_suggestion_card_never_includes_the_draft_body():
+    s = {"title": "T", "signal": "s", "rationale": "r",
+         "draft": "UNIQUE_DRAFT_MARKER_TEXT", "size": "S"}
+    text = sug.format_suggestion_card(s, 0, 1)
+    assert "UNIQUE_DRAFT_MARKER_TEXT" not in text
+
+
+def test_format_suggestion_card_handles_missing_signal_and_rationale():
+    s = {"title": "T", "draft": "d", "size": "S"}
+    text = sug.format_suggestion_card(s, 0, 1)
+    assert text  # no crash on missing optional fields
+
+
+# ── build_suggestions_state / resolve_suggestion (stale-guard) ──────────────
+def test_build_suggestions_state_carries_gen_id_and_suggestions():
+    suggestions = [{"title": "T", "signal": "s", "rationale": "r", "draft": "d", "size": "M"}]
+    state = sug.build_suggestions_state(suggestions, "gen1", "2026-07-12T08:00:00")
+    assert state["gen_id"] == "gen1"
+    assert state["suggestions"] == suggestions
+    assert state["created_at"] == "2026-07-12T08:00:00"
+
+
+def test_resolve_suggestion_returns_item_for_matching_gen_id():
+    suggestions = [
+        {"title": "T0", "signal": "s", "rationale": "r", "draft": "d0", "size": "S"},
+        {"title": "T1", "signal": "s", "rationale": "r", "draft": "d1", "size": "M"},
+    ]
+    state = sug.build_suggestions_state(suggestions, "gen1", "2026-07-12T08:00:00")
+    assert sug.resolve_suggestion(state, "gen1", 1)["draft"] == "d1"
+
+
+def test_resolve_suggestion_returns_none_on_stale_gen_id():
+    suggestions = [{"title": "T", "signal": "s", "rationale": "r", "draft": "d", "size": "M"}]
+    state = sug.build_suggestions_state(suggestions, "gen1", "2026-07-12T08:00:00")
+    assert sug.resolve_suggestion(state, "gen0_old", 0) is None
+
+
+def test_resolve_suggestion_returns_none_on_out_of_range_index():
+    suggestions = [{"title": "T", "signal": "s", "rationale": "r", "draft": "d", "size": "M"}]
+    state = sug.build_suggestions_state(suggestions, "gen1", "2026-07-12T08:00:00")
+    assert sug.resolve_suggestion(state, "gen1", 5) is None
+    assert sug.resolve_suggestion(state, "gen1", -1) is None
+
+
+def test_resolve_suggestion_returns_none_on_missing_state():
+    assert sug.resolve_suggestion(None, "gen1", 0) is None
+    assert sug.resolve_suggestion({}, "gen1", 0) is None
