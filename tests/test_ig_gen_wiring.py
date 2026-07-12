@@ -273,10 +273,27 @@ def test_ig_gen_dispatch_persona_id_routes_to_persona_engine_with_lora(monkeypat
 
     assert persona_calls["pid"] == "persona_af2f54ee"
     assert persona_calls["prompt"] == (
-        "перше знайомство: хто така Віра, реалізм, тепле світло, сучасний контекст"
+        "перше знайомство: хто така Віра, реалізм, тепле світло, сучасний контекст, "
+        "candid photo, natural skin texture with pores, "
+        "shot on smartphone/mirrorless camera, natural lighting, realistic, "
+        "no painting, no illustration, no digital art, no anime, no cartoon, "
+        "no airbrushed skin, no artist signature, no watermark, no bokeh particles"
     )
     assert old_calls["n"] == 0
     assert state[PENDING_KEY]["photo_url"] == "https://pub/x.jpg"
+
+
+def test_ig_gen_photo_prompt_persona_adds_realism_anchors_and_negatives_without_style():
+    """Без ``persona_media.style`` якорі реалізму та негативи все одно
+    додаються — це не залежить від наявності стилю клієнта."""
+    prompt = mod._ig_gen_photo_prompt_persona("тема", {"persona_id": "p1"})
+    assert prompt == (
+        "тема, "
+        "candid photo, natural skin texture with pores, "
+        "shot on smartphone/mirrorless camera, natural lighting, realistic, "
+        "no painting, no illustration, no digital art, no anime, no cartoon, "
+        "no airbrushed skin, no artist signature, no watermark, no bokeh particles"
+    )
 
 
 def test_ig_gen_dispatch_nopersona_forces_old_path_even_with_persona_id(monkeypatch):

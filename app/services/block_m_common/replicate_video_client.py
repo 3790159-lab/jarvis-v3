@@ -26,6 +26,13 @@ _COST_FLUX_TRAINING = 5.00
 _COST_FLUX_INFERENCE = 0.02
 _COST_FLUX_PRO = 0.04
 
+# Реализм LoRA-фото персоны: задранный lora_scale тянет результат в
+# digital-painting (фарфоровая кожа, painterly-текстуры) вместо фото —
+# дефолты подобраны под фотореализм, override через конфиг (env), не
+# хардкод в вызове.
+_FLUX_LORA_SCALE_DEFAULT = float(os.getenv("JARVIS_FLUX_LORA_SCALE", "0.8"))
+_FLUX_LORA_GUIDANCE_DEFAULT = float(os.getenv("JARVIS_FLUX_LORA_GUIDANCE", "3.0"))
+
 
 class ReplicateVideoClient:
     """Async wrapper over Replicate REST API for video and LoRA operations.
@@ -139,6 +146,8 @@ class ReplicateVideoClient:
         prompt: str,
         lora_url: str,
         trigger_word: str,
+        lora_scale: float | None = None,
+        guidance: float | None = None,
     ) -> dict:
         """Generate an image with Flux using a trained LoRA.
 
@@ -146,6 +155,9 @@ class ReplicateVideoClient:
             prompt: Generation prompt (trigger_word is automatically prepended).
             lora_url: URL to the LoRA weights file.
             trigger_word: LoRA activation token.
+            lora_scale: LoRA strength (default ``_FLUX_LORA_SCALE_DEFAULT`` —
+                too high pulls the result toward digital-painting).
+            guidance: Prompt guidance strength (default ``_FLUX_LORA_GUIDANCE_DEFAULT``).
 
         Returns:
             {"image_url": str, "cost_usd": float}
@@ -154,6 +166,8 @@ class ReplicateVideoClient:
             "input": {
                 "prompt": f"{trigger_word} {prompt}",
                 "lora": lora_url,
+                "lora_scale": lora_scale if lora_scale is not None else _FLUX_LORA_SCALE_DEFAULT,
+                "guidance": guidance if guidance is not None else _FLUX_LORA_GUIDANCE_DEFAULT,
             }
         }
         output = await self._run_prediction(_FLUX_LORA_MODEL, payload)

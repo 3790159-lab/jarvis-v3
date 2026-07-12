@@ -491,6 +491,44 @@ class TestFluxLoraInference:
 
         assert captured_payload["input"]["prompt"].startswith("sks_sofia")
 
+    @pytest.mark.anyio
+    async def test_default_lora_scale_and_guidance_applied(self):
+        """Занадто високий lora_scale тягне персону в digital-painting —
+        дефолт іменована конфіг-константа (``JARVIS_FLUX_LORA_SCALE``/
+        ``JARVIS_FLUX_LORA_GUIDANCE``), не хардкод у payload."""
+        from app.services.block_m_common import replicate_video_client as rvc
+        client = rvc.ReplicateVideoClient(api_token="tok")
+        captured_payload = {}
+
+        async def capture(model, payload, **kw):
+            captured_payload.update(payload)
+            return ["https://img.jpg"]
+
+        with patch.object(client, "_run_prediction", side_effect=capture):
+            await client.generate_flux_with_lora("smiling", "https://lora.url", "sks_sofia")
+
+        assert captured_payload["input"]["lora_scale"] == rvc._FLUX_LORA_SCALE_DEFAULT
+        assert captured_payload["input"]["guidance"] == rvc._FLUX_LORA_GUIDANCE_DEFAULT
+
+    @pytest.mark.anyio
+    async def test_explicit_lora_scale_and_guidance_override_default(self):
+        from app.services.block_m_common.replicate_video_client import ReplicateVideoClient
+        client = ReplicateVideoClient(api_token="tok")
+        captured_payload = {}
+
+        async def capture(model, payload, **kw):
+            captured_payload.update(payload)
+            return ["https://img.jpg"]
+
+        with patch.object(client, "_run_prediction", side_effect=capture):
+            await client.generate_flux_with_lora(
+                "smiling", "https://lora.url", "sks_sofia",
+                lora_scale=0.5, guidance=4.0,
+            )
+
+        assert captured_payload["input"]["lora_scale"] == 0.5
+        assert captured_payload["input"]["guidance"] == 4.0
+
 
 # ─── ReplicateVideoClient — retry logic ──────────────────────────────────────
 
