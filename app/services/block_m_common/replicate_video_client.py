@@ -26,11 +26,11 @@ _COST_FLUX_TRAINING = 5.00
 _COST_FLUX_INFERENCE = 0.02
 _COST_FLUX_PRO = 0.04
 
-# Реализм LoRA-фото персоны: задранный lora_scale тянет результат в
-# digital-painting (фарфоровая кожа, painterly-текстуры) вместо фото —
-# дефолты подобраны под фотореализм, override через конфиг (env), не
-# хардкод в вызове.
-_FLUX_LORA_SCALE_DEFAULT = float(os.getenv("JARVIS_FLUX_LORA_SCALE", "0.8"))
+# Реализм LoRA-фото персоны: lora_scale=1.0 — свит-спот (live-подбор
+# 2026-07-12 на 2 seed): узнаваемость персоны + фото-вид. На 0.8 LoRA
+# недовешена (лицо уплывает к дженерик-FLUX), на 1.2 начинается
+# переобработка (blush/сглаживание). Override через конфиг (env).
+_FLUX_LORA_SCALE_DEFAULT = float(os.getenv("JARVIS_FLUX_LORA_SCALE", "1.0"))
 _FLUX_LORA_GUIDANCE_DEFAULT = float(os.getenv("JARVIS_FLUX_LORA_GUIDANCE", "3.0"))
 
 
@@ -165,7 +165,9 @@ class ReplicateVideoClient:
         payload = {
             "input": {
                 "prompt": f"{trigger_word} {prompt}",
-                "lora": lora_url,
+                # ключ ``lora_weights`` — саме він у схемі flux-dev-lora; ключ
+                # ``lora`` у схемі відсутній і мовчки дропався → LoRA не вантажилась.
+                "lora_weights": lora_url,
                 "lora_scale": lora_scale if lora_scale is not None else _FLUX_LORA_SCALE_DEFAULT,
                 "guidance": guidance if guidance is not None else _FLUX_LORA_GUIDANCE_DEFAULT,
             }

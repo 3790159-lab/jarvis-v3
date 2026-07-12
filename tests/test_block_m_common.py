@@ -492,6 +492,31 @@ class TestFluxLoraInference:
         assert captured_payload["input"]["prompt"].startswith("sks_sofia")
 
     @pytest.mark.anyio
+    async def test_lora_url_sent_under_lora_weights_key(self):
+        """Модель ``flux-dev-lora`` приймає ваги під ключем ``lora_weights``;
+        ключа ``lora`` у схемі НЕМАЄ — Replicate мовчки дропає невідомий ключ,
+        тому LoRA не вантажилась (live-доказано 2026-07-12)."""
+        from app.services.block_m_common.replicate_video_client import ReplicateVideoClient
+        client = ReplicateVideoClient(api_token="tok")
+        captured = {}
+
+        async def capture(model, payload, **kw):
+            captured.update(payload)
+            return ["https://img.jpg"]
+
+        with patch.object(client, "_run_prediction", side_effect=capture):
+            await client.generate_flux_with_lora("smiling", "https://lora.url", "sks_sofia")
+
+        assert captured["input"]["lora_weights"] == "https://lora.url"
+        assert "lora" not in captured["input"]  # невалідний ключ не має слатись
+
+    def test_flux_lora_scale_default_is_one(self):
+        """Дефолт lora_scale=1.0: на 0.8 LoRA недовешена (лице уплывает);
+        live-підбір дав 1.0 як свит-спот узнаваність+фото."""
+        from app.services.block_m_common import replicate_video_client as rvc
+        assert rvc._FLUX_LORA_SCALE_DEFAULT == 1.0
+
+    @pytest.mark.anyio
     async def test_default_lora_scale_and_guidance_applied(self):
         """Занадто високий lora_scale тягне персону в digital-painting —
         дефолт іменована конфіг-константа (``JARVIS_FLUX_LORA_SCALE``/

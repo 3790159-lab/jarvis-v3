@@ -272,28 +272,30 @@ def test_ig_gen_dispatch_persona_id_routes_to_persona_engine_with_lora(monkeypat
     mod._ig_gen_dispatch(ADMIN, "client=vera_ai_ua перше знайомство: хто така Віра", state)
 
     assert persona_calls["pid"] == "persona_af2f54ee"
+    # Короткі фото-якорі (photo, natural light); БЕЗ інлайн-негативів — FLUX-dev
+    # не парсить заперечення й "no anime/illustration/signature" у позитивному
+    # промпті ПРИЗИВАЄ аніме/ілюстрації/підпис (live-доказано 2026-07-12).
     assert persona_calls["prompt"] == (
         "перше знайомство: хто така Віра, реалізм, тепле світло, сучасний контекст, "
-        "candid photo, natural skin texture with pores, "
-        "shot on smartphone/mirrorless camera, natural lighting, realistic, "
-        "no painting, no illustration, no digital art, no anime, no cartoon, "
-        "no airbrushed skin, no artist signature, no watermark, no bokeh particles"
+        "photo, natural light"
     )
     assert old_calls["n"] == 0
     assert state[PENDING_KEY]["photo_url"] == "https://pub/x.jpg"
 
 
-def test_ig_gen_photo_prompt_persona_adds_realism_anchors_and_negatives_without_style():
-    """Без ``persona_media.style`` якорі реалізму та негативи все одно
-    додаються — це не залежить від наявності стилю клієнта."""
+def test_ig_gen_photo_prompt_persona_adds_short_anchors_without_style():
+    """Без ``persona_media.style`` короткі фото-якорі все одно додаються."""
     prompt = mod._ig_gen_photo_prompt_persona("тема", {"persona_id": "p1"})
-    assert prompt == (
-        "тема, "
-        "candid photo, natural skin texture with pores, "
-        "shot on smartphone/mirrorless camera, natural lighting, realistic, "
-        "no painting, no illustration, no digital art, no anime, no cartoon, "
-        "no airbrushed skin, no artist signature, no watermark, no bokeh particles"
-    )
+    assert prompt == "тема, photo, natural light"
+
+
+def test_ig_gen_photo_prompt_persona_has_no_inline_negatives_or_pores():
+    """Інлайн-негативи ("no <term>") та буквальне "pores" видалені —
+    вони давали зворотний ефект (аніме/підпис, пор-точки)."""
+    prompt = mod._ig_gen_photo_prompt_persona("тема", {"style": "реалізм"})
+    assert "no " not in prompt
+    assert "pores" not in prompt
+    assert "anime" not in prompt
 
 
 def test_ig_gen_dispatch_nopersona_forces_old_path_even_with_persona_id(monkeypatch):

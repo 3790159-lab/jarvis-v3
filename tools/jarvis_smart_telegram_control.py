@@ -4645,33 +4645,24 @@ def _ig_gen_photo_prompt(topic: str, brand: Optional[Dict[str, Any]]) -> str:
     return f"{topic}, {style}" if style else topic
 
 
-# Персона-движок (FLUX+LoRA) без якорей тягне у digital-painting (порцелянова
-# шкіра, painterly волосся, боке-частинки, підпис художника) замість фото —
-# ці якорі завжди підмішуються в кадр персони, щоб тягнути результат до
-# фотореалізму. FLUX-LoRA (Replicate) не має окремого поля ``negative_prompt``
-# (див. ``_enhance_prompt`` у generic-шляху) — негативи вплітаються в текст
-# промпта тим самим прийомом ("no <term>").
-_IG_GEN_PERSONA_PHOTO_ANCHORS = (
-    "candid photo, natural skin texture with pores, "
-    "shot on smartphone/mirrorless camera, natural lighting, realistic"
-)
-_IG_GEN_PERSONA_NEGATIVE_TERMS = (
-    "painting", "illustration", "digital art", "anime", "cartoon",
-    "airbrushed skin", "artist signature", "watermark", "bokeh particles",
-)
+# Фото-якорі кадру персони — КОРОТКІ (live-підбір 2026-07-12). Довгі якорі й
+# інлайн-негативи ("no anime/illustration/signature") давали ЗВОРОТНИЙ ефект:
+# FLUX-dev не парсить заперечення → згадка "no anime" ПРИЗИВАЄ аніме/підпис
+# (доказано: з негативами → аніме+watermark, без → фото), а буквальне "pores"
+# → пор-точки. Тому: тільки короткі позитивні якорі, БЕЗ негативів.
+_IG_GEN_PERSONA_PHOTO_ANCHORS = "photo, natural light"
 
 
 def _ig_gen_photo_prompt_persona(topic: str, persona_media: Optional[Dict[str, Any]]) -> str:
     """Промпт кадра персоны: тема + дефолтный стиль кадра из ``persona_media``
-    (секция ``brand.md``, см. ``_ig_gen_dispatch``) + фото-якоря реализма +
-    негативы против digital-painting (см. ``_IG_GEN_PERSONA_PHOTO_ANCHORS``/
-    ``_IG_GEN_PERSONA_NEGATIVE_TERMS``)."""
+    (секция ``brand.md``, см. ``_ig_gen_dispatch``) + КОРОТКИЕ фото-якоря
+    (см. ``_IG_GEN_PERSONA_PHOTO_ANCHORS``). Без инлайн-негативов — они
+    призывали то, что запрещали (FLUX-dev не парсит отрицание)."""
     style = (persona_media or {}).get("style")
     parts = [topic]
     if style:
         parts.append(style)
     parts.append(_IG_GEN_PERSONA_PHOTO_ANCHORS)
-    parts.append(", ".join(f"no {term}" for term in _IG_GEN_PERSONA_NEGATIVE_TERMS))
     return ", ".join(parts)
 
 
