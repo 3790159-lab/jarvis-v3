@@ -162,3 +162,65 @@ def test_generate_caption_passes_forbidden_into_prompt():
         {"business": "B", "topic": "T", "forbidden": ["політика"]}, ask_llm=_fake_ask_llm,
     )
     assert "політика" in captured["system"]
+
+
+# ── apply_brand ───────────────────────────────────────────────────────────────
+def test_apply_brand_none_returns_brief_unchanged():
+    brief = {"business": "наш бізнес", "topic": "T", "cta": "напиши в директ"}
+    merged = cap.apply_brand(brief, None)
+    assert merged == brief
+    assert merged is not brief  # honest copy, caller's dict not mutated
+
+
+def test_apply_brand_overrides_business_tone_lang_cta_forbidden_hashtags():
+    brief = {"business": "наш бізнес", "topic": "T", "cta": "напиши в директ"}
+    brand = {
+        "business": "Віра — ШІ-аватар",
+        "tone": ["молодий", "енергійний"],
+        "lang": "uk",
+        "cta": "напиши в директ, якщо хочеш такий самий ШІ-контент",
+        "forbidden": ["політика", "релігія"],
+        "hashtags_count": 7,
+    }
+    merged = cap.apply_brand(brief, brand)
+    assert merged["business"] == "Віра — ШІ-аватар"
+    assert merged["tone"] == ["молодий", "енергійний"]
+    assert merged["lang"] == "uk"
+    assert merged["cta"] == "напиши в директ, якщо хочеш такий самий ШІ-контент"
+    assert merged["forbidden"] == ["політика", "релігія"]
+    assert merged["hashtags_count"] == 7
+    assert merged["topic"] == "T"  # topic never overridden by brand
+
+
+def test_apply_brand_never_overrides_topic():
+    brief = {"business": "B", "topic": "справжня тема юзера"}
+    brand = {"topic": "має бути проігноровано"}
+    merged = cap.apply_brand(brief, brand)
+    assert merged["topic"] == "справжня тема юзера"
+
+
+def test_apply_brand_ignores_empty_brand_fields():
+    brief = {"business": "наш бізнес", "topic": "T"}
+    brand = {"business": "", "forbidden": [], "cta": None}
+    merged = cap.apply_brand(brief, brand)
+    assert merged["business"] == "наш бізнес"
+    assert "forbidden" not in merged
+    assert "cta" not in merged
+
+
+def test_generate_caption_with_brand_reaches_llm_prompt():
+    captured = {}
+
+    def _fake_ask_llm(system, messages):
+        captured["system"] = system
+        captured["messages"] = messages
+        return "ok #tag"
+
+    brief = cap.apply_brand(
+        {"business": "наш бізнес", "topic": "новий пост"},
+        {"tone": ["молодий", "енергійний"], "lang": "uk"},
+    )
+    cap.generate_caption(brief, ask_llm=_fake_ask_llm)
+    assert "молодий" in captured["messages"][0]["content"]
+    assert "енергійний" in captured["messages"][0]["content"]
+    assert "uk" in captured["system"].lower()

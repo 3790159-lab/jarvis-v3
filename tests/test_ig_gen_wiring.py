@@ -195,6 +195,60 @@ def test_ig_gen_dispatch_happy_stores_pending_and_shows_card(monkeypatch):
     assert "https://pub/x.jpg" in kb_sent[0][0]
 
 
+# ---- clients/<name>/brand.md wiring ---------------------------------------
+
+
+def test_ig_gen_dispatch_client_arg_merges_brand_into_photo_prompt_and_caption(monkeypatch):
+    photo_prompts = []
+    monkeypatch.setattr(mod, "_ig_gen_generate_photo",
+                        lambda prompt: photo_prompts.append(prompt) or "https://replicate/gen.jpg")
+    monkeypatch.setattr(mod, "_ig_gen_download_photo", lambda u: "C:/tmp/ig_gen_x.jpg")
+    _patch_guard_spend_passthrough(monkeypatch)
+    monkeypatch.setattr(mod, "_ig_post_host_media", lambda p: "https://pub/x.jpg")
+    monkeypatch.setattr(mod, "save_state", lambda s: None)
+    monkeypatch.setattr(mod, "_send_photo_url", lambda *a, **k: None)
+    kb_sent = []
+    monkeypatch.setattr(mod, "send_with_keyboard",
+                        lambda cid, t, kb, *a, **k: kb_sent.append((t, kb)))
+    monkeypatch.setattr(mod, "send", lambda *a, **k: None)
+    captured = {}
+
+    def _fake_llm(system, messages):
+        captured["messages"] = messages
+        return "Привіт! #ші #автоматизація"
+
+    monkeypatch.setattr(mod, "_ig_caption_ask_llm", _fake_llm)
+
+    state = {}
+    mod._ig_gen_dispatch(ADMIN, "client=vera_ai_ua новий пост про ші", state)
+
+    assert photo_prompts == ["новий пост про ші, генеративна естетика ШІ-аватара Віри: "
+                             "яскраві акценти, чисті кадри, сучасний технологічний стиль "
+                             "без кітчу і без фотореалістичних людей"]
+    assert "молодий" in captured["messages"][0]["content"]
+    assert state[PENDING_KEY]["topic"] == "новий пост про ші"
+
+
+def test_ig_gen_dispatch_without_client_config_is_unchanged(monkeypatch):
+    monkeypatch.delenv("IG_CLIENT", raising=False)
+    photo_prompts = []
+    monkeypatch.setattr(mod, "_ig_gen_generate_photo",
+                        lambda prompt: photo_prompts.append(prompt) or "https://replicate/gen.jpg")
+    monkeypatch.setattr(mod, "_ig_gen_download_photo", lambda u: "C:/tmp/ig_gen_x.jpg")
+    _patch_caption(monkeypatch)
+    _patch_guard_spend_passthrough(monkeypatch)
+    monkeypatch.setattr(mod, "_ig_post_host_media", lambda p: "https://pub/x.jpg")
+    monkeypatch.setattr(mod, "save_state", lambda s: None)
+    monkeypatch.setattr(mod, "_send_photo_url", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "send_with_keyboard", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "send", lambda *a, **k: None)
+
+    state = {}
+    mod._ig_gen_dispatch(ADMIN, "новий сезонний напій", state)
+
+    assert photo_prompts == ["новий сезонний напій"]  # no brand -> prompt untouched
+
+
 # ---- reuse of the existing ig_post preview/publish flow --------------------
 
 

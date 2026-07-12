@@ -123,6 +123,67 @@ def test_ig_caption_command_gated_by_money_gate_without_token(monkeypatch):
     assert fired["dispatch"] == 0 and fired["confirm"] == 1
 
 
+# ── clients/<name>/brand.md wiring ──────────────────────────────────────────
+
+
+def test_ig_caption_dispatch_without_client_config_is_unchanged(monkeypatch):
+    monkeypatch.delenv("IG_CLIENT", raising=False)
+    captured = {}
+
+    def _fake_llm(system, messages):
+        captured["messages"] = messages
+        return "Смачна кава! #кава #ранок"
+
+    monkeypatch.setattr(mod, "guard_spend", lambda uid, uname, est, do: (do(), None))
+    monkeypatch.setattr(mod, "_ig_caption_ask_llm", _fake_llm)
+    sent = {}
+    monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.setdefault("t", t))
+
+    mod._ig_caption_dispatch(ADMIN, "новинка сезону")
+
+    assert mod._IG_CAPTION_BUSINESS in captured["messages"][0]["content"]
+    assert "новинка сезону" in captured["messages"][0]["content"]
+
+
+def test_ig_caption_dispatch_client_arg_merges_brand_into_prompt(monkeypatch):
+    monkeypatch.delenv("IG_CLIENT", raising=False)
+    captured = {}
+
+    def _fake_llm(system, messages):
+        captured["system"] = system
+        captured["messages"] = messages
+        return "Привіт! #ші #автоматизація"
+
+    monkeypatch.setattr(mod, "guard_spend", lambda uid, uname, est, do: (do(), None))
+    monkeypatch.setattr(mod, "_ig_caption_ask_llm", _fake_llm)
+    sent = {}
+    monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.setdefault("t", t))
+
+    mod._ig_caption_dispatch(ADMIN, "client=vera_ai_ua новий пост про автоматизацію")
+
+    assert "молодий" in captured["messages"][0]["content"]
+    assert "новий пост про автоматизацію" in captured["messages"][0]["content"]
+    assert "client=" not in captured["messages"][0]["content"]
+    assert "uk" in captured["system"].lower()
+
+
+def test_ig_caption_dispatch_env_ig_client_merges_brand(monkeypatch):
+    monkeypatch.setenv("IG_CLIENT", "vera_ai_ua")
+    captured = {}
+
+    def _fake_llm(system, messages):
+        captured["messages"] = messages
+        return "Привіт! #ші #автоматизація"
+
+    monkeypatch.setattr(mod, "guard_spend", lambda uid, uname, est, do: (do(), None))
+    monkeypatch.setattr(mod, "_ig_caption_ask_llm", _fake_llm)
+    monkeypatch.setattr(mod, "send", lambda *a, **k: None)
+
+    mod._ig_caption_dispatch(ADMIN, "тема без префіксу")
+
+    assert "молодий" in captured["messages"][0]["content"]
+
+
 def test_ig_caption_confirm_tap_reaches_real_dispatch_e2e(monkeypatch):
     calls = {"llm": 0}
 

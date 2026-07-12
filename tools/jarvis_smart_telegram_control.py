@@ -4579,24 +4579,43 @@ def _ig_caption_ask_llm(system: str, messages: list) -> str:
     return ""
 
 
+def _ig_resolve_client(explicit: Optional[str]) -> Optional[str]:
+    """Клиент бренд-конфига: явный аргумент команды (``client=<name>``) имеет
+    приоритет над env ``IG_CLIENT``. Нет ни того ни другого -> ``None`` (старое
+    поведение без конфига, см. skill smm-instagram §6)."""
+    return explicit or os.getenv("IG_CLIENT") or None
+
+
+def _ig_gen_photo_prompt(topic: str, brand: Optional[Dict[str, Any]]) -> str:
+    """Подмешать визуальный стиль клиента (``brand.md``) в промпт генерации фото."""
+    style = (brand or {}).get("visual_style")
+    return f"{topic}, {style}" if style else topic
+
+
 def _ig_caption_dispatch(chat_id: str, topic: str) -> None:
     """``/ig_caption <тема>`` — быстрая ручная генерация подписи под guard_spend.
 
-    brief собирается из темы (обязательна) + честных env-дефолтов бизнеса/CTA;
-    LLM-вызов изолирован (money-safety), record_cost — только при успехе
-    (``guard_spend``).
+    brief собирается из темы (обязательна) + честных env-дефолтов бизнеса/CTA,
+    затем подмешивается бренд-конфиг клиента (``client=<name>`` в начале темы
+    или env ``IG_CLIENT`` — см. ``app.services.brand_config``); нет клиента ->
+    поведение не меняется. LLM-вызов изолирован (money-safety), record_cost —
+    только при успехе (``guard_spend``).
     """
+    from app.services import brand_config as _bc
     from app.services import ig_caption as _cap
 
-    topic = (topic or "").strip()
+    client_arg, topic = _bc.parse_client_arg(topic)
+    topic = topic.strip()
     if not topic:
         send(chat_id, "✏️ Укажи тему: /ig_caption <тема поста>")
         return
-    brief = {
+    client = _ig_resolve_client(client_arg)
+    brand = _bc.load_brand_config(client) if client else None
+    brief = _cap.apply_brand({
         "business": _IG_CAPTION_BUSINESS,
         "topic": topic,
         "cta": _IG_CAPTION_CTA,
-    }
+    }, brand)
     try:
         caption, err = guard_spend(
             chat_id, None, _cap.EST_USD,
@@ -4695,15 +4714,20 @@ def _ig_post_host_media(path: str) -> str:
     return host_for_ig(path)
 
 
-def _ig_post_generate_caption(chat_id, topic: str):
+def _ig_post_generate_caption(chat_id, topic: str, client: Optional[str] = None):
     """Платный шаг подписи под guard_spend (тот же money-путь, что /ig_caption).
-    Возврат ``(caption, err)`` — как у ``guard_spend``."""
+
+    ``client`` (см. ``_ig_resolve_client``/``app.services.brand_config``) —
+    опционален; без него поведение не меняется. Возврат ``(caption, err)`` —
+    как у ``guard_spend``."""
+    from app.services import brand_config as _bc
     from app.services import ig_caption as _cap
-    brief = {
+    brand = _bc.load_brand_config(client) if client else None
+    brief = _cap.apply_brand({
         "business": _IG_CAPTION_BUSINESS,
         "topic": topic,
         "cta": _IG_CAPTION_CTA,
-    }
+    }, brand)
     return guard_spend(
         chat_id, None, _cap.EST_USD,
         lambda: _cap.generate_caption(brief, ask_llm=_ig_caption_ask_llm),
@@ -4888,17 +4912,27 @@ def _ig_gen_dispatch(chat_id, query: str, state: Dict[str, Any]) -> None:
     """``/ig_gen <тема>`` — сгенерировать фото по теме, подготовить+захостить
     медиа, сгенерить подпись (тот же money-путь, что /ig_post) и показать ТУ
     ЖЕ превью-карточку. Публикация НЕ здесь — только по тапу [📤] (igpost:
-    callback, общий с /ig_post)."""
+    callback, общий с /ig_post).
+
+    Клиентский бренд-конфиг (``client=<name>`` в начале темы или env
+    ``IG_CLIENT`` — см. ``app.services.brand_config``) подмешивается и в
+    промпт генерации фото (``visual_style``), и в подпись; нет клиента ->
+    поведение не меняется."""
+    from app.services import brand_config as _bc
     from app.services import ig_post as _igp
 
-    topic = (query or "").strip()
+    client_arg, topic = _bc.parse_client_arg(query)
+    topic = topic.strip()
     if not topic:
         send(chat_id, "🖼 Формат: /ig_gen <тема поста>")
         return
+    client = _ig_resolve_client(client_arg)
+    brand = _bc.load_brand_config(client) if client else None
+    photo_prompt = _ig_gen_photo_prompt(topic, brand)
     # 1) генерация фото (платно, guard_spend — money-safety как у /ig_post)
     try:
         photo_remote_url, err = guard_spend(
-            chat_id, None, _IG_GEN_PHOTO_EST_USD, lambda: _ig_gen_generate_photo(topic),
+            chat_id, None, _IG_GEN_PHOTO_EST_USD, lambda: _ig_gen_generate_photo(photo_prompt),
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("ig_gen: photo gen failed chat=%s", chat_id)
@@ -4926,7 +4960,7 @@ def _ig_gen_dispatch(chat_id, query: str, state: Dict[str, Any]) -> None:
         return
     # 4) подпись (платно, guard_spend — переиспользуем /ig_post-обёртку)
     try:
-        caption, err = _ig_post_generate_caption(chat_id, topic)
+        caption, err = _ig_post_generate_caption(chat_id, topic, client=client)
     except Exception as exc:  # noqa: BLE001
         logger.exception("ig_gen: caption gen failed chat=%s", chat_id)
         send(chat_id, "🚫 LLM недоступен — подпись не сгенерирована, $0 (%s)." % (str(exc)[:120]))

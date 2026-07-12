@@ -90,6 +90,28 @@ def enforce_length(caption: str, max_len: int = IG_CAPTION_MAX_LEN) -> str:
     return caption[:max_len].rstrip()
 
 
+_BRAND_OVERRIDE_KEYS = ("business", "tone", "lang", "cta", "forbidden", "hashtags_count")
+
+
+def apply_brand(brief: Dict[str, Any], brand: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Подмешать клиентский бренд-конфиг (``clients/<name>/brand.md``) в ``brief``.
+
+    ``brand`` (см. ``app.services.brand_config.load_brand_config``) переопределяет
+    business/tone/lang/cta/forbidden/hashtags_count, если поле непустое. ``topic``
+    — всегда из юзерского ввода, бренд его никогда не переопределяет. ``brand`` —
+    None/пусто -> честная копия ``brief`` без изменений (нет конфига клиента —
+    старое поведение).
+    """
+    merged = dict(brief)
+    if not brand:
+        return merged
+    for key in _BRAND_OVERRIDE_KEYS:
+        value = brand.get(key)
+        if value not in (None, "", []):
+            merged[key] = value
+    return merged
+
+
 def generate_caption(
     brief: Dict[str, Any],
     ask_llm: Callable[[str, List[dict]], str],
