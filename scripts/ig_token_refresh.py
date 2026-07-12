@@ -121,7 +121,17 @@ def write_stamp(stamp_path: str) -> None:
 
 
 def send_telegram(text: str) -> bool:
-    """Best-effort admin notification via the Bot API. Never raises."""
+    """Best-effort admin notification via the Bot API. Never raises.
+
+    Standalone job (see module docstring) — it does not go through
+    ``app.services.notifications``, so it must consult the shared
+    isolation guard itself or a test invoking this function directly
+    (rather than via a subprocess) would reach the real admin chat.
+    """
+    from app.core.notify_isolation import telegram_send_blocked
+    if telegram_send_blocked():
+        logger.info("ig_token_refresh: telegram send suppressed under test isolation")
+        return False
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     chat_id = os.getenv("TELEGRAM_ALLOWED_CHAT_ID", "").strip()
     if not token or not chat_id:

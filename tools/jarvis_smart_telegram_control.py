@@ -1589,6 +1589,7 @@ def _devtask_pytest_env() -> Dict[str, str]:
     from app.services.devtask import runner as _runner
     env = _runner.sanitized_child_env(os.environ)
     env["JARVIS_DISABLE_TELEGRAM_SEND"] = "1"
+    env["JARVIS_ENV"] = "test"
     return env
 
 

@@ -126,7 +126,7 @@ def send_telegram_alert(text: str) -> bool:
     from app.core.notify_isolation import telegram_send_blocked
 
     if telegram_send_blocked():
-        logger.debug("Watchdog alert suppressed under test isolation")
+        logger.info("Watchdog alert suppressed under test isolation")
         return False
     if not BOT_TOKEN or not ADMIN_CHAT_ID:
         logger.warning("Telegram alert skipped: no BOT_TOKEN or ADMIN_CHAT_ID")

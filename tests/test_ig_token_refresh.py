@@ -79,6 +79,62 @@ def test_update_env_token_empty_new_raises(tmp_path):
     assert "OLDTOKEN" in env.read_text(encoding="utf-8")
 
 
+# ── send_telegram: shared test-isolation guard ───────────────────────────────
+#
+# This job is standalone (module docstring: "does NOT depend on the live
+# bot"), so it has its own send_telegram() rather than going through
+# app.services.notifications. Before this fix it skipped the shared
+# app.core.notify_isolation guard entirely -- a test that forgets to
+# monkeypatch send_telegram (as every test_main_* below does) would reach
+# the real admin chat if TELEGRAM_BOT_TOKEN/CHAT_ID leaked in from .env.
+
+
+def test_send_telegram_blocked_under_test_isolation_no_network(monkeypatch, caplog):
+    mod = _load_module()
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "faketoken123")
+    monkeypatch.setenv("TELEGRAM_ALLOWED_CHAT_ID", "42")
+    monkeypatch.delenv("JARVIS_ALLOW_TELEGRAM_SEND", raising=False)
+
+    def boom(*a, **k):
+        raise AssertionError("network send attempted under test isolation")
+
+    monkeypatch.setattr(mod.urllib.request, "urlopen", boom)
+    with caplog.at_level("INFO"):
+        ok = mod.send_telegram("phantom alarm")
+
+    assert ok is False
+    assert any("suppressed under test isolation" in r.getMessage() for r in caplog.records)
+
+
+def test_send_telegram_sends_when_isolation_opted_out(monkeypatch):
+    mod = _load_module()
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "faketoken123")
+    monkeypatch.setenv("TELEGRAM_ALLOWED_CHAT_ID", "42")
+    monkeypatch.setenv("JARVIS_ALLOW_TELEGRAM_SEND", "1")
+
+    captured = {}
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def read(self):
+            return b'{"ok": true}'
+
+    def fake_urlopen(req, timeout):  # noqa: ARG001
+        captured["url"] = req.full_url
+        return _FakeResponse()
+
+    monkeypatch.setattr(mod.urllib.request, "urlopen", fake_urlopen)
+    ok = mod.send_telegram("real alarm")
+
+    assert ok is True
+    assert "faketoken123" in captured["url"]
+
+
 def test_should_refresh_age_gate():
     mod = _load_module()
     # no prior refresh recorded -> establish baseline (refresh)

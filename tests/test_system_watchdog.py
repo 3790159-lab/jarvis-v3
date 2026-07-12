@@ -206,7 +206,7 @@ class TestSendTelegramAlert:
         wdog.ADMIN_CHAT_ID = orig_chat
         assert result is False
 
-    def test_suppressed_under_pytest(self, monkeypatch):
+    def test_suppressed_under_pytest(self, monkeypatch, caplog):
         """Configured watchdog must not reach the network during pytest."""
         monkeypatch.delenv("JARVIS_ALLOW_TELEGRAM_SEND", raising=False)
         import app.services.system_watchdog as wdog
@@ -223,12 +223,47 @@ class TestSendTelegramAlert:
 
         try:
             with patch("urllib.request.urlopen", spy):
-                result = wdog.send_telegram_alert("test message")
+                with caplog.at_level("INFO"):
+                    result = wdog.send_telegram_alert("test message")
         finally:
             wdog.BOT_TOKEN = orig_bot
             wdog.ADMIN_CHAT_ID = orig_chat
         assert calls["n"] == 0
         assert result is False
+        # Task spec: suppressed sends must be visible at INFO, not DEBUG.
+        assert any("suppressed under test isolation" in r.getMessage() for r in caplog.records)
+
+    def test_suppressed_by_jarvis_env_test_independent_of_pytest_detection(self, monkeypatch, caplog):
+        """JARVIS_ENV=test must gate the watchdog send on its own, not merely
+        piggyback on the pytest-process auto-detection."""
+        import app.core.notify_isolation as ti
+        monkeypatch.setattr(ti, "running_under_pytest", lambda: False)
+        monkeypatch.delenv("JARVIS_ALLOW_TELEGRAM_SEND", raising=False)
+        monkeypatch.delenv("JARVIS_DISABLE_TELEGRAM_SEND", raising=False)
+        monkeypatch.setenv("JARVIS_ENV", "test")
+
+        import app.services.system_watchdog as wdog
+        orig_bot = wdog.BOT_TOKEN
+        orig_chat = wdog.ADMIN_CHAT_ID
+        wdog.BOT_TOKEN = "fake_token"
+        wdog.ADMIN_CHAT_ID = "123"
+
+        calls = {"n": 0}
+
+        def spy(*a, **k):
+            calls["n"] += 1
+            return MagicMock()
+
+        try:
+            with patch("urllib.request.urlopen", spy):
+                with caplog.at_level("INFO"):
+                    result = wdog.send_telegram_alert("test message")
+        finally:
+            wdog.BOT_TOKEN = orig_bot
+            wdog.ADMIN_CHAT_ID = orig_chat
+        assert calls["n"] == 0
+        assert result is False
+        assert any("suppressed under test isolation" in r.getMessage() for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------

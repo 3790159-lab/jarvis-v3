@@ -31,7 +31,7 @@ def _reset_singleton(monkeypatch):
 # ── test-isolation guard (defensive flag) ────────────────────────────────────
 
 
-def test_send_suppressed_under_pytest_without_optin(monkeypatch):
+def test_send_suppressed_under_pytest_without_optin(monkeypatch, caplog):
     """With the opt-in removed, a fully-configured notifier must NOT hit the
     network during a pytest run — this is the belt that stops phantoms."""
     monkeypatch.delenv("JARVIS_ALLOW_TELEGRAM_SEND", raising=False)
@@ -41,13 +41,16 @@ def test_send_suppressed_under_pytest_without_optin(monkeypatch):
         raise AssertionError("network send attempted under pytest")
 
     with patch.object(notifications.urllib.request, "urlopen", fake_urlopen):
-        ok = n.send("phantom")
+        with caplog.at_level("INFO"):
+            ok = n.send("phantom")
 
     assert ok is False
+    # Task spec: suppressed sends must be visible at INFO, not swallowed at DEBUG.
+    assert any("suppressed under test isolation" in r.getMessage() for r in caplog.records)
 
 
 @pytest.mark.anyio
-async def test_send_async_suppressed_under_pytest_without_optin(monkeypatch):
+async def test_send_async_suppressed_under_pytest_without_optin(monkeypatch, caplog):
     monkeypatch.delenv("JARVIS_ALLOW_TELEGRAM_SEND", raising=False)
     n = TelegramNotifier(bot_token="abc1234567890", chat_id="555")
 
@@ -55,9 +58,11 @@ async def test_send_async_suppressed_under_pytest_without_optin(monkeypatch):
         raise AssertionError("network send attempted under pytest")
 
     with patch.object(notifications.httpx, "AsyncClient", boom):
-        ok = await n.send_async("phantom")
+        with caplog.at_level("INFO"):
+            ok = await n.send_async("phantom")
 
     assert ok is False
+    assert any("suppressed under test isolation" in r.getMessage() for r in caplog.records)
 
 
 # ── configuration / no-op behaviour ──────────────────────────────────────────

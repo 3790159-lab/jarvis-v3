@@ -68,7 +68,7 @@ class TelegramNotifier:
 
     def send(self, text: str, *, prefix: str = "🔔 Jarvis") -> bool:
         if telegram_send_blocked():
-            logger.debug("Telegram alert suppressed under test isolation")
+            logger.info("Telegram alert suppressed under test isolation")
             return False
         if not self.is_configured():
             logger.warning(
@@ -109,7 +109,7 @@ class TelegramNotifier:
 
     async def send_async(self, text: str, *, prefix: str = "🔔 Jarvis") -> bool:
         if telegram_send_blocked():
-            logger.debug("Telegram alert suppressed under test isolation")
+            logger.info("Telegram alert suppressed under test isolation")
             return False
         if not self.is_configured():
             logger.warning(

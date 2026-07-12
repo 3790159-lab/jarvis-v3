@@ -32,10 +32,12 @@ def test_allow_env_opts_back_in(monkeypatch):
 
 
 def test_not_blocked_in_production(monkeypatch):
-    # Simulate a non-pytest process: no disable flag, no opt-in => must send.
+    # Simulate a non-pytest process: no disable flag, no opt-in, JARVIS_ENV
+    # unset/production => must send.
     monkeypatch.setattr(ti, "running_under_pytest", lambda: False)
     monkeypatch.delenv("JARVIS_ALLOW_TELEGRAM_SEND", raising=False)
     monkeypatch.delenv("JARVIS_DISABLE_TELEGRAM_SEND", raising=False)
+    monkeypatch.delenv("JARVIS_ENV", raising=False)
     assert ti.telegram_send_blocked() is False
 
 
@@ -46,6 +48,48 @@ def test_disable_env_forces_block_outside_pytest(monkeypatch):
     monkeypatch.delenv("JARVIS_ALLOW_TELEGRAM_SEND", raising=False)
     monkeypatch.setenv("JARVIS_DISABLE_TELEGRAM_SEND", "1")
     assert ti.telegram_send_blocked() is True
+
+
+# ── JARVIS_ENV ────────────────────────────────────────────────────────────────
+
+
+def test_jarvis_env_defaults_to_production_when_unset(monkeypatch):
+    monkeypatch.delenv(ti.ENV_VAR, raising=False)
+    assert ti.jarvis_env() == "production"
+    assert ti.is_test_env() is False
+
+
+def test_jarvis_env_test_reports_test():
+    # The root conftest pins this for the whole session.
+    assert ti.jarvis_env() == "test"
+    assert ti.is_test_env() is True
+
+
+def test_jarvis_env_test_blocks_send_independent_of_pytest_detection(monkeypatch):
+    # JARVIS_ENV=test must gate sends on its own, not merely piggyback on
+    # running_under_pytest() -- e.g. a standalone job called directly as a
+    # function from a test process that isn't flagged as "under pytest".
+    monkeypatch.setattr(ti, "running_under_pytest", lambda: False)
+    monkeypatch.delenv("JARVIS_ALLOW_TELEGRAM_SEND", raising=False)
+    monkeypatch.delenv("JARVIS_DISABLE_TELEGRAM_SEND", raising=False)
+    monkeypatch.setenv(ti.ENV_VAR, "test")
+    assert ti.telegram_send_blocked() is True
+
+
+def test_jarvis_env_production_overrides_default_test_gate(monkeypatch):
+    # Explicit JARVIS_ENV=production, with no disable flag and no pytest
+    # auto-detection, must send for real -- proves prod behaviour is reachable.
+    monkeypatch.setattr(ti, "running_under_pytest", lambda: False)
+    monkeypatch.delenv("JARVIS_ALLOW_TELEGRAM_SEND", raising=False)
+    monkeypatch.delenv("JARVIS_DISABLE_TELEGRAM_SEND", raising=False)
+    monkeypatch.setenv(ti.ENV_VAR, "production")
+    assert ti.telegram_send_blocked() is False
+
+
+def test_jarvis_env_allow_wins_over_test_env(monkeypatch):
+    monkeypatch.setenv(ti.ENV_VAR, "test")
+    monkeypatch.setenv("JARVIS_ALLOW_TELEGRAM_SEND", "1")
+    assert ti.telegram_send_blocked() is False
 
 
 def test_devtask_gate_pytest_env_blanks_secrets_and_arms_guard(monkeypatch):
@@ -60,4 +104,5 @@ def test_devtask_gate_pytest_env_blanks_secrets_and_arms_guard(monkeypatch):
     assert env["TELEGRAM_BOT_TOKEN"] == ""             # can't reach the real chat
     assert env["WAVESPEED_API_KEY"] == ""              # can't spend
     assert env["JARVIS_DISABLE_TELEGRAM_SEND"] == "1"  # app-layer guard armed too
+    assert env["JARVIS_ENV"] == "test"                 # JARVIS_ENV guard armed too
     assert "PATH" in env                               # inherited env preserved

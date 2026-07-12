@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Runtime guard that stops outbound Telegram sends during pytest runs.
 
-Two cooperating layers keep the production admin chat free of test
+Three cooperating layers keep the production admin chat free of test
 "phantom" messages (e.g. ``petya (555) New user``, ``RunPod guardian
 pod_old``) — see ``docs/MASTER-PLAN.md`` Этап 1:
 
@@ -11,10 +11,17 @@ pod_old``) — see ``docs/MASTER-PLAN.md`` Этап 1:
    that forgets to mock the transport still cannot reach the real chat.
 2. **Autouse fixture** (``tests/conftest.py``) that pins the disable flag on
    for every test, mirroring the ``JARVIS_USERS_FILE`` isolation pattern.
+3. **Explicit environment flag** ``JARVIS_ENV=test`` (root ``conftest.py``
+   sets it before any application module is imported). This is the
+   authoritative gate for send-paths that run outside a pytest process
+   proper — e.g. ``scripts/ig_token_refresh.py``, a standalone scheduled
+   job that a test may still invoke as an ordinary function call. Default
+   (unset, or any value other than ``"test"``) is ``"production"`` — prod
+   behaviour is unchanged unless the env is explicitly set.
 
 Tests that legitimately exercise the transport (with a mocked HTTP client)
 opt back in via ``JARVIS_ALLOW_TELEGRAM_SEND=1``; that explicit opt-in wins
-over both the disable flag and the pytest auto-detection.
+over the disable flag, ``JARVIS_ENV``, and the pytest auto-detection.
 """
 from __future__ import annotations
 
@@ -25,6 +32,9 @@ import sys
 ALLOW_ENV = "JARVIS_ALLOW_TELEGRAM_SEND"
 #: Explicit disable, set by the autouse fixture (belt to the auto-detection).
 DISABLE_ENV = "JARVIS_DISABLE_TELEGRAM_SEND"
+#: Explicit environment marker. "test" suppresses sends; anything else
+#: (including unset) means production — unchanged default behaviour.
+ENV_VAR = "JARVIS_ENV"
 
 
 def running_under_pytest() -> bool:
@@ -38,17 +48,31 @@ def running_under_pytest() -> bool:
     return "PYTEST_CURRENT_TEST" in os.environ or "pytest" in sys.modules
 
 
+def jarvis_env() -> str:
+    """Return the normalized ``JARVIS_ENV`` value; ``"production"`` if unset."""
+    value = os.getenv(ENV_VAR, "").strip().lower()
+    return value or "production"
+
+
+def is_test_env() -> bool:
+    """Return ``True`` when ``JARVIS_ENV=test`` is explicitly set."""
+    return jarvis_env() == "test"
+
+
 def telegram_send_blocked() -> bool:
     """Return ``True`` when an outbound Telegram send must be suppressed.
 
     Precedence: explicit opt-in (``JARVIS_ALLOW_TELEGRAM_SEND=1``) always
     wins, so a test can still drive a mocked transport. Otherwise the send is
-    blocked when explicitly disabled (autouse fixture) or when auto-detected
-    under pytest. In production (no pytest, no disable flag) it returns
-    ``False`` and sending proceeds normally.
+    blocked when explicitly disabled (autouse fixture), when ``JARVIS_ENV=test``,
+    or when auto-detected under pytest. In production (no pytest, no disable
+    flag, ``JARVIS_ENV`` unset or ``"production"``) it returns ``False`` and
+    sending proceeds normally.
     """
     if os.getenv(ALLOW_ENV, "").strip() == "1":
         return False
     if os.getenv(DISABLE_ENV, "").strip() == "1":
+        return True
+    if is_test_env():
         return True
     return running_under_pytest()
