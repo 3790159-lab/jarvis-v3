@@ -13,8 +13,11 @@ Centralises two concerns that were previously inlined:
 """
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any, Dict, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 # The model the router uses unless ``JARVIS_ROUTER_MODEL`` overrides it.
 DEFAULT_MODEL = "claude-sonnet-4-6"
@@ -51,6 +54,10 @@ def build_anthropic_client(
     ``anthropic`` package is not installed, or client construction fails — so a
     caller can fall back to the legacy dispatcher. ``anthropic_module`` may be
     injected in tests to avoid importing the real SDK.
+
+    The returned client is wrapped so ``messages.create`` fails closed once
+    the account's credit balance is depleted (see :func:`is_balance_depleted`)
+    — every caller gets this protection without needing to know about it.
     """
     key = (api_key if api_key is not None else os.getenv("ANTHROPIC_API_KEY", "")).strip()
     if not key:
@@ -64,6 +71,98 @@ def build_anthropic_client(
             return None
 
     try:
-        return mod.Anthropic(api_key=key)
+        return _GuardedAnthropicClient(mod.Anthropic(api_key=key))
     except Exception:  # noqa: BLE001 - construction failure → graceful None
         return None
+
+
+# ── credit_balance_too_low fail-closed guard ─────────────────────────────────
+#
+# Anthropic returns HTTP 400 with "credit balance is too low" once the account
+# runs out of credit. That is a permanent condition (not worth retrying), so
+# every subsequent paid call should refuse immediately instead of spending a
+# real HTTP round-trip on a call that is guaranteed to fail. The flag is a
+# plain in-process global (mirrors the existing ``_ROUTER_BUILD_FAILED`` latch
+# pattern in ``jarvis_smart_telegram_control.py``): it resets on bot restart,
+# or via ``reset_balance_flag`` (the admin ``/reset_balance_flag`` command).
+
+CREDIT_BALANCE_LOW_MARKER = "credit balance is too low"
+
+
+class CreditBalanceDepletedError(RuntimeError):
+    """The Anthropic account is out of credit — paid calls fail closed."""
+
+
+_balance_state: Dict[str, bool] = {"depleted": False, "owner_alerted": False}
+
+
+def is_credit_balance_error(exc: BaseException) -> bool:
+    """True if ``exc`` is Anthropic's 400 "credit balance is too low"."""
+    if isinstance(exc, CreditBalanceDepletedError):
+        return True
+    status = getattr(exc, "status_code", None)
+    return status == 400 and CREDIT_BALANCE_LOW_MARKER in str(exc).lower()
+
+
+def is_balance_depleted() -> bool:
+    """True once a credit-balance-too-low error has been observed this episode."""
+    return _balance_state["depleted"]
+
+
+def mark_balance_depleted() -> bool:
+    """Flip the depleted flag on. Returns ``True`` only the first time (episode
+    start), so the caller can log/alert exactly once."""
+    first = not _balance_state["depleted"]
+    _balance_state["depleted"] = True
+    if first:
+        logger.warning(
+            "Anthropic credit balance too low — failing closed for paid calls "
+            "until reset (bot restart or /reset_balance_flag)"
+        )
+    return first
+
+
+def should_alert_owner() -> bool:
+    """True (and marks alerted) exactly once per episode — dedupes owner pings."""
+    if _balance_state["owner_alerted"]:
+        return False
+    _balance_state["owner_alerted"] = True
+    return True
+
+
+def reset_balance_flag() -> None:
+    """Clear the depleted/alerted flags — bot restart or ``/reset_balance_flag``."""
+    _balance_state["depleted"] = False
+    _balance_state["owner_alerted"] = False
+
+
+class _GuardedMessages:
+    """Proxies ``client.messages`` so ``.create`` fails closed once depleted."""
+
+    def __init__(self, messages: Any) -> None:
+        self._messages = messages
+
+    def create(self, **kwargs: Any) -> Any:
+        if is_balance_depleted():
+            raise CreditBalanceDepletedError(
+                "Anthropic credit balance is too low (fail-closed, no API call made)"
+            )
+        try:
+            return self._messages.create(**kwargs)
+        except Exception as exc:  # noqa: BLE001 - re-classified below
+            if is_credit_balance_error(exc):
+                mark_balance_depleted()
+                raise CreditBalanceDepletedError(str(exc)) from exc
+            raise
+
+
+class _GuardedAnthropicClient:
+    """Transparent proxy around an ``anthropic.Anthropic`` client — only
+    ``messages`` is intercepted; every other attribute passes through."""
+
+    def __init__(self, client: Any) -> None:
+        self._client = client
+        self.messages = _GuardedMessages(client.messages)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._client, name)

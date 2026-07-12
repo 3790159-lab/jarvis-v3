@@ -9,6 +9,7 @@ injected so these tests never import the real SDK or make a network call.
 """
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 
@@ -21,6 +22,14 @@ if str(ROOT) not in sys.path:
 from app.services.unified.llm_router import llm_client
 
 
+@pytest.fixture(autouse=True)
+def _reset_balance_flag():
+    """The depleted/alerted flags are module-level globals — isolate every test."""
+    llm_client.reset_balance_flag()
+    yield
+    llm_client.reset_balance_flag()
+
+
 class _FakeAnthropicModule:
     """Stand-in for the ``anthropic`` package exposing ``Anthropic``."""
 
@@ -28,9 +37,14 @@ class _FakeAnthropicModule:
         self.constructed_with: dict | None = None
         self._raises = raises
 
+    class _Messages:
+        def create(self, **kwargs):  # pragma: no cover - not exercised here
+            raise NotImplementedError
+
     class _Client:
         def __init__(self, api_key: str) -> None:
             self.api_key = api_key
+            self.messages = _FakeAnthropicModule._Messages()
 
     def Anthropic(self, *, api_key: str):  # noqa: N802 - mirrors SDK surface
         if self._raises:
@@ -108,3 +122,135 @@ def test_router_reexports_compute_cost():
     from app.services.unified.llm_router import router
 
     assert router.compute_cost("claude-sonnet-4-6", 1000, 500) == pytest.approx(0.0105)
+
+
+# ── credit_balance_too_low fail-closed guard ────────────────────────────────
+
+
+class _CreditBalanceLowError(Exception):
+    """Mimics anthropic.BadRequestError for 'credit balance is too low'."""
+
+    def __init__(self, message: str = "Your credit balance is too low to access "
+                                        "the Anthropic API.") -> None:
+        super().__init__(message)
+        self.status_code = 400
+
+
+class _ScriptedMessages:
+    def __init__(self, script) -> None:
+        self._script = list(script)
+        self.calls = 0
+
+    def create(self, **kwargs):
+        self.calls += 1
+        item = self._script.pop(0)
+        if isinstance(item, BaseException):
+            raise item
+        return item
+
+
+class _ScriptedClient:
+    def __init__(self, script) -> None:
+        self.messages = _ScriptedMessages(script)
+
+
+class _ScriptedAnthropicModule:
+    def __init__(self, script) -> None:
+        self._script = script
+        self.client: _ScriptedClient | None = None
+
+    def Anthropic(self, *, api_key: str):  # noqa: N802 - mirrors SDK surface
+        self.client = _ScriptedClient(self._script)
+        return self.client
+
+
+def _guarded_client(monkeypatch, script):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-x")
+    mod = _ScriptedAnthropicModule(script)
+    client = llm_client.build_anthropic_client(anthropic_module=mod)
+    assert client is not None
+    return client, mod
+
+
+def test_is_credit_balance_error_detects_400_marker():
+    assert llm_client.is_credit_balance_error(_CreditBalanceLowError()) is True
+
+
+def test_is_credit_balance_error_ignores_other_400s():
+    exc = Exception("bad request: missing field")
+    exc.status_code = 400
+    assert llm_client.is_credit_balance_error(exc) is False
+
+
+def test_is_credit_balance_error_ignores_non_400_status():
+    exc = Exception("rate limited: credit balance is too low")
+    exc.status_code = 429
+    assert llm_client.is_credit_balance_error(exc) is False
+
+
+def test_balance_not_depleted_by_default():
+    assert llm_client.is_balance_depleted() is False
+
+
+def test_guarded_client_sets_flag_on_credit_balance_error(monkeypatch):
+    client, mod = _guarded_client(monkeypatch, [_CreditBalanceLowError()])
+    with pytest.raises(llm_client.CreditBalanceDepletedError):
+        client.messages.create(model="x", max_tokens=1, messages=[])
+    assert llm_client.is_balance_depleted() is True
+    assert mod.client.messages.calls == 1
+
+
+def test_guarded_client_fails_closed_without_hitting_api(monkeypatch):
+    client, mod = _guarded_client(
+        monkeypatch, [_CreditBalanceLowError(), "should never be reached"]
+    )
+    with pytest.raises(llm_client.CreditBalanceDepletedError):
+        client.messages.create(model="x", max_tokens=1, messages=[])
+    # Second (and any subsequent) call: flag already set → must NOT call the SDK.
+    with pytest.raises(llm_client.CreditBalanceDepletedError):
+        client.messages.create(model="x", max_tokens=1, messages=[])
+    assert mod.client.messages.calls == 1
+
+
+def test_guarded_client_passes_through_other_errors(monkeypatch):
+    rate_limit = Exception("rate limited")
+    rate_limit.status_code = 429
+    client, mod = _guarded_client(monkeypatch, [rate_limit])
+    with pytest.raises(Exception) as exc_info:
+        client.messages.create(model="x", max_tokens=1, messages=[])
+    assert not isinstance(exc_info.value, llm_client.CreditBalanceDepletedError)
+    assert llm_client.is_balance_depleted() is False
+    assert mod.client.messages.calls == 1
+
+
+def test_reset_balance_flag_clears_fail_closed(monkeypatch):
+    client, mod = _guarded_client(
+        monkeypatch, [_CreditBalanceLowError(), "second call succeeds"]
+    )
+    with pytest.raises(llm_client.CreditBalanceDepletedError):
+        client.messages.create(model="x", max_tokens=1, messages=[])
+    assert llm_client.is_balance_depleted() is True
+
+    llm_client.reset_balance_flag()
+    assert llm_client.is_balance_depleted() is False
+
+    result = client.messages.create(model="x", max_tokens=1, messages=[])
+    assert result == "second call succeeds"
+    assert mod.client.messages.calls == 2  # actually reached the API again
+
+
+def test_mark_balance_depleted_logs_warning_once(caplog):
+    caplog.set_level(logging.WARNING)
+    first = llm_client.mark_balance_depleted()
+    second = llm_client.mark_balance_depleted()
+    assert first is True
+    assert second is False
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+
+
+def test_should_alert_owner_once_per_episode():
+    assert llm_client.should_alert_owner() is True
+    assert llm_client.should_alert_owner() is False
+    llm_client.reset_balance_flag()
+    assert llm_client.should_alert_owner() is True

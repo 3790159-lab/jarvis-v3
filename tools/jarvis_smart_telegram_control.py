@@ -5513,6 +5513,53 @@ def _send_mesh_control_panel(chat_id: str, state: dict) -> None:
     send_with_keyboard(chat_id, _mesh_control_text(state), _mesh_control_keyboard(state))
 
 
+# ── credit_balance_too_low fail-closed guard ─────────────────────────────────
+_ANTHROPIC_BALANCE_USER_MSG = "⚠️ AI-сервис временно недоступен: закончился баланс Anthropic"
+_ANTHROPIC_BALANCE_OWNER_MSG = "🔴 Anthropic credit exhausted — пополни баланс"
+
+
+def _notify_anthropic_balance_depleted(chat_id: str) -> None:
+    """User-facing refusal, plus a single per-episode owner alert.
+
+    ``llm_client.should_alert_owner`` dedupes the owner ping across an entire
+    episode (multiple users/callbacks hitting the same depleted balance), so
+    it is safe to call this on every failed attempt.
+    """
+    from app.services.unified.llm_router import llm_client as _llmc
+    if chat_id:
+        send(chat_id, _ANTHROPIC_BALANCE_USER_MSG)
+    if _llmc.should_alert_owner():
+        from app.services.notifications import send_alert
+        send_alert(_ANTHROPIC_BALANCE_OWNER_MSG)
+
+
+def _handle_callback_query_safely(cq: dict, state: dict) -> None:
+    """Dispatch one callback_query; a depleted Anthropic balance gets the
+    fail-closed user/owner notification instead of the generic error toast."""
+    from app.services.unified.llm_router import llm_client as _llmc
+    try:
+        handle_callback_query(cq, state)
+    except Exception as e:  # noqa: BLE001 - a callback must never crash the poll loop
+        if _llmc.is_credit_balance_error(e):
+            _llmc.mark_balance_depleted()
+            logger.warning("callback_query: Anthropic balance depleted data=%r",
+                            cq.get("data"))
+            chat = (cq.get("message") or {}).get("chat") or {}
+            reply_to = str(chat.get("id") or (cq.get("from") or {}).get("id") or "")
+            _notify_anthropic_balance_depleted(reply_to)
+            try:
+                answer_callback_query(cq.get("id", ""), "⚠️ Баланс исчерпан")
+            except Exception:
+                pass
+            return
+        logger.exception("callback_query handler failed data=%r: %s",
+                         cq.get("data"), e)
+        try:
+            answer_callback_query(cq.get("id", ""), "❌ Ошибка")
+        except Exception:
+            pass
+
+
 def handle_callback_query(callback_query: dict, state: dict) -> None:
     """Route callback_query from Telegram inline keyboards."""
     cq_id = callback_query.get("id", "")
@@ -9530,6 +9577,30 @@ def _admin_command_intercept(upd: Dict[str, Any]) -> bool:
     return True
 
 
+def _reset_balance_flag_intercept(upd: Dict[str, Any]) -> bool:
+    """Admin-only ``/reset_balance_flag`` — clear ANTHROPIC_BALANCE_DEPLETED
+    without waiting for a bot restart. Returns True if the update was this
+    command and consumed."""
+    msg = upd.get("message") or upd.get("edited_message") or {}
+    text = (msg.get("text") or "").strip()
+    if not text:
+        return False
+    cmd = text.split(maxsplit=1)[0].split("@", 1)[0]
+    if cmd != "/reset_balance_flag":
+        return False
+    uid, uname, cid = _extract_audit_ctx(upd)
+    reply_to = cid or (str(uid) if uid is not None else "")
+    if not reply_to:
+        return True
+    if not (_is_admin_id(uid) or str(uid) == ALLOWED_CHAT_ID):
+        send(reply_to, "🚫 Команда доступна только администратору.")
+        return True
+    from app.services.unified.llm_router import llm_client as _llmc
+    _llmc.reset_balance_flag()
+    send(reply_to, "✅ Флаг ANTHROPIC_BALANCE_DEPLETED сброшен.")
+    return True
+
+
 # ── Phase 4: unified LLM router (natural-language → tools) ───────────────────
 # Plain (non-command) text is routed through the Claude tool_use router. This
 # is purely additive: commands and a disabled/unavailable router fall back to
@@ -10027,6 +10098,8 @@ def process_update(upd: Dict[str, Any], media_group_buffer: Optional[Dict[str, A
         return
     if _admin_command_intercept(upd):
         return
+    if _reset_balance_flag_intercept(upd):
+        return
     if media_group_buffer is None:
         media_group_buffer = {}
 
@@ -10037,15 +10110,7 @@ def process_update(upd: Dict[str, Any], media_group_buffer: Optional[Dict[str, A
         msg_chat_id = str((cq.get("message", {}).get("chat") or {}).get("id", ""))
         if _is_member_id(cq_uid) or cq_chat_id == ALLOWED_CHAT_ID or msg_chat_id == ALLOWED_CHAT_ID:
             state = load_state()
-            try:
-                handle_callback_query(cq, state)
-            except Exception as e:
-                logger.exception("callback_query handler failed data=%r: %s",
-                                 cq.get("data"), e)
-                try:
-                    answer_callback_query(cq.get("id", ""), "❌ Ошибка")
-                except Exception:
-                    pass
+            _handle_callback_query_safely(cq, state)
         return
 
     msg = upd.get("message") or upd.get("edited_message") or {}
