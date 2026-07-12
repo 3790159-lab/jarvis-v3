@@ -516,6 +516,12 @@ class TestFluxLoraInference:
         from app.services.block_m_common import replicate_video_client as rvc
         assert rvc._FLUX_LORA_SCALE_DEFAULT == 1.0
 
+    def test_flux_lora_guidance_default_is_four(self):
+        """Дефолт guidance=4.0 (піднято з 3.0) — persona-шлях, узгоджено з
+        матрицею приймання ЭТАП4 (guidance 4.0)."""
+        from app.services.block_m_common import replicate_video_client as rvc
+        assert rvc._FLUX_LORA_GUIDANCE_DEFAULT == 4.0
+
     @pytest.mark.anyio
     async def test_default_lora_scale_and_guidance_applied(self):
         """Занадто високий lora_scale тягне персону в digital-painting —

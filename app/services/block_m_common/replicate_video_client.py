@@ -31,7 +31,7 @@ _COST_FLUX_PRO = 0.04
 # недовешена (лицо уплывает к дженерик-FLUX), на 1.2 начинается
 # переобработка (blush/сглаживание). Override через конфиг (env).
 _FLUX_LORA_SCALE_DEFAULT = float(os.getenv("JARVIS_FLUX_LORA_SCALE", "1.0"))
-_FLUX_LORA_GUIDANCE_DEFAULT = float(os.getenv("JARVIS_FLUX_LORA_GUIDANCE", "3.0"))
+_FLUX_LORA_GUIDANCE_DEFAULT = float(os.getenv("JARVIS_FLUX_LORA_GUIDANCE", "4.0"))
 
 
 class ReplicateVideoClient:
