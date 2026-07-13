@@ -120,6 +120,19 @@ class CostTracker:
         remaining = max(0.0, self._daily_limit - today_total)
         return True, remaining
 
+    async def get_costs_by_day(self, target_date) -> dict:
+        """Cost breakdown by operation for a single calendar day (UTC).
+
+        Used by the morning digest to report "yesterday's spend by category".
+        """
+        result: dict = {}
+        for entry in self._read_all():
+            if self._entry_date(entry) != target_date:
+                continue
+            op = entry.get("operation", "unknown")
+            result[op] = result.get(op, 0.0) + entry.get("cost_usd", 0.0)
+        return result
+
     async def get_stats(self) -> dict:
         """Return cost breakdown by period and by operation type.
 

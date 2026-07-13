@@ -1146,3 +1146,31 @@ class TestCostTracker:
         can_proceed, remaining = await tracker.check_limit()
         assert can_proceed is True
         assert remaining == pytest.approx(6.0)
+
+    # ── get_costs_by_day (morning digest: yesterday's spend by category) ──────
+
+    @pytest.mark.anyio
+    async def test_get_costs_by_day_groups_by_operation(self, tracker):
+        from datetime import date
+
+        # Entries written directly to the jsonl (bypassing log_expense's "now"
+        # stamping) so the day boundary is exact and deterministic.
+        tracker._file.write_text(
+            '{"ts": "2026-07-12T09:00:00+00:00", "operation": "kling_video", "cost_usd": 0.30, "persona_id": null}\n'
+            '{"ts": "2026-07-12T11:00:00+00:00", "operation": "kling_video", "cost_usd": 0.10, "persona_id": null}\n'
+            '{"ts": "2026-07-12T12:00:00+00:00", "operation": "flux_inference", "cost_usd": 0.02, "persona_id": null}\n'
+            '{"ts": "2026-07-13T09:00:00+00:00", "operation": "kling_video", "cost_usd": 5.00, "persona_id": null}\n',
+            encoding="utf-8",
+        )
+
+        by_op = await tracker.get_costs_by_day(date(2026, 7, 12))
+
+        assert by_op == {"kling_video": pytest.approx(0.40), "flux_inference": pytest.approx(0.02)}
+
+    @pytest.mark.anyio
+    async def test_get_costs_by_day_empty_for_no_matching_entries(self, tracker):
+        from datetime import date
+
+        await tracker.log_expense("op", 1.0, None)
+        by_op = await tracker.get_costs_by_day(date(2020, 1, 1))
+        assert by_op == {}
