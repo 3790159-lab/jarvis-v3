@@ -60,8 +60,12 @@ def _train_me_lora_est() -> float:
     return _env_usd("TRAIN_ME_LORA_USD", 5.00)
 from app.services.block_m_common.cost_tracker import CostTracker, DailyLimitExceeded
 from app.services.block_m_common.logging_setup import get_logger, setup_block_m_logging
-from app.services.block_m_common.persona_storage import PersonaStorage
-from app.services.block_m_common.replicate_video_client import ReplicateVideoClient
+from app.services.block_m_common.persona_storage import Persona, PersonaStorage
+from app.services.block_m_common.replicate_video_client import (
+    ReplicateVideoClient,
+    _FLUX_LORA_GUIDANCE_DEFAULT,
+    _FLUX_LORA_SCALE_DEFAULT,
+)
 from app.services.block_m_common.video_queue import VideoQueue
 from app.services.block_m1_persona.lora_trainer import LoRATrainer
 from app.services.block_m1_persona.persona_creator import PersonaCreator
@@ -542,6 +546,105 @@ def handle_list_loras(chat_id: int) -> None:
         lines.append(f"{i}. {p['name']} ({p['persona_id']})")
         lines.append(f"   Trigger: {p['trigger_word']}")
     _safe_send(chat_id, "\n".join(lines))
+
+
+def _lora_version_label(persona: Persona, training_status: dict | None) -> str:
+    """Classify LoRA readiness for the status card.
+
+    Persona has no explicit draft/prod field — 'prod' is synthesized from
+    live weights_url (used for generation), 'draft' from an in-flight/failed
+    training job (state/personas/lora_jobs.json via LoRATrainer.check_status).
+    """
+    if persona.lora_weights_url:
+        return "prod"
+    if training_status:
+        if training_status["status"] in ("pending", "training"):
+            return "draft (тренировка идёт)"
+        if training_status["status"] == "failed":
+            return "draft (тренировка упала)"
+    return "нет LoRA"
+
+
+def _format_persona_status_card(
+    persona: Persona,
+    training_status: dict | None,
+    weights_alive: bool | None,
+    scale: float,
+    guidance: float,
+) -> str:
+    """Render a read-only /persona_status card for one persona."""
+    lines = [
+        f"Персона: {persona.name} ({persona.persona_id})",
+        f"Trigger: {persona.trigger_word}",
+        f"LoRA: {_lora_version_label(persona, training_status)}",
+        f"Создана: {persona.created_at.strftime('%Y-%m-%d %H:%M')}",
+        f"Seed-фото: {len(persona.seed_photos)}",
+        f"Боевые параметры: scale={scale}, guidance={guidance}",
+        f"Генераций сделано: {persona.total_generations}",
+    ]
+    if persona.lora_weights_url:
+        lines.append(f"Weights URL: {'жив ✅' if weights_alive else 'МЁРТВ ❌'}")
+    else:
+        lines.append("Weights URL: — (LoRA не натренирована)")
+    return "\n".join(lines)
+
+
+def _format_persona_status_summary_line(persona: Persona) -> str:
+    """One-line summary of a persona for /persona_status all."""
+    label = "prod" if persona.lora_weights_url else "draft/нет"
+    return (
+        f"• {persona.name} ({persona.persona_id}) — LoRA: {label}, "
+        f"seed: {len(persona.seed_photos)}, генераций: {persona.total_generations}"
+    )
+
+
+def handle_persona_status(chat_id: int, args: str) -> None:
+    """/persona_status <persona_id|all> — read-only карточка персоны: имя,
+    trigger, LoRA draft/prod, дата создания, seed-фото, боевые scale/guidance,
+    кол-во генераций, живость weights-URL (HEAD-проверка)."""
+    target = args.strip()
+    if not target:
+        _safe_send(chat_id, "Укажите ID персоны или 'all': /persona_status <persona_id|all>")
+        return
+
+    logger.info("handle_persona_status chat=%s target=%s", chat_id, target)
+
+    try:
+        storage = PersonaStorage()
+
+        if target.lower() == "all":
+            personas = _run_async(storage.list_personas())
+            if not personas:
+                _safe_send(chat_id, "Персон пока нет. Создайте: /create_persona")
+                return
+            lines = ["Все персоны:"]
+            lines.extend(_format_persona_status_summary_line(p) for p in personas)
+            _safe_send(chat_id, "\n".join(lines))
+            return
+
+        persona = _run_async(storage.get_persona(target))
+        if not persona:
+            _safe_send(chat_id, f"Персона {target!r} не найдена.")
+            return
+
+        queue = VideoQueue()
+        trainer = LoRATrainer(
+            ReplicateVideoClient.__new__(ReplicateVideoClient), storage, CostTracker(), queue,
+        )
+        training_status = _run_async(trainer.check_status(target))
+
+        weights_alive = None
+        if persona.lora_weights_url:
+            from app.services.ig_media_prep import is_media_url_alive
+            weights_alive = is_media_url_alive(persona.lora_weights_url)
+
+        card = _format_persona_status_card(
+            persona, training_status, weights_alive,
+            _FLUX_LORA_SCALE_DEFAULT, _FLUX_LORA_GUIDANCE_DEFAULT,
+        )
+        _safe_send(chat_id, card)
+    except Exception as exc:
+        _safe_send(chat_id, f"Ошибка получения статуса персоны: {translate_exception(exc)}")
 
 
 def handle_persona_photo(chat_id: int, args: str) -> None:

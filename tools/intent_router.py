@@ -70,7 +70,7 @@ FREE_AUTOEXEC: FrozenSet[str] = frozenset({
     "/costs", "/my_stats", "/status", "/stats",        # деньги/статус (read)
     "/smart_health", "/debug_health", "/capabilities",
     "/diag", "/selfcheck", "/memory_stats", "/night_status",
-    "/list_loras",                                      # список (read)
+    "/list_loras", "/persona_status",                    # список / карточка (read)
     "/me_roles", "/me_places", "/me_styles",           # списки (read)
     "/party_themes", "/dish_styles",                   # списки (read)
     "/swapbatch_status",                               # статус батча (read)

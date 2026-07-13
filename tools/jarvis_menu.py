@@ -100,6 +100,7 @@ _PERSONA = Category("persona", "🎭 Персона", (
     _mi("/train_lora", "обучить LoRA персоны", "hint", False),
     _mi("/lora_status", "статус обучения LoRA", "hint", False),
     _mi("/list_loras", "список готовых LoRA", "exec", False),
+    _mi("/persona_status", "карточка персоны (id|all)", "hint", False),
     _mi("/cancel_lora", "отменить обучение LoRA", "hint", False),
 ))
 

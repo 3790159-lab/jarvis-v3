@@ -8628,6 +8628,23 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
             send(chat_id, f"Ошибка: {translate_exception(_lle)}")
         return
 
+    if cmd == "/persona_status":
+        try:
+            _r_ps = str(Path(__file__).parent.parent)
+            import sys as _sys_ps
+            if _r_ps not in _sys_ps.path:
+                _sys_ps.path.insert(0, _r_ps)
+            from app.handlers.persona_handler import (
+                init_bot as _persona_init_ps,
+                handle_persona_status as _hps,
+            )
+            _persona_init_ps(send, _send_photo_url)
+            _hps(int(chat_id), query)
+        except Exception as _pse:
+            logger.exception("/persona_status failed chat=%s", chat_id)
+            send(chat_id, f"Ошибка: {translate_exception(_pse)}")
+        return
+
     if cmd == "/cancel_lora":
         try:
             _r_cl = str(Path(__file__).parent.parent)
