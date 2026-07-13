@@ -1376,6 +1376,28 @@ def _devtask_state_dir():
     return _devtask_queue()._base
 
 
+def _devtask_stats_dispatch(chat_id, args: str = "") -> None:
+    """/devtask_stats [days] — read-only N-day pipeline report (default 30):
+    total/merged/rollback/no_report + avg cost/duration + top-3 costliest.
+    Same data the merge/rollback buttons already write onto each task card —
+    no new spend, no mutation."""
+    from app.services.devtask import stats as _st
+
+    days = 30
+    parts = (args or "").strip().split()
+    if parts:
+        try:
+            n = int(parts[0])
+            if n > 0:
+                days = n
+        except ValueError:
+            pass
+
+    q = _devtask_queue()
+    summary = _st.build_summary(q.list_all(), q.log_entries(), days, datetime.utcnow())
+    send(chat_id, _st.format_stats_message(summary))
+
+
 # Этап 1: a card left in `queued` (created, [Запустить] not tapped) longer than
 # this many minutes earns ONE reminder to the admin — then `reminded=True` on the
 # card silences it (никакого спама). Driven by the existing heartbeat loop below.
@@ -8152,6 +8174,10 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
 
     if cmd == "/dev_task":
         _devtask_dispatch(chat_id, query)
+        return
+
+    if cmd == "/devtask_stats":
+        _devtask_stats_dispatch(chat_id, query)
         return
 
     if cmd == "/suggest_tasks":

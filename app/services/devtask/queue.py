@@ -202,6 +202,35 @@ class DevTaskQueue:
                 break
         return items
 
+    def list_all(self) -> List[Dict[str, Any]]:
+        """Every task card, any status, in no particular order — raw data source
+        for /devtask_stats (aggregation happens in app.services.devtask.stats)."""
+        from app.services.block_l_common import load_json_safe
+        items = []
+        for f in self._dir().glob("*.json"):
+            data = load_json_safe(f)
+            if data:
+                items.append(data)
+        return items
+
+    def log_entries(self) -> List[Dict[str, Any]]:
+        """Parsed log.jsonl lines (``{"ts", "action", "id", ...}``), oldest first.
+        Unparsable lines are skipped (append-only log, best-effort read)."""
+        path = self._log_path()
+        if not path.exists():
+            return []
+        out: List[Dict[str, Any]] = []
+        with path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    out.append(json.loads(line))
+                except ValueError:
+                    continue
+        return out
+
     def merged_history(self, limit: int = 8) -> List[Dict[str, Any]]:
         """Merged cards as ``{"desc", "merged_at"}``, newest first — feeds
         /suggest_tasks' auto-populated "уже реализовано" section (v0.3) so the

@@ -223,3 +223,43 @@ def test_merged_history_respects_limit(tmp_path):
 def test_merged_history_empty_queue_returns_empty_list(tmp_path):
     dq = q.DevTaskQueue(base_dir=tmp_path)
     assert dq.merged_history() == []
+
+
+# ── list_all / log_entries (devtask_stats data source) ──────────────────────
+def test_list_all_returns_every_card_any_status(tmp_path):
+    dq = q.DevTaskQueue(base_dir=tmp_path)
+    t1 = dq.add("a")
+    t2 = dq.add("b")
+    dq.set_status(t2, q.STATUS_MERGED)
+    ids = {item["id"] for item in dq.list_all()}
+    assert ids == {t1, t2}
+
+
+def test_list_all_empty_queue_returns_empty_list(tmp_path):
+    dq = q.DevTaskQueue(base_dir=tmp_path)
+    assert dq.list_all() == []
+
+
+def test_log_entries_returns_parsed_lines_in_order(tmp_path):
+    dq = q.DevTaskQueue(base_dir=tmp_path)
+    tid = dq.add("a")
+    dq.set_status(tid, q.STATUS_RUNNING)
+    dq.set_status(tid, q.STATUS_MERGED)
+    entries = dq.log_entries()
+    actions = [e["action"] for e in entries if e["id"] == tid]
+    assert actions == ["added", "running", "merged"]
+
+
+def test_log_entries_no_log_file_returns_empty_list(tmp_path):
+    dq = q.DevTaskQueue(base_dir=tmp_path)
+    assert dq.log_entries() == []
+
+
+def test_log_entries_skips_unparseable_lines(tmp_path):
+    dq = q.DevTaskQueue(base_dir=tmp_path)
+    dq.add("a")
+    with dq._log_path().open("a", encoding="utf-8") as f:
+        f.write("not json\n")
+    entries = dq.log_entries()
+    assert len(entries) == 1
+    assert entries[0]["action"] == "added"
