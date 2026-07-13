@@ -5138,6 +5138,75 @@ def _ig_gen_dispatch(chat_id, query: str, state: Dict[str, Any]) -> None:
     )
 
 
+# ── /ig_schedule + /ig_queue (Этап 3): отложенная публикация ───────────────
+# /ig_schedule <аккаунт> <YYYY-MM-DD HH:MM> — забирает ТЕКУЩУЮ подтверждённую
+# превью-карточку (pending_ig_post — та же, что показывают /ig_gen и /ig_post)
+# и кладёт её в очередь (app.services.ig_schedule) вместо немедленной
+# публикации по тапу [📤]. НЕ платно (не в PAID) — свежая генерация тут не
+# запускается; нет карточки → честная просьба сначала выполнить /ig_gen
+# (money-safety: /ig_schedule не обходит собственный confirm /ig_gen
+# авто-триггером генерации). /ig_queue листает pending-очередь с кнопками
+# [Отмена] (igsched:cancel:<id>). Публикация по расписанию — отдельный
+# scripts/ig_schedule_publisher.py (Windows Task Scheduler, каждые 5 мин),
+# который дергает ig_schedule.process_due(...) тем же InstagramAPI.publish_photo,
+# что и _ig_post_publish ниже.
+
+
+def _ig_schedule_now():
+    """Обёртка над ``datetime.now()`` — тесты мокают её для детерминизма
+    (тот же паттерн, что ``_ig_gen_generate_photo`` и другие сетевые/времязависимые
+    швы в этом модуле)."""
+    from datetime import datetime
+    return datetime.now()
+
+
+_IG_SCHEDULE_USAGE_HINT = (
+    "🕒 Использование: /ig_schedule <аккаунт> <YYYY-MM-DD HH:MM> "
+    "(сначала подготовь превью через /ig_gen <тема> или /ig_post)"
+)
+
+
+def _ig_schedule_dispatch(chat_id, query: str, state: Dict[str, Any]) -> None:
+    """``/ig_schedule <аккаунт> <YYYY-MM-DD HH:MM>`` — поставить текущую
+    подтверждённую превью-карточку в очередь отложенной публикации."""
+    from app.services import ig_post as _igp
+    from app.services import ig_schedule as _igsc
+
+    account, when_text = _igsc.parse_schedule_args(query)
+    if not account or not when_text:
+        send(chat_id, _IG_SCHEDULE_USAGE_HINT)
+        return
+    pending = state.get(_igp.IG_POST_PENDING_KEY)
+    if not pending:
+        send(chat_id, "🚫 Нет подтверждённого превью — сначала /ig_gen <тема> или "
+                       "/ig_post, потом /ig_schedule.")
+        return
+    now = _ig_schedule_now()
+    try:
+        run_at = _igsc.parse_when(when_text, now)
+    except _igsc.IGScheduleError as exc:
+        send(chat_id, "✏️ %s" % exc)
+        return
+    record = _igsc.enqueue(chat_id=chat_id, account_key=account, run_at=run_at,
+                            pending=pending, now=now)
+    state.pop(_igp.IG_POST_PENDING_KEY, None)
+    save_state(state)
+    send(chat_id, "🕒 Пост поставлен в очередь на %s (@%s), id=%s." %
+         (run_at.strftime(_igsc.DATETIME_FMT), account, record["id"]))
+
+
+def _ig_queue_dispatch(chat_id, query: str, state: Dict[str, Any]) -> None:
+    """``/ig_queue`` — список отложенных постов (pending) с кнопками [Отмена]."""
+    from app.services import ig_schedule as _igsc
+
+    posts = _igsc.list_posts(status="pending")
+    text = _igsc.build_queue_text(posts)
+    if not posts:
+        send(chat_id, text)
+        return
+    send_with_keyboard(chat_id, text, _igsc.queue_keyboard(posts))
+
+
 def _ir2_route(chat_id: str, text: str, candidates, state: Dict[str, Any]) -> None:
     """IR-2 каскад: uncertain-фраза → Haiku-классификатор (под guard_spend) → команда.
 
@@ -5871,6 +5940,27 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
         if action == "publish":
             answer_callback_query(cq_id, "📤 Публикую…")
             _ig_post_publish(chat_id, state, message_id)
+            return
+        answer_callback_query(cq_id)
+        return
+
+    # ── /ig_queue (Этап 3): admin-only (igsched: NOT in friend prefixes) ───────
+    if data.startswith("igsched:"):
+        if not (_is_admin_id(_cq_uid) or str(_cq_uid) == ALLOWED_CHAT_ID):
+            answer_callback_query(cq_id, "🚫 Только для администратора")
+            return
+        from app.services import ig_schedule as _igsc
+        action = parts[1] if len(parts) > 1 else ""
+        post_id = parts[2] if len(parts) > 2 else ""
+        if action == "cancel":
+            if _igsc.cancel(post_id):
+                answer_callback_query(cq_id, "Отменено")
+                try:
+                    edit_message_with_keyboard(chat_id, message_id, "❌ Отложенный пост отменён.", [])
+                except Exception:  # noqa: BLE001
+                    pass
+            else:
+                answer_callback_query(cq_id, "⏳ Уже не в очереди (опубликован/отменён)")
             return
         answer_callback_query(cq_id)
         return
@@ -8082,6 +8172,14 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
 
     if cmd == "/ig_gen":
         _ig_gen_dispatch(chat_id, query, state)
+        return
+
+    if cmd == "/ig_schedule":
+        _ig_schedule_dispatch(chat_id, query, state)
+        return
+
+    if cmd == "/ig_queue":
+        _ig_queue_dispatch(chat_id, query, state)
         return
 
     if cmd in ("/browse_check", "/browse_watch", "/browse_watch_stop", "/browse_status"):

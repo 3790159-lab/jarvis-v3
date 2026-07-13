@@ -58,6 +58,15 @@ def _isolate_ig_accounts_file(monkeypatch, tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_ig_schedule_file(monkeypatch, tmp_path):
+    """Point the IG schedule queue at a per-test tmp file so no test can
+    read/write the live ``state/ig_scheduled_posts.json`` (same rationale as
+    ``_isolate_ig_accounts_file`` above — ``ig_schedule._state_file()`` falls
+    back to the *relative* default when ``IG_SCHEDULE_FILE`` is unset)."""
+    monkeypatch.setenv("IG_SCHEDULE_FILE", str(tmp_path / "ig_scheduled_posts.json"))
+
+
+@pytest.fixture(autouse=True)
 def _silence_telegram_sends(monkeypatch):
     """Suppress every outbound Telegram send during tests so no phantom
     message (``petya (555) New user``, ``RunPod guardian pod_old`` …) leaks
