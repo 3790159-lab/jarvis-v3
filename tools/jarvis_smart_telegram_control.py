@@ -3311,6 +3311,12 @@ def _flush_media_group(media_group_buffer: Dict[str, Any], gid: str) -> None:
     if not _swapbatch_album_intercept(chat_id, msgs):
         state = load_state()
         caption = next((m.get("caption", "") for m in msgs if m.get("caption")), "")
+        # A no-command, sessionless album (e.g. a plain photo dump) is saved
+        # quietly with ONE summary and NO per-frame Vision. Captioned albums and
+        # active collection sessions keep per-frame routing.
+        if not caption and not _album_has_active_session(chat_id):
+            _handle_album_quiet_save(chat_id, msgs, state)
+            return
         send(chat_id, f"📦 Получено {len(msgs)} файлов{' с подписью: ' + caption if caption else ''}. Обрабатываю...")
         for m in msgs:
             _handle_file_message(chat_id, m, state)
@@ -8803,6 +8809,42 @@ _INCOMING_DIR = ROOT / "state" / "incoming_files"
 _INCOMING_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _safe_name(value: str) -> str:
+    """Sanitise a token for use in a filename. ``file_unique_id`` is base64url
+    (``A-Za-z0-9_-``) which is already FS-safe; this is defence against any
+    stray separators from other sources."""
+    return "".join(c if (c.isalnum() or c in "._-") else "_" for c in str(value)) or "file"
+
+
+_MIME_EXT = {
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "image/heic": ".heic",
+}
+
+
+def _ext_for_mime(mime: str) -> str:
+    """Best-effort file extension for a mime type (empty string when unknown)."""
+    return _MIME_EXT.get((mime or "").lower(), "")
+
+
+def _uniquify_dest(dest: Path) -> Path:
+    """Return ``dest`` when free, else the first ``{stem}_{n}{suffix}`` that does
+    not exist. A download must never silently overwrite an existing file — the
+    root cause of the album clobber (all photos shared one path)."""
+    if not dest.exists():
+        return dest
+    stem, suffix, parent = dest.stem, dest.suffix, dest.parent
+    n = 1
+    while True:
+        cand = parent / f"{stem}_{n}{suffix}"
+        if not cand.exists():
+            return cand
+        n += 1
+
+
 def _download_telegram_file(file_id: str, filename: str) -> Optional[str]:
     """Download a Telegram file by file_id. Returns local path or None."""
     info = tg_call("getFile", {"file_id": file_id})
@@ -8810,7 +8852,7 @@ def _download_telegram_file(file_id: str, filename: str) -> Optional[str]:
     if not file_path:
         return None
     url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
-    dest = _INCOMING_DIR / filename
+    dest = _uniquify_dest(_INCOMING_DIR / filename)
     try:
         req = urllib.request.Request(url)
         with urllib.request.urlopen(req, timeout=60) as r:
@@ -8879,19 +8921,84 @@ def classify_file_caption(caption: str) -> Dict[str, Any]:
 
 
 def _extract_file_from_msg(msg: Dict[str, Any]):
-    """Return (file_id, filename, mime_type) from a message or None."""
+    """Return (file_id, filename, mime_type) from a message or None.
+
+    Filenames are keyed on the stable, per-media ``file_unique_id`` rather than
+    ``file_id[:8]``. Every Telegram photo file_id shares the ``AgACAgIA`` prefix,
+    so the old ``photo_{file_id[:8]}.jpg`` collapsed an N-photo album onto ONE
+    path (each frame overwriting the last). ``file_unique_id`` is distinct per
+    physical media, so an album now yields N distinct filenames. Documents keep
+    their original ``file_name`` when present."""
     doc = msg.get("document")
     photos = msg.get("photo")
     if doc:
         fid = doc.get("file_id", "")
-        fname = doc.get("file_name") or f"doc_{fid[:8]}"
         mime = doc.get("mime_type", "")
+        uid = doc.get("file_unique_id") or fid[:8]
+        fname = doc.get("file_name") or f"doc_{_safe_name(uid)}{_ext_for_mime(mime)}"
         return fid, fname, mime
     if photos:
         photo = sorted(photos, key=lambda p: p.get("file_size", 0))[-1]
         fid = photo.get("file_id", "")
-        return fid, f"photo_{fid[:8]}.jpg", "image/jpeg"
+        uid = photo.get("file_unique_id") or fid[:8]
+        return fid, f"photo_{_safe_name(uid)}.jpg", "image/jpeg"
     return None
+
+
+def _album_has_active_session(chat_id: str) -> bool:
+    """True when an interactive photo-collection session is active for this chat
+    (me_seed persona seed collection, or a photo-studio step that consumes
+    photos). Such albums must keep per-frame routing so the session collects
+    them; only sessionless, caption-less albums are quiet-saved. Best-effort —
+    any failure defaults to False (quiet-save)."""
+    try:
+        from app.handlers.persona_handler import _get_seed_collector
+        if _get_seed_collector().get_session(int(chat_id)) is not None:
+            return True
+    except Exception:
+        pass
+    try:
+        from tools.photo_studio_telegram import load_conv
+        if load_conv(str(chat_id)).get("step") in (
+            "faceswap_source", "faceswap_target", "enhance_upload",
+            "meinto_target", "lora_collecting",
+        ):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _handle_album_quiet_save(chat_id: str, msgs: list, state: Dict[str, Any]) -> None:
+    """Quietly download an album of files (unique names, no Vision, no backend)
+    and send a single summary.
+
+    A no-command album (a plain photo dump) used to fire one paid Vision call
+    plus one reply PER frame via ``_handle_file_message``. Here each file is
+    just saved to ``_INCOMING_DIR`` and the user gets one ``📦 Принял N`` reply."""
+    saved: list = []
+    for m in msgs:
+        extracted = _extract_file_from_msg(m)
+        if not extracted:
+            continue
+        file_id, filename, _mime = extracted
+        if not file_id:
+            continue
+        local = _download_telegram_file(file_id, filename)
+        if local:
+            saved.append(local)
+    if saved:
+        state["last_uploaded_file"] = {
+            "path": saved[-1],
+            "filename": Path(saved[-1]).name,
+            "mime_type": "",
+            "parse_result": {},
+        }
+        state["last_uploaded_batch"] = saved
+        save_state(state)
+        send(chat_id, f"📦 Принял {len(saved)} файлов. Сохранил в {_INCOMING_DIR}.")
+    else:
+        send(chat_id, "❌ Не смог скачать ни одного файла из альбома. Попробуй ещё раз.")
 
 
 def _handle_file_message(chat_id: str, msg: Dict[str, Any], state: Dict[str, Any]) -> None:
