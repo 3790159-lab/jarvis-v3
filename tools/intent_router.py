@@ -98,6 +98,8 @@ PAID: FrozenSet[str] = frozenset({
     "/dev_task", "/suggest_tasks", "/browse_check", "/browse_watch",
     # SMM / Instagram (Этап 3)
     "/ig_caption", "/ig_post", "/ig_gen",
+    # Vision (Claude Haiku image analysis) — tap-to-analyze on a bare photo
+    "/vision_analyze",
 })
 
 # Ориентировочная цена $ для подписи confirm-кнопки (де-факто прайс хендлеров).
@@ -107,6 +109,7 @@ PRICE: Dict[str, float] = {
     "/persona_video": 0.40, "/persona_photo": 0.10, "/faceswap": 0.005,
     "/enhance": 0.01, "/dev_task": 0.90, "/suggest_tasks": 0.08,
     "/ig_caption": 0.02, "/ig_post": 0.02, "/ig_gen": 0.08,
+    "/vision_analyze": 0.01,
 }
 
 

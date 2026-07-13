@@ -129,6 +129,7 @@ _PHOTO = Category("photo", "🍽 Photo Studio", (
     _mi("/party_themes", "темы вечеринок", "exec", True),
     _mi("/faceswap", "одиночный свап лица", "exec", True),
     _mi("/enhance", "улучшить фото", "exec", True),
+    _mi("/vision_analyze", "Vision-анализ последнего фото", "exec", False),
 ))
 
 # apps/agents/stats/system — голые команды (label=None), admin-only

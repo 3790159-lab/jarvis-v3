@@ -10,7 +10,7 @@ from tools import intent_router as ir
 # ── Task 1: corpus built from the menu registry ────────────────────────────
 def test_corpus_covers_all_menu_commands():
     corpus = ir.build_corpus()
-    assert len(corpus) == 115
+    assert len(corpus) == 116
     for cmd in ("/health", "/menu_photo", "/costs", "/git_status", "/my_stats"):
         assert cmd in corpus
 

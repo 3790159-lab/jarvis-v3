@@ -5719,6 +5719,40 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
         _handle_confirm_run(chat_id, cq_id, _cq_uid, state)
         return
 
+    # ── Bare-photo action menu (photo_act:analyze|igpost|animate|none) ───────
+    # Buttons offered on a no-caption, no-session single photo (money-safety:
+    # Vision no longer auto-fires — see _handle_file_message). analyze
+    # re-enters through handle_command, so the standard PAID/money-confirm
+    # chokepoint (_money_gate) gates the actual spend — no bypass here.
+    if data.startswith("photo_act:"):
+        action = parts[1] if len(parts) > 1 else ""
+        if action == "analyze":
+            answer_callback_query(cq_id)
+            handle_command(chat_id, "/vision_analyze", "", state)
+            return
+        if action == "igpost":
+            answer_callback_query(cq_id, "📸")
+            file_info = state.get("last_uploaded_file") or {}
+            path = file_info.get("path", "")
+            if path:
+                _remember_last_media(chat_id, path)
+            send(chat_id, _IG_POST_USAGE_HINT)
+            return
+        if action == "animate":
+            answer_callback_query(cq_id, "🎭")
+            file_info = state.get("last_uploaded_file") or {}
+            path = file_info.get("path", "")
+            if not path:
+                send(chat_id, "⚠️ Нет сохранённого фото.")
+                return
+            chat_id_int = int(chat_id)
+            _ANIMATE_PENDING[chat_id_int] = {"photo": path}
+            send_with_keyboard(chat_id, "🎬 Выбери движок для анимации:",
+                                _animate_engine_keyboard(chat_id_int))
+            return
+        answer_callback_query(cq_id)
+        return
+
     # ── Intent-router confirm (ir:run | ir:pick:<idx> | ir:cancel) ───────────
     # ir:run порождается только confirm-кнопкой _ir_send_confirm → уже
     # подтверждено, исполняем. ir:pick — выбор из clarify: free → сразу, платно/
@@ -8754,6 +8788,10 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
         run_intent(chat_id, {"intent": mapped[cmd], "query": query}, state)
         return
 
+    if cmd == "/vision_analyze":
+        cmd_vision_analyze(chat_id, state)
+        return
+
     # ── Photo Studio commands (Block H4) ─────────────────────────────────────
     try:
         _r_ps = str(Path(__file__).parent.parent)
@@ -9001,6 +9039,47 @@ def _handle_album_quiet_save(chat_id: str, msgs: list, state: Dict[str, Any]) ->
         send(chat_id, "❌ Не смог скачать ни одного файла из альбома. Попробуй ещё раз.")
 
 
+def _photo_no_caption_keyboard() -> list:
+    """Action menu for a bare (no-caption, no-session) single photo."""
+    return [
+        [{"text": "🔍 Анализ ($)", "callback_data": "photo_act:analyze"}],
+        [{"text": "📸 В IG-пост", "callback_data": "photo_act:igpost"},
+         {"text": "🎭 Анимировать", "callback_data": "photo_act:animate"}],
+        [{"text": "✖️ Ничего", "callback_data": "photo_act:none"}],
+    ]
+
+
+def cmd_vision_analyze(chat_id: str, state: Dict[str, Any]) -> None:
+    """``/vision_analyze`` — Vision-анализ ``last_uploaded_file`` под guard_spend.
+
+    Единственный источник платного Vision-вызова с одиночного бесподписного
+    фото (кнопка [🔍 Анализ ($)]): money-confirm уже отработал в
+    ``handle_command`` (команда в PAID-реестре) до вызова этой функции —
+    здесь только сам платный шаг, гейтимый ``guard_spend`` как остальные."""
+    file_info = state.get("last_uploaded_file") or {}
+    path = file_info.get("path", "")
+    if not path:
+        send(chat_id, "📂 Сначала отправь фото.")
+        return
+    from app.services.vision import analyze_image, is_vision_supported
+    if not is_vision_supported():
+        send(chat_id, "🖼 Анализ изображений пока не поддерживается.")
+        return
+
+    def _do():
+        send(chat_id, "🖼 Анализирую изображение...")
+        return analyze_image(path)
+
+    analysis, err = guard_spend(chat_id, None, _VISION_ANALYZE_USD, _do)
+    if err:
+        send(chat_id, f"🚫 {err}")
+        return
+    send(chat_id, f"🖼 Анализ изображения:\n\n{analysis}")
+
+
+_VISION_ANALYZE_USD = float(os.getenv("VISION_ANALYZE_USD", "0.01"))
+
+
 def _handle_file_message(chat_id: str, msg: Dict[str, Any], state: Dict[str, Any]) -> None:
     """Handle incoming document or photo from Telegram (including forwards)."""
     # Support forwarded messages with attachments
@@ -9124,22 +9203,16 @@ def _handle_file_message(chat_id: str, msg: Dict[str, Any], state: Dict[str, Any
         pack = classify_file_caption(caption)
         run_intent(chat_id, pack, state)
     else:
-        # Phase 27: photo without caption → Vision analysis
+        # A bare photo (no caption) with no active session (me_seed/photo_studio
+        # already checked above and didn't consume it) — don't auto-spend on
+        # Vision. Save the file (already done above) and offer action buttons;
+        # only a tap on [🔍 Анализ] pays, through the standard money-confirm.
         is_photo = bool(msg.get("photo"))
         if is_photo and local_path:
-            try:
-                _root_v2 = str(Path(__file__).parent.parent)
-                import sys as _sys_v2
-                if _root_v2 not in _sys_v2.path:
-                    _sys_v2.path.insert(0, _root_v2)
-                from app.services.vision import analyze_image, is_vision_supported
-                if is_vision_supported():
-                    send(chat_id, "🖼 Анализирую изображение...")
-                    analysis = analyze_image(local_path)
-                    send(chat_id, f"🖼 Анализ изображения:\n\n{analysis}")
-                    return
-            except Exception:
-                pass
+            _remember_last_media(chat_id, local_path)
+            send_with_keyboard(chat_id, "📷 Фото сохранено. Что сделать?",
+                                _photo_no_caption_keyboard())
+            return
         send(chat_id, summary + preview_line + action_hint)
 
 
