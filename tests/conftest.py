@@ -67,6 +67,16 @@ def _isolate_ig_schedule_file(monkeypatch, tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_ig_hashtag_history_file(monkeypatch, tmp_path):
+    """Point the IG hashtag-rotation history at a per-test tmp file so no test
+    can read/write the live ``state/ig_hashtag_history.json`` (same rationale
+    as ``_isolate_ig_schedule_file`` above — ``ig_caption._hashtag_history_file()``
+    falls back to the *relative* default when ``IG_HASHTAG_HISTORY_FILE`` is
+    unset)."""
+    monkeypatch.setenv("IG_HASHTAG_HISTORY_FILE", str(tmp_path / "ig_hashtag_history.json"))
+
+
+@pytest.fixture(autouse=True)
 def _silence_telegram_sends(monkeypatch):
     """Suppress every outbound Telegram send during tests so no phantom
     message (``petya (555) New user``, ``RunPod guardian pod_old`` …) leaks

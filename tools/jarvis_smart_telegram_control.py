@@ -4721,7 +4721,9 @@ def _ig_caption_dispatch(chat_id: str, topic: str) -> None:
     try:
         caption, err = guard_spend(
             chat_id, None, _cap.EST_USD,
-            lambda: _cap.generate_caption(brief, ask_llm=_ig_caption_ask_llm),
+            lambda: _cap.generate_caption(
+                brief, ask_llm=_ig_caption_ask_llm, client=client, date=datetime.now().date(),
+            ),
         )
     except Exception as exc:                   # платный вызов упал (нет кредитов/сеть)
         logger.exception("ig_caption: paid LLM call failed chat=%s", chat_id)
@@ -4850,7 +4852,9 @@ def _ig_post_generate_caption(chat_id, topic: str, client: Optional[str] = None)
     }, brand)
     return guard_spend(
         chat_id, None, _cap.EST_USD,
-        lambda: _cap.generate_caption(brief, ask_llm=_ig_caption_ask_llm),
+        lambda: _cap.generate_caption(
+            brief, ask_llm=_ig_caption_ask_llm, client=client, date=datetime.now().date(),
+        ),
     )
 
 
