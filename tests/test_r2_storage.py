@@ -19,6 +19,7 @@ from app.services.r2_storage import (
     R2ConfigError,
     R2Error,
     R2TransientError,
+    ensure_tmp_lifecycle_rule,
     upload_file,
     upload_file_async,
 )
@@ -110,6 +111,26 @@ def test_put_object_sets_bucket_and_content_type(tmp_path):
     assert kwargs["Bucket"] == "jarvis-media"
     assert kwargs["ContentType"] == "video/mp4"
     assert "Body" in kwargs
+
+
+def test_prefix_param_used_for_auto_key(tmp_path):
+    file = _mp4(tmp_path)
+    client = _client()
+
+    upload_file(file, client=client, config=_config(), prefix="tmp")
+
+    key = client.put_object.call_args.kwargs["Key"]
+    assert re.fullmatch(r"tmp/\d{4}-\d{2}/[0-9a-f]{32}\.mp4", key), key
+
+
+def test_default_prefix_is_media(tmp_path):
+    file = _mp4(tmp_path)
+    client = _client()
+
+    upload_file(file, client=client, config=_config())
+
+    key = client.put_object.call_args.kwargs["Key"]
+    assert key.startswith("media/")
 
 
 def test_public_base_trailing_slash_not_doubled(tmp_path):
@@ -208,3 +229,84 @@ async def test_upload_file_async_returns_url(tmp_path):
     url = await upload_file_async(file, client=client, config=_config())
 
     assert url.startswith("https://pub-abc.r2.dev/media/")
+
+
+# ── tmp/ lifecycle rule ───────────────────────────────────────────────────────
+
+
+def test_ensure_tmp_lifecycle_rule_applies_expiration(tmp_path):
+    client = _client()
+    client.get_bucket_lifecycle_configuration = MagicMock(
+        side_effect=ClientError(
+            {"Error": {"Code": "NoSuchLifecycleConfiguration"}}, "GetBucketLifecycleConfiguration"
+        )
+    )
+    client.put_bucket_lifecycle_configuration = MagicMock(return_value={})
+
+    ok = ensure_tmp_lifecycle_rule(client=client, config=_config())
+
+    assert ok is True
+    kwargs = client.put_bucket_lifecycle_configuration.call_args.kwargs
+    assert kwargs["Bucket"] == "jarvis-media"
+    rules = kwargs["LifecycleConfiguration"]["Rules"]
+    assert len(rules) == 1
+    assert rules[0]["Filter"] == {"Prefix": "tmp/"}
+    assert rules[0]["Expiration"] == {"Days": 7}
+    assert rules[0]["Status"] == "Enabled"
+
+
+def test_ensure_tmp_lifecycle_rule_is_idempotent(tmp_path):
+    client = _client()
+    client.get_bucket_lifecycle_configuration = MagicMock(
+        return_value={
+            "Rules": [
+                {
+                    "ID": "tmp-expire-7d",
+                    "Status": "Enabled",
+                    "Filter": {"Prefix": "tmp/"},
+                    "Expiration": {"Days": 7},
+                },
+            ]
+        }
+    )
+    client.put_bucket_lifecycle_configuration = MagicMock(return_value={})
+
+    ensure_tmp_lifecycle_rule(client=client, config=_config())
+
+    rules = client.put_bucket_lifecycle_configuration.call_args.kwargs[
+        "LifecycleConfiguration"
+    ]["Rules"]
+    assert len(rules) == 1, "re-applying the rule must not create duplicates"
+
+
+def test_ensure_tmp_lifecycle_rule_preserves_other_rules(tmp_path):
+    client = _client()
+    client.get_bucket_lifecycle_configuration = MagicMock(
+        return_value={
+            "Rules": [
+                {"ID": "other-rule", "Status": "Enabled", "Filter": {"Prefix": "keep/"}},
+            ]
+        }
+    )
+    client.put_bucket_lifecycle_configuration = MagicMock(return_value={})
+
+    ensure_tmp_lifecycle_rule(client=client, config=_config())
+
+    rules = client.put_bucket_lifecycle_configuration.call_args.kwargs[
+        "LifecycleConfiguration"
+    ]["Rules"]
+    ids = {r["ID"] for r in rules}
+    assert "other-rule" in ids
+    assert any(r["Filter"] == {"Prefix": "tmp/"} for r in rules)
+
+
+def test_ensure_tmp_lifecycle_rule_fails_open_on_error(tmp_path):
+    client = _client()
+    client.get_bucket_lifecycle_configuration = MagicMock(return_value={"Rules": []})
+    client.put_bucket_lifecycle_configuration = MagicMock(
+        side_effect=_client_error(403, "AccessDenied")
+    )
+
+    ok = ensure_tmp_lifecycle_rule(client=client, config=_config())
+
+    assert ok is False

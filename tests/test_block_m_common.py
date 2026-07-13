@@ -388,17 +388,49 @@ class TestFluxLoraTraining:
         from app.services.block_m_common.replicate_video_client import ReplicateVideoClient
         client = ReplicateVideoClient(api_token="tok")
 
-        response = MagicMock()
-        response.raise_for_status = MagicMock()
-        response.json = MagicMock(return_value={"urls": {"get": "https://serve/file.zip"}})
-
-        session_mock = AsyncMock()
-        session_mock.post = AsyncMock(return_value=response)
-
-        with patch("httpx.AsyncClient", return_value=_make_async_client_mock(session_mock)):
+        host_media_mock = AsyncMock(return_value="https://pub-abc.r2.dev/tmp/training.zip")
+        with patch(
+            "app.services.media_delivery.host_media", host_media_mock
+        ):
             url = await client._upload_zip_to_replicate(b"fake_zip_bytes")
 
-        assert url == "https://serve/file.zip"
+        assert url == "https://pub-abc.r2.dev/tmp/training.zip"
+        host_media_mock.assert_awaited_once()
+        uploaded_path = host_media_mock.await_args[0][0]
+        assert not uploaded_path.exists(), "temp zip file must be cleaned up after upload"
+
+    @pytest.mark.anyio
+    async def test_upload_zip_to_replicate_writes_bytes_to_temp_file(self):
+        from app.services.block_m_common.replicate_video_client import ReplicateVideoClient
+        client = ReplicateVideoClient(api_token="tok")
+
+        seen_bytes = {}
+
+        async def _fake_host_media(path, **kwargs):
+            seen_bytes["content"] = path.read_bytes()
+            return "https://pub-abc.r2.dev/tmp/training.zip"
+
+        with patch("app.services.media_delivery.host_media", _fake_host_media):
+            await client._upload_zip_to_replicate(b"PK\x03\x04payload")
+
+        assert seen_bytes["content"] == b"PK\x03\x04payload"
+
+    @pytest.mark.anyio
+    async def test_upload_zip_to_replicate_cleans_up_temp_file_on_failure(self):
+        from app.services.block_m_common.replicate_video_client import ReplicateVideoClient
+        client = ReplicateVideoClient(api_token="tok")
+
+        captured_path = {}
+
+        async def _failing_host_media(path, **kwargs):
+            captured_path["path"] = path
+            raise RuntimeError("both backends down")
+
+        with patch("app.services.media_delivery.host_media", _failing_host_media):
+            with pytest.raises(RuntimeError):
+                await client._upload_zip_to_replicate(b"fake_zip_bytes")
+
+        assert not captured_path["path"].exists()
 
     @pytest.mark.anyio
     async def test_submit_training_uses_version_url(self):

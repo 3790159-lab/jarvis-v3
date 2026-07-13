@@ -8,6 +8,7 @@ import logging
 import os
 import random
 import zipfile
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -248,17 +249,21 @@ class ReplicateVideoClient:
         return zip_buffer.read()
 
     async def _upload_zip_to_replicate(self, zip_bytes: bytes) -> str:
-        """Upload ZIP to Replicate's file storage. Returns serving URL."""
-        create_url = "https://api.replicate.com/v1/files"
-        async with httpx.AsyncClient(timeout=60.0) as session:
-            files = {"content": ("training_images.zip", zip_bytes, "application/zip")}
-            resp = await session.post(
-                create_url,
-                files=files,
-                headers={"Authorization": f"Token {self._api_token}"},
-            )
-            resp.raise_for_status()
-            return resp.json()["urls"]["get"]
+        """Upload the LoRA training ZIP via our R2 tmp/ hosting (fails open to
+        litterbox — see :func:`app.services.media_delivery.host_media`) and
+        return a public URL Replicate's trainer can download from."""
+        import tempfile
+
+        from app.services import media_delivery
+
+        fd, tmp_name = tempfile.mkstemp(suffix=".zip", prefix="lora_train_")
+        tmp_path = Path(tmp_name)
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(zip_bytes)
+            return await media_delivery.host_media(tmp_path, retention="1h")
+        finally:
+            tmp_path.unlink(missing_ok=True)
 
     async def _poll_training(self, training_id: str, max_wait_sec: int = 1800) -> dict:
         """Poll training until succeeded/failed/canceled. Default max wait 30 min."""

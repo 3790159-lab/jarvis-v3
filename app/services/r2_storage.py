@@ -46,9 +46,18 @@ __all__ = [
     "R2Error",
     "R2ConfigError",
     "R2TransientError",
+    "TMP_PREFIX",
     "upload_file",
     "upload_file_async",
+    "ensure_tmp_lifecycle_rule",
 ]
+
+# Prefix for temporary/internal uploads (LoRA training datasets, transient
+# hosting for paid-API downloads). Objects under this prefix are meant to be
+# expired by a bucket lifecycle rule (see ensure_tmp_lifecycle_rule) rather
+# than kept indefinitely like the default "media/" prefix.
+TMP_PREFIX = "tmp"
+_TMP_LIFECYCLE_DAYS = 7
 
 # Extension -> Content-Type. Serving R2 objects with a correct Content-Type is
 # what lets Telegram/browsers inline-preview them instead of forcing a download.
@@ -133,10 +142,10 @@ def _make_client(config: R2Config) -> Any:
     )
 
 
-def _build_key(path: Path) -> str:
+def _build_key(path: Path, prefix: str = "media") -> str:
     month = datetime.now(timezone.utc).strftime("%Y-%m")
     ext = path.suffix.lower()
-    return f"media/{month}/{uuid.uuid4().hex}{ext}"
+    return f"{prefix}/{month}/{uuid.uuid4().hex}{ext}"
 
 
 def _content_type(key: str) -> str:
@@ -163,6 +172,7 @@ def upload_file(
     path: str | Path,
     key: str | None = None,
     *,
+    prefix: str = "media",
     client: Any | None = None,
     config: R2Config | None = None,
     max_attempts: int = 3,
@@ -171,7 +181,9 @@ def upload_file(
 ) -> str:
     """Upload ``path`` to R2 and return its public URL.
 
-    key: object key; auto-generated as ``media/YYYY-MM/<uuid>.<ext>`` if None.
+    key: object key; auto-generated as ``<prefix>/YYYY-MM/<uuid>.<ext>`` if
+    None. ``prefix`` defaults to ``"media"``; pass :data:`TMP_PREFIX` for
+    transient/internal uploads meant to be lifecycle-expired.
     Retries transient errors (5xx, connection/timeout) up to ``max_attempts``.
 
     Raises:
@@ -187,7 +199,7 @@ def upload_file(
         raise R2Error(f"file not found: {path}")
 
     client = client or _make_client(config)
-    key = key or _build_key(path)
+    key = key or _build_key(path, prefix)
 
     attempt = 0
     while True:
@@ -233,3 +245,55 @@ async def upload_file_async(
     import asyncio
 
     return await asyncio.to_thread(upload_file, path, key, **kwargs)
+
+
+def ensure_tmp_lifecycle_rule(
+    *,
+    client: Any | None = None,
+    config: R2Config | None = None,
+    prefix: str = TMP_PREFIX,
+    expiration_days: int = _TMP_LIFECYCLE_DAYS,
+) -> bool:
+    """Ensure a bucket lifecycle rule expires ``<prefix>/`` objects after
+    ``expiration_days``. Merges with (does not clobber) any existing rules.
+
+    Returns:
+        True if the rule was applied. False if the backend rejected the
+        lifecycle-configuration call (fail-open) — callers should log this
+        and fall back to configuring it manually in the Cloudflare dashboard
+        (Bucket -> Settings -> Object lifecycle rules).
+    """
+    config = config or _load_config()
+    client = client or _make_client(config)
+    rule_id = f"{prefix}-expire-{expiration_days}d"
+
+    try:
+        existing = client.get_bucket_lifecycle_configuration(Bucket=config.bucket)
+        rules = existing.get("Rules", [])
+    except ClientError:
+        rules = []
+
+    rules = [r for r in rules if r.get("ID") != rule_id]
+    rules.append(
+        {
+            "ID": rule_id,
+            "Status": "Enabled",
+            "Filter": {"Prefix": f"{prefix}/"},
+            "Expiration": {"Days": expiration_days},
+        }
+    )
+
+    try:
+        client.put_bucket_lifecycle_configuration(
+            Bucket=config.bucket,
+            LifecycleConfiguration={"Rules": rules},
+        )
+        return True
+    except (ClientError, BotoCoreError) as exc:
+        logger.warning(
+            "could not set R2 lifecycle rule for %s/ (expire after %d days): %s. "
+            "Set it manually: Cloudflare dashboard -> bucket %s -> Settings -> "
+            "Object lifecycle rules -> expire prefix %s/ after %d days.",
+            prefix, expiration_days, exc, config.bucket, prefix, expiration_days,
+        )
+        return False
