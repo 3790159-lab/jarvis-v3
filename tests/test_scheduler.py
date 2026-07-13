@@ -471,6 +471,137 @@ class TestParseRemindTextRegex:
 
 # ─── format_task_list ────────────────────────────────────────────────────────
 
+# ─── garbage_cleanup weekly job ──────────────────────────────────────────────
+
+class TestEnsureGarbageCleanupJob:
+    def test_registers_once(self, tmp_path):
+        sched = JarvisScheduler()
+        sched._scheduler = MagicMock()
+        sched._started = True
+        with patch("app.services.scheduler.STATE_PATH", tmp_path / "tasks.json"):
+            task_id = sched.ensure_garbage_cleanup_job("123")
+        assert task_id is not None
+        tasks = sched.list_tasks()
+        assert any(t["action"] == "garbage_cleanup" for t in tasks)
+
+    def test_idempotent_second_call_noop(self, tmp_path):
+        sched = JarvisScheduler()
+        sched._scheduler = MagicMock()
+        sched._started = True
+        with patch("app.services.scheduler.STATE_PATH", tmp_path / "tasks.json"):
+            first = sched.ensure_garbage_cleanup_job("123")
+            second = sched.ensure_garbage_cleanup_job("123")
+        assert first is not None
+        assert second is None
+        tasks = [t for t in sched.list_tasks() if t["action"] == "garbage_cleanup"]
+        assert len(tasks) == 1
+
+    def test_cron_is_weekly(self, tmp_path):
+        sched = JarvisScheduler()
+        sched._scheduler = MagicMock()
+        sched._started = True
+        with patch("app.services.scheduler.STATE_PATH", tmp_path / "tasks.json"):
+            sched.ensure_garbage_cleanup_job("123")
+        task = next(t for t in sched.list_tasks() if t["action"] == "garbage_cleanup")
+        assert task["schedule_type"] == "cron"
+        assert task["cron"] == "0 4 * * 1"
+
+
+class TestRunGarbageCleanup:
+    def _fake_report(self):
+        return {"categories": {}, "total_count": 0, "total_mb": 0.0, "dry_run": True}
+
+    def test_sends_formatted_report(self, monkeypatch):
+        sent = []
+        sched = JarvisScheduler(send_fn=lambda cid, txt: sent.append((cid, txt)))
+        monkeypatch.setattr(
+            "app.services.garbage_cleanup.run_cleanup",
+            lambda **kw: self._fake_report(),
+        )
+        monkeypatch.setattr(
+            "app.services.devtask.queue.DevTaskQueue.get", lambda self, tid: None
+        )
+        sched.run_garbage_cleanup("555")
+        assert sent
+        assert sent[0][0] == "555"
+        assert "Уборка мусора" in sent[0][1]
+
+    def test_defaults_to_dry_run_when_env_unset(self, monkeypatch):
+        monkeypatch.delenv("GARBAGE_CLEANUP_DRY_RUN", raising=False)
+        captured = {}
+
+        def fake_run_cleanup(**kw):
+            captured.update(kw)
+            return self._fake_report()
+
+        monkeypatch.setattr("app.services.garbage_cleanup.run_cleanup", fake_run_cleanup)
+        monkeypatch.setattr(
+            "app.services.devtask.queue.DevTaskQueue.get", lambda self, tid: None
+        )
+        sched = JarvisScheduler(send_fn=lambda cid, txt: None)
+        sched.run_garbage_cleanup("555")
+        assert captured["dry_run"] is True
+
+    def test_respects_env_override_to_disable_dry_run(self, monkeypatch):
+        monkeypatch.setenv("GARBAGE_CLEANUP_DRY_RUN", "false")
+        captured = {}
+
+        def fake_run_cleanup(**kw):
+            captured.update(kw)
+            return self._fake_report()
+
+        monkeypatch.setattr("app.services.garbage_cleanup.run_cleanup", fake_run_cleanup)
+        monkeypatch.setattr(
+            "app.services.devtask.queue.DevTaskQueue.get", lambda self, tid: None
+        )
+        sched = JarvisScheduler(send_fn=lambda cid, txt: None)
+        sched.run_garbage_cleanup("555")
+        assert captured["dry_run"] is False
+        monkeypatch.delenv("GARBAGE_CLEANUP_DRY_RUN", raising=False)
+
+    def test_execute_task_routes_garbage_cleanup_action(self, monkeypatch, tmp_path):
+        sent = []
+        sched = JarvisScheduler(send_fn=lambda cid, txt: sent.append(txt))
+        sched._scheduler = MagicMock()
+        sched._started = True
+        monkeypatch.setattr(
+            "app.services.garbage_cleanup.run_cleanup",
+            lambda **kw: self._fake_report(),
+        )
+        monkeypatch.setattr(
+            "app.services.devtask.queue.DevTaskQueue.get", lambda self, tid: None
+        )
+        with patch("app.services.scheduler.STATE_PATH", tmp_path / "tasks.json"):
+            task = {
+                "task_id": "t_gc",
+                "action": "garbage_cleanup",
+                "params": {},
+                "chat_id": "999",
+                "schedule_type": "cron",
+                "cron": "0 4 * * 1",
+                "active": True,
+            }
+            sched._tasks.append(task)
+            sched._execute_task(task)
+        assert sent
+        assert "Уборка мусора" in sent[0]
+
+    def test_exception_reports_error_not_raise(self, monkeypatch):
+        sent = []
+        sched = JarvisScheduler(send_fn=lambda cid, txt: sent.append(txt))
+
+        def boom(**kw):
+            raise RuntimeError("disk exploded")
+
+        monkeypatch.setattr("app.services.garbage_cleanup.run_cleanup", boom)
+        monkeypatch.setattr(
+            "app.services.devtask.queue.DevTaskQueue.get", lambda self, tid: None
+        )
+        sched.run_garbage_cleanup("555")  # must not raise
+        assert sent
+        assert "Ошибка" in sent[0]
+
+
 class TestFormatTaskList:
     def test_empty_list(self):
         text = format_task_list([])

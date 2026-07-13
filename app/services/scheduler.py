@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -135,6 +136,56 @@ class JarvisScheduler:
     def get_task(self, task_id: str) -> Optional[Dict[str, Any]]:
         with self._lock:
             return next((t for t in self._tasks if t["task_id"] == task_id), None)
+
+    def ensure_garbage_cleanup_job(self, chat_id: str, cron: str = "0 4 * * 1") -> Optional[str]:
+        """Idempotently register the weekly garbage-cleanup cron job (Mon 04:00 UTC).
+
+        Called on every scheduler start so a fresh state file always gets the
+        job, but a persisted one is never duplicated. Returns the new task_id,
+        or None if an active ``garbage_cleanup`` job already exists.
+        """
+        with self._lock:
+            for t in self._tasks:
+                if t.get("action") == "garbage_cleanup" and t.get("active"):
+                    return None
+        return self.add_task(action="garbage_cleanup", params={}, cron=cron, chat_id=chat_id)
+
+    def run_garbage_cleanup(self, chat_id: str) -> None:
+        """Run the weekly disk-garbage cleanup and send the report to ``chat_id``.
+
+        DRY-RUN by default (``GARBAGE_CLEANUP_DRY_RUN`` env, default "true") per
+        spec: real deletion is an explicit operator opt-in after the first
+        week's reports are reviewed. Used by both the ``garbage_cleanup``
+        scheduled action and the manual ``/garbage_cleanup`` admin command.
+        """
+        from app.services import garbage_cleanup as _gc
+        from app.services.devtask import git_ops as _git_ops
+        from app.services.devtask.queue import DevTaskQueue as _DevTaskQueue
+
+        dry_run = os.getenv("GARBAGE_CLEANUP_DRY_RUN", "true").strip().lower() not in (
+            "0", "false", "no",
+        )
+        queue = _DevTaskQueue()
+
+        def _get_status(task_id: str) -> Optional[str]:
+            item = queue.get(task_id)
+            return item.get("status") if item else None
+
+        try:
+            report = _gc.run_cleanup(
+                incoming_dir=Path("state") / "incoming_files",
+                artifacts_dir=Path("artifacts"),
+                logs_dir=Path("logs"),
+                wt_root=Path(_git_ops.WT_ROOT),
+                get_status=_get_status,
+                now=datetime.now(timezone.utc),
+                dry_run=dry_run,
+                remove_worktree_fn=_git_ops.remove_worktree,
+            )
+            self._send(chat_id, _gc.format_report_message(report, dry_run))
+        except Exception as exc:
+            logger.error("garbage_cleanup failed: %s", exc)
+            self._send(chat_id, f"❌ Ошибка уборки мусора: {exc}")
 
     def start(self) -> None:
         """Start the APScheduler background thread and restore persisted tasks."""
@@ -260,6 +311,9 @@ class JarvisScheduler:
 
             elif action == "morning_brief":
                 self._send(chat_id, self._build_morning_brief(params))
+
+            elif action == "garbage_cleanup":
+                self.run_garbage_cleanup(chat_id)
 
             else:
                 logger.warning("Unknown action: %s", action)

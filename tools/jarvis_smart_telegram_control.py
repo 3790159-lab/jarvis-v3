@@ -6735,7 +6735,17 @@ def _get_scheduler():
         from app.services.scheduler import JarvisScheduler
         _JARVIS_SCHEDULER = JarvisScheduler(send_fn=send)
         _JARVIS_SCHEDULER.start()
+        if ALLOWED_CHAT_ID:
+            _JARVIS_SCHEDULER.ensure_garbage_cleanup_job(ALLOWED_CHAT_ID)
     return _JARVIS_SCHEDULER
+
+
+def _garbage_cleanup_dispatch(chat_id) -> None:
+    """/garbage_cleanup — on-demand run of the weekly cleanup job (same
+    GARBAGE_CLEANUP_DRY_RUN gate as the scheduled run; admin-only, no override
+    arg — real deletion is an explicit env-var opt-in, not a chat argument)."""
+    sched = _get_scheduler()
+    sched.run_garbage_cleanup(str(chat_id))
 
 
 _JARVIS_SCHEDULER = None
@@ -8196,6 +8206,10 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
 
     if cmd == "/devtask_stats":
         _devtask_stats_dispatch(chat_id, query)
+        return
+
+    if cmd == "/garbage_cleanup":
+        _garbage_cleanup_dispatch(chat_id)
         return
 
     if cmd == "/suggest_tasks":
