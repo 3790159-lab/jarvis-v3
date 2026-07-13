@@ -211,18 +211,38 @@ def _init_handler_m23():
     return send, send_photo
 
 
-def test_handle_costs_shows_summary():
-    # /costs теперь читает audit-леджер (Вариант A), а не block_m Analytics —
-    # делегирует в format_admin_costs_message. См. tests/test_costs_audit_reader.py
-    # для интеграционного write→read зуба.
+def test_handle_costs_shows_summary(monkeypatch, tmp_path):
+    # /costs [days] — total/day/comparison from the live audit ledger
+    # (accurate) + best-effort category/top-5 from the block_m ledger. See
+    # tests/test_costs_audit_reader.py for the audit write->read tooth and
+    # tests/test_costs_summary.py for the pure aggregation/format logic.
+    monkeypatch.setenv("JARVIS_COST_FILE", str(tmp_path / "cost.json"))
+    monkeypatch.setenv("JARVIS_EXPENSES_FILE", str(tmp_path / "expenses.jsonl"))
     import app.handlers.persona_handler as ph
+    from app.services.audit import cost_tracker as ct
+
+    ct.record_cost(42, "daniil", 1.23)
     send, _ = _init_handler_m23()
 
-    with patch.object(ph._user_cost, "format_admin_costs_message", return_value="AUDIT-COSTS-MSG"):
-        ph.handle_costs(42)
+    ph.handle_costs(42)
 
     send.assert_called_once()
-    assert "AUDIT-COSTS-MSG" in send.call_args[0][1]
+    body = send.call_args[0][1]
+    assert "Траты за 7д" in body
+    assert "$1.23" in body
+
+
+def test_handle_costs_respects_days_arg(monkeypatch, tmp_path):
+    monkeypatch.setenv("JARVIS_COST_FILE", str(tmp_path / "cost.json"))
+    monkeypatch.setenv("JARVIS_EXPENSES_FILE", str(tmp_path / "expenses.jsonl"))
+    import app.handlers.persona_handler as ph
+
+    send, _ = _init_handler_m23()
+
+    ph.handle_costs(42, "14")
+
+    send.assert_called_once()
+    assert "Траты за 14д" in send.call_args[0][1]
 
 
 def test_handle_history_shows_records():

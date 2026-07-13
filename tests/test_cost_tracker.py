@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -168,6 +168,38 @@ def test_get_admin_overview_with_no_users(cost_env):
     assert overview["today_total"] == 0.0
     assert overview["month_total"] == 0.0
     assert overview["all_time_total"] == 0.0
+
+
+# ── get_costs_range ──────────────────────────────────────────────────────────
+
+
+def test_get_costs_range_sums_all_users_per_day(cost_env):
+    """Per-day totals across every user, for an arbitrary [start, end] window."""
+    cost_tracker.record_cost(1, "daniil", 4.20, timestamp=datetime(2026, 5, 27, tzinfo=KYIV))
+    cost_tracker.record_cost(2, "vasya", 1.80, timestamp=datetime(2026, 5, 27, tzinfo=KYIV))
+    cost_tracker.record_cost(1, "daniil", 2.00, timestamp=datetime(2026, 5, 28, tzinfo=KYIV))
+
+    totals = cost_tracker.get_costs_range(date(2026, 5, 27), date(2026, 5, 28))
+    assert totals == {"2026-05-27": pytest.approx(6.00), "2026-05-28": pytest.approx(2.00)}
+
+
+def test_get_costs_range_includes_zero_days_with_no_spend(cost_env):
+    cost_tracker.record_cost(1, "daniil", 1.00, timestamp=datetime(2026, 5, 27, tzinfo=KYIV))
+
+    totals = cost_tracker.get_costs_range(date(2026, 5, 26), date(2026, 5, 28))
+    assert totals == {"2026-05-26": 0.0, "2026-05-27": pytest.approx(1.00), "2026-05-28": 0.0}
+
+
+def test_get_costs_range_excludes_days_outside_window(cost_env):
+    cost_tracker.record_cost(1, "daniil", 1.00, timestamp=datetime(2026, 5, 20, tzinfo=KYIV))
+
+    totals = cost_tracker.get_costs_range(date(2026, 5, 27), date(2026, 5, 28))
+    assert totals == {"2026-05-27": 0.0, "2026-05-28": 0.0}
+
+
+def test_get_costs_range_no_users(cost_env):
+    totals = cost_tracker.get_costs_range(date(2026, 5, 27), date(2026, 5, 27))
+    assert totals == {"2026-05-27": 0.0}
 
 
 # ── message formatting ───────────────────────────────────────────────────────

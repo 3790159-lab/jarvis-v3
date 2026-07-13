@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -13,6 +14,11 @@ DAILY_LIMIT_USD: float = 10.0
 
 _ROOT = Path(__file__).resolve().parent.parent.parent.parent
 _EXPENSES_FILE = _ROOT / "state" / "personas" / "expenses.jsonl"
+
+
+def _default_expenses_file() -> Path:
+    raw = os.getenv("JARVIS_EXPENSES_FILE", "").strip()
+    return Path(raw) if raw else _EXPENSES_FILE
 
 
 class DailyLimitExceeded(Exception):
@@ -38,7 +44,7 @@ class CostTracker:
         expenses_file: Path | None = None,
         daily_limit: float = DAILY_LIMIT_USD,
     ) -> None:
-        self._file = expenses_file or _EXPENSES_FILE
+        self._file = expenses_file or _default_expenses_file()
         self._file.parent.mkdir(parents=True, exist_ok=True)
         self._daily_limit = daily_limit
 
@@ -119,6 +125,15 @@ class CostTracker:
         today_total = await self.get_today_total()
         remaining = max(0.0, self._daily_limit - today_total)
         return True, remaining
+
+    async def get_all_entries(self) -> list[dict]:
+        """Return every logged expense entry, raw (ts/operation/cost_usd/persona_id).
+
+        Used by the ``/costs`` report to build an arbitrary N-day summary —
+        the per-day/per-operation methods below only cover single-day or
+        running-total views.
+        """
+        return self._read_all()
 
     async def get_costs_by_day(self, target_date) -> dict:
         """Cost breakdown by operation for a single calendar day (UTC).

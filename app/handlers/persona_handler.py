@@ -1063,19 +1063,44 @@ def handle_photo_message(chat_id: int, photo_url: str) -> bool:
 
 # ── Polish — costs, history, batch ─────────────────────────────────────────────
 
-def handle_costs(chat_id: int) -> None:
-    """/costs — сводка трат из audit-леджера (тот же стор, куда пишет
-    record_cost/guard_spend и читает /my_stats).
+def handle_costs(chat_id: int, args: str = "") -> None:
+    """/costs [days] — сводка трат за N дней (дефолт 7): по дням + сравнение с
+    предыдущим периодом такой же длины, из audit-леджера (тот же стор, куда
+    пишет record_cost/guard_spend и читает /my_stats) — эти цифры точные.
 
-    Раньше читал block_m-леджер (state/personas/expenses.jsonl), заморожен с
-    2026-05, → траты guard_spend/record_cost были невидимы. Вариант A: audit-only
-    поля (сегодня/месяц/всего по пользователям + тоталы) через
-    format_admin_costs_message; by_operation/remaining_budget не показываем (audit
-    их не хранит).
+    Плюс best-effort разбивка по категориям (LLM/Фото/Видео/Тренинг) и топ-5
+    операций из block_m-леджера (state/personas/expenses.jsonl) — единственного
+    места, где вообще есть имя операции. Он заморожен с 2026-05 (см.
+    docs/superpowers/plans/2026-07-04-money-consolidation.md) — большая часть
+    живых трат (LLM-роутер, face-swap, часть persona-операций) туда не попадает,
+    поэтому раздел может быть пустым/неполным и подписан как таковой; «Итого»
+    выше него — единственное точное число.
     """
-    logger.info("handle_costs chat=%s", chat_id)
+    logger.info("handle_costs chat=%s args=%r", chat_id, args)
+    days = 7
+    parts = args.strip().split()
+    if parts:
+        try:
+            n = int(parts[0])
+            if n > 0:
+                days = n
+        except ValueError:
+            pass
+
     try:
-        _safe_send(chat_id, _user_cost.format_admin_costs_message())
+        from datetime import datetime, timedelta
+
+        from app.services.costs_summary import build_summary, format_costs_message
+
+        today = datetime.now(_user_cost.KYIV_TZ).date()
+        prev_start = today - timedelta(days=2 * days - 1)
+        audit_totals = _user_cost.get_costs_range(prev_start, today)
+
+        tracker = CostTracker()
+        entries = _run_async(tracker.get_all_entries())
+
+        summary = build_summary(audit_totals, entries, days, today)
+        _safe_send(chat_id, format_costs_message(summary))
     except Exception as exc:
         _safe_send(chat_id, f"Ошибка получения статистики: {translate_exception(exc)}")
 

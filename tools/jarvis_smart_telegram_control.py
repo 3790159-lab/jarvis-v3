@@ -8834,7 +8834,7 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
                 handle_costs as _hcs,
             )
             _persona_init_cs(send, _send_photo_url)
-            _hcs(int(chat_id))
+            _hcs(int(chat_id), query)
         except Exception as _cse:
             logger.exception("/costs failed chat=%s", chat_id)
             send(chat_id, f"Ошибка: {translate_exception(_cse)}")

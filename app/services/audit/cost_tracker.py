@@ -36,7 +36,7 @@ import json
 import logging
 import os
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -230,6 +230,32 @@ def get_admin_overview(now: Optional[datetime] = None) -> Dict[str, Any]:
         "all_time_total": round(all_time_total, 2),
         "active_users": len(rows),
     }
+
+
+def get_costs_range(start: date, end: date) -> Dict[str, float]:
+    """Per-day totals (every user summed) for the ``[start, end]`` window, inclusive.
+
+    Days with no recorded spend are present with ``0.0`` so callers get a
+    complete calendar, not a sparse dict. Used by ``/costs`` to build an
+    arbitrary N-day report from the live per-user ledger.
+    """
+    with _LOCK:
+        state = _load_state()
+        users = state.get("users", {})
+
+    totals: Dict[str, float] = {}
+    d = start
+    while d <= end:
+        totals[d.isoformat()] = 0.0
+        d += timedelta(days=1)
+
+    for user in users.values():
+        daily = user.get("daily") or {}
+        for day_str, amount in daily.items():
+            if day_str in totals:
+                totals[day_str] += float(amount)
+
+    return {k: round(v, 2) for k, v in totals.items()}
 
 
 # ── message formatting (Russian) ─────────────────────────────────────────────
