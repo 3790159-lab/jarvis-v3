@@ -20,6 +20,7 @@ from app.services.ig_media_prep import (
     MIN_WIDTH,
     IGMediaError,
     host_for_ig,
+    is_media_url_alive,
     prepare_for_ig,
 )
 from app.services.r2_storage import R2Config
@@ -281,3 +282,71 @@ def test_host_for_ig_body_is_valid_jpeg_within_ig_bounds(tmp_path):
         w, h = img.size
         assert MIN_WIDTH <= w <= MAX_WIDTH
         assert MIN_ASPECT - _ASPECT_TOLERANCE <= w / h <= MAX_ASPECT + _ASPECT_TOLERANCE
+
+
+# ── media URL staleness check (HEAD probe) ───────────────────────────────────
+#
+# litterbox/R2 tmp links can die before the [📤 Опубликовать] tap. is_media_url_alive
+# HEAD-probes the URL so the bot can give an honest "медиа протухло" instead of a
+# confusing Meta container-creation failure. Never touches real network in tests —
+# urllib.request.urlopen is monkeypatched.
+
+
+class _FakeResp:
+    def __init__(self, status):
+        self.status = status
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def test_is_media_url_alive_true_on_200(monkeypatch):
+    seen = {}
+
+    def fake_urlopen(req, timeout=None):
+        seen["method"] = req.get_method()
+        seen["url"] = req.full_url
+        seen["timeout"] = timeout
+        return _FakeResp(200)
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    assert is_media_url_alive("https://pub-abc.r2.dev/media/x.jpg") is True
+    assert seen["method"] == "HEAD"
+    assert seen["url"] == "https://pub-abc.r2.dev/media/x.jpg"
+
+
+def test_is_media_url_alive_true_on_redirect_3xx(monkeypatch):
+    monkeypatch.setattr("urllib.request.urlopen", lambda req, timeout=None: _FakeResp(302))
+    assert is_media_url_alive("https://pub-abc.r2.dev/media/x.jpg") is True
+
+
+def test_is_media_url_alive_false_on_404(monkeypatch):
+    import urllib.error
+
+    def fake_urlopen(req, timeout=None):
+        raise urllib.error.HTTPError(req.full_url, 404, "Not Found", {}, None)
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    assert is_media_url_alive("https://litterbox.catbox.moe/dead.jpg") is False
+
+
+def test_is_media_url_alive_false_on_network_error(monkeypatch):
+    import urllib.error
+
+    def fake_urlopen(req, timeout=None):
+        raise urllib.error.URLError("no route to host")
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    assert is_media_url_alive("https://pub-abc.r2.dev/media/x.jpg") is False
+
+
+def test_is_media_url_alive_false_on_timeout(monkeypatch):
+    def fake_urlopen(req, timeout=None):
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    assert is_media_url_alive("https://pub-abc.r2.dev/media/x.jpg") is False

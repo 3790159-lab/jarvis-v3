@@ -256,6 +256,7 @@ def test_publish_tap_uses_account_key_from_pending(monkeypatch):
             return {"id": "media_1", "permalink": "https://www.instagram.com/p/AAA/"}
 
     monkeypatch.setattr("app.services.instagram_api.InstagramAPI", _FakeIG)
+    monkeypatch.setattr(mod, "_ig_post_check_media_alive", lambda url: True)
     monkeypatch.setattr(mod, "save_state", lambda s: None)
     monkeypatch.setattr(mod, "answer_callback_query", lambda *a, **k: None)
     monkeypatch.setattr(mod, "edit_message_with_keyboard", lambda *a, **k: None)
@@ -281,6 +282,7 @@ def test_publish_tap_pending_without_account_key_defaults_to_none(monkeypatch):
             return {"id": "media_1", "permalink": None}
 
     monkeypatch.setattr("app.services.instagram_api.InstagramAPI", _FakeIG)
+    monkeypatch.setattr(mod, "_ig_post_check_media_alive", lambda url: True)
     monkeypatch.setattr(mod, "save_state", lambda s: None)
     monkeypatch.setattr(mod, "answer_callback_query", lambda *a, **k: None)
     monkeypatch.setattr(mod, "edit_message_with_keyboard", lambda *a, **k: None)
@@ -316,6 +318,9 @@ def test_publish_tap_publishes_and_sends_permalink(monkeypatch):
                     "container_id": "c1"}
 
     monkeypatch.setattr("app.services.instagram_api.InstagramAPI", _FakeIG)
+    checked = []
+    monkeypatch.setattr(mod, "_ig_post_check_media_alive",
+                        lambda url: checked.append(url) or True)
     monkeypatch.setattr(mod, "save_state", lambda s: None)
     monkeypatch.setattr(mod, "answer_callback_query", lambda *a, **k: None)
     monkeypatch.setattr(mod, "edit_message_with_keyboard", lambda *a, **k: None)
@@ -329,6 +334,7 @@ def test_publish_tap_publishes_and_sends_permalink(monkeypatch):
     assert published == [("https://pub/x.jpg", "Смачно")]
     assert any("instagram.com/p/AAA" in t for t in sent)
     assert PENDING_KEY not in state          # cleared on success
+    assert checked == ["https://pub/x.jpg"]  # media-alive HEAD-check ran first
 
 
 def test_publish_tap_quota_error_fail_closed(monkeypatch):
@@ -341,6 +347,7 @@ def test_publish_tap_quota_error_fail_closed(monkeypatch):
                                     code=9, subcode=2207042)
 
     monkeypatch.setattr("app.services.instagram_api.InstagramAPI", _FakeIG)
+    monkeypatch.setattr(mod, "_ig_post_check_media_alive", lambda url: True)
     monkeypatch.setattr(mod, "save_state", lambda s: None)
     monkeypatch.setattr(mod, "answer_callback_query", lambda *a, **k: None)
     monkeypatch.setattr(mod, "edit_message_with_keyboard", lambda *a, **k: None)
@@ -355,6 +362,42 @@ def test_publish_tap_quota_error_fail_closed(monkeypatch):
     assert "лимит" in joined or "25" in joined
     assert not any("instagram.com/p/" in t for t in sent)   # no fake permalink
     assert PENDING_KEY in state              # kept for a retry (NOT published)
+
+
+def test_publish_tap_dead_media_url_blocks_publish_no_api_call(monkeypatch):
+    """Stale preview (litterbox/R2 tmp link expired) — HEAD-check fails, so we
+    must give an honest error WITHOUT ever calling InstagramAPI (no container
+    creation attempt, no confusing Graph API error)."""
+    calls = {"api": 0}
+
+    class _FakeIG:
+        def __init__(self, *a, **k):
+            calls["api"] += 1
+
+        def publish_photo(self, *a, **k):
+            calls["api"] += 1
+            return {"id": "x", "permalink": None}
+
+    monkeypatch.setattr("app.services.instagram_api.InstagramAPI", _FakeIG)
+    checked = []
+    monkeypatch.setattr(mod, "_ig_post_check_media_alive",
+                        lambda url: checked.append(url) or False)
+    monkeypatch.setattr(mod, "save_state", lambda s: None)
+    monkeypatch.setattr(mod, "answer_callback_query", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "edit_message_with_keyboard", lambda *a, **k: None)
+    sent = []
+    monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
+
+    state = {PENDING_KEY: {"photo_url": "https://pub/dead.jpg", "caption": "c",
+                           "topic": "t", "source": "s"}}
+    mod.handle_callback_query(_cq("igpost:publish"), state)
+
+    assert checked == ["https://pub/dead.jpg"]
+    assert calls["api"] == 0                 # InstagramAPI never touched
+    joined = " ".join(sent).lower()
+    assert "протухл" in joined or "перегенерируй" in joined
+    assert not any("instagram.com/p/" in t for t in sent)   # no fake permalink
+    assert PENDING_KEY in state              # not silently cleared
 
 
 def test_publish_tap_no_pending_is_safe(monkeypatch):

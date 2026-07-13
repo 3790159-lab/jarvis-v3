@@ -4824,6 +4824,16 @@ def _ig_post_host_media(path: str) -> str:
     return host_for_ig(path)
 
 
+def _ig_post_check_media_alive(url: str) -> bool:
+    """HEAD-check the hosted preview URL right before the irreversible publish
+    tap. Preview cards can sit for hours; the litterbox/R2 tmp link behind them
+    may have expired, which otherwise surfaces as an opaque Graph API
+    container-creation failure. Wrapper: tests mock IT (ноль реальной сети),
+    same pattern as ``_ig_post_host_media``."""
+    from app.services.ig_media_prep import is_media_url_alive
+    return is_media_url_alive(url)
+
+
 def _ig_post_generate_caption(chat_id, topic: str, client: Optional[str] = None):
     """Платный шаг подписи под guard_spend (тот же money-путь, что /ig_caption).
 
@@ -4962,6 +4972,10 @@ def _ig_post_publish(chat_id, state: Dict[str, Any], message_id=None) -> None:
     photo_url = pending.get("photo_url", "")
     caption = pending.get("caption", "")
     account_key = pending.get("account_key")
+    if not _ig_post_check_media_alive(photo_url):
+        logger.warning("ig_post: stale media url chat=%s url=%s", chat_id, photo_url)
+        send(chat_id, "🚫 Медиа протухло (ссылка недоступна) — перегенерируй пост (/ig_post).")
+        return
     try:
         result = InstagramAPI(account_key=account_key).publish_photo(photo_url, caption)
     except InstagramAPIError as exc:

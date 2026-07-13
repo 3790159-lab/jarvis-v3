@@ -20,6 +20,8 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any, Optional
 
@@ -33,9 +35,13 @@ __all__ = [
     "MAX_WIDTH",
     "MIN_ASPECT",
     "MAX_ASPECT",
+    "MEDIA_URL_CHECK_TIMEOUT",
     "prepare_for_ig",
     "host_for_ig",
+    "is_media_url_alive",
 ]
+
+MEDIA_URL_CHECK_TIMEOUT = 10.0
 
 MIN_WIDTH = 320
 MAX_WIDTH = 1440
@@ -163,3 +169,20 @@ def host_for_ig(
 
     prepared = prepare_for_ig(path, strategy=strategy)
     return upload_file(prepared, key=key, client=client, config=config)
+
+
+def is_media_url_alive(url: str, *, timeout: float = MEDIA_URL_CHECK_TIMEOUT) -> bool:
+    """HEAD-probe a hosted media URL before it feeds ``create_media_container``.
+
+    Preview cards can sit for hours; the litterbox/R2 tmp link behind them may
+    have expired by the time [📤 Опубликовать] is tapped, which otherwise
+    surfaces as an opaque Graph API container-creation failure. Any non-2xx/3xx
+    response, or a network/timeout error, is treated as dead — fail-closed,
+    never assume a URL is still good.
+    """
+    try:
+        req = urllib.request.Request(url, method="HEAD")
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status < 400
+    except Exception:  # noqa: BLE001 — HTTPError/URLError/timeout/DNS all mean "dead"
+        return False
