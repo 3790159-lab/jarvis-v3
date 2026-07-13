@@ -28,6 +28,7 @@ import logging
 import os
 import re
 import threading
+import time
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -36,6 +37,12 @@ logger = logging.getLogger(__name__)
 _DEFAULT_STATE_FILE = Path("state") / "ig_accounts.json"
 _LOCK = threading.RLock()
 _ACCOUNT_ARG_RE = re.compile(r"^@([\w.\-]+)$")
+
+# Сколько по времени (сек) помнить выбор аккаунта в чате после явного выбора
+# кнопкой (см. ``remember_account_choice``) — не персистится (рестарт бота ->
+# пусто), тот же in-process паттерн, что ``_LAST_IG_MEDIA`` в боте.
+ACCOUNT_CHOICE_TTL_S = 3600.0
+_account_choice_cache: Dict[str, Tuple[str, float]] = {}
 
 # Аккаунт, под которым легаси-токен переезжает в json при авто-миграции, и
 # дефолт для резолва, если ни явный account_key, ни env IG_DEFAULT_ACCOUNT не
@@ -176,3 +183,31 @@ def parse_account_arg(query: Optional[str]) -> Tuple[Optional[str], str]:
         return None, (query or "").strip()
     rest = parts[1].strip() if len(parts) > 1 else ""
     return m.group(1), rest
+
+
+def accounts_need_choice() -> bool:
+    """True когда в сторе 2+ аккаунта — команда без явного ``@account`` должна
+    спросить, а не молча взять дефолт (риск запостить не туда)."""
+    return len(list_accounts()) >= 2
+
+
+def remember_account_choice(chat_id: str, account_key: str) -> None:
+    """Запомнить выбор аккаунта для чата на :data:`ACCOUNT_CHOICE_TTL_S`."""
+    _account_choice_cache[str(chat_id)] = (account_key, time.time() + ACCOUNT_CHOICE_TTL_S)
+
+
+def get_remembered_account(chat_id: str) -> Optional[str]:
+    """Выбор аккаунта для чата, если он ещё не истёк, иначе ``None``."""
+    entry = _account_choice_cache.get(str(chat_id))
+    if not entry:
+        return None
+    account_key, expires_at = entry
+    if time.time() >= expires_at:
+        _account_choice_cache.pop(str(chat_id), None)
+        return None
+    return account_key
+
+
+def forget_account_choice(chat_id: str) -> None:
+    """Сбросить запомненный выбор аккаунта для чата (тесты/ручной сброс)."""
+    _account_choice_cache.pop(str(chat_id), None)

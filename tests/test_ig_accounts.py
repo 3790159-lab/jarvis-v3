@@ -203,3 +203,62 @@ def test_parse_account_arg_empty_query():
 
 def test_parse_account_arg_prefix_only_no_rest():
     assert iga.parse_account_arg("@jtest_lab_") == ("jtest_lab_", "")
+
+
+# ---- accounts_need_choice ----------------------------------------------------
+
+
+def test_accounts_need_choice_false_when_store_empty(tmp_path, monkeypatch):
+    monkeypatch.setenv("IG_ACCOUNTS_FILE", str(tmp_path / "nope.json"))
+    assert iga.accounts_need_choice() is False
+
+
+def test_accounts_need_choice_false_with_one_account(tmp_path, monkeypatch):
+    monkeypatch.setenv("IG_ACCOUNTS_FILE", str(tmp_path / "ig_accounts.json"))
+    iga.save_account("jtest_lab_", access_token="A")
+    assert iga.accounts_need_choice() is False
+
+
+def test_accounts_need_choice_true_with_two_accounts(tmp_path, monkeypatch):
+    monkeypatch.setenv("IG_ACCOUNTS_FILE", str(tmp_path / "ig_accounts.json"))
+    iga.save_account("jtest_lab_", access_token="A")
+    iga.save_account("vera_ai_ua", access_token="B")
+    assert iga.accounts_need_choice() is True
+
+
+# ---- remember_account_choice / get_remembered_account (TTL, 1h) -------------
+
+
+def test_remembered_account_roundtrip(monkeypatch):
+    iga.forget_account_choice("chat1")
+    iga.remember_account_choice("chat1", "vera_ai_ua")
+    assert iga.get_remembered_account("chat1") == "vera_ai_ua"
+
+
+def test_remembered_account_none_when_never_set():
+    iga.forget_account_choice("chat_never_set")
+    assert iga.get_remembered_account("chat_never_set") is None
+
+
+def test_remembered_account_expires_after_ttl(monkeypatch):
+    iga.forget_account_choice("chat2")
+    fake_now = [1_000_000.0]
+    monkeypatch.setattr(iga.time, "time", lambda: fake_now[0])
+    iga.remember_account_choice("chat2", "vera_ai_ua")
+    fake_now[0] += iga.ACCOUNT_CHOICE_TTL_S + 1
+    assert iga.get_remembered_account("chat2") is None
+
+
+def test_remembered_account_still_valid_just_under_ttl(monkeypatch):
+    iga.forget_account_choice("chat3")
+    fake_now = [1_000_000.0]
+    monkeypatch.setattr(iga.time, "time", lambda: fake_now[0])
+    iga.remember_account_choice("chat3", "jtest_lab_")
+    fake_now[0] += iga.ACCOUNT_CHOICE_TTL_S - 1
+    assert iga.get_remembered_account("chat3") == "jtest_lab_"
+
+
+def test_forget_account_choice_clears_entry():
+    iga.remember_account_choice("chat4", "vera_ai_ua")
+    iga.forget_account_choice("chat4")
+    assert iga.get_remembered_account("chat4") is None

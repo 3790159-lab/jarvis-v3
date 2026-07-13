@@ -4667,6 +4667,75 @@ def _ig_resolve_account_key(explicit: Optional[str], client: Optional[str],
     return client
 
 
+# ── Account-choice gate (2+ аккаунта в сторе -> спросить, не молчать) ───────
+# /ig_stats, /ig_post, /ig_gen молча брали дефолт-аккаунт при отсутствии явного
+# ``@<account_key>`` — риск запостить/посмотреть не туда, когда в сторе 2+
+# аккаунта (квоты и лента чужие). Гейт срабатывает В HANDLE_COMMAND, ДО money-
+# confirm чекпойнта (чтобы не тапать confirm дважды при отмене выбора
+# аккаунта), и только когда команда реально осталась бы без аккаунта — явный
+# ``@account`` (или, для /ig_gen, client=<name> с account_key в brand.md)
+# по-прежнему проходит без вопроса, как раньше.
+_IG_ACCOUNT_GATED_COMMANDS = frozenset({"/ig_stats", "/ig_post", "/ig_gen"})
+
+
+def _ig_resolve_effective_account_key(cmd: str, query: str) -> Optional[str]:
+    """Дёшево (без спенда) предугадать, какой account_key возьмёт себе dispatch
+    команды ``cmd`` — то же резолв-правило, что внутри самого dispatch'а
+    (``_ig_resolve_account_key`` для /ig_gen через brand.md, иначе только явный
+    ``@account``). Нужно чтобы гейт мог решить «спросить или нет» ДО того, как
+    сам dispatch запустится."""
+    from app.services import ig_accounts as _iga
+    account_key, rest = _iga.parse_account_arg(query)
+    if account_key or cmd != "/ig_gen":
+        return account_key
+    from app.services import brand_config as _bc
+    client_arg, rest = _bc.parse_client_arg(rest)
+    client = _ig_resolve_client(client_arg)
+    brand = _bc.load_brand_config(client) if client else None
+    return _ig_resolve_account_key(None, client, brand)
+
+
+def _ig_account_choice_keyboard(keys) -> list:
+    return [[{"text": k, "callback_data": f"igacct:pick:{k}"}] for k in keys]
+
+
+def _ig_apply_account_gate(chat_id: str, cmd: str, query: str,
+                           state: Dict[str, Any]) -> Optional[str]:
+    """Вернуть query для дальнейшей обработки, или ``None`` если карточка
+    выбора аккаунта уже показана (вызывающий должен остановиться немедленно).
+
+    Явный/резолвленный аккаунт или единственный аккаунт в сторе -> query как
+    есть. 2+ аккаунта и аккаунт неоднозначен -> запомненный на сессию (TTL 1ч)
+    выбор подставляется как ``@<key>``; без него — кнопки, исходная команда
+    остаётся в state до тапа."""
+    from app.services import ig_accounts as _iga
+    if _ig_resolve_effective_account_key(cmd, query) is not None:
+        return query
+    if not _iga.accounts_need_choice():
+        return query
+    remembered = _iga.get_remembered_account(chat_id)
+    if remembered is not None:
+        return f"@{remembered} {query}".strip()
+    keys = sorted(_iga.list_accounts().keys())
+    pending: Dict[str, Any] = {"cmd": cmd, "query": query}
+    # A money-confirm token already approved for THIS cmd (e.g. resumed from
+    # an NL-routed confirm tap, see run_intent's ir_route) must not leak into
+    # state while the account picker is up — a later, unrelated call to the
+    # same cmd would otherwise consume it and skip its own confirm. Stash it
+    # in the pending payload and restore it ONLY when this exact flow resumes
+    # (igacct:pick callback below).
+    if state.pop("_paid_confirmed", None) == cmd:
+        pending["paid_confirmed"] = cmd
+    state["pending_ig_account_choice"] = pending
+    save_state(state)
+    send_with_keyboard(
+        chat_id, "❓ В сторе 2+ IG-аккаунта — уточни, для какого выполнить "
+                 f"{cmd}:",
+        _ig_account_choice_keyboard(keys),
+    )
+    return None
+
+
 def _ig_gen_photo_prompt(topic: str, brand: Optional[Dict[str, Any]]) -> str:
     """Подмешать визуальный стиль клиента (``brand.md``) в промпт генерации фото."""
     style = (brand or {}).get("visual_style")
@@ -5950,6 +6019,34 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
                 send(chat_id, item.hint)
             return
         answer_callback_query(cq_id)
+        return
+
+    # ── IG account-choice (igacct:pick:<key>): admin-only by omission from ────
+    # FRIEND_ALLOWED_CALLBACK_PREFIXES (все три гейтуемые команды — admin-only).
+    # Порождается ТОЛЬКО ``_ig_apply_account_gate`` — резолвит выбор, запоминает
+    # его на сессию чата (TTL 1ч, см. ``ig_accounts.remember_account_choice``)
+    # и возобновляет исходную команду с ``@<key>`` в начале query (тот же путь,
+    # что явный ``@account`` от юзера — дальше по коду ничего не меняется).
+    if data.startswith("igacct:"):
+        if not (_is_admin_id(_cq_uid) or str(_cq_uid) == ALLOWED_CHAT_ID):
+            answer_callback_query(cq_id, "🚫 Только для администратора")
+            return
+        from app.services import ig_accounts as _iga
+        action = parts[1] if len(parts) > 1 else ""
+        key = parts[2] if action == "pick" and len(parts) > 2 else ""
+        pend = state.get("pending_ig_account_choice") or {}
+        cmd = pend.get("cmd", "")
+        pend_query = pend.get("query", "")
+        if action != "pick" or not key or not cmd:
+            answer_callback_query(cq_id, "⏳ Карточка устарела")
+            return
+        state["pending_ig_account_choice"] = None
+        _iga.remember_account_choice(chat_id, key)
+        if pend.get("paid_confirmed") == cmd:
+            state["_paid_confirmed"] = cmd  # restore token stashed by _ig_apply_account_gate
+        save_state(state)
+        answer_callback_query(cq_id, f"✅ {key}")
+        handle_command(chat_id, cmd, f"@{key} {pend_query}".strip(), state)
         return
 
     # ── /ig_post (Этап 3): admin-only (igpost: NOT in friend prefixes) ─────────
@@ -8089,6 +8186,15 @@ _SELF_GATING_PAID: frozenset = frozenset({
 
 
 def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) -> None:
+    # ── Account-choice gate (2+ IG-аккаунта в сторе -> уточнить кнопками) ────
+    # ДО money-confirm ниже: иначе платное подтверждение и выбор аккаунта
+    # тапались бы отдельно по два раза за один вызов команды.
+    if cmd in _IG_ACCOUNT_GATED_COMMANDS:
+        gated_query = _ig_apply_account_gate(chat_id, cmd, query, state)
+        if gated_query is None:
+            return
+        query = gated_query
+
     # ── Money invariant: any PAID slash command must confirm first ───────────
     # Single chokepoint keyed on the PAID registry (text-independent). Free
     # commands (is_paid=False) pass straight through regardless of position.
