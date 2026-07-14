@@ -20,12 +20,18 @@ _KLING_MODEL = "kwaivgi/kling-v2.1"
 _FLUX_TRAINER_MODEL = "ostris/flux-dev-lora-trainer"
 _FLUX_LORA_MODEL = "black-forest-labs/flux-dev-lora"
 _FLUX_PRO_MODEL = "black-forest-labs/flux-1.1-pro"
+# Пост-ген img2img-рефайнер персона-фото: лікує глам/воск-байас ваг LoRA на
+# ВИХОДІ (ваги не лікуються — spike 2026-07-14). ControlNet-tile тримає
+# композицію/ідентичність, дифузія повертає натуральну шкіру. creativity =
+# denoise (низький зберігає лице), resemblance = сила ControlNet-conditioning.
+_MAGIC_REFINER_MODEL = "batouresearch/magic-image-refiner"
 
 # Approximate cost estimates per operation
 _COST_KLING_PER_5SEC = 0.10
 _COST_FLUX_TRAINING = 5.00
 _COST_FLUX_INFERENCE = 0.02
 _COST_FLUX_PRO = 0.04
+_COST_MAGIC_REFINER = 0.02  # img2img refine pass (spike: predict ~2-3s)
 
 # Реализм LoRA-фото персоны: lora_scale=1.0 — свит-спот (live-подбор
 # 2026-07-12 на 2 seed): узнаваемость персоны + фото-вид. На 0.8 LoRA
@@ -189,6 +195,58 @@ class ReplicateVideoClient:
         logger.info("Flux+LoRA complete: url=%s cost=$%.4f", image_url, cost)
         return {"image_url": image_url, "cost_usd": cost}
 
+    async def refine_image(
+        self,
+        image_url: str,
+        creativity: float = 0.30,
+        resemblance: float = 0.8,
+        prompt: str | None = None,
+        negative_prompt: str | None = None,
+    ) -> dict:
+        """Low-denoise img2img refine to de-wax persona photos, keeping identity.
+
+        Uses ``magic-image-refiner`` (ControlNet-tile): ``creativity`` is the
+        denoising strength (low → identity/composition preserved), ``resemblance``
+        the ControlNet conditioning scale. Spike winner (2026-07-14).
+
+        Args:
+            image_url: URL of the generated (waxy) frame to refine.
+            creativity: Denoise strength (~0.25–0.35 sweet spot).
+            resemblance: ControlNet conditioning (0.8 holds composition).
+            prompt: Optional refine prompt (defaults to a neutral photoreal one).
+            negative_prompt: Optional negatives (defaults to anti-waxy set).
+
+        Returns:
+            {"image_url": str, "cost_usd": float}
+        """
+        payload = {
+            "input": {
+                "image": image_url,
+                "creativity": creativity,
+                "resemblance": resemblance,
+                "prompt": prompt or (
+                    "candid photo, natural realistic skin with visible pores and "
+                    "fine texture, matte un-retouched skin, soft natural light, sharp focus"
+                ),
+                "negative_prompt": negative_prompt or (
+                    "airbrushed, waxy skin, plastic skin, cgi, 3d render, doll, "
+                    "smooth poreless skin, heavy makeup, oversaturated"
+                ),
+            }
+        }
+        # Community model → must submit via version-pinned /v1/predictions
+        # (model-level endpoint 404s for non-official models).
+        version = await self._get_latest_version(_MAGIC_REFINER_MODEL)
+        output = await self._run_prediction(_MAGIC_REFINER_MODEL, payload, version=version)
+        if isinstance(output, list) and output:
+            refined_url = output[0]
+        elif isinstance(output, str):
+            refined_url = output
+        else:
+            refined_url = ""
+        logger.info("Refine complete: url=%s cost=$%.4f", refined_url, _COST_MAGIC_REFINER)
+        return {"image_url": refined_url, "cost_usd": _COST_MAGIC_REFINER}
+
     async def generate_flux_pro(
         self,
         prompt: str,
@@ -319,8 +377,20 @@ class ReplicateVideoClient:
             else:
                 resp.raise_for_status()
 
+    async def _get_latest_version(self, model: str) -> str:
+        """GET the model's latest version id (needed to submit community models
+        via the /v1/predictions endpoint — the model-level predictions endpoint
+        only exists for official Replicate models and 404s for community ones)."""
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(f"{_BASE_URL}/models/{model}", headers=self._headers)
+            resp.raise_for_status()
+            version_id = ((resp.json() or {}).get("latest_version") or {}).get("id")
+        if not version_id:
+            raise RuntimeError(f"No latest_version for model {model}")
+        return version_id
+
     async def _run_prediction(
-        self, model: str, payload: dict, max_retries: int = 5
+        self, model: str, payload: dict, max_retries: int = 5, version: str | None = None
     ) -> Any:
         """Submit a prediction and poll until completion, with exponential backoff retry.
 
@@ -332,6 +402,11 @@ class ReplicateVideoClient:
             model: Model identifier in "owner/name" format.
             payload: Prediction input payload.
             max_retries: Number of attempts before giving up (default 5).
+            version: If set, submit to the version-pinned ``/v1/predictions``
+                endpoint (``{"version": ..., **payload}``) instead of the
+                model-level endpoint. REQUIRED for community models — the
+                ``/v1/models/{owner}/{name}/predictions`` endpoint 404s for them
+                (root cause of the 2026-07-14 refiner fallback).
 
         Returns:
             Model output (str, list, or dict depending on model).
@@ -339,13 +414,18 @@ class ReplicateVideoClient:
         Raises:
             RuntimeError: If all retries are exhausted.
         """
-        owner, name = model.split("/", 1)
-        submit_url = f"{_BASE_URL}/models/{owner}/{name}/predictions"
+        if version:
+            submit_url = f"{_BASE_URL}/predictions"
+            body: dict = {"version": version, **payload}
+        else:
+            owner, name = model.split("/", 1)
+            submit_url = f"{_BASE_URL}/models/{owner}/{name}/predictions"
+            body = payload
         last_err: Exception | None = None
 
         for attempt in range(1, max_retries + 1):
             try:
-                pred_id = await self._submit(submit_url, payload)
+                pred_id = await self._submit(submit_url, body)
                 logger.debug("Prediction %s submitted (attempt %d)", pred_id, attempt)
                 return await self._poll(pred_id)
             except httpx.HTTPStatusError as exc:

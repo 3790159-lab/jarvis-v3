@@ -13,6 +13,7 @@ import os
 
 from app.services.audit import cost_tracker as _user_cost
 from app.services.auth.access_control import check_limit
+from app.services.brand_config import find_persona_media
 
 
 def _env_usd(name: str, default: float) -> float:
@@ -45,6 +46,11 @@ def _create_persona_est() -> float:
 # пре-гейт только проверяет лимит ДО платного вызова (без двойного списания).
 def _persona_photo_est() -> float:
     return _env_usd("PERSONA_PHOTO_USD", 0.05)
+
+
+def _persona_refine_est() -> float:
+    """Надбавка пре-гейта за пост-ген img2img-рефайн (de-wax)."""
+    return _env_usd("PERSONA_REFINE_USD", 0.02)
 
 
 def _persona_redo_est() -> float:
@@ -660,13 +666,25 @@ def handle_persona_photo(chat_id: int, args: str) -> None:
         return
     prompt = parts[1].strip()
 
+    # Пост-ген img2img-рефайн (de-wax) — флаг живёт per-persona в brand.md
+    # persona_media (тот же источник, что у /ig_gen). /persona_photo не имеет
+    # client-контекста → резолвим persona_media по persona_id.
+    _pm = find_persona_media(persona_id) or {}
+    _refine = bool(_pm.get("refine"))
+    _refine_creativity = float(_pm.get("refine_creativity", 0.30))
+    _refine_resemblance = float(_pm.get("refine_resemblance", 0.8))
+    _refine_prompt = (str(_pm.get("refine_prompt")).strip() or None) \
+        if _pm.get("refine_prompt") else None
+
     # Пре-гейт дневного лимита СТРОГО до старта платной генерации (дыра a).
-    allowed, reason = check_limit(chat_id, estimated_usd=_persona_photo_est())
+    # est честно含 рефайн-надбавку, когда рефайн включён.
+    _est = _persona_photo_est() + (_persona_refine_est() if _refine else 0.0)
+    allowed, reason = check_limit(chat_id, estimated_usd=_est)
     if not allowed:
         _safe_send(chat_id, f"🚫 {reason}")
         return
 
-    logger.info("handle_persona_photo chat=%s persona=%s", chat_id, persona_id)
+    logger.info("handle_persona_photo chat=%s persona=%s refine=%s", chat_id, persona_id, _refine)
     _safe_send(chat_id, "Генерирую фото, подождите...")
 
     def _run() -> None:
@@ -679,7 +697,11 @@ def handle_persona_photo(chat_id: int, args: str) -> None:
             client = ReplicateVideoClient()
             tracker = CostTracker()
             gen = PhotoGenerator(client, storage, tracker)
-            return await gen.generate_photo(persona_id, prompt)
+            return await gen.generate_photo(
+                persona_id, prompt,
+                refine=_refine, refine_creativity=_refine_creativity,
+                refine_resemblance=_refine_resemblance, refine_prompt=_refine_prompt,
+            )
 
         try:
             result = asyncio.run(_async())
@@ -697,8 +719,16 @@ def handle_persona_photo(chat_id: int, args: str) -> None:
             return
 
         _record_user_cost(chat_id, result["cost_usd"])
+        # Рефайн-нотатка: ✨ применён / ⚠️ запрошен, но упал (фолбек на сырой кадр).
+        _refine_note = ""
+        if _refine:
+            _refine_note = (
+                "\n✨ Кожа отрефайнена (de-wax)."
+                if result.get("refined")
+                else "\n⚠️ Рефайнер не сработал — кадр без рефайна (доплаты нет)."
+            )
         caption = (
-            f"Готово! Стоимость: ${result['cost_usd']:.4f}\n"
+            f"Готово! Стоимость: ${result['cost_usd']:.4f}{_refine_note}\n"
             f"Промпт: {result['full_prompt'][:120]}"
         )
         _safe_send_photo(chat_id, result["image_url"], caption=caption)

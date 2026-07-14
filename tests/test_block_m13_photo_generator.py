@@ -252,3 +252,60 @@ def test_handle_persona_photo_success():
     call_args = send_photo.call_args[0]
     assert call_args[1] == "https://replicate.delivery/out/photo.jpg"
     assert "sks_testbot" in call_args[2]
+
+
+def _run_persona_photo(gen_mock, persona_media):
+    """Drive handle_persona_photo synchronously with a patched generate_photo
+    and a patched find_persona_media(persona_media). Returns (send, send_photo)."""
+    from app.handlers.persona_handler import handle_persona_photo
+    from contextlib import ExitStack
+
+    send, send_photo = _init_handler()
+    completed = threading.Event()
+    patches = _handler_infra_patches(gen_mock)
+    with ExitStack() as stack:
+        for p in patches:
+            stack.enter_context(p)
+        stack.enter_context(patch(
+            "app.handlers.persona_handler.find_persona_media",
+            MagicMock(return_value=persona_media)))
+        with patch.object(threading.Thread, "start", _fake_start_sync(completed)):
+            handle_persona_photo(42, "persona_test01 in a park")
+            completed.wait(timeout=5)
+    return send, send_photo
+
+
+def test_handle_persona_photo_forwards_refine_from_persona_media():
+    """brand.md persona_media.refine=true (по persona_id) → generate_photo
+    получает refine=True + creativity/resemblance."""
+    gen_mock = AsyncMock(return_value={
+        "image_url": "https://out.jpg", "cost_usd": 0.04,
+        "full_prompt": "sks_testbot in a park", "refined": True})
+    _run_persona_photo(gen_mock, {"persona_id": "persona_test01", "refine": True})
+
+    kw = gen_mock.call_args.kwargs
+    assert kw.get("refine") is True
+    assert "refine_creativity" in kw
+    assert kw.get("refine_resemblance") == 0.8
+
+
+def test_handle_persona_photo_refine_off_when_no_persona_media():
+    """Нет brand.md-совпадения по persona_id → refine=False (back-compat)."""
+    gen_mock = AsyncMock(return_value={
+        "image_url": "https://out.jpg", "cost_usd": 0.02,
+        "full_prompt": "sks_testbot in a park", "refined": False})
+    _run_persona_photo(gen_mock, None)
+
+    assert gen_mock.call_args.kwargs.get("refine") is False
+
+
+def test_handle_persona_photo_refine_fallback_warns_in_caption():
+    """refine запрошен, но рефайнер упал (refined=False) → ⚠️ в подписи фото."""
+    gen_mock = AsyncMock(return_value={
+        "image_url": "https://raw.jpg", "cost_usd": 0.02,
+        "full_prompt": "sks_testbot in a park", "refined": False})
+    _, send_photo = _run_persona_photo(
+        gen_mock, {"persona_id": "persona_test01", "refine": True})
+
+    caption = send_photo.call_args[0][2]
+    assert "⚠️" in caption

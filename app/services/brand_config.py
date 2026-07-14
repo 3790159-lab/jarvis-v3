@@ -50,6 +50,30 @@ def load_brand_config(client: Optional[str]) -> Optional[Dict[str, Any]]:
     return data if isinstance(data, dict) else None
 
 
+def find_persona_media(persona_id: str) -> Optional[Dict[str, Any]]:
+    """Найти ``persona_media`` блок среди всех ``clients/*/brand.md`` по
+    ``persona_id`` (для /persona_photo, у которого нет client-контекста —
+    боевые параметры и флаг ``refine`` живут per-persona в brand.md).
+
+    Возвращает dict ``persona_media`` первого совпадения или ``None``. Чистое
+    чтение с диска, ноль сети/денег.
+    """
+    if not persona_id:
+        return None
+    try:
+        client_dirs = [p for p in CLIENTS_DIR.iterdir() if p.is_dir()]
+    except OSError:
+        return None
+    for client_dir in client_dirs:
+        cfg = load_brand_config(client_dir.name)
+        if not cfg:
+            continue
+        pm = cfg.get("persona_media")
+        if isinstance(pm, dict) and str(pm.get("persona_id") or "").strip() == persona_id:
+            return pm
+    return None
+
+
 def parse_client_arg(query: Optional[str]) -> Tuple[Optional[str], str]:
     """Вытащить необязательный префикс ``client=<name>`` из текста команды.
 

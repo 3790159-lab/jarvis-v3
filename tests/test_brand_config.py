@@ -17,7 +17,7 @@ def test_load_brand_config_reads_real_vera_ai_ua_frontmatter():
     assert "молодий" in brand["tone"]
     assert "політика" in brand["forbidden"]
     assert brand["hashtags_count"] == 7
-    assert brand["persona_media"]["persona_id"] == "persona_af2f54ee"
+    assert brand["persona_media"]["persona_id"] == "persona_68fb76b2"
     assert brand["persona_media"]["style"]
 
 
