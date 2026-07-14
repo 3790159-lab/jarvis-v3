@@ -4751,11 +4751,20 @@ _IG_GEN_PERSONA_PHOTO_ANCHORS = "photo, natural light, light natural makeup, nat
 
 
 def _ig_gen_photo_prompt_persona(topic: str, persona_media: Optional[Dict[str, Any]]) -> str:
-    """Промпт кадра персоны: тема + дефолтный стиль кадра из ``persona_media``
-    (секция ``brand.md``, см. ``_ig_gen_dispatch``) + КОРОТКИЕ фото-якоря
-    (см. ``_IG_GEN_PERSONA_PHOTO_ANCHORS``). Без инлайн-негативов — они
-    призывали то, что запрещали (FLUX-dev не парсит отрицание)."""
-    style = (persona_media or {}).get("style")
+    """Промпт кадра персоны.
+
+    Если в ``persona_media`` (секция ``brand.md``) задан ``photo_anchors`` —
+    фотографический шаблон: ``prompt = [тема (subject+clothing англ.)] +
+    photo_anchors`` (полный стилистический спец на фотографическом языке:
+    камера/плёнка/свет/текстура кожи). ``style`` и короткие якоря
+    ПРОПУСКАЮТСЯ, чтобы не смешивать языки/не тянуть в CGI. Без инлайн-негативов
+    (FLUX-dev не парсит отрицание). Нет ``photo_anchors`` -> старое поведение:
+    тема + ``style`` + ``_IG_GEN_PERSONA_PHOTO_ANCHORS`` (back-compat)."""
+    pm = persona_media or {}
+    photo_anchors = str(pm.get("photo_anchors") or "").strip()
+    if photo_anchors:
+        return f"{topic}, {photo_anchors}"
+    style = pm.get("style")
     parts = [topic]
     if style:
         parts.append(style)
@@ -5080,6 +5089,14 @@ def _ig_post_publish(chat_id, state: Dict[str, Any], message_id=None) -> None:
 # остаётся отдельным необратимым тапом на карточке.
 
 _IG_GEN_PHOTO_EST_USD = float(os.getenv("JARVIS_IG_GEN_PHOTO_USD", "0.06"))
+# Надбавка за пост-ген img2img-рефайн (de-wax) — коли persona_media.refine=true.
+_IG_GEN_REFINE_EST_USD = float(os.getenv("JARVIS_IG_GEN_REFINE_USD", "0.02"))
+# FLUX.2 (fal) LoRA-инференс ~$0.02/кадр — БЕЗ рефайнера (нативный de-wax;
+# magic-refiner на flux2 запрещён). Отдельный est для engine=flux2-пути.
+_IG_GEN_FLUX2_PHOTO_EST_USD = float(os.getenv("JARVIS_IG_GEN_FLUX2_PHOTO_USD", "0.02"))
+# N-best flux2: скільки кадрів генерувати й ранжувати по arcface-cos до центроїда
+# датасета персони. Поріг: найкращий cos нижче → ⚠️ (identity під питанням).
+_FLUX2_IDENTITY_COS_THRESHOLD = float(os.getenv("JARVIS_FLUX2_IDENTITY_COS_MIN", "0.55"))
 
 
 def _ig_gen_generate_photo(topic: str) -> str:
@@ -5101,14 +5118,22 @@ def _ig_gen_generate_photo_persona(
     lora_scale: float | None = None,
     guidance: float | None = None,
     aspect_ratio: str | None = None,
-) -> str:
+    refine: bool = False,
+    refine_creativity: float = 0.30,
+    refine_resemblance: float = 0.8,
+    refine_prompt: str | None = None,
+) -> dict:
     """Платный шаг генерации фото ЧЕРЕЗ персону (LoRA) — существующий
     persona_photo-механизм (``PhotoGenerator``, тот же движок, что и
     ``/persona_photo``). Изолирована ради money-safety — тесты мокают ИМЕННО
     эту функцию, ноль реальной генерации/сети.
 
-    Бойові параметри (scale/guidance/aspect) приходять з ``brand.md``
-    ``persona_media`` (див. ``_ig_gen_dispatch``); ``None`` → дефолти движка.
+    Бойові параметри (scale/guidance/aspect) + флаг ``refine`` (пост-ген
+    img2img de-wax) приходять з ``brand.md`` ``persona_media`` (див.
+    ``_ig_gen_dispatch``); ``None`` → дефолти движка.
+
+    Повертає ``{"image_url": str, "refined": bool}`` — ``refined`` потрібен
+    картці превью (позначка про рефайн / ⚠️ фолбек).
     """
     import asyncio
 
@@ -5125,13 +5150,203 @@ def _ig_gen_generate_photo_persona(
         return await gen.generate_photo(
             persona_id, prompt,
             lora_scale=lora_scale, guidance=guidance, aspect_ratio=aspect_ratio,
+            refine=refine, refine_creativity=refine_creativity,
+            refine_resemblance=refine_resemblance, refine_prompt=refine_prompt,
         )
 
-    result = asyncio.run(_async())
-    image_url = (result or {}).get("image_url")
+    result = asyncio.run(_async()) or {}
+    image_url = result.get("image_url")
     if not image_url:
         raise RuntimeError("персона-движок не вернул image_url")
-    return image_url
+    return {"image_url": image_url, "refined": bool(result.get("refined"))}
+
+
+def _ig_gen_generate_photo_flux2(
+    prompt: str,
+    lora_url: str,
+    trigger: str = "",
+    lora_scale: float = 1.15,
+    guidance: float = 3.0,
+    image_size: str = "portrait_4_3",
+    steps: int = 28,
+) -> dict:
+    """Платний крок генерації персона-фото ЧЕРЕЗ FLUX.2 (fal) — окремий движок
+    від Replicate-персони. Вера мігрована на FLUX.2 (нативний de-wax виграє у
+    draft-1000+magic-refiner; self-consistency v2=0.733 на 2000 кроках +
+    per-image captions, scale 1.15 = свит-спот 0.782).
+
+    ⚠️ РЕФАЙНА НЕМАЄ: magic-refiner на FLUX.2 вбиває identity (0.52→0.31) —
+    тому цей шлях завжди повертає ``refined=False`` (картка без ✨/⚠️).
+
+    Trigger-токен вшивається у промпт тут (як ``generate_flux_with_lora``
+    робить для Replicate-шляху). Ізольована ради money-safety — тести мокають
+    ЦЮ функцію / ``FalImageClient``, ноль реальної генерації/мережі.
+
+    Повертає ``{"image_url": str, "refined": False}``.
+    """
+    import asyncio
+
+    from app.services.block_m_common.fal_image_client import FalImageClient
+
+    full_prompt = f"{trigger} {prompt}".strip() if trigger else prompt
+
+    async def _async() -> dict:
+        client = FalImageClient()
+        return await client.generate_flux2_lora(
+            full_prompt, lora_url,
+            lora_scale=lora_scale, guidance=guidance,
+            image_size=image_size, steps=steps,
+        )
+
+    result = asyncio.run(_async()) or {}
+    image_url = result.get("image_url")
+    if not image_url:
+        raise RuntimeError("FLUX.2 движок не вернул image_url")
+    return {"image_url": image_url, "refined": False}
+
+
+_FLUX2_ARCFACE_APP = None
+
+
+def _ig_gen_flux2_arcface_app():
+    """Ліниво-ініціалізований insightface FaceAnalysis (buffalo_l, CPU).
+
+    Важкий (onnxruntime + модель), тому вантажиться лише при першому N-best-
+    скорингу й кешується. У тест-середовищі не викликається (score-фн мокають).
+    """
+    global _FLUX2_ARCFACE_APP
+    if _FLUX2_ARCFACE_APP is None:
+        from insightface.app import FaceAnalysis
+        app = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
+        app.prepare(ctx_id=-1, det_size=(640, 640))
+        _FLUX2_ARCFACE_APP = app
+    return _FLUX2_ARCFACE_APP
+
+
+def _ig_gen_flux2_embed_url(url: str):
+    """arcface normed-embedding найбільшого обличчя з кадру за URL, або None.
+
+    Fail-safe: будь-яка помилка (мережа/детект/insightface) → None (скоринг
+    деградує до «без cos», кадр усе одно віддається)."""
+    try:
+        import tempfile
+        import cv2
+        import requests as _req
+        resp = _req.get(url, timeout=60)
+        resp.raise_for_status()
+        fd, tmp = tempfile.mkstemp(prefix="flux2_arc_", suffix=".jpg")
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(resp.content)
+        try:
+            img = cv2.imread(tmp)
+            if img is None:
+                return None
+            faces = _ig_gen_flux2_arcface_app().get(img)
+            if not faces:
+                return None
+            f = max(faces, key=lambda x: (x.bbox[2] - x.bbox[0]) * (x.bbox[3] - x.bbox[1]))
+            return f.normed_embedding
+        finally:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+    except Exception as exc:  # noqa: BLE001 — скоринг опційний
+        logger.warning("flux2 arcface embed failed url=%.60s: %s", url, exc)
+        return None
+
+
+def _ig_gen_flux2_dataset_centroid(persona_id: str):
+    """Кешований центроїд датасета персони (mean normed-embeddings 16 кропів),
+    ``state/personas/<persona_id>/arcface_centroid.npy``. Немає файлу → None
+    (скоринг деградує до «без cos», N-best бере перший кадр)."""
+    try:
+        import numpy as np
+        p = (Path(__file__).resolve().parents[1] / "state" / "personas"
+             / persona_id / "arcface_centroid.npy")
+        if not p.exists():
+            return None
+        c = np.load(str(p))
+        n = np.linalg.norm(c)
+        return c / n if n else None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("flux2 centroid load failed persona=%s: %s", persona_id, exc)
+        return None
+
+
+def _ig_gen_flux2_score_candidates(image_urls, persona_id: str):
+    """arcface-cos кожного кадру до центроїда датасета персони.
+
+    Повертає ``[{"url": str, "cos": float|None}]`` (порядок = вхідний). Немає
+    центроїда/embedding → ``cos=None`` (без ранжування). Ізольована ради
+    money-safety/тестів (insightface вантажиться тільки тут)."""
+    import numpy as np
+    centroid = _ig_gen_flux2_dataset_centroid(persona_id)
+    out = []
+    for u in image_urls:
+        cos = None
+        if centroid is not None:
+            emb = _ig_gen_flux2_embed_url(u)
+            if emb is not None:
+                cos = round(float(np.dot(emb, centroid)), 3)
+        out.append({"url": u, "cos": cos})
+    return out
+
+
+def _ig_gen_generate_photo_flux2_best_of_n(
+    prompt: str,
+    lora_url: str,
+    persona_id: str,
+    trigger: str = "",
+    lora_scale: float = 1.15,
+    guidance: float = 3.0,
+    image_size: str = "portrait_4_3",
+    steps: int = 28,
+    n: int = 3,
+) -> dict:
+    """N-best flux2: згенерувати ``n`` кадрів → arcface-скоринг до центроїда
+    датасета → у превью кадр з найвищим cos, решта — в лог (URL+cos).
+
+    ``below_threshold=True`` коли найкращий cos < ``_FLUX2_IDENTITY_COS_THRESHOLD``
+    (0.55) — картка отримає ⚠️. Немає центроїда → cos=None, беремо перший,
+    прапорця немає. Впала частина генерацій → беремо успішні; усі впали →
+    RuntimeError (guard_spend віддасть чесне $0-повідомлення).
+
+    Повертає ``{"image_url", "refined": False, "cos": float|None,
+    "candidates": [{"url","cos"}], "below_threshold": bool}``.
+    """
+    urls = []
+    for _ in range(max(1, n)):
+        try:
+            r = _ig_gen_generate_photo_flux2(
+                prompt, lora_url, trigger=trigger, lora_scale=lora_scale,
+                guidance=guidance, image_size=image_size, steps=steps)
+            u = r.get("image_url")
+            if u:
+                urls.append(u)
+        except Exception as exc:  # noqa: BLE001 — одна невдача не валить батч
+            logger.warning("flux2 N-best: одна генерація впала: %s", exc)
+    if not urls:
+        raise RuntimeError("FLUX.2 N-best: 0 кадрів згенеровано")
+
+    scored = _ig_gen_flux2_score_candidates(urls, persona_id)
+    # найвищий cos перший; кадри без cos (None) осідають у хвіст
+    ranked = sorted(
+        scored,
+        key=lambda d: (d.get("cos") is not None, d.get("cos") if d.get("cos") is not None else -1.0),
+        reverse=True,
+    )
+    best = ranked[0]
+    best_cos = best.get("cos")
+    below = best_cos is not None and best_cos < _FLUX2_IDENTITY_COS_THRESHOLD
+    logger.info(
+        "ig_gen flux2 N-best: best_cos=%s below=%s candidates=%s",
+        best_cos, below, scored,
+    )
+    return {
+        "image_url": best["url"], "refined": False, "cos": best_cos,
+        "candidates": scored, "below_threshold": below,
+    }
 
 
 def _ig_gen_download_photo(url: str) -> str:
@@ -5193,25 +5408,86 @@ def _ig_gen_dispatch(chat_id, query: str, state: Dict[str, Any]) -> None:
     persona_id = str(persona_media.get("persona_id") or "").strip()
     use_persona = bool(persona_id) and not nopersona
 
-    if use_persona:
+    _p_refine = False
+    _photo_est_override = None
+    # Движок персони перемикається однією строкою у brand.md persona_media
+    # (``engine: flux2 | draft1000``, БЕЗ деплоя). Дефолт ``draft1000`` —
+    # back-compat для інших персон/старих конфігів.
+    _engine = str(persona_media.get("engine") or "draft1000").strip().lower()
+    if use_persona and _engine == "flux2":
+        # FLUX.2 (fal): нативний de-wax, БЕЗ рефайнера (magic-refiner вбиває
+        # FLUX.2). Параметри LoRA/scale живуть у persona_media.flux2 (per-акаунт).
+        _f2 = persona_media.get("flux2") or {}
+        _f2_lora = str(_f2.get("lora_url") or "").strip()
+        _f2_trigger = str(_f2.get("trigger") or "").strip()
+        _f2_scale = float(_f2.get("lora_scale", 1.15))
+        _f2_guidance = float(_f2.get("guidance", 3.0))
+        _f2_size = str(_f2.get("image_size") or "portrait_4_3")
+        _f2_steps = int(_f2.get("steps", 28))
+        _f2_nbest = max(1, int(_f2.get("nbest", 3)))
+        # appearance-якоря ОБОВ'ЯЗКОВІ на flux2: caption-тренінг виніс зовнішність
+        # (очі/волосся/мейк) з trigger-токена у промпт — якщо не прописати явно,
+        # identity дрейфує (темне волосся/очі замість балаяжу/сіро-блакитних).
+        # Пишемо перед темою (як у виграшному свипі), потім photo_anchors.
+        _f2_appearance = str(_f2.get("appearance") or "").strip()
+        _f2_base_prompt = _ig_gen_photo_prompt_persona(topic, persona_media)
+        photo_prompt = (f"{_f2_appearance}, {_f2_base_prompt}"
+                        if _f2_appearance else _f2_base_prompt)
+        _do_generate_photo = lambda: _ig_gen_generate_photo_flux2_best_of_n(
+            photo_prompt, _f2_lora, persona_id=persona_id, trigger=_f2_trigger,
+            lora_scale=_f2_scale, guidance=_f2_guidance,
+            image_size=_f2_size, steps=_f2_steps, n=_f2_nbest,
+        )
+        _p_refine = False  # рефайн ЗАБОРОНЕНО на flux2-шляху (identity-kill)
+        # N-best: est = ціна кадру × кількість генерацій (чесно в confirm).
+        _photo_est_override = _IG_GEN_FLUX2_PHOTO_EST_USD * _f2_nbest
+    elif use_persona:
         photo_prompt = _ig_gen_photo_prompt_persona(topic, persona_media)
         # Бойові параметри персони живуть у brand.md persona_media (пер-акаунт,
         # НЕ глобальний env — щоб не зачепити інші персони): scale/guidance/aspect.
         _p_scale = persona_media.get("lora_scale")
         _p_guidance = persona_media.get("guidance")
         _p_aspect = persona_media.get("aspect_ratio")
+        # Пост-ген img2img-рефайн (de-wax): флаг + параметри з persona_media.
+        _p_refine = bool(persona_media.get("refine"))
+        _p_creativity = float(persona_media.get("refine_creativity", 0.30))
+        _p_resemblance = float(persona_media.get("refine_resemblance", 0.8))
+        # identity-якорний рефайн-промпт (напр. de-wax + grey-blue eyes/fair
+        # skin/same person). None → рефайнер тримає нейтральний anti-wax дефолт.
+        _p_refine_prompt = (str(persona_media.get("refine_prompt")).strip()
+                            or None) if persona_media.get("refine_prompt") else None
         _do_generate_photo = lambda: _ig_gen_generate_photo_persona(
             persona_id, photo_prompt,
             lora_scale=_p_scale, guidance=_p_guidance, aspect_ratio=_p_aspect,
+            refine=_p_refine, refine_creativity=_p_creativity,
+            refine_resemblance=_p_resemblance, refine_prompt=_p_refine_prompt,
         )
     else:
         photo_prompt = _ig_gen_photo_prompt(topic, brand)
         _do_generate_photo = lambda: _ig_gen_generate_photo(photo_prompt)
-    # 1) генерация фото (платно, guard_spend — money-safety как у /ig_post)
+    # 1) генерация фото (платно, guard_spend — money-safety как у /ig_post).
+    # est честно含 рефайн-надбавку, если рефайн включён (показывается в confirm).
+    # flux2-путь має власний est (~$0.02, без рефайн-надбавки).
+    _photo_est = (
+        _photo_est_override if _photo_est_override is not None
+        else _IG_GEN_PHOTO_EST_USD + (_IG_GEN_REFINE_EST_USD if _p_refine else 0.0)
+    )
     try:
-        photo_remote_url, err = guard_spend(
-            chat_id, None, _IG_GEN_PHOTO_EST_USD, _do_generate_photo,
+        _gen_result, err = guard_spend(
+            chat_id, None, _photo_est, _do_generate_photo,
         )
+        # persona-путь возвращает dict {image_url, refined}; generic — строку url.
+        # flux2 N-best дополнительно несёт cos/candidates/below_threshold.
+        _f2_cos = None
+        _f2_below = False
+        if isinstance(_gen_result, dict):
+            photo_remote_url = _gen_result.get("image_url")
+            _refined = _gen_result.get("refined")
+            _f2_cos = _gen_result.get("cos")
+            _f2_below = bool(_gen_result.get("below_threshold"))
+        else:
+            photo_remote_url = _gen_result
+            _refined = None
     except Exception as exc:  # noqa: BLE001
         logger.exception("ig_gen: photo gen failed chat=%s", chat_id)
         send(chat_id, "🚫 Генератор фото недоступен — фото не создано, $0 (%s)." % (str(exc)[:120]))
@@ -5262,8 +5538,34 @@ def _ig_gen_dispatch(chat_id, query: str, state: Dict[str, Any]) -> None:
         _send_photo_url(chat_id, photo_url, caption="🖼 Превью IG-поста (сгенерировано)")
     except Exception:  # noqa: BLE001 — превью-картинка не критична для карточки
         pass
+    # Рефайн-нотатка в картці (честно про доп-стоимость / ⚠️ фолбек).
+    _refine_note = ""
+    if _p_refine:
+        if _refined:
+            _refine_note = (
+                f"\n\n✨ Кадр отрефайнен (реализм кожи), "
+                f"+${_IG_GEN_REFINE_EST_USD:.2f} к стоимости."
+            )
+        else:
+            _refine_note = (
+                "\n\n⚠️ Рефайнер не сработал — кадр без рефайна "
+                "(доплаты за рефайн нет)."
+            )
+    # flux2 N-best: прозоро показуємо arcface-cos найкращого кадру + ⚠️ якщо
+    # identity під питанням (нижче порога). cos=None (немає центроїда) → рядка нема.
+    if _engine == "flux2" and _f2_cos is not None:
+        if _f2_below:
+            _refine_note += (
+                f"\n\n⚠️ arcface cos {_f2_cos:.3f} < {_FLUX2_IDENTITY_COS_THRESHOLD:.2f} "
+                "— identity під питанням (кращий з N-best; перевір лице)."
+            )
+        else:
+            _refine_note += (
+                f"\n\n🎯 arcface cos {_f2_cos:.3f} ✅ (кращий кадр з N-best)."
+            )
     send_with_keyboard(
-        chat_id, _igp.build_preview_text(photo_url, caption, topic), _ig_post_keyboard()
+        chat_id, _igp.build_preview_text(photo_url, caption, topic) + _refine_note,
+        _ig_post_keyboard(),
     )
 
 

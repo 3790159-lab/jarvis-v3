@@ -77,6 +77,22 @@ def _isolate_ig_hashtag_history_file(monkeypatch, tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def _blank_fal_key(monkeypatch):
+    """Blank ``FAL_KEY`` for every test so no code path can reach the real fal
+    API (FLUX.2 persona gen, ``FalImageClient``) and spend money.
+
+    ``.env`` is loaded at import time (see module docstring) → ``FAL_KEY`` would
+    otherwise leak into ``os.environ`` and a test that drives the real vera
+    brand (``engine: flux2``) through ``_ig_gen_dispatch`` without mocking the
+    N-best gen would fire real ~$0.02×N generations. ``FalImageClient()`` raises
+    ``RuntimeError`` on empty key → any such unmocked path fails safely.
+    Unit tests that pass an explicit ``api_key=...`` are unaffected (they don't
+    read env). Mirrors the money-safety layers above.
+    """
+    monkeypatch.delenv("FAL_KEY", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _silence_telegram_sends(monkeypatch):
     """Suppress every outbound Telegram send during tests so no phantom
     message (``petya (555) New user``, ``RunPod guardian pod_old`` …) leaks

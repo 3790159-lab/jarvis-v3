@@ -5,10 +5,36 @@ persona_id: persona_68fb76b2
 persona_model: FLUX
 persona_media:
   persona_id: persona_68fb76b2
+  # Движок персона-фото: flux2 (fal FLUX.2, нативний de-wax) | draft1000
+  # (Replicate FLUX-dev-lora + magic-refiner). Перемикання БЕЗ деплоя — одна
+  # строка. ⚠️ magic-refiner ЗАБОРОНЕНО на flux2-шляху (вбиває identity
+  # 0.52→0.31); refine/refine_* нижче стосуються ЛИШЕ draft1000-шляху.
+  engine: flux2
+  flux2:
+    lora_url: "https://v3b.fal.media/files/b/0aa23f1d/WFVH9zgKqdWz62OibEs6L_pytorch_lora_weights.safetensors"
+    trigger: "sks_persona_68fb76b2"
+    lora_scale: 1.15
+    guidance: 3.0
+    image_size: "portrait_4_3"
+    steps: 28
+    # N-best: 3 гени → arcface-cos до центроїда датасета → кращий у превью.
+    nbest: 3
+    # appearance-якоря ОБОВ'ЯЗКОВІ (identity дослівно з тренувальних кэпшенів v2:
+    # очі/волосся/губи/шкіра) — caption-тренінг виніс зовнішність з trigger-токена
+    # у промпт, без явного опису identity дрейфує (темне волосся/очі).
+    # ⚠️ Makeup — окрема ручка: «glam makeup» з кэпшенів = ретуш/мультяшність
+    # (berry-губи, важка підводка, заглаждена шкіра) → у inference НЕ переносимо.
+    # «light natural makeup, natural lips» тримає identity й прибирає глам.
+    appearance: "grey-blue eyes, light brown balayage hair, full lips, fair skin, light natural makeup, natural lips"
   style: "реалізм, тепле світло, сучасний контекст"
-  lora_scale: 1.1
+  lora_scale: 1.0
   guidance: 4.0
   aspect_ratio: "3:4"
+  refine: true
+  refine_creativity: 0.25
+  refine_resemblance: 0.8
+  refine_prompt: "candid photo, natural realistic skin with visible pores and fine texture, matte un-retouched skin, soft natural light, sharp focus, grey-blue eyes, fair skin, same person"
+  photo_anchors: "shot on 85mm f/1.8, Kodak Portra 400, soft window light from the left, natural skin texture, subtle imperfections, visible pores, candid"
 tone: ["молодий", "енергійний", "живий"]
 lang: uk
 cta: "напиши в директ, якщо хочеш такий самий ШІ-контент для свого бізнесу"
@@ -111,10 +137,64 @@ hashtag_baskets:
 **Бойова персона:** `persona_68fb76b2` (trigger `sks_persona_68fb76b2`),
 навчена на 16 реальних face/upper-body кропах.
 
-**Бойові параметри генерації (live-приймання 2026-07-13; у `persona_media` frontmatter):**
-- `lora_scale = 1.1` — світ-спот (1.0 — риси усереднені; 1.2 — тяжчий мейк/пластик).
+### Движок генерації: `engine: flux2 | draft1000` (перемикання БЕЗ деплоя)
+
+**Статус (2026-07-14):** мігровано на **FLUX.2** (`engine: flux2`). Нативний
+de-wax FLUX.2 виграє у draft-1000+magic-refiner (натуральна шкіра/пори/
+веснянки, БЕЗ воску/CGI/глам-мейку, гардероб тримається). v2-тренінг (fal
+`flux-2-trainer`, **2000 кроків + per-image captions** — саме це підтягнуло
+identity) → self-consistency **0.733** (v1 1000-кроків був 0.569).
+Свит-спот `lora_scale = 1.15` (self-cos 0.782). Циферблат scale: **1.0**
+реалізм / **1.15** прод / **1.3** повертається глянець.
+
+- `engine: flux2` → шлях `_ig_gen_generate_photo_flux2` (fal `flux-2/lora`),
+  параметри з `persona_media.flux2` (lora_url/trigger/lora_scale 1.15/
+  guidance 3.0/image_size portrait_4_3/steps 28). ~$0.02/кадр.
+- **⚠️ magic-refiner ЗАБОРОНЕНО для flux2-шляху** — вбиває identity FLUX.2
+  (spike: 0.521→0.314). Рефайн-крок на цьому шляху ВИМКНЕНО повністю;
+  `refine`/`refine_*` у frontmatter стосуються ЛИШЕ draft1000-шляху.
+  nano-banana лишається опційним РУЧНИМ інструментом (в авто-цикл НЕ входить).
+- **Rollback-страховка:** `engine: draft1000` → старий Replicate
+  FLUX-dev-lora + magic-refiner путь (params: lora_scale 1.0/guidance 4.0/
+  aspect 3:4/refine true) вертається однією строкою, БЕЗ деплоя. Перший
+  тиждень на flux2 — посиплеться, відкат миттєвий.
+
+**Бойові параметри генерації (у `persona_media` frontmatter):**
+- `lora_scale = 1.0` — знижено з 1.1 (2026-07-14). Live scale-vs-seed проба з
+  фіксованим seed (A: 1.1 vs B: 1.0, той самий seed) показала: 1.1 дає воск/CGID
+  + важкий мейк; 1.0 маргінально чистіше. КОРІНЬ воску — байас датасету (глам-
+  селфі), а НЕ scale/seed: інференс-ручки байас не лікують (див.
+  [[jarvis-lora-overtrain-glam-selfie-lesson]]). 1.0 = дешеве часткове пом'якшення,
+  не фікс. Компроміс: 1.0 трохи усереднює риси (документована ціна).
 - `guidance = 4.0`, `aspect_ratio = 3:4`, короткі якорі `photo, natural light`,
   **без інлайн-негативів** (див. [[jarvis-persona-lora-key-bug]], баг B).
+- `refine = true` — пост-ген img2img de-wax через `magic-image-refiner`
+  (ControlNet-tile, `refine_creativity=0.25`/`refine_resemblance=0.8`). Лікує
+  глам/воск-байас ваг на ВИХОДІ (spike 2026-07-14: інференс-ручки байас не
+  б'ють, ваги не лікуються). Fail-safe: рефайнер упав → віддається
+  нерефайнений кадр з ⚠️, пост-флоу не ламається. +~$0.02 до кадру (чесно
+  в confirm + картці). Чинить ШКІРУ, НЕ гардероб (композиція зберігається).
+- `refine_creativity = 0.25` — знижено з 0.30 (2026-07-14): нижчий denoise
+  краще тримає композицію при знятті воску. `refine_prompt` — рефайн-промпт з
+  identity-якорями (`grey-blue eyes, fair skin, same person`) додано **постійно**
+  в auto-refine. ⚠️ ЦІНА (заміряно 2026-07-14, 4 гени): якорі системно
+  занижують arcface-cos до центроїда датасету ~0.47–0.51 (проти ~0.90 у
+  glam-входу) — бо вони знімають глам/мейк, який запечений у датасет, а НЕ
+  «ламають лице». Тому identity рефайна оцінюється по **людській сверці +
+  якорних варіантах**, НЕ по чистому cos; робочий поріг 0.55+anchor (див.
+  [[jarvis-persona-anchor-cos-threshold]]). Прокидується з `persona_media` →
+  `generate_photo(refine_prompt=...)` → `refine_image(prompt=...)`.
+
+**Фотографічний промпт-шаблон (`photo_anchors` у `persona_media`, 2026-07-14):**
+`prompt = [тема: subject+clothing англ.] + photo_anchors`. photo_anchors =
+`shot on 85mm f/1.8, Kodak Portra 400, soft window light from the left, natural
+skin texture, subtle imperfections, visible pores, candid` — фотографічна мова
+(камера/плівка/світло/текстура) замість дженерик-якорів; `style` і короткі
+якорі пропускаються. **ЗАБОРОНЕНО** `hyperrealistic/8K/masterpiece/ultra-detailed`
+— тягнуть у CGI. **БЕЗ негативів** (FLUX-dev не парсить заперечення). Тему
+(subject+clothing) писати АНГЛІЙСЬКОЮ — англ. промпт перебиває гардероб-байас
+(live 2026-07-14: блузка замість лінжері). NB: мейк-якір (`light natural makeup`)
+у шаблон НЕ входить — якщо повернеться важкий мейк, додати в photo_anchors.
 
 **Правило 1 — макіяж (перебиваємо промптом):** LoRA вивчила темний макіяж
 датасету як дефолт. У **кожен** персона-промпт завжди додавати
