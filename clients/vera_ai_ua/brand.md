@@ -25,7 +25,12 @@ persona_media:
     # ⚠️ Makeup — окрема ручка: «glam makeup» з кэпшенів = ретуш/мультяшність
     # (berry-губи, важка підводка, заглаждена шкіра) → у inference НЕ переносимо.
     # «light natural makeup, natural lips» тримає identity й прибирає глам.
-    appearance: "grey-blue eyes, light brown balayage hair, full lips, fair skin, light natural makeup, natural lips"
+    # ⚠️ Колір губ: LoRA запекла mauve-lipstick → berry тримається. FLUX не
+    # парсить заперечення («no lipstick» рикошетить), тому колір задаємо
+    # ПОЗИТИВОМ: «full natural lips, soft muted pink lip color» (форма=identity
+    # лишається, berry витісняємо описом бажаного). Це ОСТАННЯ промпт-ітерація
+    # по губах — якщо berry тримається, це «фірмова помада Вери» / фікс у v3.
+    appearance: "grey-blue eyes, light brown balayage hair, full natural lips, soft muted pink lip color, fair skin, light natural makeup, natural lips"
   style: "реалізм, тепле світло, сучасний контекст"
   lora_scale: 1.0
   guidance: 4.0

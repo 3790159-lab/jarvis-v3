@@ -720,7 +720,7 @@ def test_ig_gen_pending_card_publish_fail_closed_on_quota(monkeypatch):
 # Переключение движка — одна строка в brand.md, БЕЗ деплоя. На flux2-пути
 # magic-refiner ЗАПРЕЩЁН (убивает identity FLUX.2) → рефайн-шаг ВЫКЛЮЧЕН.
 
-_FLUX2_APPEARANCE = "grey-blue eyes, light brown balayage hair, full lips, fair skin, light natural makeup, natural lips"
+_FLUX2_APPEARANCE = "grey-blue eyes, light brown balayage hair, full natural lips, soft muted pink lip color, fair skin, light natural makeup, natural lips"
 _FLUX2_PM = {
     "persona_id": "persona_68fb76b2",
     "engine": "flux2",
