@@ -592,6 +592,41 @@ class TestFluxLoraInference:
         assert captured_payload["input"]["lora_scale"] == 0.5
         assert captured_payload["input"]["guidance"] == 4.0
 
+    @pytest.mark.anyio
+    async def test_aspect_ratio_passed_when_provided(self):
+        """Персона-фото Вери — портрет 3:4 (боєві параметри); без aspect_ratio
+        flux-dev-lora дефолтить у 1:1 (клоуз-ап, доведено 2026-07-13)."""
+        from app.services.block_m_common.replicate_video_client import ReplicateVideoClient
+        client = ReplicateVideoClient(api_token="tok")
+        captured = {}
+
+        async def capture(model, payload, **kw):
+            captured.update(payload)
+            return ["https://img.jpg"]
+
+        with patch.object(client, "_run_prediction", side_effect=capture):
+            await client.generate_flux_with_lora(
+                "smiling", "https://lora.url", "sks_sofia", aspect_ratio="3:4",
+            )
+
+        assert captured["input"]["aspect_ratio"] == "3:4"
+
+    @pytest.mark.anyio
+    async def test_aspect_ratio_omitted_when_none(self):
+        """Back-compat: без aspect_ratio ключ не слається (старе поведінка)."""
+        from app.services.block_m_common.replicate_video_client import ReplicateVideoClient
+        client = ReplicateVideoClient(api_token="tok")
+        captured = {}
+
+        async def capture(model, payload, **kw):
+            captured.update(payload)
+            return ["https://img.jpg"]
+
+        with patch.object(client, "_run_prediction", side_effect=capture):
+            await client.generate_flux_with_lora("smiling", "https://lora.url", "sks_sofia")
+
+        assert "aspect_ratio" not in captured["input"]
+
 
 # ─── ReplicateVideoClient — retry logic ──────────────────────────────────────
 

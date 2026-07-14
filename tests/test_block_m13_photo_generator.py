@@ -78,6 +78,33 @@ async def test_generate_photo_builds_full_prompt():
 
 
 @pytest.mark.anyio
+async def test_generate_photo_forwards_combat_params():
+    """Бойові параметри Вери (scale 1.1 / guidance 4.0 / aspect 3:4) мають
+    доходити до generate_flux_with_lora, а не глушитись дефолтами."""
+    gen, client, _, _ = _make_generator()
+    await gen.generate_photo(
+        "persona_test01", "in a park",
+        lora_scale=1.1, guidance=4.0, aspect_ratio="3:4",
+    )
+    kw = client.generate_flux_with_lora.call_args.kwargs
+    assert kw["lora_scale"] == 1.1
+    assert kw["guidance"] == 4.0
+    assert kw["aspect_ratio"] == "3:4"
+
+
+@pytest.mark.anyio
+async def test_generate_photo_combat_params_default_none():
+    """Back-compat: без явних параметрів forward=None (generate_flux_with_lora
+    застосує свої конфіг-дефолти)."""
+    gen, client, _, _ = _make_generator()
+    await gen.generate_photo("persona_test01", "in a park")
+    kw = client.generate_flux_with_lora.call_args.kwargs
+    assert kw.get("lora_scale") is None
+    assert kw.get("guidance") is None
+    assert kw.get("aspect_ratio") is None
+
+
+@pytest.mark.anyio
 async def test_generate_photo_raises_if_persona_not_found():
     gen, _, storage, _ = _make_generator()
     storage.get_persona = AsyncMock(return_value=None)

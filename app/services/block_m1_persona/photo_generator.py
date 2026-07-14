@@ -30,6 +30,9 @@ class PhotoGenerator:
         persona_id: str,
         prompt: str,
         progress_cb: Callable | None = None,
+        lora_scale: float | None = None,
+        guidance: float | None = None,
+        aspect_ratio: str | None = None,
     ) -> dict:
         """Generate a photo for the given persona using its trained LoRA.
 
@@ -37,6 +40,9 @@ class PhotoGenerator:
             persona_id: Persona identifier.
             prompt: User prompt (trigger word is prepended automatically).
             progress_cb: Optional callback(status: str) for progress updates.
+            lora_scale: Per-call LoRA strength override (None → client default).
+            guidance: Per-call prompt-guidance override (None → client default).
+            aspect_ratio: Per-call output aspect (e.g. "3:4"; None → 1:1 default).
 
         Returns:
             {"image_url": str, "cost_usd": float, "full_prompt": str}
@@ -72,6 +78,9 @@ class PhotoGenerator:
             prompt=prompt,
             lora_url=persona.lora_weights_url,
             trigger_word=persona.trigger_word,
+            lora_scale=lora_scale,
+            guidance=guidance,
+            aspect_ratio=aspect_ratio,
         )
 
         cost = result["cost_usd"]

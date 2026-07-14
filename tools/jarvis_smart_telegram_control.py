@@ -4747,7 +4747,7 @@ def _ig_gen_photo_prompt(topic: str, brand: Optional[Dict[str, Any]]) -> str:
 # FLUX-dev не парсить заперечення → згадка "no anime" ПРИЗИВАЄ аніме/підпис
 # (доказано: з негативами → аніме+watermark, без → фото), а буквальне "pores"
 # → пор-точки. Тому: тільки короткі позитивні якорі, БЕЗ негативів.
-_IG_GEN_PERSONA_PHOTO_ANCHORS = "photo, natural light"
+_IG_GEN_PERSONA_PHOTO_ANCHORS = "photo, natural light, light natural makeup, natural lips"
 
 
 def _ig_gen_photo_prompt_persona(topic: str, persona_media: Optional[Dict[str, Any]]) -> str:
@@ -5095,11 +5095,20 @@ def _ig_gen_generate_photo(topic: str) -> str:
     return urls[0]
 
 
-def _ig_gen_generate_photo_persona(persona_id: str, prompt: str) -> str:
+def _ig_gen_generate_photo_persona(
+    persona_id: str,
+    prompt: str,
+    lora_scale: float | None = None,
+    guidance: float | None = None,
+    aspect_ratio: str | None = None,
+) -> str:
     """Платный шаг генерации фото ЧЕРЕЗ персону (LoRA) — существующий
     persona_photo-механизм (``PhotoGenerator``, тот же движок, что и
     ``/persona_photo``). Изолирована ради money-safety — тесты мокают ИМЕННО
     эту функцию, ноль реальной генерации/сети.
+
+    Бойові параметри (scale/guidance/aspect) приходять з ``brand.md``
+    ``persona_media`` (див. ``_ig_gen_dispatch``); ``None`` → дефолти движка.
     """
     import asyncio
 
@@ -5113,7 +5122,10 @@ def _ig_gen_generate_photo_persona(persona_id: str, prompt: str) -> str:
         client = ReplicateVideoClient()
         tracker = CostTracker()
         gen = PhotoGenerator(client, storage, tracker)
-        return await gen.generate_photo(persona_id, prompt)
+        return await gen.generate_photo(
+            persona_id, prompt,
+            lora_scale=lora_scale, guidance=guidance, aspect_ratio=aspect_ratio,
+        )
 
     result = asyncio.run(_async())
     image_url = (result or {}).get("image_url")
@@ -5183,7 +5195,15 @@ def _ig_gen_dispatch(chat_id, query: str, state: Dict[str, Any]) -> None:
 
     if use_persona:
         photo_prompt = _ig_gen_photo_prompt_persona(topic, persona_media)
-        _do_generate_photo = lambda: _ig_gen_generate_photo_persona(persona_id, photo_prompt)
+        # Бойові параметри персони живуть у brand.md persona_media (пер-акаунт,
+        # НЕ глобальний env — щоб не зачепити інші персони): scale/guidance/aspect.
+        _p_scale = persona_media.get("lora_scale")
+        _p_guidance = persona_media.get("guidance")
+        _p_aspect = persona_media.get("aspect_ratio")
+        _do_generate_photo = lambda: _ig_gen_generate_photo_persona(
+            persona_id, photo_prompt,
+            lora_scale=_p_scale, guidance=_p_guidance, aspect_ratio=_p_aspect,
+        )
     else:
         photo_prompt = _ig_gen_photo_prompt(topic, brand)
         _do_generate_photo = lambda: _ig_gen_generate_photo(photo_prompt)

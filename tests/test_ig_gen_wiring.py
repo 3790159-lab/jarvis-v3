@@ -59,7 +59,7 @@ def test_ig_gen_command_dispatches_with_confirmed_token(monkeypatch):
 
 def _patch_photo(monkeypatch, url="https://replicate/gen.jpg", local="C:/tmp/ig_gen_x.jpg"):
     monkeypatch.setattr(mod, "_ig_gen_generate_photo", lambda topic: url)
-    monkeypatch.setattr(mod, "_ig_gen_generate_photo_persona", lambda pid, prompt: url)
+    monkeypatch.setattr(mod, "_ig_gen_generate_photo_persona", lambda pid, prompt, **kw: url)
     monkeypatch.setattr(mod, "_ig_gen_download_photo", lambda u: local)
 
 
@@ -260,7 +260,7 @@ def test_ig_gen_dispatch_persona_id_routes_to_persona_engine_with_lora(monkeypat
     persona_calls = {}
     monkeypatch.setattr(
         mod, "_ig_gen_generate_photo_persona",
-        lambda pid, prompt: persona_calls.update(pid=pid, prompt=prompt) or "https://lora/gen.jpg",
+        lambda pid, prompt, **kw: persona_calls.update(pid=pid, prompt=prompt) or "https://lora/gen.jpg",
     )
     old_calls = {"n": 0}
     monkeypatch.setattr(
@@ -272,21 +272,84 @@ def test_ig_gen_dispatch_persona_id_routes_to_persona_engine_with_lora(monkeypat
     mod._ig_gen_dispatch(ADMIN, "client=vera_ai_ua перше знайомство: хто така Віра", state)
 
     assert persona_calls["pid"] == "persona_af2f54ee"
-    # Короткі фото-якорі (photo, natural light); БЕЗ інлайн-негативів — FLUX-dev
-    # не парсить заперечення й "no anime/illustration/signature" у позитивному
-    # промпті ПРИЗИВАЄ аніме/ілюстрації/підпис (live-доказано 2026-07-12).
+    # Короткі фото-якорі (photo, natural light) + промпт-правило мейку; БЕЗ
+    # інлайн-негативів — FLUX-dev не парсить заперечення й "no anime/…" у
+    # позитивному промпті ПРИЗИВАЄ його (live-доказано 2026-07-12).
     assert persona_calls["prompt"] == (
         "перше знайомство: хто така Віра, реалізм, тепле світло, сучасний контекст, "
-        "photo, natural light"
+        "photo, natural light, light natural makeup, natural lips"
     )
     assert old_calls["n"] == 0
     assert state[PENDING_KEY]["photo_url"] == "https://pub/x.jpg"
 
 
+def test_ig_gen_generate_photo_persona_forwards_combat_params(monkeypatch):
+    """``_ig_gen_generate_photo_persona`` має прокидати бойові параметри
+    (scale/guidance/aspect) у ``PhotoGenerator.generate_photo``."""
+    captured = {}
+
+    class _FakeGen:
+        def __init__(self, *a, **k):
+            pass
+
+        async def generate_photo(self, pid, prompt, **kw):
+            captured.update(pid=pid, prompt=prompt, **kw)
+            return {"image_url": "https://x/y.jpg"}
+
+    monkeypatch.setattr(
+        "app.services.block_m1_persona.photo_generator.PhotoGenerator", _FakeGen)
+    monkeypatch.setattr(
+        "app.services.block_m_common.persona_storage.PersonaStorage", lambda *a, **k: object())
+    monkeypatch.setattr(
+        "app.services.block_m_common.replicate_video_client.ReplicateVideoClient",
+        lambda *a, **k: object())
+    monkeypatch.setattr(
+        "app.services.block_m_common.cost_tracker.CostTracker", lambda *a, **k: object())
+
+    url = mod._ig_gen_generate_photo_persona(
+        "persona_x", "scene", lora_scale=1.1, guidance=4.0, aspect_ratio="3:4")
+
+    assert url == "https://x/y.jpg"
+    assert captured["lora_scale"] == 1.1
+    assert captured["guidance"] == 4.0
+    assert captured["aspect_ratio"] == "3:4"
+
+
+def test_ig_gen_dispatch_forwards_combat_params_from_brand(monkeypatch):
+    """Бойові параметри Вери живуть у ``brand.md`` ``persona_media``
+    (lora_scale/guidance/aspect_ratio) і мають доходити до персона-движка."""
+    _patch_brand(monkeypatch, {
+        "persona_media": {"persona_id": "persona_68fb76b2", "style": "S",
+                          "lora_scale": 1.1, "guidance": 4.0, "aspect_ratio": "3:4"},
+    })
+    _patch_common(monkeypatch)
+    captured = {}
+    monkeypatch.setattr(
+        mod, "_ig_gen_generate_photo_persona",
+        lambda pid, prompt, **kw: captured.update(pid=pid, **kw) or "https://lora/gen.jpg")
+
+    state = {}
+    mod._ig_gen_dispatch(ADMIN, "client=vera_ai_ua тема", state)
+
+    assert captured["pid"] == "persona_68fb76b2"
+    assert captured["lora_scale"] == 1.1
+    assert captured["guidance"] == 4.0
+    assert captured["aspect_ratio"] == "3:4"
+
+
 def test_ig_gen_photo_prompt_persona_adds_short_anchors_without_style():
     """Без ``persona_media.style`` короткі фото-якорі все одно додаються."""
     prompt = mod._ig_gen_photo_prompt_persona("тема", {"persona_id": "p1"})
-    assert prompt == "тема, photo, natural light"
+    assert prompt == "тема, photo, natural light, light natural makeup, natural lips"
+
+
+def test_ig_gen_photo_prompt_persona_includes_makeup_rule():
+    """Промпт-правило (боєве): LoRA вивчила ТЯЖКИЙ мейк датасету дефолтом →
+    у кожен персона-промпт додаємо 'light natural makeup, natural lips'
+    (позитивний якір, не негатив)."""
+    prompt = mod._ig_gen_photo_prompt_persona("тема", {"persona_id": "p1"})
+    assert "light natural makeup" in prompt
+    assert "natural lips" in prompt
 
 
 def test_ig_gen_photo_prompt_persona_has_no_inline_negatives_or_pores():

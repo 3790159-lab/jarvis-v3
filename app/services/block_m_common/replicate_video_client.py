@@ -149,6 +149,7 @@ class ReplicateVideoClient:
         trigger_word: str,
         lora_scale: float | None = None,
         guidance: float | None = None,
+        aspect_ratio: str | None = None,
     ) -> dict:
         """Generate an image with Flux using a trained LoRA.
 
@@ -159,6 +160,8 @@ class ReplicateVideoClient:
             lora_scale: LoRA strength (default ``_FLUX_LORA_SCALE_DEFAULT`` —
                 too high pulls the result toward digital-painting).
             guidance: Prompt guidance strength (default ``_FLUX_LORA_GUIDANCE_DEFAULT``).
+            aspect_ratio: Output aspect ratio (e.g. ``"3:4"``). ``None`` omits the
+                key so flux-dev-lora keeps its 1:1 default (back-compat).
 
         Returns:
             {"image_url": str, "cost_usd": float}
@@ -173,6 +176,8 @@ class ReplicateVideoClient:
                 "guidance": guidance if guidance is not None else _FLUX_LORA_GUIDANCE_DEFAULT,
             }
         }
+        if aspect_ratio is not None:
+            payload["input"]["aspect_ratio"] = aspect_ratio
         output = await self._run_prediction(_FLUX_LORA_MODEL, payload)
         if isinstance(output, list) and output:
             image_url = output[0]
