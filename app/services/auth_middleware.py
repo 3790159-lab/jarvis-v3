@@ -5,16 +5,12 @@ gating ~40 routers one-by-one is error-prone. This middleware is the single
 choke point: every request is either on the public allow-list or must carry a
 valid API key.
 
-Phase 1 (this file) runs in **canary** mode only — it computes the allow/deny
-decision but NEVER blocks; it logs and records every request that *would* be
-denied, so we can find internal callers lacking a key before enforcing. Phase 2
-adds the enforce path (return 401 on deny) once the canary list is reviewed.
-
 Modes (env ``JARVIS_AUTH_MIDDLEWARE_MODE``):
-  * ``off``    — do nothing (default; safe to merge and deploy).
-  * ``canary`` — decide + record would-deny, always pass through.
-Any other value is treated as canary in this phase, so enforcement can never be
-switched on before Phase 2 lands.
+  * ``off``     — do nothing (default; safe to merge and deploy).
+  * ``canary``  — decide + record would-deny, always pass through (Phase 1).
+  * ``enforce`` — return 401 on a deny decision (Phase 2).
+Any other value is treated as non-blocking (canary), so a typo can never take
+the surface down — only ``enforce`` blocks.
 
 The tunnel forwards internet traffic to localhost, so the client address is
 always 127.0.0.1 — authorization is key-based only; loopback is NOT trusted.
@@ -31,14 +27,20 @@ from app.services.api_auth import is_authorized
 
 _log = logging.getLogger("jarvis.auth_canary")
 
-# Paths reachable without a key: exact matches plus the "*/health" suffix rule.
+# Paths reachable without a key: exact matches, the "*/health" suffix rule, and
+# a small set of public prefixes.
 PUBLIC_EXACT = frozenset(
     {
         "/health",
-        "/oauth/callback",
-        "/telegram/webhook",  # self-secured by its own secret-token check
+        "/oauth/callback",     # external: Instagram OAuth redirect
+        "/telegram/webhook",   # external: Telegram (self-secured by secret-token)
     }
 )
+
+# Prefixes whose whole subtree is public. /api/jarvis/ops/* is low-sensitivity
+# liveness (heartbeat / cloudflared / disk / restart-storm) polled by the
+# external Uptime Kuma monitor, which cannot easily carry a key.
+PUBLIC_PREFIXES = ("/api/jarvis/ops/",)
 
 
 def _mode() -> str:
@@ -50,6 +52,8 @@ def is_public_path(path: str) -> bool:
     if path in PUBLIC_EXACT:
         return True
     if path.endswith("/health"):
+        return True
+    if any(path.startswith(pfx) for pfx in PUBLIC_PREFIXES):
         return True
     return False
 
@@ -100,13 +104,25 @@ def record_canary_event(event: dict) -> bool:
 
 
 async def auth_guard_middleware(request, call_next):
-    """Canary middleware: record would-deny requests, never block."""
-    if _mode() == "off":
+    """Default-deny auth guard.
+
+    Modes (env ``JARVIS_AUTH_MIDDLEWARE_MODE``):
+      * ``off``     — no-op, pass everything through (default).
+      * ``enforce`` — return 401 on a deny decision.
+      * anything else (``canary`` / unknown) — record would-deny, pass through.
+        Treating unknown modes as non-blocking is deliberate: a typo can never
+        take the surface down, only ``enforce`` blocks.
+    """
+    mode = _mode()
+    if mode == "off":
         return await call_next(request)
+
+    deny = False
     try:
         path = request.url.path
         provided = request.headers.get("X-API-Key")
         if classify(path, provided) == "deny":
+            deny = True
             record_canary_event(
                 {
                     "method": request.method,
@@ -117,6 +133,13 @@ async def auth_guard_middleware(request, call_next):
                 }
             )
     except Exception:
-        # The canary must never break the request path.
-        pass
+        # The guard must never break the request path on its own error.
+        return await call_next(request)
+
+    if deny and mode == "enforce":
+        from starlette.responses import JSONResponse
+
+        return JSONResponse(
+            status_code=401, content={"detail": "Invalid or missing API key"}
+        )
     return await call_next(request)

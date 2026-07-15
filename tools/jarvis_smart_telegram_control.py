@@ -165,6 +165,16 @@ def http_json(method: str, url: str, payload: Optional[Dict[str, Any]] = None, t
     if payload is not None:
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         headers["Content-Type"] = "application/json; charset=utf-8"
+    # Under the default-deny auth guard, backend (:8010) endpoints require a key.
+    # Attach it ONLY for BACKEND URLs — never leak the internal key to Telegram
+    # (this helper is shared with tg_call -> api.telegram.org).
+    if BACKEND and url.startswith(BACKEND):
+        _internal_key = (
+            os.environ.get("JARVIS_INTERNAL_API_KEY", "").strip()
+            or os.environ.get("JARVIS_ADMIN_KEY", "").strip()
+        )
+        if _internal_key:
+            headers["X-API-Key"] = _internal_key
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
