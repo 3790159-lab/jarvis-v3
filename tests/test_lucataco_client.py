@@ -67,10 +67,20 @@ async def test_429_exhausted_raises_lucataco_transient_error():
         return httpx.Response(200, json={"status": "succeeded", "output": "https://x/y.jpg"})
 
     # Use max_retries=2 via _run_prediction directly to keep the test fast.
+    # Payload is production-shaped (as swap() builds it) so it passes the DEV-3
+    # money-preflight guard and the 429 retry-exhaustion path is what's exercised;
+    # the guard's own empty-payload rejection is covered in test_money_preflight_clients.py.
     client = _client(handler)
     with pytest.raises(LucatacoTransientError):
         await client._run_prediction(
-            {"version": "v", "input": {}}, max_retries=2
+            {
+                "version": "v",
+                "input": {
+                    "swap_image": "data:image/jpeg;base64,A",
+                    "target_image": "data:image/jpeg;base64,B",
+                },
+            },
+            max_retries=2,
         )
     # Verifies it IS a RuntimeError subclass (backward compat for any existing catches).
     assert issubclass(LucatacoTransientError, RuntimeError)
