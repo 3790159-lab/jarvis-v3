@@ -1732,7 +1732,49 @@ def _devtask_run_regress(worktree: str) -> dict:
         res, _regress_baseline(), verdict_fn=_jo.regress_verdict)
 
 
-def _devtask_run_targeted(worktree: str, base_head: str) -> dict:
+def _devtask_extract_failed_tests(stdout: str) -> List[str]:
+    """Pull ``FAILED <nodeid> - <reason>`` lines from pytest's ``-rf`` summary.
+
+    Each line is already a short one-liner (node-id + exception type/message)
+    — DEV-13: this is the "short traceback" surfaced to the human, cheap
+    enough to keep even when the merge gate runs dozens of times."""
+    return re.findall(r"^FAILED (.+)$", stdout or "", re.MULTILINE)
+
+
+def _devtask_gate_log_path(tid: Optional[str]) -> Optional[str]:
+    if not tid:
+        return None
+    return str(Path(_devtask_state_dir()) / ("%s_gate.log" % tid))
+
+
+def _devtask_write_gate_log(tid: Optional[str], stdout: str) -> Optional[str]:
+    """Persist the raw pytest stdout so a red gate is investigable after the
+    fact (DEV-13) — returns the log path, or None if no ``tid`` was given."""
+    log_path = _devtask_gate_log_path(tid)
+    if not log_path:
+        return None
+    try:
+        Path(log_path).write_text(stdout or "", encoding="utf-8")
+    except OSError:
+        return None
+    return log_path
+
+
+def _devtask_format_failed_tests(failed: List[str], log_path: Optional[str]) -> str:
+    if not failed:
+        return ""
+    shown = failed[:3]
+    extra = len(failed) - len(shown)
+    lines = "\n".join("• %s" % f for f in shown)
+    text = "\n" + lines
+    if extra > 0:
+        text += "\n...ещё %d" % extra
+    if log_path:
+        text += "\nлог: %s" % log_path
+    return text
+
+
+def _devtask_run_targeted(worktree: str, base_head: str, tid: Optional[str] = None) -> dict:
     """Targeted merge gate: run ONLY the tests mapping to the branch diff.
 
     A conscious bypass of the full regress while the full suite is being repaired
@@ -1743,6 +1785,10 @@ def _devtask_run_targeted(worktree: str, base_head: str) -> dict:
     An empty target set is NEVER an implicit pass — if the diff maps to no tests
     we return ``ok=False`` with an honest message, so the human either fixes the
     mapping or uses [⚠️ Мердж без регресса] as a deliberate override.
+
+    DEV-13: raw stdout is saved to ``state/dev_tasks/<tid>_gate.log`` (when a
+    ``tid`` is given) and failed node-ids are pulled out of pytest's ``-rf``
+    summary so a red gate is investigable instead of a bare pass/fail count.
     """
     from tools import jarvis_observe as _jo
     from app.services.devtask import target_tests as _tt
@@ -1760,7 +1806,7 @@ def _devtask_run_targeted(worktree: str, base_head: str) -> dict:
     try:
         proc = _regress_watch.run_guarded(
             [sys.executable, "-m", "pytest", *targets, "-q", "-p", "no:cacheprovider",
-             "--continue-on-collection-errors", "--tb=no"],
+             "--continue-on-collection-errors", "--tb=no", "-rf"],
             cwd=worktree,
             timeout_s=int(os.getenv("REGRESS_TIMEOUT_S", "900")),
             creationflags=(0x4000 if sys.platform == "win32" else 0),
@@ -1768,21 +1814,26 @@ def _devtask_run_targeted(worktree: str, base_head: str) -> dict:
             state_dir=_REGRESS_WATCH_DIR, label="merge-gate-targeted")
     except _sp.TimeoutExpired:
         return {"ok": False, "mode": "targeted", "text": "⏱ таргет-прогон превысил таймаут"}
+    stdout = proc.stdout or ""
+    log_path = _devtask_write_gate_log(tid, stdout)
     line = ""
-    for ln in reversed((proc.stdout or "").strip().splitlines()):
+    for ln in reversed(stdout.strip().splitlines()):
         if "passed" in ln or "failed" in ln or "error" in ln:
             line = ln.strip()
             break
     summary = _jo.parse_pytest_summary(line)
     ok = summary.get("failed", 0) == 0 and summary.get("errors", 0) == 0
+    failed_tests = [] if ok else _devtask_extract_failed_tests(stdout)
     icon = "✅" if ok else "🚫"
     body = "%d failed, %d passed, %d errors" % (
         summary.get("failed", 0), summary.get("passed", 0), summary.get("errors", 0))
-    return {"ok": ok, "mode": "targeted",
-            "text": "🎯 таргет-тесты по диффу (%d файлов): %s %s" % (len(targets), icon, body)}
+    text = "🎯 таргет-тесты по диффу (%d файлов): %s %s" % (len(targets), icon, body)
+    text += _devtask_format_failed_tests(failed_tests, log_path)
+    return {"ok": ok, "mode": "targeted", "text": text,
+            "failed_tests": failed_tests, "log_path": log_path}
 
 
-def _devtask_run_targeted_combined(worktree: str, base_head: str) -> dict:
+def _devtask_run_targeted_combined(worktree: str, base_head: str, tid: Optional[str] = None) -> dict:
     """Merge-commit gate (Этап 1): materialise the COMBINED code by merging the
     current prod HEAD into the branch worktree, then run the targeted tests on it.
 
@@ -1796,7 +1847,7 @@ def _devtask_run_targeted_combined(worktree: str, base_head: str) -> dict:
         return {"ok": False, "mode": "merge_commit",
                 "text": "🚫 конфликт слияния прод↔ветка в worktree — merge-коммит "
                         "невозможен без ручного разбора конфликтов"}
-    return _devtask_run_targeted(worktree, base_head)
+    return _devtask_run_targeted(worktree, base_head, tid=tid)
 
 
 def _devtask_merge_commit(chat_id, tid: str) -> None:
@@ -1819,8 +1870,12 @@ def _devtask_merge_commit(chat_id, tid: str) -> None:
         return
     send(chat_id, "🎯 Собираю объединённый код (прод+ветка) и прогоняю таргет-тесты "
          "перед merge-коммитом…")
-    verdict = _devtask_run_targeted_combined(item["worktree"], item["base_head"])
+    verdict = _devtask_run_targeted_combined(item["worktree"], item["base_head"], tid=tid)
     if not verdict["ok"]:
+        if verdict.get("failed_tests") or verdict.get("log_path"):
+            q.set_status(tid, item["status"],
+                        gate_failed_tests=verdict.get("failed_tests"),
+                        gate_log=verdict.get("log_path"))
         send(chat_id, "🚫 Merge-коммит заблокирован: %s\n"
              "Можно принудительно через [⚠️ Мердж без регресса]." % verdict["text"])
         return
@@ -1930,11 +1985,15 @@ def _devtask_merge(chat_id, tid: str, skip_regress: bool = False,
     if mode == "targeted":
         send(chat_id, "🎯 Прогоняю таргет-тесты по диффу ветки перед мерджем "
              "(осознанный обход полного регресса)…")
-        verdict = _devtask_run_targeted(item["worktree"], item["base_head"])
+        verdict = _devtask_run_targeted(item["worktree"], item["base_head"], tid=tid)
     else:
         send(chat_id, "🧪 Прогоняю полный регресс по ветке перед мерджем (~4-5 мин)…")
         verdict = _devtask_run_regress(item["worktree"])
     if not verdict["ok"]:
+        if verdict.get("failed_tests") or verdict.get("log_path"):
+            q.set_status(tid, item["status"],
+                        gate_failed_tests=verdict.get("failed_tests"),
+                        gate_log=verdict.get("log_path"))
         send(chat_id, "🚫 Мердж заблокирован (%s): %s\n"
              "Можно принудительно через [⚠️ Мердж без регресса]." % (mode, verdict["text"]))
         return
@@ -2121,7 +2180,12 @@ def _devtask_details(chat_id, tid: str) -> None:
         txt = _P(rp).read_text(encoding="utf-8", errors="replace")
     except FileNotFoundError:
         txt = "(отчёт не найден: %s)" % rp
-    send(chat_id, "📄 Отчёт %s:\n%s" % (tid, txt[:3800]))
+    extra = ""
+    gate_failed = (item or {}).get("gate_failed_tests")
+    if gate_failed:
+        extra = "\n\n🚫 упавшие тесты мердж-гейта (%d):" % len(gate_failed)
+        extra += _devtask_format_failed_tests(gate_failed, (item or {}).get("gate_log"))
+    send(chat_id, "📄 Отчёт %s:\n%s%s" % (tid, txt[:3800], extra))
 
 
 def _swapbatch_text_intercept(chat_id: str, text: str) -> bool:

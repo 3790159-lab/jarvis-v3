@@ -64,7 +64,7 @@ def test_targeted_merge_uses_targeted_gate_not_full_regress(monkeypatch, tmp_pat
                         lambda *a, **k: full_called.update(x=True) or {"ok": True, "text": ""})
     seen = {}
     monkeypatch.setattr(mod, "_devtask_run_targeted",
-                        lambda wt, base: seen.update(wt=wt, base=base) or
+                        lambda wt, base, tid=None: seen.update(wt=wt, base=base) or
                         {"ok": True, "text": "🎯 3 passed", "mode": "targeted"})
     from app.services.devtask import git_ops as g, boot_watch as bw
     monkeypatch.setattr(g, "is_merged", lambda *a, **k: False)
@@ -87,7 +87,7 @@ def test_merge_records_mode_on_task(monkeypatch, tmp_path):
     msgs = []
     monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: msgs.append(t))
     monkeypatch.setattr(mod, "_devtask_run_targeted",
-                        lambda wt, base: {"ok": True, "text": "🎯 3 passed", "mode": "targeted"})
+                        lambda wt, base, tid=None: {"ok": True, "text": "🎯 3 passed", "mode": "targeted"})
     from app.services.devtask import git_ops as g, boot_watch as bw
     monkeypatch.setattr(g, "is_merged", lambda *a, **k: False)
     monkeypatch.setattr(g, "is_ff_clean", lambda *a, **k: True)
@@ -124,7 +124,7 @@ def test_targeted_empty_targets_blocks_merge(monkeypatch, tmp_path):
     sent = []
     monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
     monkeypatch.setattr(mod, "_devtask_run_targeted",
-                        lambda wt, base: {"ok": False, "mode": "targeted",
+                        lambda wt, base, tid=None: {"ok": False, "mode": "targeted",
                                           "text": "🎯 не найдено тестов под дифф"})
     merged = {"x": False}
     monkeypatch.setattr(mod, "_devtask_do_merge", lambda *a, **k: merged.update(x=True))
@@ -164,7 +164,7 @@ def test_docs_only_merge_sends_marker_message_and_proceeds(monkeypatch, tmp_path
     sent = []
     monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
     monkeypatch.setattr(mod, "_devtask_run_targeted",
-                        lambda wt, base: {"ok": True, "mode": "docs_only",
+                        lambda wt, base, tid=None: {"ok": True, "mode": "docs_only",
                                           "text": "📄 docs-only дифф (2 файлов) — тесты не требуются"})
     from app.services.devtask import git_ops as g, boot_watch as bw
     monkeypatch.setattr(g, "is_merged", lambda *a, **k: False)

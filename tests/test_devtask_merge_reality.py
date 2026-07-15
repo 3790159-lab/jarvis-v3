@@ -138,7 +138,7 @@ def test_merge_commit_tests_combined_then_non_ff_merges(monkeypatch, tmp_path):
     monkeypatch.setattr(mod, "send", lambda *a, **k: None)
     seen = {}
     monkeypatch.setattr(mod, "_devtask_run_targeted_combined",
-                        lambda wt, base: seen.update(wt=wt, base=base) or
+                        lambda wt, base, tid=None: seen.update(wt=wt, base=base) or
                         {"ok": True, "text": "🎯 3 passed", "mode": "merge_commit"})
     from app.services.devtask import git_ops as g, boot_watch as bw
     order = []
@@ -164,7 +164,7 @@ def test_merge_commit_blocked_when_combined_tests_fail(monkeypatch, tmp_path):
     sent = []
     monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
     monkeypatch.setattr(mod, "_devtask_run_targeted_combined",
-                        lambda wt, base: {"ok": False, "text": "🚫 1 failed", "mode": "merge_commit"})
+                        lambda wt, base, tid=None: {"ok": False, "text": "🚫 1 failed", "mode": "merge_commit"})
     from app.services.devtask import git_ops as g
     monkeypatch.setattr(g, "is_merged", lambda *a, **k: False)
     merged = {"x": False}
@@ -204,7 +204,7 @@ def test_run_targeted_combined_merges_prod_then_runs_targeted(monkeypatch):
     monkeypatch.setattr(g, "merge_prod_into_worktree",
                         lambda wt, ph, **k: calls.update(wt=wt, ph=ph) or True)
     monkeypatch.setattr(mod, "_devtask_run_targeted",
-                        lambda wt, base: {"ok": True, "text": "🎯 ok", "mode": "targeted"})
+                        lambda wt, base, tid=None: {"ok": True, "text": "🎯 ok", "mode": "targeted"})
     res = mod._devtask_run_targeted_combined("C:/wt/devtask-X", "base1")
     assert calls == {"wt": "C:/wt/devtask-X", "ph": "prodnow"}
     assert res["ok"] is True
