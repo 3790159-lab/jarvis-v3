@@ -40,3 +40,18 @@
 - Если в чате/логах/коде где-либо обнаружено сырое значение секрета — считать
   это инцидентом «светился»: отметить статус в `state/secrets_ledger.md` и
   эскалировать Daniil (ротация нужна).
+
+## Второй канал доступа (DEV-15)
+- 2026-07-15: правка ingress + `Restart-Service` на cloudflared положили
+  SSH и RDP одновременно (оба шли через тот же туннель) — спас только
+  `/infra_restart` через бота. Второй независимый канал — Tailscale
+  (обоснование выбора vs RustDesk/AnyDesk — `docs/REMOTE_ACCESS_SECOND_CHANNEL.md`).
+- **Перед ЛЮБОЙ операцией с cloudflared, туннелем, DNS/ingress или сетевыми
+  настройками машины** — сначала проверить, что второй канал жив:
+  `scripts\remote\check_remote_status.ps1` (секция «Tailscale») или
+  `scripts\remote\setup_tailscale_channel.ps1 -Status`. Если второй канал
+  не `Healthy` — сначала починить его или явно эскалировать Daniil, и
+  только потом трогать cloudflared/сеть.
+- Установку/логин Tailscale (`winget install`, `tailscale up` — браузерный
+  вход) выполняет Daniil интерактивно, как и `cloudflared tunnel login`;
+  CC готовит и верифицирует скрипт, но сам живую установку не запускает.

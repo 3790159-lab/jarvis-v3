@@ -91,6 +91,30 @@ if (-not (Test-Path $cfDir)) {
     if ($creds) { foreach ($c in $creds) { Write-Ok "credentials: $($c.Name)" } } else { Write-Miss "no tunnel credentials JSON" }
 }
 
+# --- Tailscale (DEV-15 second independent channel, not via cloudflared) ---
+Write-Header "Tailscale (second channel)"
+$tailscaleSvc = Get-Service -Name Tailscale -ErrorAction SilentlyContinue
+if (-not $tailscaleSvc) {
+    Write-Miss "Tailscale service not installed. See docs/REMOTE_ACCESS_SECOND_CHANNEL.md, or run scripts/remote/setup_tailscale_channel.ps1 -Status for detail."
+} else {
+    if ($tailscaleSvc.Status -eq "Running" -and $tailscaleSvc.StartType -eq "Automatic") {
+        Write-Ok "Tailscale service Running (StartType=Automatic)"
+    } elseif ($tailscaleSvc.Status -eq "Running") {
+        Write-Warn "Tailscale service Running but StartType=$($tailscaleSvc.StartType) (not Automatic - won't survive reboot)"
+    } else {
+        Write-Bad "Tailscale service installed but Status=$($tailscaleSvc.Status)"
+    }
+    $tailscaleExe = Get-Command tailscale -ErrorAction SilentlyContinue
+    if ($tailscaleExe) {
+        $tsStatus = & tailscale status 2>&1 | Select-Object -First 1
+        if ($tsStatus -match "Logged out" -or $tsStatus -match "NeedsLogin") {
+            Write-Miss "tailscale status: not logged in - run 'tailscale up'"
+        } else {
+            Write-Ok "tailscale status: $tsStatus"
+        }
+    }
+}
+
 # --- listening sockets ---
 Write-Header "Listening sockets (22, 3389, 8010)"
 foreach ($port in 22, 3389, 8010) {
