@@ -48,11 +48,17 @@ def _run_ps(body: str, timeout: int = 40) -> subprocess.CompletedProcess:
 
 # Fakes Invoke-Wsl and logs every call to a global array, so the PowerShell
 # body can assert on exactly what would have been shelled out to wsl.exe.
+# $global:TmuxCheckExitCode defaults to 0 (tmux present) so existing tests
+# that never touch it keep exercising the has-session/new-session/attach
+# path unchanged; only the honest-failure test below overrides it.
 _FAKE_INVOKE_WSL_PRELUDE = """
 $global:calls = New-Object System.Collections.ArrayList
+$global:TmuxCheckExitCode = 0
 function Invoke-Wsl {
     param([string]$Distro, [string[]]$ArgList)
-    [void]$global:calls.Add(@{ Distro = $Distro; Args = ($ArgList -join ' ') })
+    $joined = $ArgList -join ' '
+    [void]$global:calls.Add(@{ Distro = $Distro; Args = $joined })
+    if ($joined -like '*command -v tmux*') { return $global:TmuxCheckExitCode }
     return $global:HasSessionExitCode
 }
 """
@@ -106,6 +112,35 @@ def test_does_not_attach_when_noattach_passed():
     result = _run_ps(body)
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip().splitlines()[-1] == "0"
+
+
+def test_honest_failure_when_tmux_not_installed():
+    # Per DEV-1 spec: if tmux isn't installed inside the WSL distro, fail
+    # honestly with an install command - not a cryptic wsl.exe passthrough
+    # error from a `tmux has-session`/`new-session` call that never finds the
+    # binary. Must also short-circuit: no session commands attempted at all.
+    body = _FAKE_INVOKE_WSL_PRELUDE + """
+        $global:TmuxCheckExitCode = 1  # tmux binary not found inside the distro
+        $global:HasSessionExitCode = 1
+        try {
+            Start-Cc -Distro 'Ubuntu' -Session 'cc' -WorkDir '/mnt/c/jarvis' -Command 'claude' -NoAttach
+            "NO_THROW"
+        } catch {
+            $_.Exception.Message
+        }
+        $sessionCalls = @($global:calls | Where-Object { $_.Args -like 'tmux *' }).Count
+        "SESSION_CALLS=$sessionCalls"
+    """
+    result = _run_ps(body)
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.strip().splitlines()
+    message = lines[-2]
+    assert "tmux" in message
+    assert "apt" in message or "install" in message
+    assert lines[-1] == "SESSION_CALLS=0", (
+        "start_cc.ps1 must not attempt has-session/new-session/attach when "
+        "tmux itself is missing"
+    )
 
 
 def test_dot_sourcing_with_noautorun_does_not_auto_run():

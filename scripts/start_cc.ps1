@@ -18,8 +18,10 @@
 #   scripts\start_cc.ps1 -NoAttach       # create/reattach but don't take over the terminal
 #
 # Requires: WSL Ubuntu distro + tmux installed inside it (already true on this
-# box), and the Windows-global `claude` CLI reachable from WSL via the npm
-# interop shim at .../npm/claude (confirmed working: `wsl -d Ubuntu -- claude
+# box - if tmux is missing, Start-Cc fails honestly with the apt install
+# command instead of proceeding to a cryptic tmux-not-found error), and the
+# Windows-global `claude` CLI reachable from WSL via the npm interop shim at
+# .../npm/claude (confirmed working: `wsl -d Ubuntu -- claude
 # --version`).
 
 param(
@@ -57,6 +59,16 @@ function Invoke-Wsl {
     return $LASTEXITCODE
 }
 
+function Test-CcTmuxAvailable {
+    # Checks the tmux binary is actually present inside the WSL distro -
+    # separate from Test-CcTmuxSession's has-session probe so a distro without
+    # tmux installed produces one clear, actionable message instead of an
+    # opaque wsl.exe passthrough error surfacing later from has-session/
+    # new-session.
+    param([string]$Distro)
+    return (Invoke-Wsl -Distro $Distro -ArgList @('bash', '-lc', 'command -v tmux >/dev/null 2>&1')) -eq 0
+}
+
 function Test-CcTmuxSession {
     param([string]$Distro, [string]$Session)
     return (Invoke-Wsl -Distro $Distro -ArgList @('tmux', 'has-session', '-t', $Session)) -eq 0
@@ -90,6 +102,10 @@ function Start-Cc {
         [switch]$New,
         [switch]$NoAttach
     )
+
+    if (-not (Test-CcTmuxAvailable -Distro $Distro)) {
+        throw "tmux не найден внутри WSL($Distro). Установи и повтори: wsl -d $Distro -- sudo apt-get update && wsl -d $Distro -- sudo apt-get install -y tmux"
+    }
 
     $exists = Test-CcTmuxSession -Distro $Distro -Session $Session
 

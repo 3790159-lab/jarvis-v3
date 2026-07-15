@@ -13,12 +13,32 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CLAUDE_MD = REPO_ROOT / "CLAUDE.md"
 TEMPLATE = REPO_ROOT / "docs" / "cc_session_context.template.md"
+HANDOFF_PROTOCOL = REPO_ROOT / "docs" / "CC_SESSION_HANDOFF.md"
 
 
 def test_claude_md_instructs_reading_session_context_at_start():
     text = CLAUDE_MD.read_text(encoding="utf-8")
     assert "cc_session_context.md" in text
     assert "ОБЯЗАНА первым делом при старте прочитать" in text
+
+
+def test_claude_md_references_handoff_protocol_doc():
+    text = CLAUDE_MD.read_text(encoding="utf-8")
+    assert "docs/CC_SESSION_HANDOFF.md" in text
+
+
+def test_handoff_protocol_doc_exists_and_covers_required_topics():
+    text = HANDOFF_PROTOCOL.read_text(encoding="utf-8")
+    # protocol: when to write, when to read, where the live file lives
+    assert "state/cc_session_context.md" in text
+    assert "cc_session_context.template.md" in text
+    assert "новая сессия" in text.lower() or "новой сессии" in text.lower()
+    # the schema fields must be documented (template or inlined)
+    for heading in ("Арка", "Сделано", "Ждёт", "Открытые confirm", "iteration_counter"):
+        assert heading in text, f"missing field: {heading}"
+    # stop-limit rule must be covered here too, not just in CLAUDE.md
+    assert "2 итерации" in text
+    assert "эскалировать" in text
 
 
 def test_claude_md_documents_start_cc_ps1():
