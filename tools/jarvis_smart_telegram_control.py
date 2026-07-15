@@ -4622,6 +4622,84 @@ def _sugtask_run_dispatch(chat_id, gen_id: str, index: int) -> None:
     _devtask_dispatch(chat_id, suggestion["draft"])
 
 
+# ── /infra_restart (DEV-12): infra escape hatch, no SSH needed ─────────────
+# Literal admin id per task spec, NOT the general _is_admin_id/_users_store
+# role lookup: this is the button Daniil uses when SSH itself is down, so it
+# must not depend on any store/config that infra trouble could also affect.
+_INFRA_RESTART_ADMIN_ID = 237616472
+_INFRA_RESTART_LABELS = {"cloudflared": "cloudflared", "backend": "backend", "bot": "bot"}
+_INFRA_RESTART_STATUS_ICONS = {"Running": "🟢", "StopPending": "🟡"}
+
+
+def _infra_restart_status_icon(status: str) -> str:
+    return _INFRA_RESTART_STATUS_ICONS.get(status, "🔴")
+
+
+def _infra_restart_status_text(statuses: Dict[str, str]) -> str:
+    lines = ["🛠 /infra_restart — статус служб:"]
+    for key in ("cloudflared", "backend", "bot"):
+        st = statuses.get(key, "unknown")
+        lines.append(f"{_infra_restart_status_icon(st)} {_INFRA_RESTART_LABELS[key]}: {st}")
+    return "\n".join(lines)
+
+
+def _infra_restart_keyboard() -> list:
+    return [[{"text": "🔄 %s" % label, "callback_data": "infra:restart:%s" % key}]
+            for key, label in _INFRA_RESTART_LABELS.items()]
+
+
+def _infra_restart_dispatch(chat_id: str) -> None:
+    from app.services import infra_control as _ic
+    statuses = _ic.status_all()
+    send_with_keyboard(chat_id, _infra_restart_status_text(statuses), _infra_restart_keyboard())
+
+
+def _infra_restart_command_intercept(upd: Dict[str, Any]) -> bool:
+    """Handle ``/infra_restart`` straight off the raw update (mirrors
+    ``_admin_command_intercept``): strictly ``_INFRA_RESTART_ADMIN_ID``, any
+    other user_id is refused AND logged (req 2) before anything else runs."""
+    msg = upd.get("message") or upd.get("edited_message") or {}
+    text = (msg.get("text") or "").strip()
+    if not text:
+        return False
+    cmd = text.split(maxsplit=1)[0].split("@", 1)[0]
+    if cmd != "/infra_restart":
+        return False
+    uid, uname, cid = _extract_audit_ctx(upd)
+    reply_to = cid or (str(uid) if uid is not None else "")
+    if not reply_to:
+        return True
+    if uid != _INFRA_RESTART_ADMIN_ID:
+        logger.warning("infra_restart: rejected /infra_restart from user_id=%s username=%s", uid, uname)
+        send(reply_to, "🚫 Команда доступна только администратору.")
+        return True
+    _infra_restart_dispatch(reply_to)
+    return True
+
+
+def _infra_restart_callback_dispatch(chat_id: str, target: str) -> None:
+    """Runs off the Telegram request thread (see the ``infra:`` callback
+    branch) so the callback ack is instant even while cloudflared/backend
+    restart polls for up to ``DEFAULT_POLL_TIMEOUT_SEC``."""
+    from app.services import infra_control as _ic
+    label = _INFRA_RESTART_LABELS.get(target, target)
+    result = _ic.restart(target)
+    if target == "bot":
+        # Self-referential: this process is about to be killed by the
+        # restart, so there is no synchronous "after" — the detached watcher
+        # (scripts/infra_restart_bot_watcher.ps1) sends its own confirmation
+        # once the fresh bot's heartbeat is back.
+        send(chat_id, "🔄 %s: перезапуск запущен (было: %s). Подтверждение "
+                       "придёт отдельным сообщением после проверки heartbeat."
+                       % (label, result.get("before")))
+        return
+    ok = result.get("ok")
+    icon = "✅" if ok else "⚠️"
+    suffix = "" if ok else " (не подтвердилось за отведённое время)"
+    send(chat_id, "%s %s: было «%s» → стало «%s»%s"
+                   % (icon, label, result.get("before"), result.get("after"), suffix))
+
+
 # ── /ig_caption (Этап 3, кирпич #1): генератор IG-подписей ─────────────────
 # brief-поля business/tone/cta не собираются из юзер-конфига клиента (тот
 # артефакт — clients/<name>/brand.md — ещё не построен, см. skill
@@ -6198,9 +6276,31 @@ def handle_callback_query(callback_query: dict, state: dict) -> None:
         return
 
     parts = data.split(":")
+    _cq_uid = (callback_query.get("from") or {}).get("id")
+
+    # ── /infra_restart (DEV-12): strictly _INFRA_RESTART_ADMIN_ID (req 2) — its
+    # OWN gate, checked BEFORE (and independent of) the shared role-гейт below,
+    # so a rejection is ALWAYS logged here regardless of _users_store/friend
+    # state. This is the escape hatch for when SSH itself is down; it must not
+    # depend on any store that infra trouble could also affect.
+    if data.startswith("infra:"):
+        if _cq_uid != _INFRA_RESTART_ADMIN_ID:
+            logger.warning("infra_restart: rejected callback tap from user_id=%s", _cq_uid)
+            answer_callback_query(cq_id, "🚫 Только для администратора")
+            return
+        from app.services import infra_control as _ic
+        infra_parts = data.split(":", 2)
+        infra_action = infra_parts[1] if len(infra_parts) > 1 else ""
+        infra_target = infra_parts[2] if len(infra_parts) > 2 else ""
+        if infra_action != "restart" or not _ic.is_allowed_target(infra_target):
+            answer_callback_query(cq_id)
+            return
+        answer_callback_query(cq_id, "🔄")
+        threading.Thread(target=_infra_restart_callback_dispatch, args=(chat_id, infra_target),
+                         daemon=True, name="infra_restart_%s" % infra_target).start()
+        return
 
     # Role-гейт: friend → только генеративные кнопки; админ → всё.
-    _cq_uid = (callback_query.get("from") or {}).get("id")
     if not _is_admin_id(_cq_uid) and str(_cq_uid) != ALLOWED_CHAT_ID:
         if not data.startswith(FRIEND_ALLOWED_CALLBACK_PREFIXES):
             answer_callback_query(cq_id, "🚫 Только для администратора")
@@ -10994,6 +11094,8 @@ def process_update(upd: Dict[str, Any], media_group_buffer: Optional[Dict[str, A
     if _cost_command_intercept(upd):
         return
     if _admin_command_intercept(upd):
+        return
+    if _infra_restart_command_intercept(upd):
         return
     if _reset_balance_flag_intercept(upd):
         return
