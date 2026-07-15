@@ -51,22 +51,24 @@ def test_run_body_worktree_failure_marks_failed_and_notifies(monkeypatch, tmp_pa
         raise RuntimeError("git worktree add failed: fatal: something")
 
     monkeypatch.setattr(g, "create_worktree", boom)
-    ran = {"x": False}
-    monkeypatch.setattr(r, "run", lambda **k: ran.update(x=True) or {"status": "failed"})
+    spawned = {"x": False}
+    monkeypatch.setattr(r, "spawn_launcher", lambda t, **k: spawned.update(x=True) or 111)
 
     mod._devtask_run_body(ADMIN, tid)
 
     assert q.get(tid)["status"] == STATUS_FAILED            # not stuck
     assert any("git worktree" in s for s in sent)           # explicit error text to admin
-    assert ran["x"] is False                                # CC run never launched
+    assert spawned["x"] is False                            # CC launcher never spawned
 
 
-# ── Fix (WinError 2 arc): CC-run failure must LOG a traceback, not only store str ──
-def test_run_body_cc_run_failure_is_logged(monkeypatch, tmp_path):
-    # Worktree setup succeeds, but the CC-run block raises (e.g. WinError 2 on
-    # spawn). The handler must set failed + notify AND logger.exception — without
-    # the log, a spawn failure left no traceback in jarvis_bot.log (the bug that
-    # made the WinError 2 hard to diagnose).
+# ── Fix (WinError 2 arc): launcher-spawn failure must LOG a traceback, not
+# only store str ────────────────────────────────────────────────────────────
+def test_run_body_launcher_spawn_failure_is_logged(monkeypatch, tmp_path):
+    # Worktree setup succeeds, but spawning the detached launcher raises (e.g.
+    # WinError 2 / powershell missing). The handler must set failed + notify
+    # AND logger.exception — without the log, a spawn failure left no
+    # traceback in jarvis_bot.log (the bug that made the original WinError 2
+    # hard to diagnose; DEV-11 moved the spawn from r.run to r.spawn_launcher).
     from app.services.devtask.queue import STATUS_RUNNING
     q = DevTaskQueue(base_dir=tmp_path)
     tid = q.add("do X")
@@ -78,10 +80,10 @@ def test_run_body_cc_run_failure_is_logged(monkeypatch, tmp_path):
     monkeypatch.setattr(g, "prod_head", lambda *a, **k: "base1")
     monkeypatch.setattr(g, "create_worktree", lambda *a, **k: str(tmp_path / "wt"))
 
-    def boom(**k):
+    def boom(*a, **k):
         raise FileNotFoundError(2, "Не удается найти указанный файл")
 
-    monkeypatch.setattr(r, "run", boom)
+    monkeypatch.setattr(r, "spawn_launcher", boom)
     logged = {}
     monkeypatch.setattr(mod.logger, "exception",
                         lambda *a, **k: logged.setdefault("x", True))
@@ -112,7 +114,7 @@ def test_run_body_api_mode_blocks_on_exhausted_budget(monkeypatch, tmp_path):
 
 
 def test_run_body_subscription_skips_preflight(monkeypatch, tmp_path):
-    from app.services.devtask.queue import STATUS_RUNNING, STATUS_AWAITING_REVIEW
+    from app.services.devtask.queue import STATUS_RUNNING
     q = DevTaskQueue(base_dir=tmp_path); tid = q.add("do X"); q.set_status(tid, STATUS_RUNNING)
     monkeypatch.setattr(mod, "_DEVTASK_QUEUE", q, raising=False)
     monkeypatch.delenv("DEVTASK_AUTH_MODE", raising=False)   # default = subscription
@@ -126,25 +128,27 @@ def test_run_body_subscription_skips_preflight(monkeypatch, tmp_path):
         raise AssertionError("preflight must NOT run in subscription mode")
     monkeypatch.setattr(pf, "preflight_credit_check", canary_boom)
     monkeypatch.setattr(pf, "preflight_budget_check", canary_boom)
-    monkeypatch.setattr(r, "run", lambda **k: {"status": "awaiting_review", "cost": 0.1, "session_id": "s"})
+    monkeypatch.setattr(r, "spawn_launcher", lambda t, **k: 555)
     mod._devtask_run_body(ADMIN, tid)
-    assert q.get(tid)["status"] == STATUS_AWAITING_REVIEW    # reached run, canary never tripped
+    item = q.get(tid)
+    assert item["status"] == STATUS_RUNNING                  # reached spawn, canary never tripped
+    assert item["cc_pid"] == 555
 
 
-def test_run_body_rate_limit_sends_quota_hint_not_generic(monkeypatch, tmp_path):
-    from app.services.devtask.queue import STATUS_RUNNING
-    q = DevTaskQueue(base_dir=tmp_path); tid = q.add("do X"); q.set_status(tid, STATUS_RUNNING)
+def test_poll_active_rate_limit_sends_quota_hint_not_generic(monkeypatch, tmp_path):
+    # DEV-11 moved the CC-completion handling (incl. this rate-limit message)
+    # out of _devtask_run_body into the heartbeat-driven _devtask_poll_active,
+    # since CC now runs detached and the bot never blocks waiting on it.
+    q = DevTaskQueue(base_dir=tmp_path)
+    tid = q.add("do X")
+    q.set_status(tid, "running", worktree=str(tmp_path / "wt"), cc_pid=4242)
     monkeypatch.setattr(mod, "_DEVTASK_QUEUE", q, raising=False)
-    monkeypatch.delenv("DEVTASK_AUTH_MODE", raising=False)
     sent = []
     monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
-    monkeypatch.setattr(mod, "send_with_keyboard", lambda *a, **k: None)
-    from app.services.devtask import git_ops as g, runner as r
-    monkeypatch.setattr(g, "prod_head", lambda *a, **k: "base1")
-    monkeypatch.setattr(g, "create_worktree", lambda *a, **k: str(tmp_path / "wt"))
-    monkeypatch.setattr(r, "run", lambda **k: {
+    from app.services.devtask import runner as r
+    monkeypatch.setattr(r, "read_cc_result", lambda p: {
         "status": "failed", "reason": "cc_error: Claude AI usage limit reached", "cost": 0.02})
-    mod._devtask_run_body(ADMIN, tid)
+    mod._devtask_poll_active()
     assert q.get(tid)["status"] == STATUS_FAILED
     assert any("Max-квота" in s for s in sent)              # tailored quota message
     assert any("DEVTASK_AUTH_MODE=api" in s for s in sent)  # honest switch hint, no silent fallback

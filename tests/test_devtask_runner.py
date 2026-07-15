@@ -361,3 +361,81 @@ def test_is_rate_limited_detects_max_quota_not_credit_balance():
     assert not r.is_rate_limited("cc_error: credit balance is too low")
     assert not r.is_rate_limited("no_report")
     assert not r.is_rate_limited("")
+
+
+# ── DEV-11: detach dev-task lifecycle from the bot's own process ───────────
+import types
+
+
+def test_build_launcher_command_quotes_each_arg_no_untrusted_text():
+    cmd = r.build_launcher_command("C:/py/python.exe",
+                                   "C:/repo/scripts/devtask_cc_launcher.py", "T1")
+    assert cmd == '"C:/py/python.exe" "C:/repo/scripts/devtask_cc_launcher.py" "T1"'
+
+
+def test_spawn_launcher_returns_pid_on_success():
+    captured = {}
+
+    def fake_run(argv, **kw):
+        captured["argv"] = argv
+        return types.SimpleNamespace(stdout="4242\n", returncode=0)
+
+    pid = r.spawn_launcher("T1", python_exe="C:/py/python.exe",
+                           launcher_path="C:/repo/scripts/devtask_cc_launcher.py",
+                           repo_root="C:/repo", run=fake_run)
+    assert pid == 4242
+    ps_cmd = captured["argv"][-1]
+    assert "devtask_cc_launcher.py" in ps_cmd and '"T1"' in ps_cmd
+    assert "Win32_Process" in ps_cmd and "Create" in ps_cmd
+    assert "C:/repo" in ps_cmd                     # CurrentDirectory wired
+
+
+def test_spawn_launcher_returns_none_when_output_not_numeric():
+    fake_run = lambda *a, **k: types.SimpleNamespace(stdout="", returncode=0)
+    pid = r.spawn_launcher("T1", python_exe="p", launcher_path="l",
+                           repo_root="r", run=fake_run)
+    assert pid is None
+
+
+def test_spawn_launcher_returns_none_on_subprocess_exception():
+    def boom(*a, **k):
+        raise OSError("no powershell")
+    pid = r.spawn_launcher("T1", python_exe="p", launcher_path="l",
+                           repo_root="r", run=boom)
+    assert pid is None
+
+
+def test_is_process_alive_true_when_commandline_matches_marker():
+    fake_run = lambda *a, **k: types.SimpleNamespace(
+        stdout='"C:\\py\\python.exe" "C:\\repo\\scripts\\devtask_cc_launcher.py" "T1"\r\n',
+        returncode=0)
+    assert r.is_process_alive(4242, marker="T1", run=fake_run) is True
+
+
+def test_is_process_alive_false_when_process_not_found():
+    fake_run = lambda *a, **k: types.SimpleNamespace(stdout="", returncode=0)
+    assert r.is_process_alive(4242, marker="T1", run=fake_run) is False
+
+
+def test_is_process_alive_false_when_marker_mismatches():
+    # PID-reuse guard: after a real reboot Windows can hand this PID to an
+    # unrelated process — a bare PID hit is not proof it's still our launcher.
+    fake_run = lambda *a, **k: types.SimpleNamespace(
+        stdout='"C:\\some\\unrelated.exe"', returncode=0)
+    assert r.is_process_alive(4242, marker="T1", run=fake_run) is False
+
+
+def test_is_process_alive_false_on_exception():
+    def boom(*a, **k):
+        raise OSError("wmi down")
+    assert r.is_process_alive(4242, marker="T1", run=boom) is False
+
+
+def test_write_and_read_cc_result_roundtrip(tmp_path):
+    p = tmp_path / "cc_result.json"
+    r.write_cc_result(str(p), {"status": "awaiting_review", "cost": 0.1})
+    assert r.read_cc_result(str(p)) == {"status": "awaiting_review", "cost": 0.1}
+
+
+def test_read_cc_result_missing_file_returns_none(tmp_path):
+    assert r.read_cc_result(str(tmp_path / "missing.json")) is None

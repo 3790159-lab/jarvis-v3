@@ -11,6 +11,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Callable, List, Optional
 
@@ -382,3 +383,112 @@ def run(*, argv: List[str], cwd: str, report_path: str,
         "report_present": present,
         "killed": False,
     }
+
+
+# ── DEV-11: detach dev-task lifecycle from the bot's own process ───────────
+# Incident 2026-07-15 03:19: a Windows Update reboot killed the bot AND (via
+# the guardian's `taskkill /PID <bot> /T /F` on the next restart cycle) any
+# CC child that WOULD otherwise have survived a mere bot restart — because a
+# plain ``subprocess.Popen`` child is recorded by Windows with the bot's PID
+# as its parent, and `taskkill /T` walks that recorded parent-PID tree
+# regardless of creationflags. Proven empirically in this session: a child
+# spawned with ``creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP``
+# is STILL killed by `taskkill /PID <parent> /T /F` — those flags only affect
+# console/signal attachment, not the recorded parent PID. The only thing that
+# actually escapes the tree-kill is reparenting at creation time; WMI's
+# ``Win32_Process.Create`` does exactly that (the new process comes up as a
+# child of ``WmiPrvSE.exe``, never of the caller) — confirmed live via
+# ``Get-CimInstance Win32_Process`` parent-child inspection.
+#
+# So the bot no longer runs+waits-on CC itself. It spawns a small standalone
+# launcher (``scripts/devtask_cc_launcher.py``) via WMI — detached from the
+# bot's tree — which does the actual (unchanged) ``run()`` above as ITS OWN
+# child, then persists the result to ``cc_result.json``. The bot polls that
+# file on its heartbeat tick; it owns files, never the process (task req 2).
+_LAUNCHER_SCRIPT_REL = str(Path("scripts") / "devtask_cc_launcher.py")
+
+
+def build_launcher_command(python_exe: str, launcher_path: str, task_id: str) -> str:
+    """CommandLine string for WMI ``Win32_Process.Create``. Every argument here
+    is internally generated (interpreter path, script path, our own task id —
+    never admin-supplied free text), so there is no shell-injection surface;
+    quoting is still applied defensively for paths containing spaces."""
+    def q(s: str) -> str:
+        return '"%s"' % s.replace('"', '""')
+    return " ".join([q(python_exe), q(launcher_path), q(task_id)])
+
+
+def _ps_single_quote(s: str) -> str:
+    """Embed ``s`` as a PowerShell single-quoted string literal (only escape
+    needed there is doubling an embedded single quote)."""
+    return "'%s'" % s.replace("'", "''")
+
+
+def spawn_launcher(task_id: str, *, python_exe: Optional[str] = None,
+                    launcher_path: Optional[str] = None,
+                    repo_root: Optional[str] = None,
+                    run: Callable = subprocess.run) -> Optional[int]:
+    """Launch the CC launcher DETACHED from the bot's process tree via WMI
+    ``Win32_Process.Create`` (parent becomes ``WmiPrvSE.exe``, not us) so a
+    `taskkill /T` aimed at the bot's own PID cannot reach it — see the module
+    note above for why plain ``creationflags`` are not enough. Returns the new
+    PID, or ``None`` if the WMI create failed (bad ReturnValue, non-numeric
+    output, or the powershell call itself raised)."""
+    python_exe = python_exe or sys.executable
+    repo_root = repo_root or os.getcwd()
+    launcher_path = launcher_path or str(Path(repo_root) / _LAUNCHER_SCRIPT_REL)
+    cmdline = build_launcher_command(python_exe, launcher_path, task_id)
+    ps_cmd = (
+        "$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create "
+        "-Arguments @{CommandLine=%s; CurrentDirectory=%s}; "
+        "if ($r.ReturnValue -eq 0) { $r.ProcessId } else { '' }"
+        % (_ps_single_quote(cmdline), _ps_single_quote(repo_root))
+    )
+    try:
+        res = run(["powershell", "-NoProfile", "-Command", ps_cmd],
+                  capture_output=True, text=True, timeout=30)
+    except Exception:
+        return None
+    out = (getattr(res, "stdout", "") or "").strip()
+    try:
+        return int(out)
+    except ValueError:
+        return None
+
+
+def is_process_alive(pid: int, *, marker: Optional[str] = None,
+                      run: Callable = subprocess.run) -> bool:
+    """True iff a process with this PID exists AND (when ``marker`` is given)
+    its command line contains ``marker`` — a PID-reuse guard: after a real
+    reboot the OS can hand this exact PID to an unrelated process, so a bare
+    PID match alone is not proof it is still OUR launcher/CC. Used both by the
+    completion poller and by boot-reconcile's adopt-or-verify."""
+    try:
+        res = run(
+            ["powershell", "-NoProfile", "-Command",
+             "(Get-CimInstance Win32_Process -Filter \"ProcessId=%d\" "
+             "-ErrorAction SilentlyContinue).CommandLine" % pid],
+            capture_output=True, text=True, timeout=15,
+        )
+    except Exception:
+        return False
+    out = (getattr(res, "stdout", "") or "").strip()
+    if not out:
+        return False
+    if marker and marker not in out:
+        return False
+    return True
+
+
+def write_cc_result(path: str, result: dict) -> None:
+    """Persist the launcher's ``run()`` result so the bot can read it later
+    without ever having waited on the process (task req 2: state via files)."""
+    from app.services.block_l_common import save_json_safe
+    save_json_safe(path, result)
+
+
+def read_cc_result(path: str) -> Optional[dict]:
+    """The counterpart read — ``None`` while the launcher hasn't finished yet
+    (or the file has never existed), never raises."""
+    from app.services.block_l_common import load_json_safe
+    return load_json_safe(path)

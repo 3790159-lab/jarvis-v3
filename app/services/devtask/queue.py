@@ -78,6 +78,11 @@ class DevTaskQueue:
             "base_head": None,
             "report_path": None,
             "error": None,
+            # DEV-11: the detached launcher's PID + spawn time (task req 2 —
+            # state lives here, in the JSON card, never in an in-process
+            # thread the bot would otherwise have to keep alive).
+            "cc_pid": None,
+            "started_at": None,
         }
         self._save(item)
         self._log("added", task_id, {"desc": desc})

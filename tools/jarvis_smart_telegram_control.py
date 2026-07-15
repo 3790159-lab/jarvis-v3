@@ -1553,51 +1553,86 @@ def _devtask_run_body(chat_id, tid: str) -> None:
         send(chat_id, "❌ Dev-задача %s: не удалось создать worktree.\n%s" % (tid, exc))
         _devtask_safe_set_status(q, tid, "failed", error="worktree setup: %s" % exc)
         return
-    q.set_status(tid, "running", worktree=wt, base_head=base)
-    # 2. Run Claude Code.
-    item = q.get(tid)
+    # CC writes the report relative to ITS cwd (the worktree); look for it
+    # THERE, not under the bot's cwd, or even a perfect CC yields no_report.
+    report_path = str(_P(wt) / "state" / "dev_tasks" / tid / "report.md")
+    session_uuid = str(_uuid.uuid4())
+    # Persist worktree/session BEFORE spawning: the launcher (DEV-11, see below)
+    # reads this same card the instant it starts, possibly before spawn_launcher()
+    # below even returns — it must never see a half-written card.
+    q.set_status(tid, "running", worktree=wt, base_head=base,
+                session_id=session_uuid, report_path=report_path)
+    # 2. Launch CC DETACHED (DEV-11): the bot no longer runs+waits-on CC itself
+    #    in this thread — a plain child dies with the bot on the next restart
+    #    (guardian/`infra_restart`'s `taskkill /T` walks the recorded parent-PID
+    #    tree regardless of creationflags; proven empirically — see runner.py).
+    #    spawn_launcher() reparents via WMI so the run survives a bot restart;
+    #    this thread's job ends here — completion is polled from state files by
+    #    _devtask_poll_active() on the heartbeat tick, never awaited in-process.
     try:
-        # CC writes the report relative to ITS cwd (the worktree); look for it
-        # THERE, not under the bot's cwd, or even a perfect CC yields no_report.
-        report_path = str(_P(wt) / "state" / "dev_tasks" / tid / "report.md")
-        # CC's stderr goes to the prod task dir (survives worktree cleanup) so a
-        # startup failure is self-diagnosing via /details or the file.
-        stderr_path = str(_P("state/dev_tasks") / tid / "stderr.log")
-        prompt = _r.build_prompt(tid, item["desc"])
-        session_uuid = str(_uuid.uuid4())
-        argv = _r.build_argv(wt, session_uuid, prompt,
-                             model=_r.resolve_task_model(item["desc"]))
-        res = _r.run(argv=argv, cwd=wt, report_path=report_path, stderr_path=stderr_path)
-        if res.get("status") == "awaiting_review":
-            # Persist cost onto the card (Фаза 8.2): it was previously only shown
-            # in the Telegram message and then lost — the monthly ledger needs it.
-            _devtask_queue().set_status(tid, _q.STATUS_AWAITING_REVIEW,
-                                        session_id=res.get("session_id"), report_path=report_path,
-                                        cost=res.get("cost"))
-            send_with_keyboard(
-                chat_id,
-                "🛠 Dev-задача %s дошла до СТОП. Проверь отчёт и выбери действие.\n"
-                "Стоимость: %s" % (tid, res.get("cost")),
-                _devtask_review_keyboard(tid))
-        else:
-            # cc_error / no_report: partial spend may still have been billed —
-            # persist it so month_cost() counts spend even on doomed runs.
-            reason = res.get("reason")
-            _devtask_queue().set_status(tid, _q.STATUS_FAILED, error=reason,
-                                        cost=res.get("cost"))
-            if _r.is_rate_limited(reason or ""):
-                # Subscription Max-quota hit — an HONEST hint, never a silent
-                # fallback to the paid API key (that would spend real money).
-                send(chat_id, "🛑 Dev-задача %s остановлена: исчерпана Max-квота подписки "
-                     "(%s). Попробуй позже или переключи DEVTASK_AUTH_MODE=api (платный ключ). "
-                     "Worktree сохранён ([Откат] чтобы снести)." % (tid, reason))
-            else:
-                send(chat_id, "❌ Dev-задача %s не дошла до СТОП: %s. Worktree сохранён для инспекции "
-                     "([Откат] чтобы снести)." % (tid, reason))
+        pid = _r.spawn_launcher(tid)
+        if pid is None:
+            raise RuntimeError("spawn_launcher returned no PID (WMI create failed)")
+        _devtask_safe_set_status(q, tid, "running", cc_pid=pid,
+                                 started_at=_dt.utcnow().isoformat())
+        send(chat_id, "🚀 Dev-задача %s запущена в детач-процессе (PID %s) — переживёт "
+             "рестарт бота. Пришлю отчёт, когда дойдёт до СТОП." % (tid, pid))
     except Exception as exc:  # thread must never die silently
-        logger.exception("devtask %s CC-run failed", tid)  # traceback → jarvis_bot.log
-        send(chat_id, "❌ Dev-задача %s упала: %s" % (tid, exc))  # notify before persist
-        _devtask_safe_set_status(_devtask_queue(), tid, "failed", error=str(exc))
+        logger.exception("devtask %s launcher spawn failed", tid)
+        send(chat_id, "❌ Dev-задача %s: не удалось запустить детач-процесс.\n%s" % (tid, exc))
+        _devtask_safe_set_status(_devtask_queue(), tid, "failed", error="spawn_launcher: %s" % exc)
+
+
+def _devtask_poll_active() -> None:
+    """Heartbeat-driven completion check for the active detached dev-task
+    (DEV-11): the bot never blocks a thread on the CC child — it only reads
+    state (``cc_result.json`` the launcher writes, or the launcher's own PID),
+    never owns the process. A no-op when nothing is running or the launcher
+    hasn't reached a terminal state yet. Never raises (called every heartbeat
+    tick — one bad poll must not kill the heartbeat)."""
+    from app.services.devtask import queue as _q, runner as _r
+    from pathlib import Path as _P
+    q = _devtask_queue()
+    item = q.active()
+    if not item or item.get("status") != _q.STATUS_RUNNING:
+        return
+    tid = item["id"]
+    pid = item.get("cc_pid")
+    if not pid:
+        return  # still in the worktree/spawn window — _devtask_run_body owns it
+    result_path = str(_P(_devtask_state_dir()) / tid / "cc_result.json")
+    res = _r.read_cc_result(result_path)
+    if res is None:
+        if not _r.is_process_alive(pid, marker=tid):
+            _devtask_safe_set_status(q, tid, _q.STATUS_FAILED,
+                                     error="детач-процесс исчез без результата")
+            send(ALLOWED_CHAT_ID, "❌ Dev-задача %s: детач-процесс исчез без результата — "
+                 "помечена failed. Worktree сохранён для инспекции." % tid)
+        return
+    if res.get("status") == "awaiting_review":
+        # Persist cost onto the card (Фаза 8.2): it was previously only shown
+        # in the Telegram message and then lost — the monthly ledger needs it.
+        q.set_status(tid, _q.STATUS_AWAITING_REVIEW, session_id=res.get("session_id"),
+                    cost=res.get("cost"))
+        send_with_keyboard(
+            ALLOWED_CHAT_ID,
+            "🛠 Dev-задача %s дошла до СТОП. Проверь отчёт и выбери действие.\n"
+            "Стоимость: %s" % (tid, res.get("cost")),
+            _devtask_review_keyboard(tid))
+    else:
+        # cc_error / no_report: partial spend may still have been billed —
+        # persist it so month_cost() counts spend even on doomed runs.
+        reason = res.get("reason")
+        q.set_status(tid, _q.STATUS_FAILED, error=reason, cost=res.get("cost"))
+        if _r.is_rate_limited(reason or ""):
+            # Subscription Max-quota hit — an HONEST hint, never a silent
+            # fallback to the paid API key (that would spend real money).
+            send(ALLOWED_CHAT_ID, "🛑 Dev-задача %s остановлена: исчерпана Max-квота подписки "
+                 "(%s). Попробуй позже или переключи DEVTASK_AUTH_MODE=api (платный ключ). "
+                 "Worktree сохранён ([Откат] чтобы снести)." % (tid, reason))
+        else:
+            send(ALLOWED_CHAT_ID, "❌ Dev-задача %s не дошла до СТОП: %s. Worktree сохранён для инспекции "
+                 "([Откат] чтобы снести)." % (tid, reason))
 
 
 def _devtask_pytest_env() -> Dict[str, str]:
@@ -2033,8 +2068,14 @@ def _browse_watch_stop(chat_id) -> None:
 
 def _devtask_boot_reconcile(base_dir=None, send_fn=None) -> None:
     """On startup: send the post-restart merge confirmation (single-shot) and
-    fail any task left `running` (the bot restarted mid-run). Never raises."""
-    from app.services.devtask import boot_watch as _bw, queue as _q
+    reconcile any task left `running` (DEV-11 adopt-or-verify — the bot no
+    longer assumes a restart killed it: CC now runs DETACHED via
+    runner.spawn_launcher, so it may well still be alive and working). A
+    `running` card with a live, verified-ours PID is ADOPTED (left alone —
+    the heartbeat's _devtask_poll_active() resumes watching it); only a
+    genuinely dead process (or a legacy card with no recorded PID) is marked
+    failed. Never raises."""
+    from app.services.devtask import boot_watch as _bw, queue as _q, runner as _r
     try:
         q = _devtask_queue()
         base = base_dir if base_dir is not None else _devtask_state_dir()
@@ -2058,10 +2099,16 @@ def _devtask_boot_reconcile(base_dir=None, send_fn=None) -> None:
                     print("[devtask] merged worktree cleanup failed: %s" % exc, flush=True)
         for item in q.list_recent(50):
             if item.get("status") == _q.STATUS_RUNNING:
-                q.set_status(item["id"], _q.STATUS_FAILED,
+                tid = item["id"]
+                pid = item.get("cc_pid")
+                if pid and _r.is_process_alive(pid, marker=tid):
+                    send_fn("🔄 Обнаружена работающая dev-задача %s после рестарта бота "
+                            "(PID %s жив) — усыновляю, продолжаю наблюдение." % (tid, pid))
+                    continue
+                q.set_status(tid, _q.STATUS_FAILED,
                              error="бот перезапущен во время прогона")
                 send_fn("⚠️ Dev-задача %s прервана рестартом бота — помечена failed. "
-                        "Worktree сохранён для инспекции." % item["id"])
+                        "Worktree сохранён для инспекции." % tid)
     except Exception as exc:
         print("[devtask] boot reconcile error: %s" % exc, flush=True)
 
@@ -10161,6 +10208,10 @@ def _heartbeat_tick() -> None:
         _devtask_remind_queued()
     except Exception:
         logger.exception("heartbeat: queued-reminder sweep failed")
+    try:
+        _devtask_poll_active()
+    except Exception:
+        logger.exception("heartbeat: devtask poll failed")
     try:
         _regress_watch_sweep()
     except Exception:
