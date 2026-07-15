@@ -5,17 +5,27 @@ Exactly three targets — ``cloudflared``, ``backend``, ``bot`` — no arbitrary
 shell or free-form input ever reaches a subprocess call from here; every entry
 point validates against :data:`ALLOWED_TARGETS` before doing anything.
 
-Privilege model (verified live on the host before writing this module):
-``cloudflared`` is a real Windows Service — Start-Service/Stop-Service on it
-needs an elevated token our bot process is not guaranteed to hold. Rather than
-assume elevation, the actual Stop-Process(if StopPending)+Start-Service dance
-runs inside a PRE-REGISTERED one-shot Scheduled Task
-(``JarvisInfraRestartCloudflared``, RunLevel Highest — see
-``scripts/register_infra_restart_tasks.ps1`` and
-``scripts/infra_restart_cloudflared_action.ps1``) that this module only
-*triggers* via ``schtasks /Run``; Task Scheduler supplies the elevation, not
-the caller. Reading service status needs no elevation, so polling after the
-trigger happens directly here, unprivileged.
+Privilege model, DEV-12a cascade (DEV-12's original design assumed the
+``JarvisInfraRestartCloudflared`` Scheduled Task would always be registered
+by a human running ``scripts/register_infra_restart_tasks.ps1`` once, post-
+merge — but that is precisely unavailable in the "SSH is down, machine is
+unreachable" scenario this escape hatch exists for). ``restart_cloudflared``
+now probes elevation of the CALLING process at runtime (:func:`is_elevated`,
+a read-only ``WindowsPrincipal.IsInRole(Administrator)`` check — guardian
+tasks run with RunLevel Highest, so a bot spawned by one is often already
+elevated) and picks one of two paths, never silently failing:
+
+* **Path A** (elevated): Stop-Process(if StopPending)+Start-Service run
+  directly, no Scheduled Task involved at all.
+* **Path B** (not elevated): trigger the pre-registered Scheduled Task via
+  ``schtasks /Run`` as before; if it isn't registered yet, attempt to
+  register it on the fly (``scripts/register_infra_restart_tasks.ps1``) and
+  retry once. If registration itself fails (no admin rights to register a
+  task either), return an honest failure — never a silent one — that the
+  Telegram layer surfaces as "physical access needed".
+
+Reading service status needs no elevation either way, so polling after
+either path happens directly here, unprivileged.
 
 ``backend`` and ``bot`` are plain user-owned ``python.exe`` processes (no
 Windows Service involved), each already watched by its own guardian Scheduled
@@ -44,6 +54,7 @@ ALLOWED_TARGETS = ("cloudflared", "backend", "bot")
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _CLOUDFLARED_RESTART_TASK = "JarvisInfraRestartCloudflared"
+_REGISTER_TASKS_SCRIPT = _PROJECT_ROOT / "scripts" / "register_infra_restart_tasks.ps1"
 _BACKEND_ACTION_SCRIPT = _PROJECT_ROOT / "scripts" / "infra_restart_backend.ps1"
 _BOT_WATCHER_SCRIPT = _PROJECT_ROOT / "scripts" / "infra_restart_bot_watcher.ps1"
 _HEARTBEAT_FILE = _PROJECT_ROOT / "state" / "bot_heartbeat.txt"
@@ -56,6 +67,24 @@ DEFAULT_HEARTBEAT_MAX_AGE_SEC = 180
 
 def is_allowed_target(target: str) -> bool:
     return target in ALLOWED_TARGETS
+
+
+def is_elevated(run: Callable = subprocess.run) -> bool:
+    """Read-only ``WindowsPrincipal.IsInRole(Administrator)`` probe for the
+    CALLING process. Never assumes elevation: any subprocess failure or
+    unexpected output returns False, which drives the cloudflared cascade to
+    the safer Scheduled-Task path B rather than an unprivileged Path A that
+    would just fail on Start-Service."""
+    try:
+        res = run(
+            ["powershell", "-NoProfile", "-Command",
+             "([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent())"
+             ".IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except Exception:
+        return False
+    return (getattr(res, "stdout", "") or "").strip().lower() == "true"
 
 
 # ---------------------------------------------------------------------------
@@ -124,20 +153,83 @@ def _poll_until_running(status_fn: Callable[[], str], timeout: float, interval: 
 # Restart actions
 # ---------------------------------------------------------------------------
 
-def restart_cloudflared(run: Callable = subprocess.run,
-                         poll_timeout: float = DEFAULT_POLL_TIMEOUT_SEC,
-                         poll_interval: float = DEFAULT_POLL_INTERVAL_SEC,
-                         sleep: Callable[[float], None] = time.sleep) -> Dict[str, object]:
-    before = cloudflared_status(run=run)
+def _restart_cloudflared_path_a(run: Callable, before: str) -> Dict[str, object]:
+    """Elevated path: no Scheduled Task needed — kill a wedged StopPending
+    process directly, then Start-Service."""
+    if before == "StopPending":
+        try:
+            run(["powershell", "-NoProfile", "-Command",
+                 "Get-Process -Name cloudflared -ErrorAction SilentlyContinue | "
+                 "Stop-Process -Force -ErrorAction SilentlyContinue"],
+                capture_output=True, text=True, timeout=10)
+        except Exception:
+            pass
+    try:
+        run(["powershell", "-NoProfile", "-Command",
+             "Start-Service -Name cloudflared -ErrorAction Stop"],
+            capture_output=True, text=True, timeout=15)
+    except Exception as exc:
+        return {"ok": False, "path": "A",
+                "detail": "путь A (elevated): Start-Service не удался: %s" % exc}
+    return {"ok": True, "path": "A", "detail": "путь A: elevated, прямой Start-Service"}
+
+
+def _cloudflared_task_registered(run: Callable) -> bool:
+    try:
+        res = run(["schtasks", "/Query", "/TN", _CLOUDFLARED_RESTART_TASK],
+                   capture_output=True, text=True, timeout=10)
+    except Exception:
+        return False
+    return getattr(res, "returncode", 1) == 0
+
+
+def _register_cloudflared_task(run: Callable) -> bool:
+    try:
+        res = run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                   "-File", str(_REGISTER_TASKS_SCRIPT)],
+                  capture_output=True, text=True, timeout=30)
+    except Exception:
+        return False
+    return getattr(res, "returncode", 1) == 0
+
+
+def _restart_cloudflared_path_b(run: Callable) -> Dict[str, object]:
+    """Unelevated path: trigger the pre-registered Scheduled Task; if it's
+    missing, attempt to register it on the fly first (best-effort — this
+    itself needs admin rights, so it can fail too)."""
+    just_registered = False
+    if not _cloudflared_task_registered(run=run):
+        just_registered = _register_cloudflared_task(run=run)
+        if not just_registered:
+            return {"ok": False, "path": "B",
+                     "detail": "нужен физический доступ: не elevated, задача '%s' "
+                               "не зарегистрирована и авторегистрация на лету не удалась"
+                               % _CLOUDFLARED_RESTART_TASK}
     try:
         run(["schtasks", "/Run", "/TN", _CLOUDFLARED_RESTART_TASK],
             capture_output=True, text=True, timeout=10)
     except Exception as exc:
+        return {"ok": False, "path": "B", "detail": "путь B: trigger failed: %s" % exc}
+    how = "задача зарегистрирована на лету" if just_registered else "задача уже была зарегистрирована"
+    return {"ok": True, "path": "B", "detail": "путь B: %s" % how}
+
+
+def restart_cloudflared(run: Callable = subprocess.run,
+                         poll_timeout: float = DEFAULT_POLL_TIMEOUT_SEC,
+                         poll_interval: float = DEFAULT_POLL_INTERVAL_SEC,
+                         sleep: Callable[[float], None] = time.sleep,
+                         elevated_check: Optional[Callable[[], bool]] = None) -> Dict[str, object]:
+    before = cloudflared_status(run=run)
+    elevated = elevated_check() if elevated_check is not None else is_elevated(run=run)
+    outcome = (_restart_cloudflared_path_a(run=run, before=before) if elevated
+               else _restart_cloudflared_path_b(run=run))
+    if not outcome["ok"]:
         return {"ok": False, "before": before, "after": before,
-                "detail": "trigger failed: %s" % exc}
+                "path": outcome["path"], "detail": outcome["detail"]}
     after = _poll_until_running(lambda: cloudflared_status(run=run),
                                  poll_timeout, poll_interval, sleep)
-    return {"ok": after == "Running", "before": before, "after": after, "detail": ""}
+    return {"ok": after == "Running", "before": before, "after": after,
+            "path": outcome["path"], "detail": outcome["detail"]}
 
 
 def restart_backend(run: Callable = subprocess.run,

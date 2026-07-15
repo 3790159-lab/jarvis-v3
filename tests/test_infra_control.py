@@ -253,6 +253,171 @@ def test_restart_bot_reports_before_but_after_is_unknown():
 
 
 # ---------------------------------------------------------------------------
+# is_elevated — read-only WindowsPrincipal probe (DEV-12a)
+# ---------------------------------------------------------------------------
+
+def test_is_elevated_true_when_windows_principal_says_true():
+    run = lambda *a, **k: _Res("True\r\n")
+    assert ic.is_elevated(run=run) is True
+
+
+def test_is_elevated_false_when_windows_principal_says_false():
+    run = lambda *a, **k: _Res("False\r\n")
+    assert ic.is_elevated(run=run) is False
+
+
+def test_is_elevated_false_on_run_exception_never_assumes_elevation():
+    def run(*a, **k):
+        raise OSError("powershell missing")
+    assert ic.is_elevated(run=run) is False
+
+
+# ---------------------------------------------------------------------------
+# restart_cloudflared cascade (DEV-12a): elevated -> path A, else -> path B
+# ---------------------------------------------------------------------------
+
+def _script(cmd):
+    return cmd[-1] if cmd and cmd[0] == "powershell" else ""
+
+
+def test_restart_cloudflared_path_a_used_when_elevated_no_scheduled_task_touched():
+    calls = []
+
+    def run(cmd, **k):
+        calls.append(cmd)
+        return _Res("Running")
+
+    result = ic.restart_cloudflared(run=run, poll_timeout=0.01, poll_interval=0.001,
+                                     sleep=lambda s: None, elevated_check=lambda: True)
+    assert result["path"] == "A"
+    assert result["ok"] is True
+    assert not any(c[:2] == ["schtasks", "/Run"] for c in calls)
+    assert not any(c[:3] == ["schtasks", "/Query", "/TN"] for c in calls)
+
+
+def test_restart_cloudflared_path_a_kills_wedged_process_when_stoppending():
+    calls = []
+    statuses = iter(["StopPending", "Running"])
+
+    def run(cmd, **k):
+        calls.append(cmd)
+        if "Get-Service" in _script(cmd):
+            return _Res(next(statuses, "Running"))
+        return _Res("")
+
+    result = ic.restart_cloudflared(run=run, poll_timeout=0.01, poll_interval=0.001,
+                                     sleep=lambda s: None, elevated_check=lambda: True)
+    assert result["ok"] is True
+    kill_calls = [c for c in calls if "Stop-Process" in _script(c)]
+    assert len(kill_calls) == 1
+    start_calls = [c for c in calls if "Start-Service" in _script(c)]
+    assert len(start_calls) == 1
+
+
+def test_restart_cloudflared_path_a_skips_kill_when_not_stoppending():
+    calls = []
+
+    def run(cmd, **k):
+        calls.append(cmd)
+        if "Get-Service" in _script(cmd):
+            return _Res("Stopped")
+        return _Res("")
+
+    ic.restart_cloudflared(run=run, poll_timeout=0.01, poll_interval=0.001,
+                            sleep=lambda s: None, elevated_check=lambda: True)
+    assert not any("Stop-Process" in _script(c) for c in calls)
+
+
+def test_restart_cloudflared_path_a_start_service_failure_is_honest():
+    def run(cmd, **k):
+        script = _script(cmd)
+        if "Get-Service" in script:
+            return _Res("Stopped")
+        if "Start-Service" in script:
+            raise OSError("access denied")
+        return _Res("")
+
+    result = ic.restart_cloudflared(run=run, poll_timeout=0.01, poll_interval=0.001,
+                                     sleep=lambda s: None, elevated_check=lambda: True)
+    assert result["ok"] is False
+    assert result["path"] == "A"
+    assert result["before"] == result["after"] == "Stopped"
+
+
+def test_restart_cloudflared_path_b_skips_registration_when_task_already_registered():
+    calls = []
+
+    def run(cmd, **k):
+        calls.append(cmd)
+        if cmd[:3] == ["schtasks", "/Query", "/TN"]:
+            return _Res("", returncode=0)
+        if cmd[:2] == ["schtasks", "/Run"]:
+            return _Res("")
+        return _Res("Running")
+
+    result = ic.restart_cloudflared(run=run, poll_timeout=0.01, poll_interval=0.001,
+                                     sleep=lambda s: None, elevated_check=lambda: False)
+    assert result["ok"] is True
+    assert result["path"] == "B"
+    assert not any("register_infra_restart_tasks.ps1" in _script(c) for c in calls)
+
+
+def test_restart_cloudflared_path_b_registers_missing_task_on_the_fly_then_triggers():
+    calls = []
+
+    def run(cmd, **k):
+        calls.append(cmd)
+        if cmd[:3] == ["schtasks", "/Query", "/TN"]:
+            return _Res("", returncode=1)
+        if "register_infra_restart_tasks.ps1" in _script(cmd):
+            return _Res("", returncode=0)
+        if cmd[:2] == ["schtasks", "/Run"]:
+            return _Res("")
+        return _Res("Running")
+
+    result = ic.restart_cloudflared(run=run, poll_timeout=0.01, poll_interval=0.001,
+                                     sleep=lambda s: None, elevated_check=lambda: False)
+    assert result["path"] == "B"
+    assert result["ok"] is True
+    register_calls = [c for c in calls if "register_infra_restart_tasks.ps1" in _script(c)]
+    assert len(register_calls) == 1
+    trigger_calls = [c for c in calls if c[:2] == ["schtasks", "/Run"]]
+    assert len(trigger_calls) == 1
+
+
+def test_restart_cloudflared_path_b_honest_failure_when_registration_also_fails():
+    calls = []
+
+    def run(cmd, **k):
+        calls.append(cmd)
+        if cmd[:3] == ["schtasks", "/Query", "/TN"]:
+            return _Res("", returncode=1)
+        if "register_infra_restart_tasks.ps1" in _script(cmd):
+            return _Res("", returncode=1)
+        return _Res("Stopped")
+
+    result = ic.restart_cloudflared(run=run, poll_timeout=0.01, poll_interval=0.001,
+                                     sleep=lambda s: None, elevated_check=lambda: False)
+    assert result["ok"] is False
+    assert result["path"] == "B"
+    assert "физическ" in result["detail"].lower()
+    assert not any(c[:2] == ["schtasks", "/Run"] for c in calls), \
+        "must never fire /Run against an unregistered task"
+
+
+def test_restart_cloudflared_defaults_to_is_elevated_probe_when_not_injected():
+    def run(cmd, **k):
+        script = _script(cmd)
+        if "IsInRole" in script:
+            return _Res("True")
+        return _Res("")
+
+    result = ic.restart_cloudflared(run=run, poll_timeout=0.01, poll_interval=0.001,
+                                     sleep=lambda s: None)
+    assert result["path"] == "A"
+
+
+# ---------------------------------------------------------------------------
 # restart() dispatcher — routes to exactly one target-specific function
 # ---------------------------------------------------------------------------
 

@@ -206,6 +206,41 @@ def test_callback_dispatch_reports_failure_honestly(monkeypatch):
     assert "Stopped" in sent[0]
 
 
+def test_callback_dispatch_reports_path_letter_for_cloudflared_success(monkeypatch):
+    """DEV-12a req: the report must say which cascade path (A/B) fired."""
+    monkeypatch.setattr(mod, "answer_callback_query", lambda *a, **k: None)
+    sent = []
+    monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
+    monkeypatch.setattr(
+        "app.services.infra_control.restart",
+        lambda tgt, **k: {"ok": True, "before": "Stopped", "after": "Running",
+                          "path": "A", "detail": "путь A: elevated, прямой Start-Service"},
+    )
+    mod.handle_callback_query(_cq(ADMIN, "infra:restart:cloudflared"), {})
+    assert len(sent) == 1
+    assert "[путь A]" in sent[0]
+
+
+def test_callback_dispatch_reports_physical_access_needed_honestly(monkeypatch):
+    """Both cascade paths unavailable (not elevated + registration failed)
+    must produce an honest, specific report — not a silent/generic failure."""
+    monkeypatch.setattr(mod, "answer_callback_query", lambda *a, **k: None)
+    sent = []
+    monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
+    monkeypatch.setattr(
+        "app.services.infra_control.restart",
+        lambda tgt, **k: {"ok": False, "before": "StopPending", "after": "StopPending",
+                          "path": "B", "detail": "нужен физический доступ: не elevated, "
+                                                   "задача не зарегистрирована и авторегистрация "
+                                                   "на лету не удалась"},
+    )
+    mod.handle_callback_query(_cq(ADMIN, "infra:restart:cloudflared"), {})
+    assert len(sent) == 1
+    assert "физическ" in sent[0].lower()
+    assert "⚠️" in sent[0]
+    assert "[путь B]" in sent[0]
+
+
 def test_callback_dispatch_bot_target_has_no_synchronous_after(monkeypatch):
     """Self-restart special case: 'after' is unknowable synchronously (this
     very process dies), so the report must say a confirmation follows, not

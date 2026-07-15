@@ -4695,9 +4695,17 @@ def _infra_restart_callback_dispatch(chat_id: str, target: str) -> None:
         return
     ok = result.get("ok")
     icon = "✅" if ok else "⚠️"
-    suffix = "" if ok else " (не подтвердилось за отведённое время)"
-    send(chat_id, "%s %s: было «%s» → стало «%s»%s"
-                   % (icon, label, result.get("before"), result.get("after"), suffix))
+    path = result.get("path")
+    path_note = " [путь %s]" % path if path else ""
+    detail = result.get("detail") or ""
+    if not ok and detail:
+        outcome_note = " — %s" % detail
+    elif not ok:
+        outcome_note = " (не подтвердилось за отведённое время)"
+    else:
+        outcome_note = ""
+    send(chat_id, "%s %s: было «%s» → стало «%s»%s%s"
+                   % (icon, label, result.get("before"), result.get("after"), path_note, outcome_note))
 
 
 # ── /ig_caption (Этап 3, кирпич #1): генератор IG-подписей ─────────────────
