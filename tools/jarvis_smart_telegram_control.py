@@ -11329,10 +11329,28 @@ def _main_inner() -> None:
         print(f"[Webhook] Mode active — URL: {webhook_url}", flush=True)
         # Register webhook with Telegram
         full_url = webhook_url.rstrip("/") + "/telegram/webhook"
+        # H1 (audit 2026-07-15): register the secret token so Telegram sends it
+        # in X-Telegram-Bot-Api-Secret-Token; the backend rejects everything
+        # else. Refuse to enable webhook mode without a configured secret.
+        webhook_secret = os.getenv("TELEGRAM_WEBHOOK_SECRET", "").strip()
+        if not webhook_secret:
+            print(
+                "[Webhook] REFUSING to register: TELEGRAM_WEBHOOK_SECRET is not set. "
+                "Set it (and it must match the backend) before enabling webhook mode.",
+                flush=True,
+            )
+            raise SystemExit("Missing TELEGRAM_WEBHOOK_SECRET for webhook mode")
         try:
-            reg = tg_call("setWebhook", {"url": full_url, "max_connections": 40})
+            reg = tg_call(
+                "setWebhook",
+                {
+                    "url": full_url,
+                    "max_connections": 40,
+                    "secret_token": webhook_secret,
+                },
+            )
             if reg.get("ok"):
-                print(f"[Webhook] Registered: {full_url}", flush=True)
+                print(f"[Webhook] Registered (secret-protected): {full_url}", flush=True)
             else:
                 print(f"[Webhook] Registration warning: {reg}", flush=True)
         except Exception as e:

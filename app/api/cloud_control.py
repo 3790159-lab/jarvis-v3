@@ -8,10 +8,20 @@ from typing import Any, Dict, Optional
 from pathlib import Path
 
 import requests
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.services.api_auth import require_api_key
+
 router = APIRouter(prefix="/api/cloud", tags=["cloud_control"])
+
+
+def _internal_key() -> str:
+    """The API key this proxy presents to (now-gated) internal targets."""
+    return (
+        os.getenv("JARVIS_INTERNAL_API_KEY", "").strip()
+        or os.getenv("JARVIS_ADMIN_KEY", "").strip()
+    )
 
 
 def _backend_base() -> str:
@@ -34,11 +44,19 @@ def _call(method: str, path: str, payload: Optional[dict] = None, timeout: int =
     url = _backend_base() + path
     method = method.upper().strip()
 
+    # Forward the internal API key so proxied calls authenticate to gated
+    # targets instead of bypassing their auth. The proxy is thus only ever as
+    # privileged as an authenticated caller.
+    headers = {}
+    key = _internal_key()
+    if key:
+        headers["X-API-Key"] = key
+
     try:
         if method == "GET":
-            response = requests.get(url, timeout=timeout)
+            response = requests.get(url, timeout=timeout, headers=headers)
         elif method == "POST":
-            response = requests.post(url, json=payload or {}, timeout=timeout)
+            response = requests.post(url, json=payload or {}, timeout=timeout, headers=headers)
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported method: {method}")
 
@@ -203,7 +221,7 @@ def cloud_agents():
 
 
 @router.post("/execute")
-def cloud_execute(request: CloudExecuteRequest):
+def cloud_execute(request: CloudExecuteRequest, _key: str = Depends(require_api_key)):
     target = str(request.target or "").strip()
     payload = dict(request.payload or {})
 
@@ -464,7 +482,7 @@ def cloud_execute(request: CloudExecuteRequest):
         raise
 
 @router.post("/raw-invoke")
-def cloud_raw_invoke(request: RawInvokeRequest):
+def cloud_raw_invoke(request: RawInvokeRequest, _key: str = Depends(require_api_key)):
     path = request.path.strip()
     if not path.startswith("/"):
         raise HTTPException(status_code=400, detail="Path must start with '/'")
@@ -597,7 +615,7 @@ def cloud_operator_mode():
 
 
 @router.post("/plan-and-execute")
-def cloud_plan_and_execute(payload: dict):
+def cloud_plan_and_execute(payload: dict, _key: str = Depends(require_api_key)):
     goal = str(payload.get("goal") or "").strip()
     if not goal:
         raise HTTPException(status_code=400, detail={"message": "goal is required"})

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from app.services.api_auth import require_api_key
 from app.services.agent_adapters import invoke_adapter, list_adapters
 from app.services.approval_store import (
     approval_is_approved,
@@ -235,7 +236,9 @@ def fail_task_endpoint(task_id: str, payload: FailTaskRequest) -> Dict[str, Any]
 
 
 @router.post("/api/agents/invoke")
-def invoke_agent_endpoint(payload: AdapterInvokeRequest) -> Dict[str, Any]:
+def invoke_agent_endpoint(
+    payload: AdapterInvokeRequest, _key: str = Depends(require_api_key)
+) -> Dict[str, Any]:
     policy = evaluate_risk(
         adapter_name=payload.adapter_name,
         payload=payload.payload,
@@ -308,7 +311,9 @@ def create_approval_endpoint(payload: ApprovalCreateRequest) -> Dict[str, Any]:
 
 
 @router.post("/api/approvals/{approval_id}/approve")
-def approve_endpoint(approval_id: str, payload: ApprovalDecisionRequest) -> Dict[str, Any]:
+def approve_endpoint(
+    approval_id: str, payload: ApprovalDecisionRequest, _key: str = Depends(require_api_key)
+) -> Dict[str, Any]:
     item = set_approval_status(approval_id, "approved", payload.operator_note)
     if not item:
         raise HTTPException(status_code=404, detail="Approval request not found")

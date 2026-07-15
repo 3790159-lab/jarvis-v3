@@ -41,10 +41,11 @@ from app.routers import time_brain
 
 
 import importlib
+import logging
 import os
 from typing import Any, Dict, List
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from app.routers import claude_ecosystem
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -516,11 +517,44 @@ except Exception as e:
 
 # === Telegram Webhook Endpoint (Phase 37) ===
 # Receives Telegram updates when webhook mode is active (e.g. via Cloudflare Tunnel)
+_webhook_log = logging.getLogger("jarvis.telegram_webhook")
+
+
+def _verify_webhook_secret(request: Request) -> None:
+    """Reject (403) any webhook call without the correct Telegram secret token.
+
+    Security audit 2026-07-15 (H1): forged Telegram updates let an anonymous
+    caller impersonate the admin. Telegram sends the configured secret in the
+    ``X-Telegram-Bot-Api-Secret-Token`` header (see setWebhook secret_token).
+
+    Fails **closed**: if ``TELEGRAM_WEBHOOK_SECRET`` is unset, every request is
+    rejected — the endpoint never accepts unauthenticated updates.
+    """
+    import secrets as _secrets
+
+    expected = os.getenv("TELEGRAM_WEBHOOK_SECRET", "").strip()
+    provided = (request.headers.get("X-Telegram-Bot-Api-Secret-Token") or "").strip()
+
+    ok = bool(expected) and bool(provided) and _secrets.compare_digest(provided, expected)
+    if not ok:
+        client_ip = request.client.host if request.client else "unknown"
+        reason = "secret not configured" if not expected else "bad/missing secret token"
+        _webhook_log.warning(
+            "Rejected Telegram webhook (%s) from ip=%s path=%s",
+            reason,
+            client_ip,
+            request.url.path,
+        )
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+
 @app.post("/telegram/webhook")
 async def telegram_webhook(request: Request) -> Dict[str, Any]:
     """Accept Telegram webhook updates and forward to bot processing queue."""
+    # Authenticate BEFORE reading the body or touching the queue.
+    _verify_webhook_secret(request)
+
     try:
-        from fastapi import Request as _Request  # noqa: F401 — type hint only
         body = await request.json()
     except Exception as exc:
         return {"ok": False, "error": str(exc)}

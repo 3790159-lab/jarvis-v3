@@ -3,9 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from app.services.api_auth import require_api_key
 from app.services.jarvis_brain_executor import JarvisBrainExecutor
 
 
@@ -41,7 +42,7 @@ def health() -> Dict[str, Any]:
 
 
 @router.post("/run")
-def run(payload: ExecuteRequest) -> Dict[str, Any]:
+def run(payload: ExecuteRequest, _key: str = Depends(require_api_key)) -> Dict[str, Any]:
     executor = _executor()
     result = executor.execute(payload.task, dry_run=payload.dry_run)
     return {

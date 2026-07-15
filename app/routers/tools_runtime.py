@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
+from app.services.api_auth import require_api_key
 from app.services.tool_executor_runtime import execute_tool
 from app.services.tool_registry import get_tool_registry
 
@@ -35,6 +36,8 @@ def tools_registry() -> Dict[str, Any]:
 
 
 @router.post("/api/tools/execute")
-def tools_execute(payload: ToolExecuteRequest) -> Dict[str, Any]:
+def tools_execute(
+    payload: ToolExecuteRequest, _key: str = Depends(require_api_key)
+) -> Dict[str, Any]:
     result = execute_tool(payload.tool, payload.payload)
     return result

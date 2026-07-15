@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from app.services.api_auth import require_api_key
 from app.services.jarvis_live_operator_brain import JarvisLiveOperatorBrain
 
 
@@ -24,14 +25,18 @@ def live_health() -> Dict[str, Any]:
 
 
 @router.post("/live-command")
-def live_command(req: LiveCommandRequest) -> Dict[str, Any]:
+def live_command(
+    req: LiveCommandRequest, _key: str = Depends(require_api_key)
+) -> Dict[str, Any]:
     text = req.text or req.message or req.prompt or ""
     return JarvisLiveOperatorBrain().handle(text=text, payload=req.payload or {})
 
 
 # This endpoint is useful if your Telegram/operator panel can be pointed here.
 @router.post("/respond-live")
-def respond_live(req: LiveCommandRequest) -> Dict[str, Any]:
+def respond_live(
+    req: LiveCommandRequest, _key: str = Depends(require_api_key)
+) -> Dict[str, Any]:
     text = req.text or req.message or req.prompt or ""
     result = JarvisLiveOperatorBrain().handle(text=text, payload=req.payload or {})
     return {
