@@ -125,6 +125,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Default-deny auth guard (audit 2026-07-15). Phase 1: canary (log-only) — does
+# nothing unless JARVIS_AUTH_MIDDLEWARE_MODE=canary. Safe to deploy at "off".
+from app.services.auth_middleware import auth_guard_middleware  # noqa: E402
+
+app.middleware("http")(auth_guard_middleware)
+
 
 @app.get("/health")
 def health() -> Dict[str, Any]:

@@ -5,22 +5,28 @@
 
 $ErrorActionPreference = "Stop"
 
+# Auth for the default-deny guard (audit 2026-07-15). Sends X-API-Key from env.
+$ApiKey = $env:JARVIS_INTERNAL_API_KEY
+if (-not $ApiKey) { $ApiKey = $env:JARVIS_ADMIN_KEY }
+$AuthHeaders = @{}
+if ($ApiKey) { $AuthHeaders["X-API-Key"] = $ApiKey }
+
 Write-Host "== Health =="
-Invoke-RestMethod -Uri "$BaseUrl/api/autonomy/health" | ConvertTo-Json -Depth 10
+Invoke-RestMethod -Uri "$BaseUrl/api/autonomy/health" -Headers $AuthHeaders | ConvertTo-Json -Depth 10
 
 Write-Host "`n== Normalize jobs and approvals =="
-Invoke-RestMethod -Method POST -Uri "$BaseUrl/api/autonomy/maintenance/normalize" | ConvertTo-Json -Depth 20
+Invoke-RestMethod -Method POST -Uri "$BaseUrl/api/autonomy/maintenance/normalize" -Headers $AuthHeaders | ConvertTo-Json -Depth 20
 
 Write-Host "`n== Cleanup runtime =="
-Invoke-RestMethod -Method POST -Uri "$BaseUrl/api/autonomy/maintenance/cleanup-runtime" | ConvertTo-Json -Depth 20
+Invoke-RestMethod -Method POST -Uri "$BaseUrl/api/autonomy/maintenance/cleanup-runtime" -Headers $AuthHeaders | ConvertTo-Json -Depth 20
 
 Write-Host "`n== Tools list =="
-Invoke-RestMethod -Uri "$BaseUrl/api/autonomy/tools" | ConvertTo-Json -Depth 30
+Invoke-RestMethod -Uri "$BaseUrl/api/autonomy/tools" -Headers $AuthHeaders | ConvertTo-Json -Depth 30
 
 Write-Host "`n== Execute tool plan (write + append + read) =="
 Invoke-RestMethod `
   -Method POST `
-  -Uri "$BaseUrl/api/autonomy/tools/execute-plan" `
+  -Uri "$BaseUrl/api/autonomy/tools/execute-plan" -Headers $AuthHeaders `
   -ContentType "application/json" `
   -Body (@{
       requested_by = "next_tools_smoke"
@@ -51,7 +57,7 @@ Invoke-RestMethod `
 Write-Host "`n== JSON write =="
 Invoke-RestMethod `
   -Method POST `
-  -Uri "$BaseUrl/api/autonomy/tools/execute" `
+  -Uri "$BaseUrl/api/autonomy/tools/execute" -Headers $AuthHeaders `
   -ContentType "application/json" `
   -Body (@{
       tool_id = "json_write"
@@ -69,7 +75,7 @@ Invoke-RestMethod `
 Write-Host "`n== JSON read =="
 Invoke-RestMethod `
   -Method POST `
-  -Uri "$BaseUrl/api/autonomy/tools/execute" `
+  -Uri "$BaseUrl/api/autonomy/tools/execute" -Headers $AuthHeaders `
   -ContentType "application/json" `
   -Body (@{
       tool_id = "json_read"
@@ -82,7 +88,7 @@ Invoke-RestMethod `
 Write-Host "`n== Port inspection =="
 Invoke-RestMethod `
   -Method POST `
-  -Uri "$BaseUrl/api/autonomy/tools/execute" `
+  -Uri "$BaseUrl/api/autonomy/tools/execute" -Headers $AuthHeaders `
   -ContentType "application/json" `
   -Body (@{
       tool_id = "process_inspect_port"
@@ -93,4 +99,4 @@ Invoke-RestMethod `
   } | ConvertTo-Json -Depth 20) | ConvertTo-Json -Depth 30
 
 Write-Host "`n== Dashboard =="
-Invoke-RestMethod -Uri "$BaseUrl/api/autonomy/dashboard" | ConvertTo-Json -Depth 50
+Invoke-RestMethod -Uri "$BaseUrl/api/autonomy/dashboard" -Headers $AuthHeaders | ConvertTo-Json -Depth 50

@@ -197,11 +197,20 @@ async def _run_query(query: str, timeout: int = 60) -> str:
         os.getenv("BACKEND_BASE_URL") or os.getenv("TELEGRAM_BACKEND_URL") or "http://127.0.0.1:8010"
     ).rstrip("/")
     payload = json.dumps({"query": query}, ensure_ascii=False).encode()
+    # Present the internal API key so this in-process call authenticates to the
+    # (default-deny-gated) target instead of being rejected by the auth guard.
+    headers = {"Content-Type": "application/json"}
+    _internal_key = (
+        os.getenv("JARVIS_INTERNAL_API_KEY", "").strip()
+        or os.getenv("JARVIS_ADMIN_KEY", "").strip()
+    )
+    if _internal_key:
+        headers["X-API-Key"] = _internal_key
     try:
         req = urllib.request.Request(
             f"{backend}/api/jarvis/tools/internet/research",
             data=payload,
-            headers={"Content-Type": "application/json"},
+            headers=headers,
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=timeout) as resp:

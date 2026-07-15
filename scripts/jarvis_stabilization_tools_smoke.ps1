@@ -5,16 +5,22 @@
 
 $ErrorActionPreference = "Stop"
 
+# Auth for the default-deny guard (audit 2026-07-15). Sends X-API-Key from env.
+$ApiKey = $env:JARVIS_INTERNAL_API_KEY
+if (-not $ApiKey) { $ApiKey = $env:JARVIS_ADMIN_KEY }
+$AuthHeaders = @{}
+if ($ApiKey) { $AuthHeaders["X-API-Key"] = $ApiKey }
+
 Write-Host "== Health =="
-Invoke-RestMethod -Uri "$BaseUrl/api/autonomy/health" | ConvertTo-Json -Depth 10
+Invoke-RestMethod -Uri "$BaseUrl/api/autonomy/health" -Headers $AuthHeaders | ConvertTo-Json -Depth 10
 
 Write-Host "`n== Tools list =="
-Invoke-RestMethod -Uri "$BaseUrl/api/autonomy/tools" | ConvertTo-Json -Depth 20
+Invoke-RestMethod -Uri "$BaseUrl/api/autonomy/tools" -Headers $AuthHeaders | ConvertTo-Json -Depth 20
 
 Write-Host "`n== Execute file_write tool =="
 Invoke-RestMethod `
   -Method POST `
-  -Uri "$BaseUrl/api/autonomy/tools/execute" `
+  -Uri "$BaseUrl/api/autonomy/tools/execute" -Headers $AuthHeaders `
   -ContentType "application/json" `
   -Body (@{
       tool_id = "file_write"
@@ -29,7 +35,7 @@ Invoke-RestMethod `
 Write-Host "`n== Execute file_read tool =="
 Invoke-RestMethod `
   -Method POST `
-  -Uri "$BaseUrl/api/autonomy/tools/execute" `
+  -Uri "$BaseUrl/api/autonomy/tools/execute" -Headers $AuthHeaders `
   -ContentType "application/json" `
   -Body (@{
       tool_id = "file_read"
@@ -42,7 +48,7 @@ Invoke-RestMethod `
 Write-Host "`n== Set operator_assisted mode =="
 Invoke-RestMethod `
   -Method POST `
-  -Uri "$BaseUrl/api/autonomy/mode" `
+  -Uri "$BaseUrl/api/autonomy/mode" -Headers $AuthHeaders `
   -ContentType "application/json" `
   -Body (@{
       mode = "operator_assisted"
@@ -56,7 +62,7 @@ Invoke-RestMethod `
 Write-Host "`n== Schedule continuation for approval lifecycle test =="
 $jobResp = Invoke-RestMethod `
   -Method POST `
-  -Uri "$BaseUrl/api/autonomy/schedule" `
+  -Uri "$BaseUrl/api/autonomy/schedule" -Headers $AuthHeaders `
   -ContentType "application/json" `
   -Body (@{
       mission_id = $MissionId
@@ -70,7 +76,7 @@ $jobResp | ConvertTo-Json -Depth 20
 Start-Sleep -Seconds 7
 
 Write-Host "`n== Pending approvals after scheduler pass =="
-$approvals = Invoke-RestMethod -Uri "$BaseUrl/api/autonomy/approvals?status=pending"
+$approvals = Invoke-RestMethod -Uri "$BaseUrl/api/autonomy/approvals?status=pending" -Headers $AuthHeaders
 $approvals | ConvertTo-Json -Depth 20
 
 if ($approvals.count -gt 0) {
@@ -78,7 +84,7 @@ if ($approvals.count -gt 0) {
     Write-Host "`n== Approving first pending approval =="
     Invoke-RestMethod `
       -Method POST `
-      -Uri "$BaseUrl/api/autonomy/approvals/$approvalId/approve" `
+      -Uri "$BaseUrl/api/autonomy/approvals/$approvalId/approve" -Headers $AuthHeaders `
       -ContentType "application/json" `
       -Body (@{ note = "approved by smoke test" } | ConvertTo-Json -Depth 10) | ConvertTo-Json -Depth 20
 
@@ -86,7 +92,7 @@ if ($approvals.count -gt 0) {
 }
 
 Write-Host "`n== Tool executions =="
-Invoke-RestMethod -Uri "$BaseUrl/api/autonomy/tools/executions?limit=20" | ConvertTo-Json -Depth 20
+Invoke-RestMethod -Uri "$BaseUrl/api/autonomy/tools/executions?limit=20" -Headers $AuthHeaders | ConvertTo-Json -Depth 20
 
 Write-Host "`n== Dashboard =="
-Invoke-RestMethod -Uri "$BaseUrl/api/autonomy/dashboard" | ConvertTo-Json -Depth 40
+Invoke-RestMethod -Uri "$BaseUrl/api/autonomy/dashboard" -Headers $AuthHeaders | ConvertTo-Json -Depth 40
