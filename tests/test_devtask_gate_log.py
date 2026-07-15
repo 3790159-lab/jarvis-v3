@@ -53,6 +53,27 @@ def test_run_targeted_argv_includes_rf_flag(monkeypatch):
     assert "-rf" in captured["argv"]
 
 
+# ── --tb=no dropped in favour of --tb=short so the gate log has a real traceback ──
+def test_run_targeted_argv_uses_tb_short_not_no(monkeypatch):
+    from app.services.devtask import target_tests as tt
+    monkeypatch.setattr(tt, "changed_paths", lambda *a, **k: ["app/services/devtask/queue.py"])
+    monkeypatch.setattr(tt, "list_test_files", lambda *a, **k: ["tests/test_queue.py"])
+    captured = {}
+
+    class _P:
+        stdout = "3 passed in 0.1s"
+        returncode = 0
+
+    def fake_run(argv, **kw):
+        captured["argv"] = argv
+        return _P()
+
+    monkeypatch.setattr(mod._regress_watch, "run_guarded", fake_run)
+    mod._devtask_run_targeted("C:/wt", "base1")
+    assert "--tb=short" in captured["argv"]
+    assert "--tb=no" not in captured["argv"]
+
+
 # ── gate log: stdout persisted to state/dev_tasks/<id>_gate.log ─────────────
 def test_run_targeted_writes_gate_log(monkeypatch, tmp_path):
     from app.services.devtask import target_tests as tt

@@ -1787,7 +1787,8 @@ def _devtask_run_targeted(worktree: str, base_head: str, tid: Optional[str] = No
     we return ``ok=False`` with an honest message, so the human either fixes the
     mapping or uses [⚠️ Мердж без регресса] as a deliberate override.
 
-    DEV-13: raw stdout is saved to ``state/dev_tasks/<tid>_gate.log`` (when a
+    DEV-13: raw stdout (now with ``--tb=short`` tracebacks instead of
+    ``--tb=no``) is saved to ``state/dev_tasks/<tid>_gate.log`` (when a
     ``tid`` is given) and failed node-ids are pulled out of pytest's ``-rf``
     summary so a red gate is investigable instead of a bare pass/fail count.
     """
@@ -1807,7 +1808,7 @@ def _devtask_run_targeted(worktree: str, base_head: str, tid: Optional[str] = No
     try:
         proc = _regress_watch.run_guarded(
             [sys.executable, "-m", "pytest", *targets, "-q", "-p", "no:cacheprovider",
-             "--continue-on-collection-errors", "--tb=no", "-rf"],
+             "--continue-on-collection-errors", "--tb=short", "-rf"],
             cwd=worktree,
             timeout_s=int(os.getenv("REGRESS_TIMEOUT_S", "900")),
             creationflags=(0x4000 if sys.platform == "win32" else 0),
