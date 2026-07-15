@@ -496,6 +496,13 @@ try:
 except Exception as e:
     print("WARN: failed to include jarvis_telegram_file_tools_router:", e)
 
+# === Jarvis Ops Health Router (DEV-17: Uptime Kuma monitor endpoints) ===
+try:
+    from app.routers.jarvis_ops_health_router import router as jarvis_ops_health_router
+    app.include_router(jarvis_ops_health_router)
+except Exception as e:
+    print("WARN: failed to include jarvis_ops_health_router:", e)
+
 
 # === Obsidian Save Router (Phase H1.3) ===
 try:

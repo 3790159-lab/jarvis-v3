@@ -55,3 +55,23 @@
 - Установку/логин Tailscale (`winget install`, `tailscale up` — браузерный
   вход) выполняет Daniil интерактивно, как и `cloudflared tunnel login`;
   CC готовит и верифицирует скрипт, но сам живую установку не запускает.
+
+## Мониторинг и алерты (DEV-17)
+- 15.07 backend умер в 03:14 и никто не узнал — единственный механизм
+  алертов жил в heartbeat-цикле бота, который делит судьбу с тем, за чем
+  должен следить. Независимый монитор — Uptime Kuma (Docker, отдельный
+  контейнер) — `docs/UPTIME_KUMA_SETUP.md`.
+- HTTP-эндпоинты для Kuma (200=ок/503=плохо): существующий `/health` +
+  новые `/api/jarvis/ops/{heartbeat,cloudflared,disk,restarts}`
+  (`app/routers/jarvis_ops_health_router.py`, логика в
+  `app/services/ops_monitor.py`). Подъём/статус контейнера —
+  `scripts/setup_uptime_kuma.ps1 [-Status|-Down]`.
+- `failed dev_task` и `failed IG publish` уже алертят в TG напрямую
+  (`_devtask_poll_active` в `tools/jarvis_smart_telegram_control.py`,
+  `ig_schedule.process_due`/`scripts/ig_schedule_publisher.py`) — не
+  переизобретать, только расширять при необходимости.
+- Токен бота/chat_id для Kuma-нотификаций Daniil вводит сам в Kuma UI —
+  тот же секрет-канал, что и везде (DEV-2), CC его не видит.
+- Подъём Docker/Kuma — живая host-операция, выполняет Daniil интерактивно
+  (`scripts/setup_uptime_kuma.ps1`); CC готовит и верифицирует, живой
+  install не запускает (тот же паттерн, что Tailscale в DEV-15).

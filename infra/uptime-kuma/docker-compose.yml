@@ -1,0 +1,16 @@
+services:
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    container_name: jarvis-uptime-kuma
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    volumes:
+      - kuma_data:/app/data
+    extra_hosts:
+      # Docker Desktop on Windows already resolves this, but pinning it
+      # explicitly keeps the compose file portable to a Linux Docker host.
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  kuma_data:

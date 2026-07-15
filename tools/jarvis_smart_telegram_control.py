@@ -38,6 +38,7 @@ from app.services.audit import cost_tracker as _cost
 from app.services.auth.spend_guard import guard_spend
 from app.services.devtask import regress_watch as _regress_watch
 from app.services.devtask import regress_batches as _regress_batches
+from app.services import kuma_status as _kuma_status
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 ALLOWED_CHAT_ID = str(os.getenv("TELEGRAM_ALLOWED_CHAT_ID", "")).strip()
@@ -4176,6 +4177,11 @@ def human_health(data: Dict[str, Any]) -> str:
         v = data.get(k, {})
         return "OK" if v.get("ok") is True or v.get("status") == "healthy" else "ERR"
 
+    try:
+        kuma_block = _kuma_status.kuma_summary()
+    except Exception as exc:
+        kuma_block = "Kuma: сводка недоступна (%s)" % exc
+
     return (
         "✅ Системы Jarvis:\n"
         f"- Backend: {data.get('root', {}).get('status', 'unknown')}\n"
@@ -4184,6 +4190,7 @@ def human_health(data: Dict[str, Any]) -> str:
         f"- AI Engineer: {is_ok('ai_engineer')}\n"
         f"- Таблицы/файлы Telegram: {is_ok('telegram_tools')}\n"
         f"- Async генерация: {is_ok('content_async')}\n\n"
+        f"{kuma_block}\n\n"
         "Для полного JSON: /debug_health"
     )
 
