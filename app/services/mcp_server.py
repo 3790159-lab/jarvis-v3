@@ -85,11 +85,12 @@ def _backend() -> str:
 
 
 def _call_backend(endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    from app.services.internal_api_client import backend_headers
     url = _backend() + endpoint
     data = json.dumps(payload).encode()
     req = urllib.request.Request(
         url, data=data,
-        headers={"Content-Type": "application/json"},
+        headers=backend_headers(url, {"Content-Type": "application/json"}),
         method="POST",
     )
     try:

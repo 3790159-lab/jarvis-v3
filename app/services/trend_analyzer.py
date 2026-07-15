@@ -110,16 +110,18 @@ def save_insights_to_obsidian(insights: Dict[str, Any]) -> str:
 
     try:
         import urllib.request
+        from app.services.internal_api_client import backend_headers
         backend = os.getenv("BACKEND_BASE_URL", "http://127.0.0.1:8010").rstrip("/")
         payload = json.dumps({
             "content": content,
             "title": f"Trends — {today}",
             "path": f"insights/{today}.md",
         }).encode("utf-8")
+        _url = backend + "/api/jarvis/tools/obsidian/save"
         req = urllib.request.Request(
-            backend + "/api/jarvis/tools/obsidian/save",
+            _url,
             data=payload,
-            headers={"Content-Type": "application/json"},
+            headers=backend_headers(_url, {"Content-Type": "application/json"}),
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=15) as resp:

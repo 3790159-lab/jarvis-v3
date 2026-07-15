@@ -259,6 +259,7 @@ def _save_dish_to_obsidian(
 ) -> None:
     import urllib.request
     import os
+    from app.services.internal_api_client import backend_headers
     backend = os.getenv("BACKEND_BASE_URL", "http://127.0.0.1:8010").rstrip("/")
     content_lines = [
         f"# {dish}",
@@ -278,10 +279,11 @@ def _save_dish_to_obsidian(
         "title": f"Menu — {dish}",
         "path": f"menu/{dish}.md",
     }).encode("utf-8")
+    _url = backend + "/api/jarvis/tools/obsidian/save"
     req = urllib.request.Request(
-        backend + "/api/jarvis/tools/obsidian/save",
+        _url,
         data=payload,
-        headers={"Content-Type": "application/json"},
+        headers=backend_headers(_url, {"Content-Type": "application/json"}),
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=10) as _:

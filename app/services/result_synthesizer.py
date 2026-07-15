@@ -63,6 +63,7 @@ def _llm_synthesize(query: str, context: str) -> Optional[str]:
     """Call LLM via backend to synthesize context into a final answer."""
     try:
         import urllib.request
+        from app.services.internal_api_client import backend_headers
         base = os.environ.get("TELEGRAM_BACKEND_URL", "http://127.0.0.1:8010")
         prompt = (
             f"Пользователь спросил: {query}\n\n"
@@ -72,10 +73,11 @@ def _llm_synthesize(query: str, context: str) -> Optional[str]:
             "Максимум 400 слов."
         )
         payload = json.dumps({"query": prompt}).encode()
+        _url = base + "/api/jarvis/tools/internet/research"
         req = urllib.request.Request(
-            base + "/api/jarvis/tools/internet/research",
+            _url,
             data=payload,
-            headers={"Content-Type": "application/json"},
+            headers=backend_headers(_url, {"Content-Type": "application/json"}),
             method="POST",
         )
         resp = urllib.request.urlopen(req, timeout=60)

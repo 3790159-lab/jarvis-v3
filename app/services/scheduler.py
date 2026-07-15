@@ -289,9 +289,12 @@ class JarvisScheduler:
                 self._send(chat_id, f"🔍 Запускаю исследование: {query}")
                 try:
                     import requests
+                    from app.services.internal_api_client import backend_headers
+                    _url = "http://127.0.0.1:8010/api/jarvis/tools/internet/research"
                     resp = requests.post(
-                        "http://127.0.0.1:8010/api/jarvis/tools/internet/research",
+                        _url,
                         json={"query": query},
+                        headers=backend_headers(_url),
                         timeout=120,
                     )
                     result = resp.json().get("answer", "Ответ не найден.")

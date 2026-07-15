@@ -15,6 +15,15 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
 from app.services.agent_registry import AGENTS, get_agent, list_agents_by_capability
+from app.services.internal_api_client import backend_headers
+
+
+class MeshExecutionError(RuntimeError):
+    """Raised by ``execute_plan`` when EVERY agent step failed at the transport
+    layer (e.g. all 401 under the enforce auth middleware, or the backend is
+    down). Making total failure loud lets ``_handle_mesh_task`` fall back to the
+    standard planner instead of silently synthesising a "done" plan out of
+    all-errored steps."""
 
 # ---------------------------------------------------------------------------
 # Compound-task detection patterns
@@ -219,7 +228,7 @@ def _call_agent(agent_id: str, query: str) -> Dict[str, Any]:
             if fallback_cfg and fallback_cfg.get("endpoint"):
                 url = base + fallback_cfg["endpoint"]
                 payload = json.dumps({"query": query}).encode()
-                req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+                req = urllib.request.Request(url, data=payload, headers=backend_headers(url, {"Content-Type": "application/json"}), method="POST")
                 try:
                     resp = urllib.request.urlopen(req, timeout=120)
                     return json.loads(resp.read())
@@ -249,7 +258,7 @@ def _call_agent(agent_id: str, query: str) -> Dict[str, Any]:
 
     url = base + endpoint
     payload = json.dumps({"query": query}).encode()
-    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+    req = urllib.request.Request(url, data=payload, headers=backend_headers(url, {"Content-Type": "application/json"}), method="POST")
     try:
         resp = urllib.request.urlopen(req, timeout=120)
         return json.loads(resp.read())
@@ -268,6 +277,8 @@ def execute_plan(
 
     plan.status = "running"
     all_results: List[Dict[str, Any]] = []
+    any_ok = False
+    errors: List[str] = []
 
     for step in plan.steps:
         cfg = get_agent(step.agent_id) or {}
@@ -280,11 +291,23 @@ def execute_plan(
         step.result = result
         if result.get("_error"):
             step.status = "error"
+            errors.append(f"{label}: {result['_error']}")
             _notify(f"❌ [{step.step_num}/{len(plan.steps)}] {label}: ошибка")
         else:
             step.status = "done"
+            any_ok = True
             _notify(f"✅ [{step.step_num}/{len(plan.steps)}] {label}: готово ({step.duration_sec}s)")
         all_results.append({"agent": step.agent_id, "result": result})
+
+    # Loud failure: if the plan had steps but NONE succeeded, every agent call
+    # failed at the transport layer (all 401 under enforce, or backend down).
+    # Raise so the caller falls back to the standard planner instead of
+    # synthesising a bogus "готово" answer out of pure errors.
+    if plan.steps and not any_ok:
+        plan.status = "error"
+        raise MeshExecutionError(
+            "All agent steps failed: " + "; ".join(errors)
+        )
 
     plan.final_result = synthesize_results(plan.query, all_results)
     plan.status = "done"
@@ -328,10 +351,11 @@ def synthesize_results(query: str, agent_results: List[Dict[str, Any]]) -> str:
         }).encode()
         import urllib.request
         base = os.environ.get("TELEGRAM_BACKEND_URL", "http://127.0.0.1:8010")
+        _url = base + "/api/jarvis/tools/internet/research"
         req = urllib.request.Request(
-            base + "/api/jarvis/tools/internet/research",
+            _url,
             data=payload,
-            headers={"Content-Type": "application/json"},
+            headers=backend_headers(_url, {"Content-Type": "application/json"}),
             method="POST",
         )
         resp = urllib.request.urlopen(req, timeout=60)

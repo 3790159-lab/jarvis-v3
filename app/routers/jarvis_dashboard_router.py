@@ -410,6 +410,7 @@ def _run_quick_answer(query: str) -> str | None:
 def _run_research(query: str) -> str:
     """Synchronous research call for executor."""
     import urllib.request as _req
+    from app.services.internal_api_client import backend_headers
 
     backend = (
         os.getenv("BACKEND_BASE_URL")
@@ -418,10 +419,11 @@ def _run_research(query: str) -> str:
     ).rstrip("/")
 
     payload = json.dumps({"query": query}, ensure_ascii=False).encode()
+    _url = f"{backend}/api/jarvis/tools/internet/research"
     req = _req.Request(
-        f"{backend}/api/jarvis/tools/internet/research",
+        _url,
         data=payload,
-        headers={"Content-Type": "application/json"},
+        headers=backend_headers(_url, {"Content-Type": "application/json"}),
         method="POST",
     )
     with _req.urlopen(req, timeout=28) as resp:

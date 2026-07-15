@@ -50,7 +50,8 @@ def _check_http_agent(agent_id: str, cfg: Dict) -> bool:
         return True  # local/filesystem agents assumed up
     url = base + hc if hc.startswith("/") else hc
     try:
-        req = urllib.request.Request(url, method="GET")
+        from app.services.internal_api_client import backend_headers
+        req = urllib.request.Request(url, headers=backend_headers(url), method="GET")
         resp = urllib.request.urlopen(req, timeout=4)
         return resp.status < 500
     except Exception:
