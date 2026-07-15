@@ -25,6 +25,8 @@ from typing import Any
 
 import httpx
 
+from app.services.money_preflight import preflight_check
+
 from .engine_protocol import VideoRequest, VideoResult, new_generation_id
 from .errors import TerminalVideoError, TransientVideoError
 
@@ -130,6 +132,7 @@ class ReplicateEngine:
             }
         }
 
+        preflight_check(self.model_id, payload, required_keys=("image", "prompt"))
         pred_id = await self._submit_with_retry(payload)
         video_url = await self._poll(pred_id)
         out_path = await self._download(video_url, request.persona_id, gen_id)
@@ -165,6 +168,7 @@ class ReplicateEngine:
         return f"data:{mime};base64,{b64}"
 
     async def _submit_with_retry(self, payload: dict) -> str:
+        preflight_check(self._submit_url, payload)
         last: Exception | None = None
         for attempt in range(1, self._max_retries + 1):
             try:

@@ -18,6 +18,8 @@ from typing import Any, Optional
 
 import httpx
 
+from app.services.money_preflight import preflight_check
+
 _GEN_MODEL = "fal-ai/flux-2/lora"
 _QUEUE_BASE = "https://queue.fal.run"
 # FLUX.2 LoRA-инференс ~$0.02/кадр без рефайнера (spike 2026-07-14).
@@ -83,6 +85,7 @@ class FalImageClient:
         }
         if seed is not None:
             payload["seed"] = seed
+        preflight_check(_GEN_MODEL, payload, required_keys=("prompt", "loras"))
         result = await self._submit_and_poll(_GEN_MODEL, payload)
         images = result.get("images") or []
         image_url = images[0].get("url", "") if images else ""
@@ -97,6 +100,7 @@ class FalImageClient:
     ) -> dict:
         """fal-queue: POST job → poll status → GET result. Сеть изолирована здесь
         (тесты мокают этот метод или подставляют ``MockTransport``)."""
+        preflight_check(model, payload)
         headers = self._headers()
         async with httpx.AsyncClient(transport=self._transport, timeout=90) as client:
             sub_resp = await client.post(

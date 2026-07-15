@@ -21,6 +21,8 @@ from typing import Any
 
 import httpx
 
+from app.services.money_preflight import preflight_check
+
 logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://api.replicate.com/v1"
@@ -119,6 +121,8 @@ class FaceSwapProvider:
             except PredictionFailed:
                 # Billable, deterministic — re-running just wastes money. Fail now.
                 raise
+            except AssertionError:
+                raise  # money-preflight: local payload bug, never retry
             except httpx.HTTPStatusError as exc:
                 last_err = exc
                 code = exc.response.status_code
@@ -158,6 +162,7 @@ class FaceSwapProvider:
 
     async def _submit(self, url: str, payload: dict) -> str:
         """POST prediction request and return the prediction ID."""
+        preflight_check(url, payload, required_keys=("workflow_json", "input_file"))
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(url, json=payload, headers=self._headers)
             response.raise_for_status()

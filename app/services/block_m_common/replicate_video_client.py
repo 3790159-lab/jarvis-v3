@@ -13,6 +13,8 @@ from typing import Any
 
 import httpx
 
+from app.services.money_preflight import preflight_check
+
 logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://api.replicate.com/v1"
@@ -87,6 +89,7 @@ class ReplicateVideoClient:
                 "duration": duration,
             }
         }
+        preflight_check(_KLING_MODEL, payload, required_keys=("image", "prompt"))
         output = await self._run_prediction(_KLING_MODEL, payload)
         video_url = output if isinstance(output, str) else (output[0] if output else "")
         cost = _COST_KLING_PER_5SEC * (duration / 5)
@@ -290,6 +293,7 @@ class ReplicateVideoClient:
 
     async def _submit_training(self, model: str, payload: dict) -> str:
         """Submit a training job. Returns training_id."""
+        preflight_check(model, payload, required_keys=("input_images", "trigger_word"))
         version = await self._get_latest_version(model)
         url = f"https://api.replicate.com/v1/models/{model}/versions/{version}/trainings"
         async with httpx.AsyncClient(timeout=60.0) as session:
@@ -428,6 +432,8 @@ class ReplicateVideoClient:
                 pred_id = await self._submit(submit_url, body)
                 logger.debug("Prediction %s submitted (attempt %d)", pred_id, attempt)
                 return await self._poll(pred_id)
+            except AssertionError:
+                raise  # money-preflight: local payload bug, never retry
             except httpx.HTTPStatusError as exc:
                 last_err = exc
                 logger.warning(
@@ -460,6 +466,7 @@ class ReplicateVideoClient:
 
     async def _submit(self, url: str, payload: dict) -> str:
         """POST prediction request and return the prediction ID."""
+        preflight_check(url, payload)
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(url, json=payload, headers=self._headers)
             response.raise_for_status()

@@ -9,6 +9,8 @@ import urllib.error
 import urllib.request
 from typing import List
 
+from app.services.money_preflight import preflight_check
+
 # Correct endpoint: /v1/models/<owner>/<name>/predictions — no "version" hash needed
 _FLUX_MODEL_URL = "https://api.replicate.com/v1/models/black-forest-labs/flux-1.1-pro/predictions"
 _PREDICTIONS_BASE = "https://api.replicate.com/v1/predictions"
@@ -45,6 +47,7 @@ def _post_with_retry(
     max_retries: int = 3,
 ) -> dict:
     """POST to Replicate API with automatic retry on HTTP 429."""
+    preflight_check(url, payload, required_keys=("prompt",))
     for attempt in range(max_retries):
         data = json.dumps(payload).encode()
         req = urllib.request.Request(

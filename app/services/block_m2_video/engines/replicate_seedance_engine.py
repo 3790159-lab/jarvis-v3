@@ -19,6 +19,8 @@ from pathlib import Path
 
 import httpx
 
+from app.services.money_preflight import preflight_check
+
 from .capabilities import SEEDANCE_CAPS
 from .engine_protocol import VideoRequest, VideoResult, new_generation_id
 from .errors import TerminalVideoError, TransientVideoError
@@ -84,6 +86,7 @@ class ReplicateSeedanceEngine:
         if request.seed is not None:
             payload["input"]["seed"] = request.seed
 
+        preflight_check(_MODEL, payload, required_keys=("image", "prompt"))
         pred_id = await self._submit_with_retry(payload)
         video_url = await self._poll(pred_id)
         out_path = await self._download(video_url, request.persona_id, gen_id)
@@ -105,6 +108,7 @@ class ReplicateSeedanceEngine:
         return f"data:{mime};base64,{b64}"
 
     async def _submit_with_retry(self, payload: dict) -> str:
+        preflight_check(_SUBMIT, payload)
         last: Exception | None = None
         for attempt in range(1, self._max_retries + 1):
             try:

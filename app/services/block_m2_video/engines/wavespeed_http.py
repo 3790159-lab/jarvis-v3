@@ -26,6 +26,8 @@ from pathlib import Path
 
 import httpx
 
+from app.services.money_preflight import preflight_check
+
 from .errors import TerminalVideoError, TransientVideoError
 
 logger = logging.getLogger(__name__)
@@ -67,6 +69,7 @@ class WaveSpeedHTTPClient:
 
     async def _submit_with_retry(self, submit_url: str, payload: dict) -> str:
         """POST the job; return its poll URL. 429/network retried; 4xx terminal."""
+        preflight_check(submit_url, payload)
         last: Exception | None = None
         for attempt in range(1, self._max_retries + 1):
             try:

@@ -21,6 +21,8 @@ from pathlib import Path
 
 import httpx
 
+from app.services.money_preflight import preflight_check
+
 from ...media_delivery import host_media
 from .wavespeed_http import (
     BASE_URL,
@@ -70,6 +72,7 @@ class WaveSpeedRifeClient(WaveSpeedHTTPClient):
         logger.info("RIFE submit: num_frames=%d src=%s", num_frames, local_mp4.name)
 
         payload = {"video": public_url, "num_frames": num_frames}
+        preflight_check(_SUBMIT, payload, required_keys=("video",))
         poll_url = await self._submit_with_retry(_SUBMIT, payload)
         out_url = await self._poll(poll_url)
         dest = local_mp4.with_name(f"{local_mp4.stem}.smooth.mp4")

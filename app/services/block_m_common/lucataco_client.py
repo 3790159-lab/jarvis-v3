@@ -18,6 +18,7 @@ from typing import Any
 import httpx
 
 from app.services.block_m_common.faceswap_client import PredictionFailed
+from app.services.money_preflight import preflight_check
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +71,8 @@ class LucatacoClient:
                 return await self._poll(pred_id)
             except PredictionFailed:
                 raise  # billable, deterministic — never retry
+            except AssertionError:
+                raise  # money-preflight: local payload bug, never retry
             except httpx.HTTPStatusError as exc:
                 last_err = exc
                 code = exc.response.status_code
@@ -100,6 +103,7 @@ class LucatacoClient:
         )
 
     async def _submit(self, url: str, payload: dict) -> str:
+        preflight_check(url, payload, required_keys=("swap_image", "target_image"))
         async with httpx.AsyncClient(timeout=60.0, transport=self._transport) as c:
             resp = await c.post(url, json=payload, headers=self._headers)
             resp.raise_for_status()

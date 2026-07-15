@@ -14,6 +14,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from app.services.money_preflight import preflight_check
+
 from .capabilities import WAVESPEED_CAPS
 from .engine_protocol import VideoRequest, VideoResult, new_generation_id
 # Re-exported for back-compat: callers/tests import these names from here.
@@ -66,6 +68,7 @@ class WaveSpeedSpicyEngine(WaveSpeedHTTPClient):
             (request.prompt or "")[:400], len(request.negative_prompt or ""),
             (request.negative_prompt or "")[:200],
         )
+        preflight_check(_SUBMIT, payload, required_keys=("image", "prompt"))
         poll_url = await self._submit_with_retry(_SUBMIT, payload)
         video_url = await self._poll(poll_url)
         dest = Path("state/personas/videos") / request.persona_id / gen_id / "output.mp4"
