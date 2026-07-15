@@ -7394,6 +7394,44 @@ def _garbage_cleanup_dispatch(chat_id) -> None:
     sched.run_garbage_cleanup(str(chat_id))
 
 
+# ── /backup_now, /backup_status (DEV-16): daily state/ backup to R2 ─────────
+# Admin-only by omission from FRIEND_ALLOWED_COMMANDS (not registered there).
+# Free (R2 is free within our limits, like media hosting) — NOT in
+# intent_router.PAID, so no money-confirm gate.
+def _backup_now_dispatch(chat_id) -> None:
+    """/backup_now — synchronous on-demand run of the same critical-file
+    allowlist + rotation the daily JarvisStateBackup scheduled task runs."""
+    from app.services import state_backup as sb
+    state_root = _PROJECT_ROOT / "state"
+    try:
+        result = sb.run_backup(state_root)
+    except Exception as exc:
+        logger.exception("backup_now failed chat=%s", chat_id)
+        send(chat_id, "🚫 Бэкап упал: %s" % (str(exc)[:200]))
+        return
+    try:
+        deleted = sb.rotate_old_backups()
+    except Exception:
+        logger.exception("backup_now: rotation failed chat=%s", chat_id)
+        deleted = []
+    text = sb.format_backup_result(result)
+    if deleted:
+        text += "\nРотация: удалено %d старых объектов (>%dд)." % (len(deleted), sb.KEEP_DAYS)
+    send(chat_id, text)
+
+
+def _backup_status_dispatch(chat_id) -> None:
+    """/backup_status — list backup dates present in R2 + rotation policy."""
+    from app.services import state_backup as sb
+    try:
+        dates = sb.list_backup_dates()
+    except Exception as exc:
+        logger.exception("backup_status failed chat=%s", chat_id)
+        send(chat_id, "🚫 Не удалось прочитать статус бэкапов: %s" % (str(exc)[:200]))
+        return
+    send(chat_id, sb.format_backup_status(dates))
+
+
 _JARVIS_SCHEDULER = None
 
 
@@ -8865,6 +8903,14 @@ def handle_command(chat_id: str, cmd: str, query: str, state: Dict[str, Any]) ->
 
     if cmd == "/garbage_cleanup":
         _garbage_cleanup_dispatch(chat_id)
+        return
+
+    if cmd == "/backup_now":
+        _backup_now_dispatch(chat_id)
+        return
+
+    if cmd == "/backup_status":
+        _backup_status_dispatch(chat_id)
         return
 
     if cmd == "/suggest_tasks":

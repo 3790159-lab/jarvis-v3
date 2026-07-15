@@ -19,7 +19,10 @@ from app.services.r2_storage import (
     R2ConfigError,
     R2Error,
     R2TransientError,
+    delete_object,
+    download_file,
     ensure_tmp_lifecycle_rule,
+    list_objects,
     upload_file,
     upload_file_async,
 )
@@ -310,3 +313,105 @@ def test_ensure_tmp_lifecycle_rule_fails_open_on_error(tmp_path):
     ok = ensure_tmp_lifecycle_rule(client=client, config=_config())
 
     assert ok is False
+
+
+# ── list_objects / delete_object / download_file (DEV-16 backup primitives) ───
+
+
+def test_list_objects_single_page(tmp_path):
+    client = MagicMock()
+    client.list_objects_v2 = MagicMock(return_value={
+        "Contents": [
+            {"Key": "backups/state/2026-07-14/users.json", "Size": 10},
+            {"Key": "backups/state/2026-07-15/users.json", "Size": 12},
+        ],
+        "IsTruncated": False,
+    })
+
+    out = list_objects("backups/state/", client=client, config=_config())
+
+    assert [o["key"] for o in out] == [
+        "backups/state/2026-07-14/users.json",
+        "backups/state/2026-07-15/users.json",
+    ]
+    assert out[0]["size"] == 10
+    client.list_objects_v2.assert_called_once_with(
+        Bucket="jarvis-media", Prefix="backups/state/"
+    )
+
+
+def test_list_objects_paginates(tmp_path):
+    client = MagicMock()
+    client.list_objects_v2 = MagicMock(side_effect=[
+        {"Contents": [{"Key": "a", "Size": 1}], "IsTruncated": True, "NextContinuationToken": "tok"},
+        {"Contents": [{"Key": "b", "Size": 2}], "IsTruncated": False},
+    ])
+
+    out = list_objects("", client=client, config=_config())
+
+    assert [o["key"] for o in out] == ["a", "b"]
+    assert client.list_objects_v2.call_count == 2
+    assert client.list_objects_v2.call_args_list[1].kwargs["ContinuationToken"] == "tok"
+
+
+def test_list_objects_empty_bucket_returns_empty():
+    client = MagicMock()
+    client.list_objects_v2 = MagicMock(return_value={"IsTruncated": False})
+
+    assert list_objects("nothing/", client=client, config=_config()) == []
+
+
+def test_list_objects_raises_r2error_on_client_error():
+    client = MagicMock()
+    client.list_objects_v2 = MagicMock(side_effect=_client_error(403, "AccessDenied"))
+
+    with pytest.raises(R2Error):
+        list_objects("x/", client=client, config=_config())
+
+
+def test_delete_object_calls_client():
+    client = MagicMock()
+    client.delete_object = MagicMock(return_value={})
+
+    delete_object("backups/state/2026-07-01/users.json", client=client, config=_config())
+
+    client.delete_object.assert_called_once_with(
+        Bucket="jarvis-media", Key="backups/state/2026-07-01/users.json"
+    )
+
+
+def test_delete_object_raises_r2error_on_failure():
+    client = MagicMock()
+    client.delete_object = MagicMock(side_effect=_client_error(500, "Internal"))
+
+    with pytest.raises(R2Error):
+        delete_object("k", client=client, config=_config())
+
+
+def test_download_file_calls_client_and_returns_dest(tmp_path):
+    client = MagicMock()
+    dest = tmp_path / "restore" / "users.json"
+
+    out = download_file("backups/state/2026-07-01/users.json", dest, client=client, config=_config())
+
+    assert out == dest
+    client.download_file.assert_called_once_with(
+        "jarvis-media", "backups/state/2026-07-01/users.json", str(dest)
+    )
+
+
+def test_download_file_creates_parent_dir(tmp_path):
+    client = MagicMock()
+    dest = tmp_path / "nested" / "dir" / "users.json"
+
+    download_file("k", dest, client=client, config=_config())
+
+    assert dest.parent.is_dir()
+
+
+def test_download_file_raises_r2error_on_failure(tmp_path):
+    client = MagicMock()
+    client.download_file = MagicMock(side_effect=_client_error(404, "NoSuchKey"))
+
+    with pytest.raises(R2Error):
+        download_file("k", tmp_path / "x.json", client=client, config=_config())

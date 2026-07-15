@@ -50,6 +50,9 @@ __all__ = [
     "upload_file",
     "upload_file_async",
     "ensure_tmp_lifecycle_rule",
+    "list_objects",
+    "delete_object",
+    "download_file",
 ]
 
 # Prefix for temporary/internal uploads (LoRA training datasets, transient
@@ -234,6 +237,80 @@ def upload_file(
     public_url = f"{config.public_base_url.rstrip('/')}/{key}"
     logger.info("R2 upload OK: %s -> %s", path.name, public_url)
     return public_url
+
+
+def list_objects(
+    prefix: str = "",
+    *,
+    client: Any | None = None,
+    config: R2Config | None = None,
+) -> list[dict]:
+    """List objects under ``prefix`` (paginated), sorted by key.
+
+    Returns ``[{"key": str, "size": int, "last_modified": datetime}, ...]``.
+    Used by the DEV-16 state backup for rotation (find old backups) and
+    ``/backup_status`` (list backup dates) — never for the public media bucket.
+    """
+    config = config or _load_config()
+    client = client or _make_client(config)
+    out: list[dict] = []
+    continuation: str | None = None
+    while True:
+        kwargs: dict[str, Any] = {"Bucket": config.bucket}
+        if prefix:
+            kwargs["Prefix"] = prefix
+        if continuation:
+            kwargs["ContinuationToken"] = continuation
+        try:
+            resp = client.list_objects_v2(**kwargs)
+        except (ClientError, BotoCoreError) as exc:
+            raise R2Error(f"R2 list_objects failed for prefix {prefix!r}: {exc}") from exc
+        for obj in resp.get("Contents", []) or []:
+            out.append({
+                "key": obj["Key"],
+                "size": obj.get("Size", 0),
+                "last_modified": obj.get("LastModified"),
+            })
+        if not resp.get("IsTruncated"):
+            break
+        continuation = resp.get("NextContinuationToken")
+    out.sort(key=lambda o: o["key"])
+    return out
+
+
+def delete_object(
+    key: str,
+    *,
+    client: Any | None = None,
+    config: R2Config | None = None,
+) -> None:
+    """Delete a single object. Used by backup rotation to expire old backups."""
+    config = config or _load_config()
+    client = client or _make_client(config)
+    try:
+        client.delete_object(Bucket=config.bucket, Key=key)
+    except (ClientError, BotoCoreError) as exc:
+        raise R2Error(f"R2 delete_object failed for {key}: {exc}") from exc
+
+
+def download_file(
+    key: str,
+    dest: str | Path,
+    *,
+    client: Any | None = None,
+    config: R2Config | None = None,
+) -> Path:
+    """Download ``key`` to local path ``dest`` (parent dirs created). Used by
+    backup restore (DEV-16 acceptance: restore one file, verify integrity)."""
+    config = config or _load_config()
+    client = client or _make_client(config)
+    dest = Path(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        client.download_file(config.bucket, key, str(dest))
+    except (ClientError, BotoCoreError) as exc:
+        raise R2Error(f"R2 download_file failed for {key}: {exc}") from exc
+    return dest
 
 
 async def upload_file_async(
