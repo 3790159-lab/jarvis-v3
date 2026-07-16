@@ -13,10 +13,46 @@ def test_compose_reply_starts_with_pause_then_typing_on():
     assert isinstance(actions[first_typing_on], H.Typing)
 
 
-def test_compose_reply_ends_with_typing_off():
+def test_compose_reply_ends_with_typing_off_then_goes_offline():
+    """The rhythm now wraps the reply in an online presence: it stops typing,
+    then drops back offline as the very last thing (you close the chat)."""
     actions = H.compose_reply("Привет!", random.Random(0), TIMINGS, WH, now_hour=12)
-    assert isinstance(actions[-1], H.Typing)
-    assert actions[-1].on is False
+    assert isinstance(actions[-1], H.Online) and actions[-1].on is False
+    assert isinstance(actions[-2], H.Typing) and actions[-2].on is False
+
+
+def test_compose_reply_reads_before_typing_and_wraps_in_online_presence():
+    """Bot-tell fix: a live human OPENS the chat (goes online), the unread
+    message gets marked read, THEN the typing indicator appears. Order must be:
+    read pause -> online(True) -> read-ack -> typing(True) -> ... The account
+    also must not stay 'last seen long ago' while replying."""
+    actions = H.compose_reply("Привет!", random.Random(0), TIMINGS, WH, now_hour=12)
+    assert isinstance(actions[0], H.Pause)  # notice/read pause still comes first
+    online_on = next(i for i, a in enumerate(actions) if isinstance(a, H.Online) and a.on)
+    read_ack = next(i for i, a in enumerate(actions) if isinstance(a, H.ReadAck))
+    first_typing_on = next(i for i, a in enumerate(actions) if isinstance(a, H.Typing) and a.on)
+    assert 0 < online_on < read_ack < first_typing_on
+
+    online = [a.on for a in actions if isinstance(a, H.Online)]
+    assert online == [True, False]  # exactly one online-on then one online-off
+    assert sum(1 for a in actions if isinstance(a, H.ReadAck)) == 1
+
+
+def test_compose_reply_caps_total_response_time():
+    long_reply = "Это довольно длинное предложение для проверки потолка. " * 40
+    actions = H.compose_reply(
+        long_reply, random.Random(0), TIMINGS, WH, now_hour=2, max_total_seconds=90.0,
+    )
+    total = sum(a.seconds for a in actions if isinstance(a, H.Pause))
+    assert total <= 90.0 + 1e-9
+
+
+def test_compose_reply_does_not_stretch_short_replies_to_the_cap():
+    actions = H.compose_reply(
+        "Привет!", random.Random(0), TIMINGS, WH, now_hour=12, max_total_seconds=90.0,
+    )
+    total = sum(a.seconds for a in actions if isinstance(a, H.Pause))
+    assert total < 90.0
 
 
 def test_compose_reply_has_exactly_one_typing_on_and_off():

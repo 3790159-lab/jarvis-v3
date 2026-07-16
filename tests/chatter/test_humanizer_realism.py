@@ -38,12 +38,38 @@ def test_day_reply_rhythm_within_human_band():
     assert 12.0 <= mean <= 22.0, mean
 
 
-def test_night_reply_rhythm_larger_but_not_absurd():
-    """Night replies must be slower than day (bot-tell #5: instant 3am reply
-    is a giveaway), but bounded (a 90s+ delay burns the lead)."""
-    day_totals = [_total_seconds(REPLY, seed, DEMO_TIMINGS, DAY_HOUR) for seed in range(N_SEEDS)]
-    day_mean = sum(day_totals) / len(day_totals)
+def test_night_reply_is_slower_only_via_the_notice_delay():
+    """Night must be slower than day (bot-tell #5: an instant 3am reply is a
+    giveaway) -- but ONLY because the message is NOTICED later. At night a human
+    doesn't type slower, they just react later, so the night multiplier applies
+    to the read/reaction pause ONLY, never to typing speed.
+
+    Consequence: for the SAME seed the typing draw is identical, so
+    night_total = day_total + read_base*(mult-1) > day_total, and the extra time
+    is modest (a few seconds of extra reaction), NOT the ~1.5x-of-typing blowup
+    the old (buggy) model produced, which pushed a 150-char reply past 2 minutes.
+    """
+    for seed in range(N_SEEDS):
+        day = _total_seconds(REPLY, seed, DEMO_TIMINGS, DAY_HOUR)
+        night = _total_seconds(REPLY, seed, DEMO_TIMINGS, NIGHT_HOUR)
+        assert night > day, (seed, night, day)  # strictly slower at night
 
     night_totals = [_total_seconds(REPLY, seed, DEMO_TIMINGS, NIGHT_HOUR) for seed in range(N_SEEDS)]
-    assert all(v > day_mean for v in night_totals), (min(night_totals), day_mean)
-    assert all(15.0 <= v <= 90.0 for v in night_totals), (min(night_totals), max(night_totals))
+    # still a human band, never absurd (the whole point of the fix)
+    assert all(8.0 <= v <= 45.0 for v in night_totals), (min(night_totals), max(night_totals))
+
+    day_mean = sum(_total_seconds(REPLY, s, DEMO_TIMINGS, DAY_HOUR) for s in range(N_SEEDS)) / N_SEEDS
+    night_mean = sum(night_totals) / len(night_totals)
+    gap = night_mean - day_mean
+    # extra delay comes SOLELY from the read pause: read_mean*(mult-1)
+    # ~= 2.75 * 1.5 ~= 4s, not the tens of seconds the typing-multiplier bug added.
+    assert 1.0 < gap < 10.0, gap
+
+
+def test_total_reply_time_is_capped():
+    """A very long reply must never blow past the response-time ceiling
+    (spec: put a cap on total response time, e.g. 90s), day or night."""
+    long_reply = "Это довольно длинное предложение для проверки потолка. " * 40
+    for hour in (DAY_HOUR, NIGHT_HOUR):
+        total = _total_seconds(long_reply, 0, DEMO_TIMINGS, hour)
+        assert total <= H.MAX_TOTAL_RESPONSE_SECONDS + 1e-9, (hour, total)

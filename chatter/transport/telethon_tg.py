@@ -5,6 +5,7 @@ import time
 from typing import Awaitable, Callable
 
 from telethon.errors import FloodWaitError
+from telethon.tl.functions.account import UpdateStatusRequest
 
 from chatter.transport.base import Transport
 
@@ -124,3 +125,21 @@ class TelethonTransport(Transport):
             self._call_with_floodwait_retry(
                 lambda: ctx.__aexit__(None, None, None), desc=f"typing-off {self._chat}",
             )
+
+    def read_acknowledge(self) -> None:
+        """Mark this chat's inbound message(s) as read (updates the check marks
+        the other side sees). Best-effort presence signal -- goes through the
+        same FloodWait-guarded marshaling as send/typing."""
+        self._call_with_floodwait_retry(
+            lambda: self._client.send_read_acknowledge(self._chat),
+            desc=f"read-ack {self._chat}",
+        )
+
+    def set_online(self, on: bool) -> None:
+        """Toggle the account's global presence. Telethon has no high-level
+        setter, so this issues the raw account.updateStatus RPC (offline=not on)
+        on the client itself. Marshaled onto the loop like every other call."""
+        self._call_with_floodwait_retry(
+            lambda: self._client(UpdateStatusRequest(offline=not on)),
+            desc=f"set-online({on})",
+        )

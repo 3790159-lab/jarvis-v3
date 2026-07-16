@@ -92,6 +92,50 @@ def test_process_batch_orders_read_pause_before_typing(tmp_path):
     assert any(e[0] == "sleep" for e in events[:first_typing_on_idx])
 
 
+def test_process_batch_marks_read_and_toggles_online_in_rhythm_order(tmp_path):
+    """Fixes #1/#2 at the orchestration level: process_batch must interpret the
+    new presence actions -- come online, mark the message read AFTER the read
+    pause and BEFORE typing, and drop offline as the last thing."""
+    events: list[tuple] = []
+    deps, clock = _deps(tmp_path, scripted=["Здравствуйте! Что интересует?"])
+
+    def _sleep(seconds: float) -> None:
+        clock["t"] += seconds
+        events.append(("sleep", seconds))
+
+    deps.sleep = _sleep
+
+    class RecordingTransport(FakeConsoleTransport):
+        def set_online(self, on: bool) -> None:
+            events.append(("online", on)); super().set_online(on)
+
+        def read_acknowledge(self) -> None:
+            events.append(("read_ack",)); super().read_acknowledge()
+
+        def send_typing(self, on: bool) -> None:
+            events.append(("typing", on)); super().send_typing(on)
+
+        def send(self, text: str) -> None:
+            events.append(("say", text)); super().send(text)
+
+    t = RecordingTransport(preload=[], echo=False)
+    deps.store.get_or_create_contact("u1")
+    process_batch("u1", ["привет"], t, deps)
+
+    assert t.sent
+    kinds = [e[0] for e in events]
+    assert kinds[0] == "sleep"  # notice/read pause happens first
+    online_on = next(i for i, e in enumerate(events) if e == ("online", True))
+    read_ack = kinds.index("read_ack")
+    first_typing_on = next(i for i, e in enumerate(events) if e == ("typing", True))
+    assert online_on < read_ack < first_typing_on
+    # some sleeping (the read pause) precedes coming online
+    assert any(e[0] == "sleep" for e in events[:online_on])
+    assert events[-1] == ("online", False)  # offline is the very last action
+    assert t.online_events == [True, False]
+    assert t.read_acks == 1
+
+
 def test_bot_question_gets_honest_reply_llm_not_consulted(tmp_path):
     deps, clock = _deps(tmp_path, scripted=["НЕ ДОЛЖНО ИСПОЛЬЗОВАТЬСЯ"])
     t = FakeConsoleTransport(preload=[], echo=False)

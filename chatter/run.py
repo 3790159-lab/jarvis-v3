@@ -110,6 +110,10 @@ def process_batch(contact_id: str, incoming: list[str], transport: Transport, de
     for action in actions:
         if isinstance(action, H.Pause):
             deps.sleep(action.seconds)
+        elif isinstance(action, H.Online):
+            transport.set_online(action.on)
+        elif isinstance(action, H.ReadAck):
+            transport.read_acknowledge()
         elif isinstance(action, H.Typing):
             transport.send_typing(action.on)
         elif isinstance(action, H.Say):

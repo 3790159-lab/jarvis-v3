@@ -49,7 +49,12 @@ HONESTY_MARKERS = {
 # reads correctly regardless of the name -- e.g. RU "... владельца — Дмитрий
 # ответит лично." never declines "Дмитрий", unlike the old "позову Дмитрий
 # лично" (wrong case).
-_TEMPLATES = {
+#
+# The honest core embeds `{marker}` mid-sentence (lowercase, after a
+# connective), so the per-language honesty marker stays a verbatim substring --
+# the FACT is never rephrased, only reframed. This is what keeps the disclosure
+# one flowing phrase instead of two glued templates.
+_CORES = {
     "ru": (
         "{marker}, а не живой человек. "
         "Помогаю с вопросами и подсказываю по услугам. "
@@ -67,15 +72,34 @@ _TEMPLATES = {
     ),
 }
 
+# Connective that fuses the persona's tone line into the honest core as ONE
+# phrase. `mid` (lowercase) follows a tone lead-in; `lead` (capitalized) starts
+# the phrase when there is no tone. Both keep the marker lowercase mid-sentence.
+_CONNECTIVES = {
+    "ru": ("честно говоря, ", "Честно говоря, "),
+    "en": ("to be honest, ", "To be honest, "),
+    "uk": ("чесно кажучи, ", "Чесно кажучи, "),
+}
+
 
 def honest_disclosure(*, owner_id: str, persona_line: str, language: str = "ru") -> str:
     """Always honest, no exceptions. `persona_line` only sets TONE — it can
     never suppress or replace the honest fact (the per-language marker).
     `language` selects which honesty template/marker is used (safety: the
     disclosure must be understandable in the user's own language); unknown
-    languages fall back to `ru`."""
+    languages fall back to `ru`.
+
+    The tone line and the honest core are woven into a SINGLE natural phrase:
+    the tone's trailing sentence break is absorbed into a connective ("... —
+    честно говоря, я — виртуальный ассистент, а не живой человек.") rather than
+    butted against the core as a second intro. This fixes the live "bio.
+    honesty" glue (lowercase 'я' after a period, two templates stuck together)
+    without altering the honest fact itself."""
     tone = (persona_line or "").strip()
     marker = HONESTY_MARKERS.get(language, HONESTY_MARKER)
-    template = _TEMPLATES.get(language, _TEMPLATES["ru"])
-    core = template.format(marker=marker, owner_id=owner_id)
-    return f"{tone} {core}".strip() if tone else core
+    mid, lead = _CONNECTIVES.get(language, _CONNECTIVES["ru"])
+    core = _CORES.get(language, _CORES["ru"]).format(marker=marker, owner_id=owner_id)
+    if tone:
+        tone = tone.rstrip(" .!?…")  # absorb the tone's trailing break into the connective
+        return f"{tone} — {mid}{core}"
+    return f"{lead}{core}"

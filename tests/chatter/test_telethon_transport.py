@@ -4,6 +4,7 @@ import threading
 from unittest.mock import AsyncMock, MagicMock
 
 from telethon.errors import FloodWaitError
+from telethon.tl.functions.account import UpdateStatusRequest
 
 from chatter.transport.base import Transport
 from chatter.transport.telethon_tg import TelethonTransport, send_alert
@@ -97,6 +98,52 @@ def test_send_typing_off_without_prior_on_is_a_noop():
         transport.send_typing(False)  # no prior on() -- must not blow up
 
         client.action.assert_not_called()
+    finally:
+        _stop(loop, thread)
+
+
+def test_read_acknowledge_marks_the_chat_read_on_loop():
+    loop, thread = _running_loop()
+    try:
+        client = MagicMock()
+        client.send_read_acknowledge = AsyncMock(return_value=None)
+        transport = TelethonTransport(client, chat=777, loop=loop)
+
+        transport.read_acknowledge()
+
+        client.send_read_acknowledge.assert_called_once_with(777)
+    finally:
+        _stop(loop, thread)
+
+
+def test_set_online_true_updates_status_not_offline():
+    loop, thread = _running_loop()
+    try:
+        client = AsyncMock()  # calling the client itself must be awaitable
+        transport = TelethonTransport(client, chat=1, loop=loop)
+
+        transport.set_online(True)
+
+        client.assert_awaited_once()
+        req = client.await_args.args[0]
+        assert isinstance(req, UpdateStatusRequest)
+        assert req.offline is False
+    finally:
+        _stop(loop, thread)
+
+
+def test_set_online_false_updates_status_offline():
+    loop, thread = _running_loop()
+    try:
+        client = AsyncMock()
+        transport = TelethonTransport(client, chat=1, loop=loop)
+
+        transport.set_online(False)
+
+        client.assert_awaited_once()
+        req = client.await_args.args[0]
+        assert isinstance(req, UpdateStatusRequest)
+        assert req.offline is True
     finally:
         _stop(loop, thread)
 

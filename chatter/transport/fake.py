@@ -23,6 +23,8 @@ class FakeConsoleTransport(Transport):
         self._eof = threading.Event()
         self.sent: list[str] = []
         self.typing_events: list[bool] = []
+        self.online_events: list[bool] = []
+        self.read_acks: int = 0
         if preload is not None:
             for m in preload:
                 self._q.put(m)
@@ -53,3 +55,13 @@ class FakeConsoleTransport(Transport):
         self.typing_events.append(on)
         if self._echo:
             print("  <bot печатает...>" if on else "  <bot перестал печатать>")
+
+    def read_acknowledge(self) -> None:
+        self.read_acks += 1
+        if self._echo:
+            print("  <bot прочитал сообщение>")
+
+    def set_online(self, on: bool) -> None:
+        self.online_events.append(on)
+        if self._echo:
+            print("  <bot в сети>" if on else "  <bot вышел из сети>")

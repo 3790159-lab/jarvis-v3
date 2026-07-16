@@ -106,6 +106,23 @@ def test_honesty_cannot_be_disabled_no_toggle_param():
     assert HONESTY_MARKER in reply2
 
 
+def test_disclosure_reads_as_one_natural_phrase_not_two_glued_templates():
+    """Regression (live run): the persona bio and the honesty template were
+    concatenated as 'bio. honesty', which produced a lowercase 'я' right after a
+    sentence period ('...по личному бренду. я — виртуальный ассистент...') and
+    read as two intros butted together. The seam must now flow as one phrase --
+    without touching the honest FACT itself."""
+    bio = "Меня зовут Аня, мне 29. Я фотограф и консультант по личному бренду."
+    reply = honest_disclosure(owner_id="Дмитрий", persona_line=bio)
+
+    assert HONESTY_MARKER in reply                    # the honest fact is preserved
+    assert reply.count("виртуальный ассистент") == 1  # not duplicated
+    assert "бренду. я" not in reply                   # the specific glued seam is gone
+    assert ". я —" not in reply                       # no lowercase 'я' after a period anywhere
+    # the bio's trailing period is absorbed into a flowing connective, not butted
+    assert "бренду." not in reply
+
+
 def test_default_language_is_ru_and_owner_name_grammar_is_correct():
     """Regression: the RU template used to render 'позову Дмитрий лично' --
     wrong grammatical case regardless of the owner's name. The owner name must

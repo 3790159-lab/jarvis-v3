@@ -26,6 +26,15 @@ def test_send_and_typing_are_recorded():
     assert t.typing_events == [True, False]
 
 
+def test_read_acknowledge_and_online_are_recorded():
+    t = FakeConsoleTransport(preload=[], echo=False)
+    t.set_online(True)
+    t.read_acknowledge()
+    t.set_online(False)
+    assert t.online_events == [True, False]
+    assert t.read_acks == 1
+
+
 def test_real_stdin_eof_does_not_hang_a_later_blocking_receive(monkeypatch):
     """Regression: run.py's outer loop calls receive(timeout=None) (BLOCKING).
     A real EOF must stay observable forever after it happens, not just once.
