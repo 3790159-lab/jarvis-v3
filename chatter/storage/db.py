@@ -31,6 +31,15 @@ class Store:
         self._conn.executescript(_SCHEMA)
         self._conn.commit()
 
+    def close(self) -> None:
+        self._conn.close()
+
+    def __enter__(self) -> "Store":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+
     def get_or_create_contact(self, contact_id: str) -> dict:
         cur = self._conn.execute("SELECT * FROM contacts WHERE contact_id=?", (contact_id,))
         row = cur.fetchone()
@@ -62,7 +71,9 @@ class Store:
         q = "SELECT role, text, ts FROM messages WHERE contact_id=? ORDER BY id"
         rows = self._conn.execute(q, (contact_id,)).fetchall()
         rows = [dict(r) for r in rows]
-        return rows[-limit:] if limit else rows
+        if limit is None:
+            return rows
+        return rows[-limit:] if limit else []
 
     def set_fact(self, contact_id: str, key: str, value: str) -> None:
         self._conn.execute(

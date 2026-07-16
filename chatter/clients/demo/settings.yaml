@@ -1,3 +1,4 @@
+# switch to claude-sonnet-5 here if Haiku isn't lively enough
 model: claude-haiku-4-5
 language: ru
 owner_id: "Аня"
@@ -15,4 +16,4 @@ timings:
   night_multiplier: 2.5
   debounce_window: 3.0
   debounce_max: 15.0
-limits: {max_tokens_per_dialog: 20000, per_contact_hourly: 20, daily_cap: 500}
+limits: {max_reply_tokens: 20000, per_contact_hourly: 20, daily_cap: 500}

@@ -6,10 +6,18 @@ import re
 HONESTY_MARKER = "я — виртуальный ассистент"
 
 _PATTERNS = [
-    r"\bты\s+бот\b", r"\bэто\s+бот\b", r"\bс\s+ботом\b", r"\bбот\s+или\s+человек\b",
+    r"\bты\s+бот\b", r"\bты\s+робот\b", r"\bэто\s+бот\b", r"\bс\s+ботом\b",
+    r"\bбот\s+или\s+человек\b",
     r"\bживой\s+человек\b", r"\bреальный\s+человек\b", r"\bавтоответчик\b",
     r"\bчеловек\s+или\s+ии\b", r"\bреальный.*или.*ии\b",
     r"\bare\s+you\s+a?\s*bot\b", r"\bis\s+this\s+a?\s*bot\b", r"\breal\s+person\b",
+    # "ты"/"вы" addressing the assistant, with 1-3 words in between, followed
+    # by бот/робот -- catches natural phrasings like "а ты вообще бот?",
+    # "ты что, бот?", "ты не бот?", "ты случайно не бот?" that the plain
+    # adjacency patterns above miss. Requires "ты"/"вы" to actually be
+    # present, so it does NOT fire on e.g. "работаю с ботами в телеграме"
+    # (no "ты") or "сколько стоит бот для рассылки?" (no "ты"/"вы" either).
+    r"\b(?:ты|вы)\b(?:\s+\S+){1,3}\s+(?:бот|робот)\b",
 ]
 _RE = re.compile("|".join(_PATTERNS), re.IGNORECASE)
 

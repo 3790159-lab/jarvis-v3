@@ -38,6 +38,17 @@ def test_does_not_flag_backed_or_innocent_replies(reply):
     assert contains_unbacked_claim(reply, KNOWLEDGE) is False
 
 
+@pytest.mark.parametrize("reply", [
+    "Хочу нанести лёгкий макияж, займёт 5 минут.",
+    "У меня есть маленький список из 3 пунктов.",
+])
+def test_ma_substring_words_do_not_false_positive_as_may_deadline(reply):
+    # Regression: the guardrail's "ма" stem (for май/March-May) used to be a
+    # dangerously short 2-char substring that matched unrelated words like
+    # "макияж"/"маленький", falsely tripping the bare-deadline-unit check.
+    assert contains_unbacked_claim(reply, KNOWLEDGE) is False
+
+
 def test_hourly_limit(tmp_path):
     s = Store(tmp_path / "c.db")
     s.get_or_create_contact("u1")

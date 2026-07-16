@@ -54,6 +54,6 @@ def test_brain_reply_calls_llm_with_budget(tmp_path):
     out = brain.reply([{"role": "user", "text": "привет"}])
     assert out == "Здравствуйте! Что вас интересует?"
     call = llm.calls[0]
-    assert call["max_tokens"] == cfg.settings.limits.max_tokens_per_dialog
+    assert call["max_tokens"] == cfg.settings.limits.max_reply_tokens
     assert "Меня зовут Аня" in call["system"]
     assert call["messages"][-1] == {"role": "user", "content": "привет"}

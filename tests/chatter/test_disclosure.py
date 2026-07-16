@@ -15,12 +15,35 @@ BOT_QUESTIONS = [
     "is this a bot or a real person?",
 ]
 
+# Phrasings with words BETWEEN "ты" and "бот" that a live demo showed slip
+# past a too-strict adjacency-only regex.
+BOT_QUESTIONS_WITH_GAP = [
+    "а ты вообще бот?",
+    "ты что, бот?",
+    "ты не бот?",
+    "ты случайно не бот?",
+    "а ты бот или человек?",
+    "ты робот?",
+    "это автоответчик?",
+]
+
 @pytest.mark.parametrize("q", BOT_QUESTIONS)
 def test_detects_bot_question(q):
     assert is_bot_question(q) is True
 
+@pytest.mark.parametrize("q", BOT_QUESTIONS_WITH_GAP)
+def test_detects_bot_question_with_words_between_ty_and_bot(q):
+    assert is_bot_question(q) is True
+
 @pytest.mark.parametrize("q", ["сколько стоит?", "а фото делаете?", "привет"])
 def test_ignores_normal_messages(q):
+    assert is_bot_question(q) is False
+
+@pytest.mark.parametrize("q", [
+    "работаю с ботами в телеграме",
+    "расскажите про услуги",
+])
+def test_ignores_messages_mentioning_bot_without_addressing_assistant(q):
     assert is_bot_question(q) is False
 
 @pytest.mark.parametrize("q", BOT_QUESTIONS)

@@ -21,7 +21,12 @@ _WEEKDAY = (
 _TIME_UNIT_STEMS = sorted(
     [
         "недел", "месяц", "январ", "феврал", "август", "сентябр", "октябр",
-        "ноябр", "декабр", "апрел", "март", "июн", "июл", "час", "дн", "ма",
+        "ноябр", "декабр", "апрел", "март", "июн", "июл", "час", "дн",
+        # NOTE: no bare 2-char "ма" stem -- it was a substring of unrelated
+        # words (e.g. "формат", "информация") and could hide a real unbacked
+        # May-deadline claim behind an accidental knowledge-base match. Use
+        # the specific inflections of "май" instead.
+        "май", "мая",
     ],
     key=len, reverse=True,
 )

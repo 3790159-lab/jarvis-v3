@@ -23,7 +23,7 @@ timings:
   debounce_window: 3.0
   debounce_max: 15.0
 limits:
-  max_tokens_per_dialog: 20000
+  max_reply_tokens: 20000
   per_contact_hourly: 20
   daily_cap: 500
 """

@@ -38,5 +38,5 @@ class Brain:
         return self._llm.complete(
             self._system,
             build_messages(history),
-            max_tokens=self._cfg.settings.limits.max_tokens_per_dialog,
+            max_tokens=self._cfg.settings.limits.max_reply_tokens,
         )

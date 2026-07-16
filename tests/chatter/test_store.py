@@ -1,4 +1,5 @@
 from __future__ import annotations
+import pytest
 from chatter.storage.db import Store
 
 def test_get_or_create_contact_defaults(tmp_path):
@@ -46,3 +47,32 @@ def test_count_outbound_between(tmp_path):
     s.add_message("u1", "assistant", "a", ts=100.0)
     s.add_message("u1", "user", "b", ts=110.0)
     assert s.count_outbound_between(0.0, 1000.0) == 1
+
+def test_history_limit_zero_returns_empty(tmp_path):
+    s = Store(tmp_path / "c.db")
+    s.get_or_create_contact("u1")
+    s.add_message("u1", "user", "первое", ts=100.0)
+    s.add_message("u1", "assistant", "второе", ts=101.0)
+    assert s.history("u1", limit=0) == []
+
+def test_history_limit_one_returns_last_row_only(tmp_path):
+    s = Store(tmp_path / "c.db")
+    s.get_or_create_contact("u1")
+    s.add_message("u1", "user", "первое", ts=100.0)
+    s.add_message("u1", "assistant", "второе", ts=101.0)
+    hist = s.history("u1", limit=1)
+    assert [(m["role"], m["text"]) for m in hist] == [("assistant", "второе")]
+
+def test_close_closes_connection(tmp_path):
+    import sqlite3
+    s = Store(tmp_path / "c.db")
+    s.close()
+    with pytest.raises(sqlite3.ProgrammingError):
+        s.get_or_create_contact("u1")
+
+def test_store_is_a_context_manager(tmp_path):
+    import sqlite3
+    with Store(tmp_path / "c.db") as s:
+        s.get_or_create_contact("u1")
+    with pytest.raises(sqlite3.ProgrammingError):
+        s.get_or_create_contact("u1")

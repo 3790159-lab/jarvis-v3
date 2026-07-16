@@ -25,7 +25,7 @@ class Timings:
 
 @dataclass(frozen=True)
 class Limits:
-    max_tokens_per_dialog: int
+    max_reply_tokens: int
     per_contact_hourly: int
     daily_cap: int
 
@@ -56,7 +56,7 @@ _TIMING_FIELDS = [
     "jitter_min", "jitter_max", "split_pause_min", "split_pause_max",
     "split_max_len", "night_multiplier", "debounce_window", "debounce_max",
 ]
-_LIMIT_FIELDS = ["max_tokens_per_dialog", "per_contact_hourly", "daily_cap"]
+_LIMIT_FIELDS = ["max_reply_tokens", "per_contact_hourly", "daily_cap"]
 
 def _require(d: dict, key: str, where: str):
     if not isinstance(d, dict) or key not in d:

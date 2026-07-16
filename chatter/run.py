@@ -154,12 +154,15 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"[chatter] client={cfg.slug} llm={type(llm).__name__} lang={cfg.settings.language}")
     print("[chatter] пишите сообщения (Ctrl-D для выхода). Быстрые подряд склеятся.\n")
-    while True:
-        first = transport.receive(timeout=None)
-        if first is None:
-            break
-        batch = gather_batch(transport, deps, first)
-        process_batch(args.contact, batch, transport, deps)
+    try:
+        while True:
+            first = transport.receive(timeout=None)
+            if first is None:
+                break
+            batch = gather_batch(transport, deps, first)
+            process_batch(args.contact, batch, transport, deps)
+    finally:
+        deps.store.close()
     print("\n[chatter] пока!")
     return 0
 
