@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Awaitable, Callable
 
 from telethon import events
+from telethon.errors import AuthKeyError, UnauthorizedError
 
 from chatter.config.loader import Config, load_config
 from chatter.core import humanizer as H
@@ -18,7 +19,16 @@ from chatter.core.brain import Brain
 from chatter.core.llm import AnthropicLLM, FakeLLM, LLMClient
 from chatter.run import Deps, process_batch
 from chatter.storage.db import Store
-from chatter.transport.telethon_tg import TelethonTransport
+from chatter.transport.telethon_tg import TelethonTransport, send_alert
+
+# Session-loss errors (spec S2/S8): the account got logged out / the saved
+# session is no longer valid. AuthKeyError is the base of the
+# AuthKey*Error family (Duplicated/Invalid/NotFound/PermEmpty/Unregistered);
+# UnauthorizedError is Telethon's separate "you are not authorized" RPC
+# error. Catching both, rather than a bare `except Exception`, keeps this
+# from swallowing unrelated bugs -- only genuine session loss maps to the
+# graceful "re-run telethon_login" path.
+SESSION_LOST_ERRORS = (UnauthorizedError, AuthKeyError)
 
 log = logging.getLogger("chatter.telethon_run")
 
@@ -247,6 +257,32 @@ def build_runner(
     return runner
 
 
+def run_client(client, loop: asyncio.AbstractEventLoop) -> int:
+    """Runs `client.start()` + `client.run_until_disconnected()` -- the
+    actual network-facing lifetime of the userbot -- with session-loss
+    mapped to a graceful, alerted stop instead of a silent death or a bare
+    traceback (spec S2/S8).
+
+    Factored out of main() so a test can simulate `client.start()` raising a
+    session-loss error using a plain mock, with NO real TelegramClient and NO
+    network. `client` and `loop` are the same objects `build_runner` was
+    given -- `loop` is reused (not the client's own) purely so `send_alert`
+    can marshal the alert coroutine the same way TelethonTransport does.
+    """
+    try:
+        client.start()
+        client.run_until_disconnected()
+        return 0
+    except SESSION_LOST_ERRORS as e:
+        text = (
+            f"session lost / logged out ({type(e).__name__}: {e}) -- "
+            "re-run `python -m chatter.telethon_login` to sign in again"
+        )
+        log.error(text)
+        send_alert(client, loop, text)  # best-effort; send_alert never raises
+        return 2
+
+
 def main(argv: list[str] | None = None) -> int:
     # Same rationale as chatter/run.py's main(): Windows consoles default to a
     # legacy codepage that silently mangles Cyrillic instead of raising.
@@ -291,9 +327,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     print(f"[telethon_run] personas={slugs} session={session_path}")
-    client.start()
-    client.run_until_disconnected()
-    return 0
+    return run_client(client, loop)
 
 
 if __name__ == "__main__":

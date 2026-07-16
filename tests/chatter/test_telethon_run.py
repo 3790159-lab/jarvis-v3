@@ -2,6 +2,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import random
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -9,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from telethon import events
+from telethon.errors import AuthKeyError, UnauthorizedError
 
 from chatter.config.loader import load_config
 from chatter.core.brain import Brain
@@ -18,7 +20,7 @@ from chatter.transport.telethon_tg import TelethonTransport
 from chatter.run import Deps
 import chatter.telethon_run as tr
 from chatter.telethon_run import (
-    ChatDebouncer, PersonaBundle, TelethonRunner, build_runner, should_handle,
+    ChatDebouncer, PersonaBundle, TelethonRunner, build_runner, run_client, should_handle,
 )
 
 CLIENTS_DIR = Path(__file__).resolve().parent.parent.parent / "chatter" / "clients"
@@ -378,3 +380,94 @@ def test_build_runner_requires_telegram_block_on_primary_persona(tmp_path):
             client=client, clients_dir=CLIENTS_DIR, persona_slugs=["demo2", "demo"],
             store=store, loop=loop, llm_mode="fake",
         )
+
+
+# ---------------------------------------------------------------------------
+# 8. run_client -- session-loss (spec S2/S8): alert + graceful non-zero
+# return, not a silent death or bare traceback. No real TelegramClient
+# anywhere -- `client` is a MagicMock, `.start()`/`.run_until_disconnected()`
+# are plain (sync) mocks exactly like the real Telethon methods.
+# ---------------------------------------------------------------------------
+def _running_loop_on_thread():
+    """A real asyncio loop running on a background thread, so `send_alert`'s
+    run_coroutine_threadsafe(...).result() inside run_client actually
+    resolves -- mirrors test_telethon_transport.py's helper of the same
+    shape. No real client/network; only a MagicMock is scheduled onto it."""
+    loop = asyncio.new_event_loop()
+    t = threading.Thread(target=loop.run_forever, daemon=True)
+    t.start()
+    return loop, t
+
+
+def _stop_loop_thread(loop, thread):
+    loop.call_soon_threadsafe(loop.stop)
+    thread.join(timeout=2)
+    assert not thread.is_alive()
+
+
+@pytest.mark.parametrize("error_cls", [UnauthorizedError, AuthKeyError])
+def test_run_client_maps_session_loss_to_alert_and_nonzero_exit(error_cls):
+    loop, thread = _running_loop_on_thread()
+    try:
+        client = MagicMock()
+        client.send_message = AsyncMock(return_value=None)  # the alert's own send
+        client.start = MagicMock(side_effect=error_cls(request=None, message="AUTH_KEY_UNREGISTERED", code=401))
+        client.run_until_disconnected = MagicMock()  # must not even be reached
+
+        rc = run_client(client, loop)
+
+        assert rc != 0
+        client.run_until_disconnected.assert_not_called()
+        client.send_message.assert_called_once()
+        chat_arg, text_arg = client.send_message.call_args.args
+        assert chat_arg == "me"
+        assert "session lost" in text_arg
+        assert "telethon_login" in text_arg
+    finally:
+        _stop_loop_thread(loop, thread)
+
+
+def test_run_client_alert_failure_does_not_crash_the_session_loss_path():
+    # Even the alert's own Saved-Messages send can fail (e.g. the session is
+    # ALSO too dead to send to 'me') -- run_client must still return cleanly.
+    loop, thread = _running_loop_on_thread()
+    try:
+        client = MagicMock()
+        client.send_message = AsyncMock(side_effect=RuntimeError("also broken"))
+        client.start = MagicMock(side_effect=AuthKeyError(request=None, message="AUTH_KEY_INVALID", code=401))
+        client.run_until_disconnected = MagicMock()
+
+        rc = run_client(client, loop)  # must not raise
+
+        assert rc != 0
+    finally:
+        _stop_loop_thread(loop, thread)
+
+
+def test_run_client_returns_zero_on_clean_disconnect():
+    loop, thread = _running_loop_on_thread()
+    try:
+        client = MagicMock()
+        client.start = MagicMock()
+        client.run_until_disconnected = MagicMock()  # returns normally -> clean stop
+
+        rc = run_client(client, loop)
+
+        assert rc == 0
+        client.start.assert_called_once()
+        client.run_until_disconnected.assert_called_once()
+    finally:
+        _stop_loop_thread(loop, thread)
+
+
+def test_run_client_does_not_swallow_unrelated_errors():
+    loop, thread = _running_loop_on_thread()
+    try:
+        client = MagicMock()
+        client.start = MagicMock(side_effect=RuntimeError("unrelated bug"))
+        client.run_until_disconnected = MagicMock()
+
+        with pytest.raises(RuntimeError, match="unrelated bug"):
+            run_client(client, loop)
+    finally:
+        _stop_loop_thread(loop, thread)

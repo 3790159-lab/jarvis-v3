@@ -76,3 +76,6 @@ jarvis_stage3_artifacts/
 # Misc local backups / runtime data dirs
 requirements_backup_*
 data/block_m2_face_swap/
+
+# --- CHATTER-2 arc 2 (Milestone F): Telethon session = full account access ---
+/.secrets/
