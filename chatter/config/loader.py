@@ -39,6 +39,7 @@ class Settings:
     model: str
     language: str
     owner_id: str
+    persona_name: str
     work_hours: WorkHours
     timings: Timings
     limits: Limits
@@ -96,6 +97,12 @@ def load_config(clients_dir: Path, slug: str) -> Config:
     if language not in LANGUAGES:
         raise ConfigError(f"settings.yaml: language must be one of {sorted(LANGUAGES)}")
     owner_id = _require(raw, "owner_id", "settings.yaml")
+    persona_name = _require(raw, "persona_name", "settings.yaml")
+    if str(persona_name).strip().casefold() == str(owner_id).strip().casefold():
+        raise ConfigError(
+            f"settings.yaml: persona_name and owner_id must be different people "
+            f"(both '{owner_id}')"
+        )
 
     wh = _require(raw, "work_hours", "settings.yaml")
     work_hours = WorkHours(
@@ -114,5 +121,6 @@ def load_config(clients_dir: Path, slug: str) -> Config:
     return Config(
         slug=slug, persona=persona, knowledge=knowledge, playbook=playbook,
         settings=Settings(model=str(model), language=str(language), owner_id=str(owner_id),
+                          persona_name=str(persona_name),
                           work_hours=work_hours, timings=timings, limits=limits),
     )

@@ -8,6 +8,7 @@ SETTINGS = """\
 model: claude-haiku-4-5
 language: ru
 owner_id: "owner-1"
+persona_name: "Аня"
 work_hours: {start: 9, end: 22}
 timings:
   read_delay_min: 1.0
@@ -74,3 +75,11 @@ def test_missing_settings_key_fails(tmp_path):
     with pytest.raises(ConfigError) as e:
         load_config(tmp_path, "demo")
     assert "daily_cap" in str(e.value)
+
+def test_persona_name_equals_owner_fails(tmp_path):
+    colliding = SETTINGS.replace('owner_id: "owner-1"', 'owner_id: "Аня"')
+    _make_client(tmp_path, settings=colliding)
+    with pytest.raises(ConfigError) as e:
+        load_config(tmp_path, "demo")
+    msg = str(e.value)
+    assert "persona_name" in msg and "owner_id" in msg

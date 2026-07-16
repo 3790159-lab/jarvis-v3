@@ -21,9 +21,10 @@ def test_system_prompt_includes_all_sources(tmp_path):
 def test_system_prompt_has_style_and_language_rules(tmp_path):
     cfg = _cfg(tmp_path)
     sp = build_system_prompt(cfg).lower()
-    assert "1-2" in sp or "1–2" in sp       # length rule
+    assert "без" in sp                        # no bullets/headers/markdown rule present
+    assert "не выдумывай" in sp               # no-invention/honesty rule
+    assert "персон" in sp                     # delegates voice to ПЕРСОНА
     assert "русском" in sp                    # language ru directive
-    assert "без" in sp                        # no bullets/headers rule present
 
 
 def test_system_prompt_language_directive_for_en_and_uk(tmp_path):
