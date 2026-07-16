@@ -35,6 +35,73 @@ SESSION_LOST_ERRORS = (UnauthorizedError, AuthKeyError)
 
 log = logging.getLogger("chatter.telethon_run")
 
+# Catch-up age cap: on start, don't answer anything older than this. A message
+# from last week doesn't need a live reply -- answering ancient backlog reads as
+# broken, not attentive. 24h is generous enough to cover any realistic downtime
+# (reboot, deploy, crash) while never resurrecting stale conversations.
+CATCHUP_MAX_AGE_SECONDS = 24 * 3600
+
+# Own liveness stamp for the guardian (mirrors the main bot's bot_heartbeat.txt):
+# the runner rewrites this every HEARTBEAT_INTERVAL_SECONDS so a HUNG runner
+# (process alive but event loop wedged) is detected, not just a dead PID.
+HEARTBEAT_PATH = Path("state") / "chatter_heartbeat.txt"
+HEARTBEAT_INTERVAL_SECONDS = 30
+
+
+# --- 0. catch-up: pick up messages that arrived while OFFLINE ---------------
+@dataclass
+class MissedMessage:
+    sender_id: int
+    texts: list[str]              # chronological (oldest first)
+    oldest_age_seconds: float
+
+
+def select_missed(
+    dialogs: list[dict], *, allowlist: frozenset[int], now: float, max_age_seconds: float,
+) -> list[MissedMessage]:
+    """Pure core of catch-up. Given a snapshot of private dialogs with unread
+    messages, decide which to answer after a restart.
+
+    `dialogs` is transport-agnostic: each item is
+        {sender_id: int, is_user: bool, is_bot: bool,
+         messages: [{text: str, out: bool, date_ts: float}, ...]}
+
+    Keeps, per allowlisted human DM: inbound (`out` False), non-blank messages
+    within `max_age_seconds`, in chronological order. Drops groups/channels
+    (`is_user` False), bots, non-allowlisted senders, our own outgoing, blanks,
+    and anything older than the age cap. Empty result for a dialog with nothing
+    left to answer."""
+    out: list[MissedMessage] = []
+    for d in dialogs:
+        if not d.get("is_user") or d.get("is_bot"):
+            continue
+        if d.get("sender_id") not in allowlist:
+            continue
+        picked = [
+            m for m in sorted(d.get("messages", []), key=lambda m: m["date_ts"])
+            if not m.get("out")
+            and (m.get("text") or "").strip()
+            and (now - m["date_ts"]) <= max_age_seconds
+        ]
+        if picked:
+            out.append(MissedMessage(
+                sender_id=d["sender_id"],
+                texts=[m["text"] for m in picked],
+                oldest_age_seconds=now - picked[0]["date_ts"],
+            ))
+    return out
+
+
+def write_heartbeat(path: Path = HEARTBEAT_PATH, *, now: float | None = None) -> None:
+    """Stamp the runner's liveness file with the current unix time (seconds).
+    Best-effort: a failure here must never take down the runner."""
+    ts = int(time.time() if now is None else now)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(str(ts), encoding="ascii")
+    except Exception:
+        log.warning("failed to write heartbeat to %s", path, exc_info=True)
+
 
 # --- 1. eligibility filter -------------------------------------------------
 # Pure, sync-testable (spec S3). The event handler extracts booleans from the
@@ -222,6 +289,88 @@ class TelethonRunner:
 
         return ChatDebouncer(window=t.debounce_window, max_window=t.debounce_max, on_ready=_on_ready)
 
+    # --- catch-up on start --------------------------------------------------
+    async def _collect_dialogs(self, *, per_dialog_scan: int = 50) -> list[dict]:
+        """Snapshot private dialogs that have UNREAD messages into the
+        transport-agnostic dicts `select_missed` consumes. The ONLY place that
+        touches the live Telethon dialog/message iterators -- kept thin so the
+        decision logic stays pure and unit-tested."""
+        dialogs: list[dict] = []
+        async for dialog in self.client.iter_dialogs():
+            if not getattr(dialog, "is_user", False):
+                continue
+            if getattr(dialog, "unread_count", 0) <= 0:
+                continue
+            entity = dialog.entity
+            sender_id = getattr(entity, "id", None)
+            if sender_id is None:
+                continue
+            messages: list[dict] = []
+            async for m in self.client.iter_messages(
+                entity, limit=min(int(dialog.unread_count), per_dialog_scan),
+            ):
+                messages.append({
+                    "text": getattr(m, "message", None) or "",
+                    "out": bool(getattr(m, "out", False)),
+                    "date_ts": m.date.timestamp(),
+                })
+            dialogs.append({
+                "sender_id": sender_id,
+                "is_user": True,
+                "is_bot": bool(getattr(entity, "bot", False)),
+                "messages": messages,
+            })
+        return dialogs
+
+    async def catch_up_missed(
+        self, *, now: float | None = None, max_age_seconds: float = CATCHUP_MAX_AGE_SECONDS,
+        collect: Callable[[], Awaitable[list[dict]]] | None = None,
+    ) -> None:
+        """On start, answer messages that arrived while the runner was OFFLINE
+        (spec liveness: a restart/crash must not silently drop leads). Scans
+        unread private dialogs, selects allowlisted inbound within the age cap,
+        and runs each through the SAME process_batch path as a live message --
+        but with the message's age, so the "sorry for the pause" path fires."""
+        now = time.time() if now is None else now
+        collect = collect or self._collect_dialogs
+        try:
+            dialogs = await collect()
+        except Exception:
+            log.exception("catch-up: failed to collect dialogs; skipping catch-up")
+            return
+        missed = select_missed(dialogs, allowlist=self.allowlist, now=now, max_age_seconds=max_age_seconds)
+        log.info("catch-up: %d dialog(s) with missed messages", len(missed))
+        for mm in missed:
+            try:
+                await self._process_missed(mm)
+            except Exception:
+                log.exception("catch-up: FAILED for sender %s", mm.sender_id)
+
+    async def _process_missed(self, mm: MissedMessage) -> None:
+        persona_slug = self.persona_for(mm.sender_id)
+        bundle = self.personas[persona_slug]
+        contact_id = f"{mm.sender_id}:{persona_slug}"
+        peer = await self.client.get_input_entity(mm.sender_id)
+        transport = TelethonTransport(self.client, peer, self.loop)
+        bundle.deps.store.get_or_create_contact(contact_id)
+        log.info("catch-up process START %s texts=%r age=%.0fs",
+                 contact_id, mm.texts, mm.oldest_age_seconds)
+        await asyncio.to_thread(
+            process_batch, contact_id, mm.texts, transport, bundle.deps,
+            missed_age_seconds=mm.oldest_age_seconds,
+        )
+        log.info("catch-up process END %s", contact_id)
+
+
+async def heartbeat_loop(
+    *, interval: float = HEARTBEAT_INTERVAL_SECONDS, path: Path = HEARTBEAT_PATH,
+) -> None:
+    """Rewrite the runner's liveness stamp every `interval` seconds forever, so
+    the guardian can tell a live runner from a hung one. Never raises out."""
+    while True:
+        write_heartbeat(path)
+        await asyncio.sleep(interval)
+
 
 # --- runner assembly / CLI --------------------------------------------------
 def _build_llm(cfg: Config, mode: str) -> LLMClient:
@@ -275,7 +424,10 @@ def build_runner(
     return runner
 
 
-def run_client(client, loop: asyncio.AbstractEventLoop) -> int:
+def run_client(
+    client, loop: asyncio.AbstractEventLoop,
+    *, on_connected: Callable[[], Awaitable[None]] | None = None,
+) -> int:
     """Runs `client.start()` + `client.run_until_disconnected()` -- the
     actual network-facing lifetime of the userbot -- with session-loss
     mapped to a graceful, alerted stop instead of a silent death or a bare
@@ -289,6 +441,11 @@ def run_client(client, loop: asyncio.AbstractEventLoop) -> int:
     """
     try:
         client.start()
+        # Scheduled now, executed once run_until_disconnected() drives the loop:
+        # runs AFTER the session is connected (start() blocks until connected),
+        # so catch-up's dialog scan and the heartbeat run against a live client.
+        if on_connected is not None:
+            loop.create_task(on_connected())
         client.run_until_disconnected()
         return 0
     except SESSION_LOST_ERRORS as e:
@@ -351,13 +508,19 @@ def main(argv: list[str] | None = None) -> int:
 
     slugs = [s.strip() for s in args.personas.split(",") if s.strip()]
     store = Store(args.db)
-    build_runner(
+    runner = build_runner(
         client=client, clients_dir=Path(args.clients_dir), persona_slugs=slugs,
         store=store, loop=loop, llm_mode=args.llm,
     )
 
+    async def _on_connected() -> None:
+        # Own liveness stamp for the guardian, forever, alongside the one-shot
+        # catch-up of anything that arrived while we were down.
+        loop.create_task(heartbeat_loop())
+        await runner.catch_up_missed()
+
     print(f"[telethon_run] personas={slugs} session={session_path}")
-    return run_client(client, loop)
+    return run_client(client, loop, on_connected=_on_connected)
 
 
 if __name__ == "__main__":

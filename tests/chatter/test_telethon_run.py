@@ -21,6 +21,7 @@ from chatter.run import Deps
 import chatter.telethon_run as tr
 from chatter.telethon_run import (
     ChatDebouncer, PersonaBundle, TelethonRunner, build_runner, run_client, should_handle,
+    select_missed, CATCHUP_MAX_AGE_SECONDS,
 )
 
 CLIENTS_DIR = Path(__file__).resolve().parent.parent.parent / "chatter" / "clients"
@@ -385,6 +386,128 @@ def test_build_runner_requires_telegram_block_on_primary_persona(tmp_path):
             client=client, clients_dir=CLIENTS_DIR, persona_slugs=["demo2", "demo"],
             store=store, loop=loop, llm_mode="fake",
         )
+
+
+# ---------------------------------------------------------------------------
+# 7b. catch-up on start -- messages that arrived while the runner was OFFLINE
+# must be picked up and answered after start (prod blocker: a restart/crash
+# otherwise silently drops leads). select_missed is the pure core; catch_up_
+# missed is the wiring.
+# ---------------------------------------------------------------------------
+def test_select_missed_picks_allowlisted_inbound_within_age_chronological():
+    now = 10_000.0
+    dialogs = [{
+        "sender_id": ALLOWED, "is_user": True, "is_bot": False,
+        "messages": [
+            {"text": "второе", "out": False, "date_ts": now - 100},
+            {"text": "первое", "out": False, "date_ts": now - 200},
+            {"text": "моё исходящее", "out": True, "date_ts": now - 50},  # out -> excluded
+        ],
+    }]
+    missed = select_missed(dialogs, allowlist=frozenset({ALLOWED}), now=now,
+                           max_age_seconds=CATCHUP_MAX_AGE_SECONDS)
+    assert len(missed) == 1
+    mm = missed[0]
+    assert mm.sender_id == ALLOWED
+    assert mm.texts == ["первое", "второе"]  # chronological order, outgoing dropped
+    assert 199 < mm.oldest_age_seconds < 201
+
+
+def test_select_missed_skips_non_allowlisted():
+    now = 10_000.0
+    dialogs = [{"sender_id": 999999, "is_user": True, "is_bot": False,
+                "messages": [{"text": "hi", "out": False, "date_ts": now - 10}]}]
+    assert select_missed(dialogs, allowlist=frozenset({ALLOWED}), now=now,
+                         max_age_seconds=CATCHUP_MAX_AGE_SECONDS) == []
+
+
+def test_select_missed_skips_too_old_beyond_age_cap():
+    now = 10_000.0
+    dialogs = [{"sender_id": ALLOWED, "is_user": True, "is_bot": False,
+                "messages": [{"text": "прошлогоднее", "out": False, "date_ts": now - 25 * 3600}]}]
+    assert select_missed(dialogs, allowlist=frozenset({ALLOWED}), now=now,
+                         max_age_seconds=24 * 3600) == []
+
+
+def test_select_missed_skips_groups_bots_and_blank():
+    now = 10_000.0
+    dialogs = [
+        {"sender_id": ALLOWED, "is_user": False, "is_bot": False,
+         "messages": [{"text": "group", "out": False, "date_ts": now - 1}]},
+        {"sender_id": ALLOWED, "is_user": True, "is_bot": True,
+         "messages": [{"text": "botmsg", "out": False, "date_ts": now - 1}]},
+        {"sender_id": ALLOWED, "is_user": True, "is_bot": False,
+         "messages": [{"text": "   ", "out": False, "date_ts": now - 1}]},
+    ]
+    assert select_missed(dialogs, allowlist=frozenset({ALLOWED}), now=now,
+                         max_age_seconds=CATCHUP_MAX_AGE_SECONDS) == []
+
+
+def test_select_missed_drops_only_the_too_old_keeps_recent():
+    now = 10_000.0
+    dialogs = [{"sender_id": ALLOWED, "is_user": True, "is_bot": False, "messages": [
+        {"text": "старое", "out": False, "date_ts": now - 30 * 3600},  # too old
+        {"text": "свежее", "out": False, "date_ts": now - 300},         # 5 min
+    ]}]
+    missed = select_missed(dialogs, allowlist=frozenset({ALLOWED}), now=now, max_age_seconds=24 * 3600)
+    assert missed[0].texts == ["свежее"]
+    assert 299 < missed[0].oldest_age_seconds < 301
+
+
+def test_catch_up_answers_messages_that_arrived_while_offline(monkeypatch):
+    """End-to-end wiring: a fake dialog list with an unread inbound from an
+    allowlisted user (arrived 20 min before start) flows through catch_up_missed
+    into process_batch with the right contact_id, text and the message's age
+    (so the apology path can fire)."""
+    async def scenario():
+        runner, client = _runner()
+        client.get_input_entity = AsyncMock(return_value="inputpeer:catchup")
+        calls = []
+
+        def fake_process_batch(contact_id, batch, transport, deps, *, missed_age_seconds=None):
+            calls.append((contact_id, list(batch), deps.cfg.slug, missed_age_seconds))
+
+        monkeypatch.setattr(tr, "process_batch", fake_process_batch)
+        now = 10_000.0
+
+        async def collect():
+            return [{
+                "sender_id": ALLOWED, "is_user": True, "is_bot": False,
+                "messages": [{"text": "вы тут?", "out": False, "date_ts": now - 1200}],
+            }]
+
+        await runner.catch_up_missed(now=now, collect=collect)
+
+        assert len(calls) == 1
+        contact_id, batch, slug, age = calls[0]
+        assert contact_id == f"{ALLOWED}:demo"
+        assert batch == ["вы тут?"]
+        assert slug == "demo"
+        assert 1199 < age < 1201
+
+    asyncio.run(scenario())
+
+
+def test_write_heartbeat_stamps_current_unix_time(tmp_path):
+    from chatter.telethon_run import write_heartbeat
+    hb = tmp_path / "state" / "chatter_heartbeat.txt"
+    write_heartbeat(hb, now=1_700_000_000.0)
+    assert hb.read_text(encoding="ascii").strip() == "1700000000"
+
+
+def test_catch_up_no_missed_does_not_call_process_batch(monkeypatch):
+    async def scenario():
+        runner, client = _runner()
+        called = []
+        monkeypatch.setattr(tr, "process_batch", lambda *a, **k: called.append(1))
+
+        async def collect():
+            return []
+
+        await runner.catch_up_missed(now=10_000.0, collect=collect)
+        assert called == []
+
+    asyncio.run(scenario())
 
 
 # ---------------------------------------------------------------------------

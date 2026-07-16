@@ -39,6 +39,37 @@ def _persona_first_line(persona: str) -> str:
     return ""
 
 
+# A message that sat unanswered longer than this is one a real person would
+# acknowledge ("sorry for the delay") when they finally reply. Below it, no
+# apology -- an instant answer needs no excuse.
+APOLOGY_AGE_THRESHOLD_SECONDS = 600.0  # 10 minutes
+
+
+def _humanize_age(seconds: float) -> str:
+    minutes = int(seconds // 60)
+    if minutes < 60:
+        return f"около {minutes} минут"
+    hours = minutes // 60
+    return f"около {hours} ч" if hours < 24 else "больше суток"
+
+
+def missed_reply_context(age_seconds: float | None) -> str | None:
+    """One-off brain context for a message answered late (after downtime).
+
+    Returns None for fresh/recent messages (no apology needed). For anything
+    older than the threshold it returns an INSTRUCTION (not a hardcoded phrase)
+    telling the model to acknowledge the pause in its own voice, so the apology
+    stays in-persona instead of a canned line."""
+    if age_seconds is None or age_seconds < APOLOGY_AGE_THRESHOLD_SECONDS:
+        return None
+    return (
+        f"Это сообщение ждало ответа {_humanize_age(age_seconds)} — ты увидела его "
+        f"только сейчас. Если это уместно в твоём тоне, начни с короткого, "
+        f"естественного извинения за паузу своими словами (без шаблонных фраз), "
+        f"а дальше ответь по существу."
+    )
+
+
 def gather_batch(transport: Transport, deps: Deps, first: str) -> list[str]:
     """Collect a burst of inbound messages.
 
@@ -70,10 +101,18 @@ def gather_batch(transport: Transport, deps: Deps, first: str) -> list[str]:
     return batch
 
 
-def process_batch(contact_id: str, incoming: list[str], transport: Transport, deps: Deps) -> None:
+def process_batch(
+    contact_id: str, incoming: list[str], transport: Transport, deps: Deps,
+    *, missed_age_seconds: float | None = None,
+) -> None:
     """Coalesce the batch, guard on rate limits, decide a reply
     (disclosure > guardrails > brain), then deliver it via the humanizer's
-    action plan (compose_reply): Pause/Typing/Say interpreted in order."""
+    action plan (compose_reply): Pause/Typing/Say interpreted in order.
+
+    `missed_age_seconds`: when this batch is a message that arrived while the
+    bot was OFFLINE (catch-up), how long the oldest message waited. It drives
+    the "sorry for the pause" acknowledgement on the brain path. None (default)
+    = a live message, no apology."""
     text = H.coalesce(incoming)
     if not text:
         return
@@ -94,7 +133,10 @@ def process_batch(contact_id: str, incoming: list[str], transport: Transport, de
             language=deps.cfg.settings.language,
         )
     else:
-        reply = deps.brain.reply(deps.store.history(contact_id))
+        reply = deps.brain.reply(
+            deps.store.history(contact_id),
+            context_note=missed_reply_context(missed_age_seconds),
+        )
         if contains_unbacked_claim(reply, deps.cfg.knowledge):
             deps.store.set_state(contact_id, "escalated")  # arc 3 does the actual handoff
             print(f"  [escalation flag] unbacked claim for {contact_id}: {reply!r}")

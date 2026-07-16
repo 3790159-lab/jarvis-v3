@@ -1,0 +1,126 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""DOWN alerter for the chatter Telethon runner (arc 2 liveness).
+
+STANDALONE and stdlib-ONLY on purpose (like boot_watch_check.py / ops_watchdog.py):
+it must run even if the chatter package or its deps are broken. JarvisChatterGuardian
+invokes it once per DOWN cycle:
+
+    python scripts/chatter_watch_check.py
+
+It reads the runner's heartbeat (state/chatter_heartbeat.txt). If the heartbeat
+is stale (runner dead or hung), it Telegram-alerts the ADMIN via the main Jarvis
+bot token -- NOT via the chatter userbot itself (which is exactly what's down) --
+with a cooldown so a prolonged outage doesn't spam. A fresh heartbeat is a no-op.
+
+The alert reaches the operator (chat 237616472) so the first client is never left
+without a bot after a crash / Windows Update reboot.
+"""
+import json
+import re
+import sys
+import time
+import urllib.request
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+HEARTBEAT_PATH = ROOT / "state" / "chatter_heartbeat.txt"
+MARKER_PATH = ROOT / "state" / "chatter_watch_alert.json"
+ENV_PATH = ROOT / ".env"
+ADMIN_CHAT_ID = "237616472"
+HEARTBEAT_MAX_AGE_S = 180      # matches the guardian's tolerance for a transient stall
+ALERT_COOLDOWN_S = 3600        # at most one DOWN alert per hour
+
+
+# ── pure decision functions (unit-tested) ──────────────────────────────────
+def is_heartbeat_fresh(hb_text, *, now: float, max_age: float) -> bool:
+    """True only if `hb_text` is a numeric unix-seconds stamp within max_age."""
+    if not hb_text:
+        return False
+    try:
+        last = int(str(hb_text).strip())
+    except (ValueError, TypeError):
+        return False
+    return (now - last) <= max_age
+
+
+def should_alert(*, is_down: bool, last_alert_ts, now: float, cooldown: float) -> bool:
+    """Alert only if currently down AND we haven't alerted within the cooldown."""
+    if not is_down:
+        return False
+    if last_alert_ts is None:
+        return True
+    return (now - float(last_alert_ts)) >= cooldown
+
+
+def alert_text() -> str:
+    return (
+        "🔴 chatter-раннер (Telethon-юзербот) НЕ отвечает: heartbeat устарел "
+        "(процесс мёртв или завис). JarvisChatterGuardian пытается перезапустить. "
+        "Если не поднимется — проверь logs/chatter_telethon.log и "
+        "`schtasks /Run /TN JarvisChatterGuardian`. Пока раннер лежит, входящие "
+        "в личку копятся непрочитанными (catch-up подхватит их за 24ч после старта)."
+    )
+
+
+# ── stdlib-only IO (exercised live, not unit-tested) ───────────────────────
+def _read_marker() -> dict:
+    try:
+        return json.loads(MARKER_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _write_marker(now: float) -> None:
+    try:
+        MARKER_PATH.parent.mkdir(parents=True, exist_ok=True)
+        MARKER_PATH.write_text(json.dumps({"last_alert_ts": now}), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _bot_token() -> str:
+    try:
+        env = ENV_PATH.read_text(encoding="utf-8")
+    except Exception:
+        return ""
+    m = re.search(r'^\s*(?:TELEGRAM_BOT_TOKEN|BOT_TOKEN)\s*=\s*"?([^"\r\n]+)"?', env, re.M)
+    return m.group(1).strip() if m else ""
+
+
+def _send_tg(text: str) -> bool:
+    token = _bot_token()
+    if not token:
+        return False
+    payload = json.dumps({"chat_id": ADMIN_CHAT_ID, "text": text}).encode()
+    req = urllib.request.Request(
+        "https://api.telegram.org/bot%s/sendMessage" % token,
+        data=payload, headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return json.loads(r.read()).get("ok", False)
+    except Exception:
+        return False
+
+
+def main() -> int:
+    now = time.time()
+    try:
+        hb_text = HEARTBEAT_PATH.read_text(encoding="ascii")
+    except Exception:
+        hb_text = None
+    is_down = not is_heartbeat_fresh(hb_text, now=now, max_age=HEARTBEAT_MAX_AGE_S)
+    last = _read_marker().get("last_alert_ts")
+    if should_alert(is_down=is_down, last_alert_ts=last, now=now, cooldown=ALERT_COOLDOWN_S):
+        if _send_tg(alert_text()):
+            _write_marker(now)
+            print("[chatter_watch_check] DOWN alert sent to admin")
+        else:
+            print("[chatter_watch_check] DOWN but TG alert failed (no token / network)")
+    else:
+        print("[chatter_watch_check] ok" if not is_down else "[chatter_watch_check] down, within cooldown")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

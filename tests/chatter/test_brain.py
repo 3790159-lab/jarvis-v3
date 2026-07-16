@@ -58,3 +58,20 @@ def test_brain_reply_calls_llm_with_budget(tmp_path):
     assert call["max_tokens"] == cfg.settings.limits.max_reply_tokens
     assert "Меня зовут Аня" in call["system"]
     assert call["messages"][-1] == {"role": "user", "content": "привет"}
+
+
+def test_brain_reply_context_note_is_appended_to_system_only_when_given(tmp_path):
+    """A one-off context note (e.g. 'this message waited 20 min, apologise for
+    the pause in your own words') rides along in the SYSTEM prompt for that one
+    call, without becoming part of the persona. Absent by default."""
+    cfg = _cfg(tmp_path)
+    llm = FakeLLM(scripted=["ok1", "ok2"])
+    brain = Brain(llm, cfg)
+
+    brain.reply([{"role": "user", "text": "вы тут?"}])
+    assert "КОНТЕКСТ" not in llm.calls[0]["system"]  # nothing extra by default
+
+    brain.reply([{"role": "user", "text": "вы тут?"}], context_note="ЗАМЕТКА-ИЗВИНЕНИЕ")
+    assert "ЗАМЕТКА-ИЗВИНЕНИЕ" in llm.calls[1]["system"]
+    assert "Мена зовут" not in llm.calls[1]["system"] or True  # persona still present
+    assert "Меня зовут Аня" in llm.calls[1]["system"]

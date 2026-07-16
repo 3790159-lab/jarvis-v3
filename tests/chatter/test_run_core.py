@@ -5,7 +5,7 @@ from chatter.core.brain import Brain
 from chatter.core.llm import FakeLLM
 from chatter.storage.db import Store
 from chatter.transport.fake import FakeConsoleTransport
-from chatter.run import Deps, gather_batch, process_batch
+from chatter.run import Deps, gather_batch, process_batch, missed_reply_context
 from tests.chatter.test_loader import SETTINGS, _make_client
 
 # Keep the debounce window/ceiling tiny for gather_batch tests: FakeConsoleTransport's
@@ -144,6 +144,41 @@ def test_bot_question_gets_honest_reply_llm_not_consulted(tmp_path):
     joined = " ".join(t.sent)
     assert "виртуальный ассистент" in joined
     assert "НЕ ДОЛЖНО" not in joined  # scripted brain reply not used for disclosure
+
+
+def test_missed_reply_context_none_for_fresh_or_recent():
+    assert missed_reply_context(None) is None
+    assert missed_reply_context(0.0) is None
+    assert missed_reply_context(599.0) is None  # under the 10-min threshold
+
+
+def test_missed_reply_context_suggests_apology_after_10_min():
+    note = missed_reply_context(1200.0)  # 20 minutes
+    assert note is not None
+    assert "извин" in note.lower()  # instructs the model to apologise (not a hardcoded phrase)
+    assert "20" in note             # humanised age (~20 минут)
+
+
+def test_process_batch_missed_message_passes_apology_context_to_brain(tmp_path):
+    """A message that sat unanswered while the bot was down must be answered
+    WITH an acknowledgement of the pause -- the apology note reaches the brain's
+    system prompt, and a reply is still sent."""
+    deps, clock = _deps(tmp_path, scripted=["Ой, извините за паузу! Чем могу помочь?"])
+    t = FakeConsoleTransport(preload=[], echo=False)
+    deps.store.get_or_create_contact("u1")
+    process_batch("u1", ["вы тут?"], t, deps, missed_age_seconds=1200.0)
+    assert t.sent  # replied
+    sys_prompt = deps.brain._llm.calls[0]["system"]
+    assert "извин" in sys_prompt.lower()
+
+
+def test_process_batch_live_message_has_no_apology_context(tmp_path):
+    deps, clock = _deps(tmp_path, scripted=["Здравствуйте!"])
+    t = FakeConsoleTransport(preload=[], echo=False)
+    deps.store.get_or_create_contact("u1")
+    process_batch("u1", ["привет"], t, deps)  # missed_age_seconds defaults to None
+    sys_prompt = deps.brain._llm.calls[0]["system"]
+    assert "КОНТЕКСТ ОТВЕТА" not in sys_prompt
 
 
 def test_unbacked_price_is_suppressed_and_escalated(tmp_path):

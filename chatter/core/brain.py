@@ -38,9 +38,20 @@ class Brain:
         self._cfg = cfg
         self._system = build_system_prompt(cfg)
 
-    def reply(self, history: list[dict]) -> str:
+    def reply(self, history: list[dict], *, context_note: str | None = None) -> str:
+        """`context_note`: an optional ONE-OFF instruction for this reply only
+        (e.g. "this message waited 20 min, acknowledge the pause in your own
+        words"). It rides in the system prompt for this single call but is NOT
+        part of the persona -- absent by default, so existing behaviour is
+        unchanged."""
+        system = self._system
+        if context_note:
+            system = (
+                f"{self._system}\n\n"
+                f"=== КОНТЕКСТ ОТВЕТА (разовая заметка, не часть персоны) ===\n{context_note}"
+            )
         return self._llm.complete(
-            self._system,
+            system,
             build_messages(history),
             max_tokens=self._cfg.settings.limits.max_reply_tokens,
         )
