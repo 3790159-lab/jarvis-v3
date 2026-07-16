@@ -3,6 +3,7 @@ import argparse
 import datetime as _dt
 import os
 import random
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -122,6 +123,17 @@ def _build_llm(cfg: Config, mode: str):
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Windows consoles often default stdin/stdout to a legacy codepage (e.g. cp1251)
+    # instead of UTF-8, which silently corrupts Cyrillic instead of raising -- and
+    # specifically breaks disclosure.is_bot_question()'s match on the
+    # honesty-critical "ты бот?" question (observed live: without this, a merged
+    # batch containing "ты бот?" fell through to the brain/guardrail path instead
+    # of the honest disclosure). Force UTF-8 explicitly rather than relying on the
+    # operator to set PYTHONUTF8=1 externally.
+    for _stream in (sys.stdin, sys.stdout):
+        if hasattr(_stream, "reconfigure"):
+            _stream.reconfigure(encoding="utf-8")
+
     p = argparse.ArgumentParser(prog="chatter.run")
     p.add_argument("--client", required=True)
     p.add_argument("--transport", choices=["fake"], default="fake")

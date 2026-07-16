@@ -11,8 +11,16 @@ class FakeConsoleTransport(Transport):
     In tests, pass `preload` to seed the queue and skip stdin."""
 
     def __init__(self, preload: list[str] | None = None, echo: bool = True):
-        self._q: "queue.Queue[str | None]" = queue.Queue()
+        self._q: "queue.Queue[str]" = queue.Queue()
         self._echo = echo
+        # EOF is tracked as persistent STATE (not a one-shot sentinel value in the
+        # queue). A one-shot `None` sentinel would be consumed by whichever
+        # `receive()` call happens to dequeue it first -- if that's an inner burst
+        # -collection loop (gather_batch) rather than the outer read loop, the
+        # outer loop never learns stdin closed and blocks on `receive(timeout=None)`
+        # forever. With an Event, every call after EOF+drain sees closed==True and
+        # returns None immediately, however many times it's asked.
+        self._eof = threading.Event()
         self.sent: list[str] = []
         self.typing_events: list[bool] = []
         if preload is not None:
@@ -26,9 +34,11 @@ class FakeConsoleTransport(Transport):
     def _read_stdin(self) -> None:
         for line in sys.stdin:
             self._q.put(line.rstrip("\n"))
-        self._q.put(None)  # EOF sentinel
+        self._eof.set()
 
     def receive(self, timeout: float | None = None) -> str | None:
+        if self._eof.is_set() and self._q.empty():
+            return None
         try:
             return self._q.get(timeout=timeout)
         except queue.Empty:
