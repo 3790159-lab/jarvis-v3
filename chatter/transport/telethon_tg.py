@@ -106,6 +106,7 @@ class TelethonTransport(Transport):
         return None
 
     def send(self, text: str) -> None:
+        log.info("OUT %s: %s", self._chat, text)
         self._call_with_floodwait_retry(
             lambda: self._client.send_message(self._chat, text),
             desc=f"send_message to {self._chat}",

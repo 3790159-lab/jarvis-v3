@@ -20,6 +20,9 @@ from chatter.core.llm import AnthropicLLM, FakeLLM, LLMClient
 from chatter.run import Deps, process_batch
 from chatter.storage.db import Store
 from chatter.transport.telethon_tg import TelethonTransport, send_alert
+from chatter.telethon_login import (
+    DEFAULT_ENV_FILE, CredentialsError, _parse_env_file, load_api_credentials,
+)
 
 # Session-loss errors (spec S2/S8): the account got logged out / the saved
 # session is no longer valid. AuthKeyError is the base of the
@@ -178,6 +181,7 @@ class TelethonRunner:
 
         text = (event.raw_text or "").strip()
         chat = event.chat_id
+        log.info("IN %s [%s]: %s", sender_id, self.persona_for(sender_id), text)
 
         if text == "/switch":
             new_slug = self.toggle_persona(sender_id)
@@ -301,26 +305,38 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--llm", choices=["auto", "real", "fake"], default="auto")
     args = p.parse_args(argv)
 
-    api_id = os.environ.get("TELEGRAM_API_ID")
-    api_hash = os.environ.get("TELEGRAM_API_HASH")
-    if not api_id or not api_hash:
-        print(
-            "[telethon_run] TELEGRAM_API_ID / TELEGRAM_API_HASH not set in env "
-            "-- see chatter/telethon_login.py (Milestone F)",
-            file=sys.stderr,
-        )
+    try:
+        # Same .env fallback as the login script, so a deploy-faithful `.venv`
+        # run doesn't require the operator to export TELEGRAM_API_ID/HASH.
+        api_id, api_hash = load_api_credentials(os.environ, DEFAULT_ENV_FILE)
+    except CredentialsError as e:
+        print(f"[telethon_run] {e}", file=sys.stderr)
         return 1
+
+    # For real Haiku replies, make ANTHROPIC_API_KEY available the same way --
+    # fall back to the repo .env so `--llm real` works without a manual export.
+    if args.llm in ("real", "auto") and not os.environ.get("ANTHROPIC_API_KEY"):
+        _key = _parse_env_file(DEFAULT_ENV_FILE).get("ANTHROPIC_API_KEY")
+        if _key:
+            os.environ["ANTHROPIC_API_KEY"] = _key
 
     from telethon import TelegramClient  # deferred: only main() ever constructs a real client
 
     session_path = os.environ.get("TELETHON_SESSION", args.session)
     Path(session_path).parent.mkdir(parents=True, exist_ok=True)
     Path(args.db).parent.mkdir(parents=True, exist_ok=True)
+
+    # Own event loop, set as current: (a) works on Python 3.12+/3.14 where
+    # asyncio.get_event_loop() raises at top level, and (b) is the SAME loop
+    # Telethon's start()/run_until_disconnected() run on, so the transport's
+    # run_coroutine_threadsafe(send/typing, loop) targets the loop that's
+    # actually running (otherwise sends would never execute).
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     client = TelegramClient(session_path, int(api_id), api_hash)
 
     slugs = [s.strip() for s in args.personas.split(",") if s.strip()]
     store = Store(args.db)
-    loop = asyncio.get_event_loop()
     build_runner(
         client=client, clients_dir=Path(args.clients_dir), persona_slugs=slugs,
         store=store, loop=loop, llm_mode=args.llm,

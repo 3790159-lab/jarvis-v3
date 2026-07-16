@@ -82,7 +82,11 @@ def make_client(session_path: str, api_id: str, api_hash: str, client_cls=None):
     matches telethon_run.py's convention of only ever constructing a real
     client from the interactive entry point."""
     if client_cls is None:
-        from telethon import TelegramClient as client_cls  # noqa: N806
+        # telethon.sync (not plain telethon) so this script's client.get_me()
+        # / client.disconnect() run synchronously instead of returning
+        # un-awaited coroutines (which printed "? (@None) id=?"). Only affects
+        # THIS process; telethon_run.py imports plain telethon for its async loop.
+        from telethon.sync import TelegramClient as client_cls  # noqa: N806
     return client_cls(session_path, int(api_id), api_hash)
 
 
