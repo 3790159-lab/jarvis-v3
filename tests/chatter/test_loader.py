@@ -21,6 +21,7 @@ timings:
   split_max_len: 160
   night_multiplier: 2.0
   debounce_window: 3.0
+  debounce_max: 15.0
 limits:
   max_tokens_per_dialog: 20000
   per_contact_hourly: 20

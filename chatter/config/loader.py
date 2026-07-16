@@ -21,6 +21,7 @@ class Timings:
     split_max_len: int
     night_multiplier: float
     debounce_window: float
+    debounce_max: float
 
 @dataclass(frozen=True)
 class Limits:
@@ -53,7 +54,7 @@ class Config:
 _TIMING_FIELDS = [
     "read_delay_min", "read_delay_max", "cps_min", "cps_max",
     "jitter_min", "jitter_max", "split_pause_min", "split_pause_max",
-    "split_max_len", "night_multiplier", "debounce_window",
+    "split_max_len", "night_multiplier", "debounce_window", "debounce_max",
 ]
 _LIMIT_FIELDS = ["max_tokens_per_dialog", "per_contact_hourly", "daily_cap"]
 
