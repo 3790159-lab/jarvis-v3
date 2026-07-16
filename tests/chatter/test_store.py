@@ -1,6 +1,29 @@
 from __future__ import annotations
+import threading
 import pytest
 from chatter.storage.db import Store
+
+def test_store_usable_from_another_thread(tmp_path):
+    # Regression: the Telethon transport runs process_batch in a worker thread
+    # (asyncio.to_thread), so the Store — created on the main thread — must be
+    # usable from other threads. Before check_same_thread=False + a lock, this
+    # raised sqlite3.ProgrammingError and the live bot silently never replied.
+    s = Store(tmp_path / "c.db")
+    s.get_or_create_contact("u1")
+    errors: list[Exception] = []
+
+    def worker() -> None:
+        try:
+            s.add_message("u1", "user", "привет", ts=1.0)
+            assert s.history("u1")[-1]["text"] == "привет"
+            assert s.count_messages_since("u1", role="user", since_ts=0.0) == 1
+        except Exception as e:  # noqa: BLE001
+            errors.append(e)
+
+    t = threading.Thread(target=worker)
+    t.start()
+    t.join()
+    assert errors == [], f"Store must be usable from a worker thread: {errors!r}"
 
 def test_get_or_create_contact_defaults(tmp_path):
     s = Store(tmp_path / "c.db")

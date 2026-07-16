@@ -204,7 +204,15 @@ class TelethonRunner:
         async def _on_ready(batch: list[str]) -> None:
             contact_id = f"{sender_id}:{persona_slug}"
             transport = TelethonTransport(self.client, chat, self.loop)
-            await asyncio.to_thread(process_batch, contact_id, batch, transport, bundle.deps)
+            bundle.deps.store.get_or_create_contact(contact_id)  # process_batch assumes the row exists
+            log.info("process START %s batch=%r", contact_id, batch)
+            try:
+                await asyncio.to_thread(process_batch, contact_id, batch, transport, bundle.deps)
+                log.info("process END %s", contact_id)
+            except Exception:
+                # A fire-and-forget debouncer task swallows exceptions otherwise;
+                # surface them loudly (this is what a silent no-reply looked like).
+                log.exception("process_batch FAILED for %s", contact_id)
 
         return ChatDebouncer(window=t.debounce_window, max_window=t.debounce_max, on_ready=_on_ready)
 
@@ -290,9 +298,9 @@ def run_client(client, loop: asyncio.AbstractEventLoop) -> int:
 def main(argv: list[str] | None = None) -> int:
     # Same rationale as chatter/run.py's main(): Windows consoles default to a
     # legacy codepage that silently mangles Cyrillic instead of raising.
-    for _stream in (sys.stdin, sys.stdout):
+    for _stream in (sys.stdin, sys.stdout, sys.stderr):
         if hasattr(_stream, "reconfigure"):
-            _stream.reconfigure(encoding="utf-8")
+            _stream.reconfigure(encoding="utf-8")  # incl. stderr: logging writes there; keeps Cyrillic/emoji readable
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
     p = argparse.ArgumentParser(prog="chatter.telethon_run")
