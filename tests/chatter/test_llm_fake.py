@@ -1,4 +1,6 @@
 from __future__ import annotations
+import subprocess
+import sys
 from chatter.core.llm import LLMClient, FakeLLM
 
 def test_fakellm_is_llmclient():
@@ -22,10 +24,14 @@ def test_fakellm_echoes_last_user_when_no_script():
     out = llm.complete("s", [{"role": "user", "content": "сколько стоит фотосессия"}], max_tokens=10)
     assert "фотосессия" in out
 
-def test_anthropicllm_import_is_lazy(monkeypatch):
-    """Importing chatter.core.llm and constructing FakeLLM must never require the
-    anthropic SDK. This guards against accidentally hoisting `import anthropic`
-    to module scope, which would break offline/no-key test runs."""
-    import sys
-    assert "anthropic" not in sys.modules or True  # sanity: module import itself must not fail
-    from chatter.core.llm import AnthropicLLM  # noqa: F401 - class import must not touch the SDK
+def test_importing_llm_module_does_not_import_anthropic():
+    """Importing chatter.core.llm (and referencing AnthropicLLM as a class) must
+    never pull in the anthropic SDK. Run in a fresh subprocess so the check is
+    robust regardless of whether `anthropic` happens to be installed or already
+    imported by something else in this pytest process."""
+    code = (
+        "import sys; import chatter.core.llm; "
+        "assert 'anthropic' not in sys.modules, 'anthropic imported at module load'"
+    )
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
