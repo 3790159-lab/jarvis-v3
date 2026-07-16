@@ -26,13 +26,45 @@ def is_bot_question(text: str) -> bool:
     return bool(_RE.search(text or ""))
 
 
-def honest_disclosure(*, owner_id: str, persona_line: str) -> str:
+# Per-language honesty markers. RU stays equal to HONESTY_MARKER so existing
+# RU-only callers/tests keep working unchanged.
+HONESTY_MARKERS = {
+    "ru": HONESTY_MARKER,
+    "en": "I'm a virtual assistant",
+    "uk": "я — віртуальний асистент",
+}
+
+# Owner name sits in apposition (nominative case) in every language so it
+# reads correctly regardless of the name -- e.g. RU "... владельца — Дмитрий
+# ответит лично." never declines "Дмитрий", unlike the old "позову Дмитрий
+# лично" (wrong case).
+_TEMPLATES = {
+    "ru": (
+        "{marker}, а не живой человек. "
+        "Помогаю с вопросами и подсказываю по услугам. "
+        "Если хотите, подключу владельца — {owner_id} ответит лично."
+    ),
+    "en": (
+        "{marker}, not a human. "
+        "I help answer questions and point you toward the right service. "
+        "If you'd like, I can bring in the owner — {owner_id} will reply personally."
+    ),
+    "uk": (
+        "{marker}, а не жива людина. "
+        "Допомагаю з питаннями і підказую щодо послуг. "
+        "Якщо хочете, підключу власника — {owner_id} відповість особисто."
+    ),
+}
+
+
+def honest_disclosure(*, owner_id: str, persona_line: str, language: str = "ru") -> str:
     """Always honest, no exceptions. `persona_line` only sets TONE — it can
-    never suppress or replace the honest fact (HONESTY_MARKER)."""
+    never suppress or replace the honest fact (the per-language marker).
+    `language` selects which honesty template/marker is used (safety: the
+    disclosure must be understandable in the user's own language); unknown
+    languages fall back to `ru`."""
     tone = (persona_line or "").strip()
-    core = (
-        f"{HONESTY_MARKER}, а не живой человек. "
-        f"Помогаю с вопросами и подсказываю по услугам. "
-        f"Если хотите — позову {owner_id} лично, ответит вживую."
-    )
+    marker = HONESTY_MARKERS.get(language, HONESTY_MARKER)
+    template = _TEMPLATES.get(language, _TEMPLATES["ru"])
+    core = template.format(marker=marker, owner_id=owner_id)
     return f"{tone} {core}".strip() if tone else core

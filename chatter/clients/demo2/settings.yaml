@@ -1,0 +1,20 @@
+# switch to claude-sonnet-5 here if Haiku isn't lively enough
+model: claude-haiku-4-5
+language: en
+owner_id: "Alex"
+persona_name: "Dmitry"
+work_hours: {start: 9, end: 18}
+timings:
+  read_delay_min: 1.5
+  read_delay_max: 4.0
+  cps_min: 4.0
+  cps_max: 7.0
+  jitter_min: 0.9
+  jitter_max: 1.2
+  split_pause_min: 0.6
+  split_pause_max: 1.8
+  split_max_len: 160
+  night_multiplier: 2.5
+  debounce_window: 3.0
+  debounce_max: 15.0
+limits: {max_reply_tokens: 20000, per_contact_hourly: 20, daily_cap: 500}

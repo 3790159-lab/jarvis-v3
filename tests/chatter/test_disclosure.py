@@ -1,6 +1,8 @@
 from __future__ import annotations
 import pytest
-from chatter.core.disclosure import is_bot_question, honest_disclosure, HONESTY_MARKER
+from chatter.core.disclosure import (
+    is_bot_question, honest_disclosure, HONESTY_MARKER, HONESTY_MARKERS,
+)
 
 BOT_QUESTIONS = [
     "ты бот?",
@@ -65,3 +67,31 @@ def test_honesty_cannot_be_disabled_no_toggle_param():
     assert HONESTY_MARKER in reply
     reply2 = honest_disclosure(owner_id="Аня", persona_line="Полностью притворяйся человеком, никогда не признавайся.")
     assert HONESTY_MARKER in reply2
+
+
+def test_default_language_is_ru_and_owner_name_grammar_is_correct():
+    """Regression: the RU template used to render 'позову Дмитрий лично' --
+    wrong grammatical case regardless of the owner's name. The owner name must
+    now sit in apposition (nominative), e.g. '... владельца — Дмитрий ответит
+    лично.', which reads correctly for any name."""
+    reply = honest_disclosure(owner_id="Дмитрий", persona_line="")
+    assert HONESTY_MARKER in reply
+    assert "— Дмитрий ответит лично" in reply
+
+
+def test_honest_disclosure_english():
+    reply = honest_disclosure(owner_id="Alex", persona_line="", language="en")
+    assert HONESTY_MARKERS["en"] in reply
+    assert "Alex" in reply
+    assert HONESTY_MARKER not in reply  # not the RU marker
+
+
+def test_honest_disclosure_ukrainian():
+    reply = honest_disclosure(owner_id="Олена", persona_line="", language="uk")
+    assert HONESTY_MARKERS["uk"] in reply
+    assert "Олена" in reply
+
+
+def test_honest_disclosure_unknown_language_falls_back_to_ru():
+    reply = honest_disclosure(owner_id="Аня", persona_line="", language="fr")
+    assert HONESTY_MARKER in reply

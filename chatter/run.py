@@ -91,6 +91,7 @@ def process_batch(contact_id: str, incoming: list[str], transport: Transport, de
         reply = honest_disclosure(
             owner_id=deps.cfg.settings.owner_id,
             persona_line=_persona_first_line(deps.cfg.persona),
+            language=deps.cfg.settings.language,
         )
     else:
         reply = deps.brain.reply(deps.store.history(contact_id))
