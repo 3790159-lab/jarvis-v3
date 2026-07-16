@@ -34,7 +34,7 @@ def split_message(text: str, t: Timings, *, max_parts: int = 3) -> list[str]:
     ends with sentence-ending punctuation (., !, ?, …); concatenation preserves
     content (ignoring whitespace).
     """
-    text = text.strip()
+    text = re.sub(r"\s+", " ", text).strip()
     if len(text) <= t.split_max_len:
         return [text]
     sentences = [s.strip() for s in _SENTENCE.findall(text) if s.strip()]

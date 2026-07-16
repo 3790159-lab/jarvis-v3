@@ -51,6 +51,17 @@ def test_split_only_on_sentence_boundaries_not_commas():
     assert "".join(parts).replace(" ", "").replace("\n", "") == \
         text.replace(" ", "").replace("\n", "")
 
+def test_collapses_stray_blank_lines_inside_a_bubble():
+    # A live reply rendered with a stray blank line because a model put
+    # "\n\n" inside its text and it flowed into one Say bubble. Whitespace
+    # (including newlines) must be normalized to single spaces so a DM
+    # bubble is always clean single-flow text.
+    text = "Фраза раз.\n\nФраза два."
+    parts = H.split_message(text, TIMINGS)
+    assert all(p != "" for p in parts)
+    assert all("\n" not in p for p in parts)
+    assert "".join(parts).replace(" ", "") == text.replace(" ", "").replace("\n", "")
+
 def test_no_part_ends_mid_word():
     text = (
         "Работаю с портретами, свадьбами и репортажной съёмкой уже пять лет подряд. "

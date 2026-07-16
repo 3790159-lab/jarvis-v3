@@ -37,6 +37,43 @@ def test_detects_bot_question(q):
 def test_detects_bot_question_with_words_between_ty_and_bot(q):
     assert is_bot_question(q) is True
 
+# EN phrasings with words BETWEEN the address ("are you" / "am I talking to"
+# / "is this") and the target (bot/human/robot/ai/real person) -- mirrors
+# BOT_QUESTIONS_WITH_GAP above but for English, since demo2 is English and
+# shown to real people.
+EN_BOT_QUESTIONS_WITH_GAP = [
+    "are you a bot?",
+    "are you actually a bot?",
+    "are you really a bot?",
+    "are you for real a human?",
+    "are you a real human?",
+    "are you even human?",
+    "are you an AI?",
+    "so, are you a bot or a real person?",
+    "is this actually a bot?",
+    "am I talking to a bot?",
+    "am I chatting with a real person or a bot?",
+]
+
+EN_NOT_BOT_QUESTIONS = [
+    "I need a bot for my telegram channel",
+    "do you build bots?",
+    "how much is the automation bot?",
+    "are you available tomorrow?",
+    "is this the real price?",
+    "am I the right person to ask about pricing?",
+    "tell me about your services",
+    "can a human review this later?",
+]
+
+@pytest.mark.parametrize("q", EN_BOT_QUESTIONS_WITH_GAP)
+def test_detects_en_bot_question_with_words_in_between(q):
+    assert is_bot_question(q) is True
+
+@pytest.mark.parametrize("q", EN_NOT_BOT_QUESTIONS)
+def test_ignores_en_messages_mentioning_bot_human_without_addressing_assistant(q):
+    assert is_bot_question(q) is False
+
 @pytest.mark.parametrize("q", ["сколько стоит?", "а фото делаете?", "привет"])
 def test_ignores_normal_messages(q):
     assert is_bot_question(q) is False

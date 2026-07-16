@@ -18,6 +18,17 @@ _PATTERNS = [
     # present, so it does NOT fire on e.g. "работаю с ботами в телеграме"
     # (no "ты") or "сколько стоит бот для рассылки?" (no "ты"/"вы" either).
     r"\b(?:ты|вы)\b(?:\s+\S+){1,3}\s+(?:бот|робот)\b",
+    # EN: "are you" / "am I talking|chatting|speaking to|with" / "is this"
+    # addressing the assistant, with 0-3 words in between, followed by the
+    # target (bot/robot/human/ai/real person) -- catches natural phrasings
+    # like "are you actually a bot?", "am I chatting with a real person or
+    # a bot?" that the plain adjacency patterns above miss. Requires one of
+    # the address phrasings to actually be present, so it does NOT fire on
+    # e.g. "I need a bot for my telegram channel" (no "are you"/"am I ...
+    # to"/"is this") or "can a human review this later?" (asking to involve
+    # a human, not "are YOU human").
+    r"\b(?:are\s+you|am\s+i\s+(?:talking|chatting|speaking)\s+(?:to|with)|is\s+this)\b"
+    r"(?:\s+\S+){0,3}\s+(?:a\s+)?(?:real\s+person|bot|human|robot|ai)\b",
 ]
 _RE = re.compile("|".join(_PATTERNS), re.IGNORECASE)
 
