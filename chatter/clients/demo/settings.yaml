@@ -18,3 +18,5 @@ timings:
   debounce_window: 3.0
   debounce_max: 15.0
 limits: {max_reply_tokens: 20000, per_contact_hourly: 20, daily_cap: 500}
+telegram:
+  allowlist: [237616472]

@@ -83,3 +83,22 @@ def test_persona_name_equals_owner_fails(tmp_path):
         load_config(tmp_path, "demo")
     msg = str(e.value)
     assert "persona_name" in msg and "owner_id" in msg
+
+def test_telegram_block_absent_is_none(tmp_path):
+    _make_client(tmp_path)
+    cfg = load_config(tmp_path, "demo")
+    assert cfg.settings.telegram is None
+
+def test_telegram_block_parses_allowlist(tmp_path):
+    settings = SETTINGS + "telegram:\n  allowlist: [237616472, 42]\n"
+    _make_client(tmp_path, settings=settings)
+    cfg = load_config(tmp_path, "demo")
+    assert cfg.settings.telegram is not None
+    assert cfg.settings.telegram.allowlist == (237616472, 42)
+
+def test_telegram_block_missing_allowlist_key_fails(tmp_path):
+    settings = SETTINGS + "telegram: {}\n"
+    _make_client(tmp_path, settings=settings)
+    with pytest.raises(ConfigError) as e:
+        load_config(tmp_path, "demo")
+    assert "allowlist" in str(e.value)

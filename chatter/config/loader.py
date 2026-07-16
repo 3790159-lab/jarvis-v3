@@ -35,6 +35,10 @@ class WorkHours:
     end: int
 
 @dataclass(frozen=True)
+class TelegramConfig:
+    allowlist: tuple[int, ...]
+
+@dataclass(frozen=True)
 class Settings:
     model: str
     language: str
@@ -43,6 +47,7 @@ class Settings:
     work_hours: WorkHours
     timings: Timings
     limits: Limits
+    telegram: TelegramConfig | None = None
 
 @dataclass(frozen=True)
 class Config:
@@ -118,9 +123,18 @@ def load_config(clients_dir: Path, slug: str) -> Config:
     l = _require(raw, "limits", "settings.yaml")
     limits = Limits(**{f: int(_require(l, f, "settings.yaml.limits")) for f in _LIMIT_FIELDS})
 
+    telegram: TelegramConfig | None = None
+    tg_raw = raw.get("telegram")
+    if tg_raw is not None:
+        allowlist_raw = _require(tg_raw, "allowlist", "settings.yaml.telegram")
+        if not isinstance(allowlist_raw, list):
+            raise ConfigError("settings.yaml.telegram: 'allowlist' must be a list")
+        telegram = TelegramConfig(allowlist=tuple(int(x) for x in allowlist_raw))
+
     return Config(
         slug=slug, persona=persona, knowledge=knowledge, playbook=playbook,
         settings=Settings(model=str(model), language=str(language), owner_id=str(owner_id),
                           persona_name=str(persona_name),
-                          work_hours=work_hours, timings=timings, limits=limits),
+                          work_hours=work_hours, timings=timings, limits=limits,
+                          telegram=telegram),
     )
