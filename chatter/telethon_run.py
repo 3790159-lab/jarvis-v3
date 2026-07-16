@@ -180,30 +180,36 @@ class TelethonRunner:
             return
 
         text = (event.raw_text or "").strip()
-        chat = event.chat_id
+        chat_id = event.chat_id
         log.info("IN %s [%s]: %s", sender_id, self.persona_for(sender_id), text)
+
+        # Send to the event's INPUT PEER (carries access_hash), not the bare
+        # chat_id int: client.send_message/action(<int>) does get_input_entity,
+        # which fails ("Could not find the input entity") on a fresh session
+        # that hasn't cached that user. The event already has the resolvable peer.
+        peer = await event.get_input_chat()
 
         if text == "/switch":
             new_slug = self.toggle_persona(sender_id)
             new_cfg = self.personas[new_slug].cfg
-            transport = TelethonTransport(self.client, chat, self.loop)
+            transport = TelethonTransport(self.client, peer, self.loop)
             await asyncio.to_thread(transport.send, _switch_ack(new_cfg))
             return
 
         persona_slug = self.persona_for(sender_id)
-        deb = self._debouncers.get(chat)
+        deb = self._debouncers.get(chat_id)
         if deb is None or deb.task is None or deb.task.done():
-            deb = self._new_debouncer(chat=chat, sender_id=sender_id, persona_slug=persona_slug)
-            self._debouncers[chat] = deb
+            deb = self._new_debouncer(peer=peer, sender_id=sender_id, persona_slug=persona_slug)
+            self._debouncers[chat_id] = deb
         deb.add(text)
 
-    def _new_debouncer(self, *, chat, sender_id: int, persona_slug: str) -> ChatDebouncer:
+    def _new_debouncer(self, *, peer, sender_id: int, persona_slug: str) -> ChatDebouncer:
         bundle = self.personas[persona_slug]
         t = bundle.cfg.settings.timings
 
         async def _on_ready(batch: list[str]) -> None:
             contact_id = f"{sender_id}:{persona_slug}"
-            transport = TelethonTransport(self.client, chat, self.loop)
+            transport = TelethonTransport(self.client, peer, self.loop)
             bundle.deps.store.get_or_create_contact(contact_id)  # process_batch assumes the row exists
             log.info("process START %s batch=%r", contact_id, batch)
             try:

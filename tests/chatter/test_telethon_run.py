@@ -156,6 +156,11 @@ class FakeEvent:
         if self.chat_id is None:
             self.chat_id = self.sender_id
 
+    async def get_input_chat(self):
+        # Telethon returns a resolvable InputPeer (with access_hash) here; the
+        # runner passes it to the transport instead of the bare chat_id int.
+        return f"inputpeer:{self.chat_id}"
+
 
 def _persona_bundle(slug: str, *, store: Store, scripted: list[str] | None = None) -> PersonaBundle:
     cfg = load_config(CLIENTS_DIR, slug)
@@ -259,7 +264,7 @@ def test_switch_toggles_persona_and_sends_plain_ack_not_via_llm():
         assert runner.persona_for(ALLOWED) == "demo2"
         client.send_message.assert_called_once()
         chat_arg, text_arg = client.send_message.call_args.args
-        assert chat_arg == ALLOWED
+        assert chat_arg == f"inputpeer:{ALLOWED}"  # sends to the event's input peer, not the bare id
         assert "Dmitry" in text_arg and "en" in text_arg
 
         # No dialogue was touched by /switch -- it never goes through process_batch.
