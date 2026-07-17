@@ -226,3 +226,53 @@ class Store:
             return self._conn.execute(
                 "SELECT COUNT(*) FROM messages WHERE role='assistant' AND ts>=? AND ts<?",
                 (start_ts, end_ts)).fetchone()[0]
+
+    def has_contact(self, contact_id: str) -> bool:
+        """Только проверка, БЕЗ побочных эффектов. get_or_create_contact тут
+        не годится: он создал бы строку и объявил управляемым любой чат, куда
+        владелец написал с этого же аккаунта (не диалог, который ведёт Аня)."""
+        with self._lock:
+            return self._conn.execute(
+                "SELECT 1 FROM contacts WHERE contact_id=?", (contact_id,)).fetchone() is not None
+
+    def set_runtime_flag(self, key: str, value: str, *, ts: float) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO runtime_flags(key, value, ts) VALUES (?,?,?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value, ts=excluded.ts",
+                (key, value, ts))
+            self._conn.commit()
+
+    def get_runtime_flag(self, key: str) -> str | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT value FROM runtime_flags WHERE key=?", (key,)).fetchone()
+        return row["value"] if row else None
+
+    def add_event(self, kind: str, *, contact_id: str | None = None,
+                  detail: str | None = None, ts: float) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO control_events(kind, contact_id, detail, ts) VALUES (?,?,?,?)",
+                (kind, contact_id, detail, ts))
+            self._conn.commit()
+
+    def count_events(self, kind: str, *, since_ts: float) -> int:
+        with self._lock:
+            return self._conn.execute(
+                "SELECT COUNT(*) FROM control_events WHERE kind=? AND ts>=?",
+                (kind, since_ts)).fetchone()[0]
+
+    def add_card(self, *, msg_id: int, contact_id: str, kind: str, ts: float) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO console_cards(msg_id, contact_id, kind, ts) VALUES (?,?,?,?) "
+                "ON CONFLICT(msg_id) DO UPDATE SET contact_id=excluded.contact_id",
+                (msg_id, contact_id, kind, ts))
+            self._conn.commit()
+
+    def card_contact(self, msg_id: int) -> str | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT contact_id FROM console_cards WHERE msg_id=?", (msg_id,)).fetchone()
+        return row["contact_id"] if row else None

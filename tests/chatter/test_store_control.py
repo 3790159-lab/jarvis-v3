@@ -71,3 +71,50 @@ def test_note_human_out_tracks_owner_last_manual_message():
         s.get_or_create_contact("c1")
         s.note_human_out("c1", ts=500.0)
         assert s.get_or_create_contact("c1")["last_human_out_ts"] == 500.0
+
+
+def test_runtime_flag_roundtrip_and_default():
+    with Store(":memory:") as s:
+        assert s.get_runtime_flag("kill_switch") is None
+        s.set_runtime_flag("kill_switch", "1", ts=100.0)
+        assert s.get_runtime_flag("kill_switch") == "1"
+        s.set_runtime_flag("kill_switch", "0", ts=200.0)   # /start перезаписывает
+        assert s.get_runtime_flag("kill_switch") == "0"
+
+
+def test_events_count_within_window_only():
+    with Store(":memory:") as s:
+        s.add_event("takeover", contact_id="c1", detail="msg 1", ts=100.0)
+        s.add_event("takeover", contact_id="c1", detail="msg 2", ts=200.0)
+        s.add_event("unknown_outgoing", ts=200.0)
+        assert s.count_events("takeover", since_ts=150.0) == 1
+        assert s.count_events("takeover", since_ts=0.0) == 2
+        assert s.count_events("unattributed_pause", since_ts=0.0) == 0
+
+
+def test_card_maps_saved_message_to_contact_and_survives_restart(tmp_path):
+    # Адресация реплаем обязана пережить рестарт: карточка остаётся лежать в
+    # Saved Messages, и владелец ответит на неё через час.
+    db = tmp_path / "s.db"
+    with Store(db) as s:
+        s.add_card(msg_id=555, contact_id="237616472:demo", kind="pause", ts=100.0)
+    with Store(db) as s2:
+        assert s2.card_contact(555) == "237616472:demo"
+        assert s2.card_contact(999) is None
+
+
+def test_has_contact_true_for_existing_false_for_unknown():
+    with Store(":memory:") as s:
+        s.get_or_create_contact("c1")
+        assert s.has_contact("c1") is True
+        assert s.has_contact("нет-такого") is False
+
+
+def test_has_contact_does_not_create_a_row():
+    # Главный тест: has_contact — это ТОЛЬКО проверка, get_or_create_contact
+    # для этого не годится, потому что он создал бы строку и объявил
+    # управляемым любой чат, куда владелец написал с этого же аккаунта.
+    with Store(":memory:") as s:
+        s.has_contact("нет-такого")
+        rows = s._conn.execute("SELECT COUNT(*) FROM contacts").fetchone()[0]
+        assert rows == 0
