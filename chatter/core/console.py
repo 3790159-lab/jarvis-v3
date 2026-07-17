@@ -7,7 +7,7 @@ import html
 import re
 from dataclasses import dataclass
 
-GLOBAL_COMMANDS = frozenset({"status", "stop", "start"})
+GLOBAL_COMMANDS = frozenset({"status", "stop", "start", "help"})
 TARGETED_COMMANDS = frozenset({"pause", "resume"})
 
 _DURATION_RE = re.compile(r"^(\d+)([hm])$", re.IGNORECASE)
@@ -50,15 +50,14 @@ def parse_command(text: str) -> Command | None:
         elif not args[0].startswith(("t.me", "https://", "@")) and not args[0].isdigit():
             # Похоже на кривую длительность, а не на адресата. Сказать вслух:
             # молчаливый игнор = владелец уверен, что пауза стоит (DEV-18).
-            return Command(name=name, error=f"не понял длительность: '{args[0]}' (примеры: 1h, 30m)")
+            # escape_html(args[0]): это СЫРОЙ токен, который владелец только
+            # что вписал руками -- с переходом всего пульта на parse_mode=html
+            # (задача 3 под-арки 3A-UX) непроэкранированный '<' в нём развалил
+            # бы разметку и Telegram отказался бы отправлять ответ целиком
+            # (та же ловушка, что и с detail, просто источник другой команда).
+            return Command(name=name, error=f"не понял длительность: '{escape_html(args[0])}' (примеры: 1h, 30m)")
 
     return Command(name=name, duration_seconds=duration, target=args[0] if args else None)
-
-
-SOURCE_LABELS = {
-    "human_takeover": "вы вмешались",
-    "command": "команда /pause",
-}
 
 
 # ---------------------------------------------------------------------------
@@ -152,8 +151,17 @@ CONSOLE_STRINGS: dict[str, dict[str, str]] = {
         "status_header": "⏸ Паузы ({n}):",
         "status_intervened": "вы вмешались {gap} назад",
         "status_paused_for": "/pause {duration}, осталось {remaining}",
+        "status_paused_indefinite": "/pause бессрочно",
+        "status_quote": "«{detail}»",
+        "status_window_counters": (
+            "За {window_hours}ч: перехватов {takeover} · "
+            "неатрибутированных пауз {unattributed} · неопознанных исходящих {unknown}"
+        ),
+        "status_bot_active": "🟢 Бот активен",
         "status_active_footer": "🟢 Бот активен · авто-возврат: прогон {gap} назад",
         "status_stopped_footer": "🔴 Бот остановлен (/stop). Снять: /start",
+        "status_autoresume_never": "⚠️ Авто-возврат: НИ РАЗУ не отработал",
+        "status_autoresume_stale": "⚠️ Авто-возврат: последний прогон {gap} назад",
         "resume_hint": "→ /resume {n}",
         "list_is_stale": "список устарел, набери /status",
         "no_such_number": "нет такого номера, набери /status",
@@ -162,13 +170,40 @@ CONSOLE_STRINGS: dict[str, dict[str, str]] = {
         "card_silent": "{persona} молчит в этом диалоге.",
         "card_resume_reply_hint": "Ответьте /resume на это сообщение",
         "card_resume_status_hint": "или: /status → /resume <номер>",
+        "help_text": (
+            "📖 Пульт Ани — как это работает\n\n"
+            "Аня отвечает лидам сама. Как только вы напишете в диалог руками — "
+            "Аня ЗАМОЛКАЕТ в этом диалоге (это нарочно: чтобы не отвечать поверх "
+            "вас). В Saved Messages появится карточка паузы.\n\n"
+            "Вернуть Аню — 3 способа:\n"
+            "• Ответьте /resume на карточку паузы (реплаем) — проще всего.\n"
+            "• /status покажет список пауз с номерами → /resume <номер>.\n"
+            "• /resume <@юзернейм|ссылка|id> — если карточки уже нет под рукой.\n\n"
+            "Команды:\n"
+            "/status — список всех пауз: имя, причина, готовая команда возврата.\n"
+            "/pause [1h|30m] [@user|ссылка|id] — заглушить диалог "
+            "(без времени = насовсем).\n"
+            "/resume [<номер>|@user|ссылка|id] — вернуть Аню в диалог.\n"
+            "/stop — заглушить Аню ВЕЗДЕ, во всех диалогах разом.\n"
+            "/start — снять глобальную заглушку.\n"
+            "/help — эта справка."
+        ),
     },
     "en": {
         "status_header": "⏸ Paused ({n}):",
         "status_intervened": "you stepped in {gap} ago",
         "status_paused_for": "/pause {duration}, {remaining} left",
+        "status_paused_indefinite": "/pause indefinitely",
+        "status_quote": "“{detail}”",
+        "status_window_counters": (
+            "Last {window_hours}h: takeovers {takeover} · "
+            "unattributed pauses {unattributed} · unknown outgoing {unknown}"
+        ),
+        "status_bot_active": "🟢 Bot active",
         "status_active_footer": "🟢 Bot active · auto-resume: last run {gap} ago",
         "status_stopped_footer": "🔴 Bot stopped (/stop). Lift with: /start",
+        "status_autoresume_never": "⚠️ Auto-resume: has NEVER run",
+        "status_autoresume_stale": "⚠️ Auto-resume: last run {gap} ago",
         "resume_hint": "→ /resume {n}",
         "list_is_stale": "list is stale, run /status",
         "no_such_number": "no such number, run /status",
@@ -177,13 +212,39 @@ CONSOLE_STRINGS: dict[str, dict[str, str]] = {
         "card_silent": "{persona} is silent in this chat.",
         "card_resume_reply_hint": "Reply /resume to this message",
         "card_resume_status_hint": "or: /status → /resume <number>",
+        "help_text": (
+            "📖 Anya's console — how this works\n\n"
+            "Anya replies to leads on her own. The moment you write into a chat "
+            "by hand, Anya goes SILENT in that chat (on purpose: so she never "
+            "talks over you). A pause card shows up in Saved Messages.\n\n"
+            "3 ways to bring Anya back:\n"
+            "• Reply /resume to the pause card — easiest.\n"
+            "• /status lists paused chats with numbers → /resume <number>.\n"
+            "• /resume <@username|link|id> — if the card scrolled away.\n\n"
+            "Commands:\n"
+            "/status — every paused chat: name, reason, ready-to-copy resume command.\n"
+            "/pause [1h|30m] [@user|link|id] — pause a chat (no time = indefinitely).\n"
+            "/resume [<number>|@user|link|id] — bring Anya back to a chat.\n"
+            "/stop — silence Anya EVERYWHERE, all chats at once.\n"
+            "/start — lift the global silence.\n"
+            "/help — this text."
+        ),
     },
     "uk": {
         "status_header": "⏸ Паузи ({n}):",
         "status_intervened": "ви втрутилися {gap} тому",
         "status_paused_for": "/pause {duration}, залишилось {remaining}",
+        "status_paused_indefinite": "/pause безстроково",
+        "status_quote": "«{detail}»",
+        "status_window_counters": (
+            "За {window_hours}год: перехоплень {takeover} · "
+            "неатрибутованих пауз {unattributed} · невпізнаних вихідних {unknown}"
+        ),
+        "status_bot_active": "🟢 Бот активний",
         "status_active_footer": "🟢 Бот активний · авто-повернення: запуск {gap} тому",
         "status_stopped_footer": "🔴 Бот зупинено (/stop). Зняти: /start",
+        "status_autoresume_never": "⚠️ Авто-повернення: ЖОДНОГО разу не спрацювало",
+        "status_autoresume_stale": "⚠️ Авто-повернення: останній запуск {gap} тому",
         "resume_hint": "→ /resume {n}",
         "list_is_stale": "список застарів, наберіть /status",
         "no_such_number": "немає такого номера, наберіть /status",
@@ -192,6 +253,24 @@ CONSOLE_STRINGS: dict[str, dict[str, str]] = {
         "card_silent": "{persona} мовчить у цьому діалозі.",
         "card_resume_reply_hint": "Відповідайте /resume на це повідомлення",
         "card_resume_status_hint": "або: /status → /resume <номер>",
+        "help_text": (
+            "📖 Пульт Ані — як це працює\n\n"
+            "Аня відповідає лідам сама. Щойно ви напишете в діалог власноруч — "
+            "Аня ЗАМОВКАЄ в цьому діалозі (це навмисно: щоб не відповідати "
+            "поверх вас). У Saved Messages з'явиться картка паузи.\n\n"
+            "Повернути Аню — 3 способи:\n"
+            "• Дайте відповідь /resume на картку паузи (реплаєм) — найпростіше.\n"
+            "• /status покаже список пауз із номерами → /resume <номер>.\n"
+            "• /resume <@юзернейм|посилання|id> — якщо картки вже нема під рукою.\n\n"
+            "Команди:\n"
+            "/status — список усіх пауз: ім'я, причина, готова команда повернення.\n"
+            "/pause [1h|30m] [@user|посилання|id] — заглушити діалог "
+            "(без часу = назавжди).\n"
+            "/resume [<номер>|@user|посилання|id] — повернути Аню в діалог.\n"
+            "/stop — заглушити Аню СКРІЗЬ, у всіх діалогах одразу.\n"
+            "/start — зняти глобальну заглушку.\n"
+            "/help — ця довідка."
+        ),
     },
 }
 
@@ -209,7 +288,20 @@ def console_text(key: str, language: str = "ru", **kwargs) -> str:
 @dataclass(frozen=True)
 class PauseView:
     """Готовая к печати строка о паузе. Раннер разрешает имя/ссылку (это
-    Telethon), форматтер остаётся чистым."""
+    Telethon), форматтер остаётся чистым.
+
+    `n` — номер из последнего /status (`status_index`, спека 3A-UX §3).
+    ОБЯЗАН совпадать с тем `n`, под которым раннер зарегистрировал этот же
+    contact_id в `store.issue_status_index(...)` -- иначе печатаемый номер
+    и адресуемый номер разъедутся, а это и есть тот самый промах в чужой
+    диалог, от которого вся эта под-арка (см. TelethonRunner.render_status).
+
+    `title` уже HTML-экранирован вызывающей стороной (это результат
+    `display_name(...)`) -- формат сам его не эскейпит повторно, только
+    защитно схлопывает переводы строк (`_one_line`, старая находка 3A).
+    `detail`, напротив, СЫРОЙ (прямая цитата владельца из БД) -- формат
+    обязан прогнать его через `safe_snippet` сам."""
+    n: int
     title: str
     link: str
     since_ts: float
@@ -219,9 +311,28 @@ class PauseView:
     resume_eta_ts: float | None
 
 
-def _hhmm(ts: float) -> str:
-    import datetime as _dt
-    return _dt.datetime.fromtimestamp(ts).strftime("%H:%M")
+def html_link(text_html: str, href: str) -> str:
+    """Кликабельное имя (спека §7): `<a href="...">текст</a>`.
+
+    `href` не экранируется: единственные вызывающие -- `contact_link(...)`
+    (t.me/<username копия сервера ограничена [A-Za-z0-9_]> или
+    tg://user?id=<целое число>) -- туда физически не может попасть символ,
+    ломающий атрибут HTML."""
+    return f'<a href="{href}">{text_html}</a>'
+
+
+def _duration_token(seconds: float) -> str:
+    """Обратное превращение секунд в токен `_DURATION_RE` (`1h`/`30m`),
+    ЧТОБЫ ПОКАЗАТЬ ВЛАДЕЛЬЦУ ТУ ЖЕ КОМАНДУ, КОТОРУЮ ОН НАБРАЛ (спека §2:
+    "/pause 1h, осталось 42 мин" -- буквально те же буквы, что принимает
+    парсер, не "1ч" человеческим языком, как в `_humanize_gap`). `/pause`
+    принимает только целые часы/минуты (`_DURATION_RE`), поэтому секунды,
+    полученные как `resume_eta_ts - since_ts`, всегда кратны 3600 или 60 --
+    восстановление токена не теряет точность."""
+    seconds = max(1, int(round(seconds)))
+    if seconds % 3600 == 0:
+        return f"{seconds // 3600}h"
+    return f"{max(1, seconds // 60)}m"
 
 
 def _one_line(text: str) -> str:
@@ -250,36 +361,45 @@ def _humanize_gap(seconds: float) -> str:
 def format_status(
     *, kill_switch: bool, pauses: list[PauseView], counters: dict[str, int],
     autoresume_beat_age: float | None, autoresume_interval: float,
-    now: float, window_hours: int,
+    now: float, window_hours: int, language: str = "ru",
 ) -> str:
-    """Ответ на «почему Аня молчит» за 5 секунд, а не расследованием."""
-    lines = ["🤖 Аня — статус"]
-    if kill_switch:
-        lines.append("Глобально: 🔴 ЗАГЛУШЕНА (/stop). Снять: /start")
-    else:
-        lines.append("Глобально: РАБОТАЕТ")
+    """Ответ на «почему Аня молчит» за 5 секунд -- и главное, ЧТО НАБРАТЬ,
+    чтобы её вернуть: команда `/resume {n}` печатается ПРЯМО под каждой
+    паузой (спека 3A-UX §2), владелец копирует её глазами, а не сочиняет.
 
-    lines.append(f"Заглушено диалогов: {len(pauses)}")
+    Порядок печати пауз в `pauses` НЕ переопределяется здесь (просто
+    итерируется как дан) -- инвариант "напечатанный номер == номер в
+    status_index" держится за счёт того, что вызывающая сторона
+    (`TelethonRunner.render_status`) строит `pauses` и вызывает
+    `store.issue_status_index(...)` ИЗ ОДНОГО и ТОГО ЖЕ enumerate(rows),
+    см. комментарий там."""
+    lines = [console_text("status_header", language, n=len(pauses))]
     for p in pauses:
-        title = _one_line(p.title)
-        lines.append(f" • {title} — {p.link} — с {_hhmm(p.since_ts)}")
-        why = SOURCE_LABELS.get(p.source, p.source)
-        if p.detail:
-            detail = _one_line(p.detail)
-            snippet = detail if len(detail) <= 40 else detail[:40] + "…"
-            why += f" («{snippet}»"
-            why += f", msg {p.msg_id})" if p.msg_id else ")"
-        lines.append(f"   причина: {why}")
-        if p.resume_eta_ts is not None:
-            lines.append(f"   авто-возврат через {_humanize_gap(p.resume_eta_ts - now)}")
+        title = _one_line(p.title)          # защитный слой, см. PauseView
+        name_html = html_link(title, p.link)
+        if p.source == "human_takeover":
+            reason = console_text(
+                "status_intervened", language, gap=_humanize_gap(now - p.since_ts))
+        elif p.resume_eta_ts is not None:
+            reason = console_text(
+                "status_paused_for", language,
+                duration=_duration_token(p.resume_eta_ts - p.since_ts),
+                remaining=_humanize_gap(p.resume_eta_ts - now))
         else:
-            lines.append("   авто-возврата нет — снимет только /resume")
+            reason = console_text("status_paused_indefinite", language)
+        lines.append(f"{p.n}. {name_html} — {reason}")
+        if p.detail:
+            # safe_snippet, НЕ _one_line: этой строке ещё нужно экранирование
+            # (p.detail -- сырая цитата владельца из БД, см. PauseView).
+            lines.append(f"   {console_text('status_quote', language, detail=safe_snippet(p.detail))}")
+        lines.append(f"   {console_text('resume_hint', language, n=p.n)}")
 
-    c = counters
-    lines.append(
-        f"За {window_hours}ч: перехватов {c.get('takeover', 0)} · "
-        f"неатрибутированных пауз {c.get('unattributed_pause', 0)} · "
-        f"неопознанных исходящих {c.get('unknown_outgoing', 0)}")
+    if counters:
+        lines.append(console_text(
+            "status_window_counters", language, window_hours=window_hours,
+            takeover=counters.get("takeover", 0),
+            unattributed=counters.get("unattributed_pause", 0),
+            unknown=counters.get("unknown_outgoing", 0)))
 
     # Кто сторожит сторожа: мёртвая задача авто-возврата неотличима от
     # «пауз к возврату нет», если не показать возраст её heartbeat. Отдельно
@@ -287,10 +407,28 @@ def format_status(
     # стартовал, или задача умерла ещё до первого прогона): сравнение None с
     # числом упало бы TypeError, а молчаливый пропуск проверки скрыл бы ровно
     # тот случай, который эта строка обязана заметить (DEV-18).
-    if autoresume_beat_age is None:
-        lines.append("⚠️ Авто-возврат: НИ РАЗУ не отработал")
-    elif autoresume_beat_age > 3 * autoresume_interval:
-        lines.append(f"⚠️ Авто-возврат: последний прогон {_humanize_gap(autoresume_beat_age)} назад")
+    #
+    # Глобальное состояние (kill switch) и здоровье авто-возврата -- ДВЕ
+    # независимые оси: раньше они были одной строкой ("Бот активен · авто-
+    # возврат: X"), что для здорового случая экономит строку (совпадает с
+    # целевым видом спеки §2), но для больного случая соврало бы -- "бот
+    # активен" не может стоять в одной фразе с "⚠️ авто-возврат мёртв" так,
+    # будто это одна хорошая новость.
+    autoresume_healthy = (
+        autoresume_beat_age is not None and autoresume_beat_age <= 3 * autoresume_interval)
+    if kill_switch:
+        lines.append(console_text("status_stopped_footer", language))
+        if not autoresume_healthy:
+            lines.append(_autoresume_warning(language, autoresume_beat_age))
+    elif autoresume_healthy:
+        lines.append(console_text("status_active_footer", language, gap=_humanize_gap(autoresume_beat_age)))
     else:
-        lines.append(f"Авто-возврат: последний прогон {_humanize_gap(autoresume_beat_age)} назад")
+        lines.append(console_text("status_bot_active", language))
+        lines.append(_autoresume_warning(language, autoresume_beat_age))
     return "\n".join(lines)
+
+
+def _autoresume_warning(language: str, beat_age: float | None) -> str:
+    if beat_age is None:
+        return console_text("status_autoresume_never", language)
+    return console_text("status_autoresume_stale", language, gap=_humanize_gap(beat_age))

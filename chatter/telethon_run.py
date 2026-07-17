@@ -16,7 +16,10 @@ from telethon.errors import AuthKeyError, UnauthorizedError
 from chatter.config.loader import Config, load_config
 from chatter.core import humanizer as H
 from chatter.core.brain import Brain
-from chatter.core.console import PauseView, format_status, parse_command
+from chatter.core.console import (
+    PauseView, console_text, contact_link, display_name, format_status,
+    html_link, parse_command, safe_snippet,
+)
 from chatter.core.llm import AnthropicLLM, FakeLLM, LLMClient
 from chatter.core.pause import should_auto_resume
 from chatter.run import Deps, process_batch
@@ -155,13 +158,55 @@ async def decide_outgoing(msg_id: int, *, registry: SentRegistry, grace_seconds:
     return "ours" if registry.is_ours(msg_id) else "human"
 
 
+def resolve_numbered_target(
+    store: Store, target: str | None, *, language: str = "ru",
+) -> tuple[str | None, str | None]:
+    """Различить номер из /status и id/юзернейм/ссылку (спека 3A-UX §3).
+
+    ПОЧЕМУ пробуем номер СНАЧАЛА, а не по величине строки: "номера
+    маленькие, id большие" -- хрупкая эвристика (ничто не гарантирует, что
+    Telegram не выдаст маленький id), а `status_index` -- это ФАКТ: если
+    запись под этим n существует, её только что выдал последний /status,
+    значит владелец скопировал её оттуда глазами (единственный способ
+    вообще узнать номер).
+
+    Три исхода:
+    - target НЕ чисто цифровой -- это не номер вообще, (None, None), пусть
+      вызывающий код (TelethonRunner.resolve_target) резолвит по-старому
+      (id/юзернейм/ссылка).
+    - target цифровой, но номера с таким n НЕТ в таблице -- тоже (None,
+      None), а НЕ "нет такого номера": чисто цифровая строка ВСЁ РАВНО
+      "похожа на id" (задание прямо требует в этом случае резолвить по
+      старому пути), так что здесь мы не утверждаем ошибку, а отступаем.
+    - target цифровой И номер НАЙДЕН -- владелец точно целился по номеру
+      (иначе такого совпадения взяться неоткуда). Здесь и ТОЛЬКО здесь
+      имеет смысл проверка "тот ли это список, который он видел" (спека
+      §3): промах в чужой диалог -- катастрофа доверия, поэтому
+      рассогласованный набор блокирует действие текстом об устаревании,
+      а не тихо резолвит не в того адресата."""
+    if target is None or not target.isdigit():
+        return None, None
+    contact_id = store.status_index_contact(int(target))
+    if contact_id is None:
+        return None, None
+    muted_ids = [row["contact_id"] for row in store.muted_contacts()]
+    if not store.status_index_is_current(muted_ids):
+        return None, console_text("list_is_stale", language)
+    return contact_id, None
+
+
 # --- 1c. console: Saved Messages pult (arc 3A, spec §7) ---------------------
 def execute_command(cmd, *, store: Store, contact_id: str | None, now: float,
-                     status_text: str | None = None) -> str:
+                     status_text: str | None = None, target_error: str | None = None,
+                     language: str = "ru") -> str:
     """Исполнить команду пульта. ЧИСТАЯ относительно Telethon: трогает только
     `store`, поэтому тестируется юнитами без сети (см. test_console_wiring.py).
-    `contact_id` уже разрешён раннером (из реплая на карточку или явного
-    аргумента) -- эта функция про адресацию не знает."""
+    `contact_id` уже разрешён раннером (из реплая на карточку, номера или
+    явного аргумента) -- эта функция про адресацию по Telethon не знает.
+    `target_error` -- готовое человеческое объяснение, ЕСЛИ адресация
+    провалилась осмысленно (например «список устарел» -- спека §3): когда
+    оно задано, действие НЕ выполняется, даже если contact_id почему-то не
+    None -- сообщение об ошибке всегда сильнее попытки исполнения."""
     if cmd.error:
         # Парсер уже сформулировал жалобу человеческим языком (DEV-18: молча
         # проглотить кривой аргумент значило бы, что владелец думает, что
@@ -178,14 +223,21 @@ def execute_command(cmd, *, store: Store, contact_id: str | None, now: float,
         store.set_runtime_flag("kill_switch", "0", ts=now)
         store.add_event("kill_off", ts=now)
         return "✅ Аня снова работает во всех диалогах."
+    if cmd.name == "help":
+        return console_text("help_text", language)
 
+    if target_error:
+        # Адресация провалилась ОСМЫСЛЕННО (устаревший список и т.п.) --
+        # объяснение важнее generic-сообщения про "не понял, какой диалог"
+        # ниже, и действие НЕ выполняется (спека §3: промах = катастрофа).
+        return target_error
     if contact_id is None:
         # «Хотел притормозить один диалог, а заглушил всю воронку» -- слишком
         # дорогая опечатка. Глобальное глушение называется /stop намеренно
         # другим словом, поэтому targeted-команда без адресата НЕ падает
         # обратно на глобальное действие -- она объясняется (спека §7).
         return ("Не понял, какой диалог. Ответьте этой командой реплаем на карточку "
-                f"или укажите адресата: /{cmd.name} <ссылка|id>. "
+                f"или укажите адресата: /{cmd.name} <номер|ссылка|id>. "
                 "Заглушить ВСЕ диалоги -- это /stop.")
 
     if cmd.name == "pause":
@@ -427,43 +479,107 @@ class TelethonRunner:
             # гарантированно таймаутит). Здесь мы уже на loop, поэтому
             # обычный await -- корректный и небllocking способ.
             log.exception("post_pause_card FAILED for %s (msg %s)", contact_id, event.message.id)
+            # Даже в этом отказном пути -- НИ ОДНОГО голого id, если можно
+            # назвать человека по имени (спека §1): карточка не ушла, но
+            # это не повод откатиться к "⏸ Пауза: 237616472", ровно к тому,
+            # что провалило живой дрил. display_name сама падает на id
+            # ТОЛЬКО если о человеке правда ничего не известно -- отдельный
+            # try тут просто на случай, если event.chat вообще недоступен
+            # (сеть уже один раз подвела в этом блоке, паранойя оправдана).
+            try:
+                name = display_name(
+                    first_name=getattr(event.chat, "first_name", None),
+                    last_name=getattr(event.chat, "last_name", None),
+                    title=getattr(event.chat, "title", None),
+                    username=getattr(event.chat, "username", None),
+                    user_id=event.chat_id,
+                )
+            except Exception:
+                name = str(contact_id)
             try:
                 await self.client.send_message(
                     "me",
-                    f"⚠️ Диалог {contact_id} заглушён (вы вмешались), но карточка в "
+                    f"⚠️ Диалог {name} заглушён (вы вмешались), но карточка в "
                     "Saved Messages не отправилась -- реплаем адресовать нечем. "
-                    "Снять паузу: /status покажет диалог, затем /resume <ссылка|id>.",
+                    "Снять паузу: /status покажет диалог, затем /resume <номер|@user|ссылка>.",
+                    parse_mode="html",
                 )
             except Exception:
                 log.exception(
                     "alert about a failed pause card ALSO failed to send for %s", contact_id)
 
+    def _persona_settings(self, contact_id: str):
+        """cfg.settings нужного диалога, по slug из хвоста contact_id
+        ("<peer_id>:<slug>") -- у каждой персоны свой `language`/
+        `persona_name`, карточка обязана говорить на языке ЕЁ владельца, не
+        всегда primary. Неизвестный/битый slug -- фолбэк на primary, чтобы
+        карточка всё равно ушла (лучше не на том языке, чем никак)."""
+        slug = contact_id.rsplit(":", 1)[-1]
+        return self.personas.get(slug, self.personas[self.primary_slug]).cfg.settings
+
     async def post_pause_card(self, event, contact_id: str, text: str) -> None:
         """Кладёт в Saved Messages карточку паузы и запоминает её id для
-        адресации `/resume` реплаем (спека §7; полная карточка эскалации --
-        арка 3B)."""
-        who = getattr(event.chat, "first_name", None) or str(event.chat_id)
-        card = await self.client.send_message(
-            "me",
-            f"⏸ Пауза: {who}\nВы вмешались: «{text[:80]}»\n"
-            f"Аня молчит в этом диалоге. Ответьте /resume на это сообщение, чтобы вернуть её.")
+        адресации `/resume` реплаем (спека §5/§7; полная карточка эскалации --
+        арка 3B).
+
+        Имя -- кликабельная HTML-ссылка (спека §1/§5), не голый id: это
+        ровно то, что провалило живой дрил ("⏸ Пауза: 237616472"). Две
+        строки подсказки внизу (реплай ИЛИ /status→/resume <номер>) --
+        находка ТОГО ЖЕ дрила: владелец не понял, как вернуть Аню, имея
+        только одну."""
+        settings = self._persona_settings(contact_id)
+        name_html = html_link(
+            display_name(
+                first_name=getattr(event.chat, "first_name", None),
+                last_name=getattr(event.chat, "last_name", None),
+                title=getattr(event.chat, "title", None),
+                username=getattr(event.chat, "username", None),
+                user_id=event.chat_id,
+            ),
+            contact_link(username=getattr(event.chat, "username", None), user_id=event.chat_id),
+        )
+        card_text = "\n".join([
+            console_text("card_header", settings.language, name=name_html),
+            console_text("card_intervened_detail", settings.language, detail=safe_snippet(text, limit=200)),
+            console_text("card_silent", settings.language, persona=settings.persona_name),
+            "",
+            console_text("card_resume_reply_hint", settings.language),
+            console_text("card_resume_status_hint", settings.language),
+        ])
+        card = await self.client.send_message("me", card_text, parse_mode="html")
         self.primary_store().add_card(msg_id=card.id, contact_id=contact_id, kind="pause", ts=time.time())
 
-    async def resolve_target(self, event, cmd) -> str | None:
-        """Какой диалог имел в виду владелец (спека §7). Приоритет у реплая:
-        карточка паузы уже лежит в Saved Messages, и ответить на неё дешевле
-        и надёжнее, чем передавать ссылку/id руками."""
+    async def resolve_target(self, event, cmd) -> tuple[str | None, str | None]:
+        """Какой диалог имел в виду владелец (спека §3/§7). Возвращает
+        (contact_id, error) -- `error` непустой значит адресация провалилась
+        ОСМЫСЛЕННО (например список устарел) и `execute_command` обязан
+        показать именно его, а не тихо промахнуться.
+
+        Порядок попыток (спека §4, по убыванию удобства):
+        1. Реплай на карточку -- карточка уже лежит в Saved Messages.
+        2. Номер из последнего /status -- ЧИСТАЯ проверка через
+           `resolve_numbered_target` (только `store`, без сети): если
+           цифровая строка найдена в `status_index`, это и есть номер, и
+           дальше в этой ветке МЫ НЕ ТРОГАЕМ Telethon вообще -- нет смысла
+           резолвить entity, адрес уже есть.
+        3. Фоллбек -- `<id | t.me/user | @user>` через `client.get_entity`,
+           для диалогов без свежей карточки и без под рукой /status."""
         if cmd.name not in ("pause", "resume"):
-            return None
+            return None, None
         reply_to = getattr(event, "reply_to_msg_id", None)
         if reply_to:
             hit = self.primary_store().card_contact(reply_to)
             if hit:
-                return hit
+                return hit, None
         if not cmd.target:
-            return None
+            return None, None
+        language = self.personas[self.primary_slug].cfg.settings.language
+        numbered_id, numbered_error = resolve_numbered_target(
+            self.primary_store(), cmd.target, language=language)
+        if numbered_id is not None or numbered_error is not None:
+            return numbered_id, numbered_error
         # Фоллбек: /resume <id | t.me/user | @user> -- для диалогов без
-        # свежей карточки в Saved Messages.
+        # свежей карточки в Saved Messages и без известного номера.
         raw = cmd.target.strip().rstrip("/").split("/")[-1].lstrip("@")
         try:
             entity = await self.client.get_entity(int(raw) if raw.isdigit() else raw)
@@ -472,31 +588,50 @@ class TelethonRunner:
             # "не понял, какой диалог" вместо тишины, но ПОЧЕМУ не разрешилось
             # видно только в логе.
             log.warning("resolve_target: не смог разрешить %r", cmd.target, exc_info=True)
-            return None
-        return f"{entity.id}:{self.persona_for(entity.id)}"
+            return None, None
+        return f"{entity.id}:{self.persona_for(entity.id)}", None
 
     async def render_status(self) -> str:
         """Собрать PauseView-ы (единственное место, где для /status нужен
         живой Telethon -- имя и username) и отдать чистому форматтеру
         core.console.format_status. Корутина из-за client.get_entity ниже --
-        вызывающая сторона (_console_handler) обязана её await'ить."""
+        вызывающая сторона (_console_handler) обязана её await'ить.
+
+        `rows` перечисляется ОДИН раз через `enumerate(rows, start=1)` и
+        РОВНО этот порядок уходит и в `store.issue_status_index(...)`, и в
+        `PauseView.n` каждого элемента -- это и есть гарантия того, что
+        напечатанный номер == номер, под которым `/resume N` найдёт
+        контакт (спека §3: "печатаются в ТОМ ЖЕ порядке... это критично").
+        Если бы номера выдавались по одному проходу, а печатались по
+        другому (например после промежуточной пересортировки), "1" в тексте
+        мог бы означать не того, кому владелец в итоге присвоит /resume 1."""
         store = self.primary_store()
         now = time.time()
         window = self.control.status_window_hours * 3600.0
+        language = self.personas[self.primary_slug].cfg.settings.language
+        rows = store.muted_contacts()
+        store.issue_status_index([row["contact_id"] for row in rows], now=now)
         views: list[PauseView] = []
-        for row in store.muted_contacts():
+        for n, row in enumerate(rows, start=1):
             peer_id = int(row["contact_id"].split(":")[0])
             try:
                 entity = await self.client.get_entity(peer_id)
-                title = getattr(entity, "first_name", None) or getattr(entity, "title", None) or str(peer_id)
-                username = getattr(entity, "username", None)
+                name = display_name(
+                    first_name=getattr(entity, "first_name", None),
+                    last_name=getattr(entity, "last_name", None),
+                    title=getattr(entity, "title", None),
+                    username=getattr(entity, "username", None),
+                    user_id=peer_id,
+                )
+                link = contact_link(username=getattr(entity, "username", None), user_id=peer_id)
             except Exception:
                 # Разрешение имени -- УДОБСТВО отображения, не критично для
                 # смысла /status (пауза всё равно покажется, просто по id).
                 # DEV-18: тем не менее логируем, не глотаем молча -- иначе
                 # растущее число нерешённых entity останется незамеченным.
                 log.warning("render_status: не смог разрешить peer %s", peer_id, exc_info=True)
-                title, username = str(peer_id), None
+                name = display_name(user_id=peer_id)
+                link = contact_link(user_id=peer_id)
             eta = None
             if row["pause_until"] is not None:
                 eta = float(row["pause_until"])
@@ -504,8 +639,7 @@ class TelethonRunner:
                 last = row["last_human_out_ts"] or row["paused_at"] or now
                 eta = float(last) + self.control.auto_resume_hours * 3600.0
             views.append(PauseView(
-                title=title,
-                link=f"t.me/{username}" if username else f"id {peer_id}",
+                n=n, title=name, link=link,
                 since_ts=float(row["paused_at"] or now),
                 source=row["pause_source"] or "?",
                 detail=row["pause_detail"],
@@ -522,6 +656,7 @@ class TelethonRunner:
             autoresume_beat_age=beat_age,
             autoresume_interval=AUTORESUME_INTERVAL_SECONDS,
             now=now, window_hours=self.control.status_window_hours,
+            language=language,
         )
 
     def toggle_persona(self, sender_id: int) -> str:
@@ -844,14 +979,21 @@ def build_runner(
         cmd = parse_command(event.raw_text or "")
         if cmd is None:
             return   # обычная заметка в Saved Messages -- не команда, не трогаем
-        contact_id = await runner.resolve_target(event, cmd)
+        contact_id, target_error = await runner.resolve_target(event, cmd)
         # render_status -- КОРУТИНА (внутри await client.get_entity для имён
         # диалогов): обязательно await, иначе status_text станет объектом
         # корутины вместо текста и execute_command() отправит его как есть.
         status_text = await runner.render_status() if cmd.name == "status" else None
+        language = runner.personas[runner.primary_slug].cfg.settings.language
         reply = execute_command(cmd, store=runner.primary_store(), contact_id=contact_id,
-                                 now=time.time(), status_text=status_text)
-        await client.send_message("me", reply)
+                                 now=time.time(), status_text=status_text,
+                                 target_error=target_error, language=language)
+        # parse_mode="html": /status и карточка используют кликабельные
+        # имена (<a href=...>), а всё подставленное туда пользовательское
+        # содержимое (detail, имена профилей) уже прогнано через
+        # escape_html/safe_snippet выше по цепочке (console.py) -- без
+        # parse_mode="html" эти теги ушли бы как есть, видимым текстом.
+        await client.send_message("me", reply, parse_mode="html")
 
     client.add_event_handler(_console_handler, events.NewMessage(chats="me"))
     return runner
