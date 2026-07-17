@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 
 import pytest
 
 from chatter.notify.control_bot import ControlBotPoller
 from chatter.storage.db import Store
+from chatter.telethon_run import TelethonRunner
 
 
 class FakeApi:
@@ -249,11 +251,37 @@ def test_run_forever_swallows_getupdates_error_and_continues():
 
 
 # --- config-арка: контрол-бот маршрутизирует config-команды владельца --------
+def test_config_handler_fake_matches_real_signature():
+    """КЛАСС-ГАРД (см. CLAUDE.md рядом с DEV-18): фейк config_handler ОБЯЗАН
+    совпадать по сигнатуре с реальным TelethonRunner.handle_config_command.
+    Именно расхождение (фейк принимал language позиционно, реальный — keyword-only)
+    держало фичу сломанной при 511 зелёных. Проверяем автоматически, не «на глаз»."""
+    real = inspect.signature(TelethonRunner.handle_config_command)
+    # реальный параметр language — keyword-only (после `*`)
+    assert real.parameters["language"].kind is inspect.Parameter.KEYWORD_ONLY
+
+    # фейк, которым пользуются тесты роутинга ниже, должен повторять это же
+    async def config_handler(name, arg, *, language):
+        return "x"
+
+    fake = inspect.signature(config_handler)
+    assert fake.parameters["language"].kind is inspect.Parameter.KEYWORD_ONLY
+    # и позиционные имена/порядок совпадают с реальными (без self)
+    real_pos = [p for p in real.parameters.values()
+                if p.name != "self" and p.kind is not inspect.Parameter.KEYWORD_ONLY]
+    fake_pos = [p for p in fake.parameters.values()
+                if p.kind is not inspect.Parameter.KEYWORD_ONLY]
+    assert [p.name for p in real_pos] == [p.name for p in fake_pos] == ["name", "arg"]
+
+
 def test_owner_config_command_routed_and_replied():
     store = Store(":memory:")
     called = {}
 
-    async def config_handler(name, arg, language):
+    # keyword-only language — ОДИН-В-ОДИН с реальным handle_config_command.
+    # Если прод-вызов регрессирует к позиционному, фейк даст TypeError и этот
+    # тест покраснеет (раньше фейк молча принимал language позиционно и лгал).
+    async def config_handler(name, arg, *, language):
         called["args"] = (name, arg, language)
         return "⚙️ ОТВЕТ КОНФИГА"
 
@@ -272,11 +300,38 @@ def test_owner_config_command_routed_and_replied():
     assert sent["text"] == "⚙️ ОТВЕТ КОНФИГА"
 
 
+def test_config_command_failure_replies_to_owner_not_silence():
+    """DEV-18: если config-хендлер падает, владелец ОБЯЗАН получить ответ
+    (локализованный сигнал сбоя) + ошибка в логе, а НЕ тишину. Раньше падение
+    молча возвращало None и пульт «оглох»."""
+    store = Store(":memory:")
+
+    async def config_handler(name, arg, *, language):
+        raise RuntimeError("boom внутри хендлера")
+
+    api = FakeApi([[{
+        "update_id": 7,
+        "message": {"message_id": 1, "text": "/reload", "chat": {"id": OWNER}},
+    }]])
+    poller = ControlBotPoller(
+        "T", store=store, language="ru", snooze_seconds=3600, owner_chat_id=OWNER,
+        http_get=api.get, http_post=api.post, clock=lambda: 0.0,
+        config_handler=config_handler)
+    asyncio.run(poller.poll_once())
+
+    # владелец получил СООБЩЕНИЕ (не тишину)
+    sent = api.payload_for("sendMessage")
+    assert sent["chat_id"] == OWNER
+    # это локализованный сигнал сбоя из console_text("config_command_failed", "ru")
+    from chatter.core.console import console_text
+    assert sent["text"] == console_text("config_command_failed", "ru")
+
+
 def test_non_owner_config_command_rejected():
     store = Store(":memory:")
     called = {}
 
-    async def config_handler(name, arg, language):
+    async def config_handler(name, arg, *, language):
         called["hit"] = True
         return "x"
 

@@ -4,6 +4,8 @@ import random
 import time
 from pathlib import Path
 
+import pytest
+
 from chatter.config.loader import load_config
 from chatter.core.brain import Brain
 from chatter.core.classifier import ClassifierResult
@@ -229,3 +231,83 @@ def test_demo_has_safe_payment_reply():
     assert cfg.settings.safe_payment_reply
     assert "monobank" in cfg.settings.safe_payment_reply.casefold() \
         or "приватбанк" in cfg.settings.safe_payment_reply.casefold()
+
+
+# --- fallback-карточка (без Telethon-entity): честные имя и «что хочет» -------
+
+def _card_line(text_html: str, prefix: str) -> str:
+    """Строка карточки, начинающаяся с prefix (напр. «Хочет:», «Почему:»)."""
+    for line in text_html.splitlines():
+        if line.startswith(prefix):
+            return line
+    raise AssertionError(f"нет строки с префиксом {prefix!r} в:\n{text_html}")
+
+
+def test_fallback_card_name_is_bare_id_not_composite_key():
+    # Баг 5a: fallback-путь (нет Telethon-entity) печатал СЫРОЙ composite key
+    # «777:demo» как имя лида. Владелец должен видеть «777» (как no-entity
+    # fallback самого раннера через display_name), а не внутренний ключ Store.
+    n = FakeNotifier()
+    deps = _deps(notifier=n)                       # notifier есть, escalation_card НЕ инъектим
+    _process(deps, "777:demo", "позови человека")
+    assert len(n.cards) == 1
+    text = n.cards[0].text_html
+    assert "777:demo" not in text                 # composite key НЕ утекает
+    assert _card_line(text, "🔴 Горячий лид:") == "🔴 Горячий лид: 777"
+
+
+def test_fallback_card_summary_is_lead_message_not_reason_on_keyword_only():
+    # Баг 5b: при срабатывании ТОЛЬКО детерминированного слоя «Хочет» и «Почему»
+    # схлопывались в одну строку (обе = det.detail). det.detail — это ПРИЧИНА
+    # (сработавшее слово), а не то, что лид хочет. «Хочет» обязан показывать
+    # реплику лида, «Почему» — причину; это РАЗНЫЕ строки.
+    n = FakeNotifier()
+    deps = _deps(notifier=n)
+    _process(deps, "42:demo", "у меня жалоба на качество печати")
+    assert len(n.cards) == 1
+    text = n.cards[0].text_html
+    wants = _card_line(text, "Хочет:")
+    why = _card_line(text, "Почему:")
+    assert wants == "Хочет: у меня жалоба на качество печати"   # реплика лида
+    assert "ключевое слово" not in wants                       # НЕ причина
+    assert why == "Почему: ключевое слово «жалоба»"            # причина — здесь
+    assert wants != why                                        # не схлопнуто
+
+
+# --- фаззинг: сырой текст лида теперь течёт в HTML-карточку (Fix 5b) ----------
+# Лид — НЕдоверенный источник. После 5b его реплика идёт в «Хочет:» карточки с
+# parse_mode=HTML. Карточка обязана переживать любой ввод: не ронять process_batch,
+# экранировать HTML-спецсимволы (иначе Telegram отвергнет всё сообщение) и не
+# раздуваться на гигантском вводе. «позови»/«жалоба» — чтобы гарантировать эскалацию.
+FUZZ_LEAD_INPUTS = [
+    '«ёлочки» и „лапки" — позови',              # кириллические кавычки: должны выжить
+    "<script>alert('xss')</script> позови",     # HTML: обязан быть экранирован, не сырой
+    "жалоба 🔥😤🙈 позови человека",              # эмодзи: должны выжить
+    "позови " + "я" * 5000,                     # 5000 символов: усечь, не упасть, не раздуть
+    '"><b>позови</b> & <i>жалоба',              # ломающая разметку смесь < > & " '
+]
+
+
+@pytest.mark.parametrize("lead_text", FUZZ_LEAD_INPUTS)
+def test_escalation_card_survives_adversarial_lead_input(lead_text):
+    n = FakeNotifier()
+    deps = _deps(notifier=n)
+    _process(deps, "42:demo", lead_text)                 # НЕ должно бросить исключение
+    assert len(n.cards) == 1
+    text = n.cards[0].text_html
+    # HTML-спецсимволы лида экранированы: ни одного сырого тега/инъекции из текста
+    assert "<script>" not in text
+    assert "alert('xss')" not in text                    # апостроф/угловые → сущности
+    # «Хочет:» ограничена по длине (safe_snippet) — 5000 символов не раздувают карточку
+    wants = _card_line(text, "Хочет:")
+    assert len(wants) < 400
+
+
+def test_escalation_path_handles_empty_and_blank_lead_input_without_crash():
+    # Пустой / пробельный ввод — не крэш и не пустая карточка (process_batch
+    # выходит на coalesce раньше эскалации). Класс «пустой аргумент».
+    n = FakeNotifier()
+    deps = _deps(notifier=n)
+    _process(deps, "42:demo", "")           # пусто
+    _process(deps, "42:demo", "   \n\t ")   # только пробелы
+    assert n.cards == []

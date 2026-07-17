@@ -18,7 +18,7 @@ from chatter.core.classifier import (
     ClassifierResult, classifier_degraded, note_classifier_error,
 )
 from chatter.core.console import (
-    console_text, contact_link, escalation_buttons, escape_html,
+    console_text, contact_link, display_name, escalation_buttons, escape_html,
     format_escalation_card,
 )
 from chatter.core.disclosure import honest_disclosure, is_bot_question
@@ -198,7 +198,13 @@ def _post_escalation_card(deps: "Deps", contact_id: str, *, det, cr, now: float)
     recent = [(m["role"], m["text"]) for m in deps.store.history(contact_id)][-5:]
     cr_escalated = cr is not None and not cr.degraded and cr.escalate
     cr_reason = cr.reason if (cr is not None and not cr.degraded and cr.reason) else ""
-    summary = cr_reason or (det.detail if det is not None else "нужно внимание владельца")
+    # Fix 5b: «Хочет» (summary) ≠ «Почему» (reason). det.detail — это ПРИЧИНА
+    # (сработавшее слово), а НЕ то, что лид хочет; ставить её в summary =
+    # категориальная ошибка (при чисто детерминированной эскалации обе строки
+    # схлопывались в одну). Когда классификатор не дал reason, честный «что
+    # хочет» — последняя реплика самого лида (она уже в history к этому моменту).
+    last_lead = next((text for role, text in reversed(recent) if role == "user"), "")
+    summary = cr_reason or last_lead or "нужно внимание владельца"
     # Fix 2: одно решение — НЕСКОЛЬКО причин. Если сработали оба слоя, «почему»
     # показывает обе («ключевое слово … + классификатор: …»), а не только одну.
     reasons = []
@@ -212,8 +218,11 @@ def _post_escalation_card(deps: "Deps", contact_id: str, *, det, cr, now: float)
             card = deps.escalation_card(contact_id, summary, why, recent)
         else:
             peer = contact_id.split(":", 1)[0]
+            # Fix 5a: имя лида — «777» через display_name (как no-entity fallback
+            # раннера), а НЕ сырой composite key «777:demo». Имени в Store нет
+            # (Telethon-entity недоступен на этом пути), голый id — честный минимум.
             text = format_escalation_card(
-                name_html=escape_html(contact_id),
+                name_html=display_name(user_id=peer),
                 link=contact_link(user_id=peer), summary=summary, reason=why,
                 recent=recent, language=language, persona_name=cfg.settings.persona_name)
             card = Card(

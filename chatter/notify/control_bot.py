@@ -317,13 +317,20 @@ class ControlBotPoller:
             return
         name, arg = cc
         try:
-            reply = await self._config_handler(name, arg, self._language)
+            reply = await self._config_handler(name, arg, language=self._language)
         except Exception:
+            # DEV-18: команда упала — владелец ОБЯЗАН узнать (ответ + лог), а не
+            # остаться без пульта в тишине. Раньше молчали → пульт «оглох».
             log.exception("config-команда %s упала", name)
-            return
-        await self._post("sendMessage", {
-            "chat_id": chat_id, "text": reply, "parse_mode": "HTML",
-            "disable_web_page_preview": True})
+            reply = console_text("config_command_failed", self._language)
+        try:
+            await self._post("sendMessage", {
+                "chat_id": chat_id, "text": reply, "parse_mode": "HTML",
+                "disable_web_page_preview": True})
+        except Exception:
+            # Даже отправка ответа не должна ронять цикл (её ловит и _handle_update,
+            # но подстрахуемся здесь ради ясности лога).
+            log.exception("control-bot: не смог отправить ответ на config-команду %s", name)
 
     async def _on_start(self, chat_id: int, arg: str | None) -> None:
         """Привязка владельца — БЕЗ TOFU (спека 3B-sec): пуб­личный юзернейм бота
