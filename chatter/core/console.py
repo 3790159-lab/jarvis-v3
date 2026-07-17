@@ -610,6 +610,8 @@ _CFG_STRINGS: dict[str, dict[str, str]] = {
         "cfg_language": "Язык: {language}",
         "cfg_model": "Модель: {model}",
         "cfg_knowledge": "База знаний: {sections} разделов, {bullets} пунктов",
+        "cfg_currency": "Валюта: {currency} · запрещённых терминов: {forbidden}",
+        "cfg_currency_unset": "Валюта: не задана (укажи currency в settings)",
         "cfg_gate_on": "Гейт воронки: ВКЛ (незнакомцы→лиды, знакомые→уведомление)",
         "cfg_gate_off": "Гейт воронки: выкл (отвечаю только allowlist)",
         "cfg_lists": "Списки: allowlist {allow}, denylist {deny}",
@@ -633,6 +635,8 @@ _CFG_STRINGS: dict[str, dict[str, str]] = {
         "cfg_language": "Language: {language}",
         "cfg_model": "Model: {model}",
         "cfg_knowledge": "Knowledge: {sections} sections, {bullets} items",
+        "cfg_currency": "Currency: {currency} · forbidden terms: {forbidden}",
+        "cfg_currency_unset": "Currency: not set (add currency to settings)",
         "cfg_gate_on": "Funnel gate: ON (strangers→leads, contacts→notice)",
         "cfg_gate_off": "Funnel gate: off (answering allowlist only)",
         "cfg_lists": "Lists: allowlist {allow}, denylist {deny}",
@@ -656,6 +660,8 @@ _CFG_STRINGS: dict[str, dict[str, str]] = {
         "cfg_language": "Мова: {language}",
         "cfg_model": "Модель: {model}",
         "cfg_knowledge": "База знань: {sections} розділів, {bullets} пунктів",
+        "cfg_currency": "Валюта: {currency} · заборонених термінів: {forbidden}",
+        "cfg_currency_unset": "Валюта: не задано (вкажи currency у settings)",
         "cfg_gate_on": "Гейт воронки: УВІМК (незнайомці→ліди, знайомі→сповіщення)",
         "cfg_gate_off": "Гейт воронки: вимк (відповідаю лише allowlist)",
         "cfg_lists": "Списки: allowlist {allow}, denylist {deny}",
@@ -699,7 +705,8 @@ def knowledge_stats(knowledge: str) -> tuple[int, int]:
 def format_config(
     *, persona_name: str, persona_age: int | None, language: str, model: str,
     knowledge: str, funnel_gate: bool, allow_count: int, deny_count: int,
-    changed_ago: str | None, lang: str = "ru",
+    changed_ago: str | None, lang: str = "ru", currency: str | None = None,
+    forbidden_count: int = 0,
 ) -> str:
     sections, bullets = knowledge_stats(knowledge)
     persona_line = (
@@ -712,6 +719,8 @@ def format_config(
         cfg_text("cfg_language", lang, language=language),
         cfg_text("cfg_model", lang, model=escape_html(model)),
         cfg_text("cfg_knowledge", lang, sections=sections, bullets=bullets),
+        cfg_text("cfg_currency", lang, currency=escape_html(currency), forbidden=forbidden_count)
+        if currency else cfg_text("cfg_currency_unset", lang),
         cfg_text("cfg_gate_on" if funnel_gate else "cfg_gate_off", lang),
         cfg_text("cfg_lists", lang, allow=allow_count, deny=deny_count),
         cfg_text("cfg_changed", lang, ago=changed_ago) if changed_ago

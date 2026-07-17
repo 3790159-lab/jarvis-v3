@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from chatter.core.brand_safety import forbidden_mention
 from chatter.core.conversation import next_state
 from chatter.core.disclosure import is_bot_question
 from chatter.core.guardrails import contains_unbacked_claim
@@ -75,20 +76,34 @@ class EscalationReason:
 
 def deterministic_escalation(
     *, incoming_text: str, reply: str, knowledge: str, keywords: list[str],
+    forbidden_terms=(),
 ) -> EscalationReason | None:
     """Слой 1 (спека §4): бесплатные детерминированные триггеры. Работают, даже
     если классификатор/сеть лежат. Возвращает ПЕРВЫЙ сработавший триггер, иначе
-    None. Порядок: ключевое слово во входящем → вопрос про бота → необеспеченное
-    обещание в ответе.
+    None.
 
-    ШОВ: вызывает `is_bot_question`/`contains_unbacked_claim`, не правит их.
+    Порядок по КРИТИЧНОСТИ: brand-safety в ответе (Аня вот-вот скажет
+    запрещённое — рубли/росбанк — подавить ОБЯЗАТЕЛЬНО) → ключевое слово →
+    вопрос про бота → brand-safety во входящем (лид спросил про запрещённое) →
+    необеспеченное обещание. forbidden_reply → run.py переписывает ответ.
+
+    ШОВ: вызывает `is_bot_question`/`contains_unbacked_claim`/`forbidden_mention`,
+    не правит core-файлы.
     """
+    hit = forbidden_mention(reply or "", forbidden_terms)
+    if hit:
+        return EscalationReason(
+            tag="forbidden_reply", detail=f"ответ упомянул запрещённое «{hit}»")
     text = (incoming_text or "").casefold()
     for kw in keywords:
         if kw and kw in text:
             return EscalationReason(tag="keyword", detail=f"ключевое слово «{kw}»")
     if is_bot_question(incoming_text or ""):
         return EscalationReason(tag="bot_question", detail="спросили, бот ли это")
+    in_hit = forbidden_mention(incoming_text or "", forbidden_terms)
+    if in_hit:
+        return EscalationReason(
+            tag="forbidden_incoming", detail=f"лид упомянул запрещённое «{in_hit}»")
     if contains_unbacked_claim(reply or "", knowledge or ""):
         return EscalationReason(
             tag="unbacked_claim", detail="ответ обещал цену/срок вне базы знаний")

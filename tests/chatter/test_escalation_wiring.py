@@ -173,3 +173,35 @@ def test_new_card_after_owner_acted():
     deps.store.set_runtime_flag("esc_active:42:demo", "", ts=1000.0)
     _process(deps, "42:demo", "снова жалоба")
     assert len(n.cards) == 2        # новая карточка, не правка
+
+
+# --- brand-safety wiring (валюта/оплата) ------------------------------------
+
+def test_demo_config_is_hryvnia_no_rubles():
+    cfg = load_config(CLIENTS, "demo")
+    assert cfg.settings.currency == "грн"
+    assert "руб" not in cfg.knowledge.casefold()   # рубли выпилены
+    assert "сбп" not in cfg.knowledge.casefold()
+    assert "монобанк" in cfg.knowledge.casefold() or "monobank" in cfg.knowledge.casefold()
+    assert cfg.settings.forbidden_terms                 # denylist задан
+
+
+def test_forbidden_reply_suppressed_and_escalated():
+    # Аня в ответе ляпнула про рубли/Сбербанк → подавить + карточка владельцу
+    n = FakeNotifier()
+    deps = _deps(notifier=n, keywords=[], brain_reply="Да, можно картой Сбербанка в рублях.")
+    transport = RecordingTransport()
+    deps.store.get_or_create_contact("42:demo")
+    process_batch("42:demo", ["как оплатить?"], transport, deps)
+    joined = " ".join(transport.sent).casefold()
+    assert "сбербанк" not in joined and "рубл" not in joined   # подавлено
+    assert len(n.cards) == 1                                    # эскалация владельцу
+    assert deps.store.get_or_create_contact("42:demo")["state"] == "escalated"
+
+
+def test_lead_asks_about_sberbank_escalates():
+    n = FakeNotifier()
+    deps = _deps(notifier=n, keywords=[], brain_reply="Уточню способы оплаты и вернусь.")
+    process_batch("42:demo", ["можно оплатить картой Сбербанка?"], RecordingTransport(), deps)
+    assert len(n.cards) == 1                                    # лид про росбанк → эскалация
+    assert deps.store.get_or_create_contact("42:demo")["state"] == "escalated"

@@ -3,6 +3,7 @@ model: claude-haiku-4-5
 language: en
 owner_id: "Alex"
 persona_name: "Dmitry"
+currency: "USD"
 work_hours: {start: 9, end: 18}
 timings:
   read_delay_min: 1.5

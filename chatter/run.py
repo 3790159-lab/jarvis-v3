@@ -151,7 +151,8 @@ def _escalation_pass(
     cfg = deps.cfg
     det = deterministic_escalation(
         incoming_text=incoming_text, reply=reply,
-        knowledge=cfg.knowledge, keywords=deps.escalation_keywords)
+        knowledge=cfg.knowledge, keywords=deps.escalation_keywords,
+        forbidden_terms=cfg.settings.forbidden_terms)
     cr = deps.classify(store.history(contact_id)) if deps.classify is not None else None
     decision = decide_escalation(det=det, classifier_result=cr)
 
@@ -161,10 +162,11 @@ def _escalation_pass(
 
     advance_funnel(store, contact_id, stage_signal=decision.stage_signal, escalated=decision.escalate)
 
-    if det is not None and det.tag == "unbacked_claim":
-        # Гардрейл (перенесён из инлайна арки 3A): не отправляем выдуманную
-        # цену/срок — честная «уточню и вернусь» вместо неё.
-        print(f"  [escalation flag] unbacked claim for {contact_id}: {reply!r}")
+    if det is not None and det.tag in ("unbacked_claim", "forbidden_reply"):
+        # Гардрейл-подавление: НЕ отправляем ни выдуманную цену/срок, ни
+        # запрещённый термин (рубли/росбанк — brand-safety). Честная «уточню и
+        # вернусь» вместо этого + эскалация владельцу.
+        print(f"  [escalation flag] {det.tag} for {contact_id}: {reply!r}")
         reply = (
             f"Хороший вопрос — уточню детали и вернусь. "
             f"Если удобно, позову {cfg.settings.owner_id}."
