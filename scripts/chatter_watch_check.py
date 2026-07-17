@@ -53,6 +53,16 @@ def should_alert(*, is_down: bool, last_alert_ts, now: float, cooldown: float) -
     return (now - float(last_alert_ts)) >= cooldown
 
 
+def should_notify_recovery(*, is_down: bool, alerted: bool) -> bool:
+    """Send the ✅ only to close a 🔴 we actually sent: up now AND we alerted
+    before. A DOWN alert with no paired recovery leaves the operator unable to
+    tell "fixed itself" from "still broken, alerter died" -- so the pair is the
+    contract, and `alerted` (from the marker) is what makes it survive a
+    guardian restart. No cooldown here: a recovery is a one-shot edge, deduped
+    by clearing the flag."""
+    return (not is_down) and bool(alerted)
+
+
 def alert_text() -> str:
     return (
         "🔴 chatter-раннер (Telethon-юзербот) НЕ отвечает: heartbeat устарел "
@@ -60,6 +70,15 @@ def alert_text() -> str:
         "Если не поднимется — проверь logs/chatter_telethon.log и "
         "`schtasks /Run /TN JarvisChatterGuardian`. Пока раннер лежит, входящие "
         "в личку копятся непрочитанными (catch-up подхватит их за 24ч после старта)."
+    )
+
+
+def recovery_text() -> str:
+    return (
+        "✅ chatter-раннер (Telethon-юзербот) снова живой: heartbeat свежий, "
+        "MTProto подключён. Пропущенное за время простоя catch-up подхватил "
+        "(лог: logs/chatter_telethon.log, строка `catch-up: N dialog(s)`). "
+        "Можно расслабиться."
     )
 
 
@@ -71,10 +90,11 @@ def _read_marker() -> dict:
         return {}
 
 
-def _write_marker(now: float) -> None:
+def _write_marker(now: float, *, alerted: bool) -> None:
     try:
         MARKER_PATH.parent.mkdir(parents=True, exist_ok=True)
-        MARKER_PATH.write_text(json.dumps({"last_alert_ts": now}), encoding="utf-8")
+        MARKER_PATH.write_text(
+            json.dumps({"last_alert_ts": now, "alerted": alerted}), encoding="utf-8")
     except Exception:
         pass
 
@@ -110,10 +130,28 @@ def main() -> int:
     except Exception:
         hb_text = None
     is_down = not is_heartbeat_fresh(hb_text, now=now, max_age=HEARTBEAT_MAX_AGE_S)
-    last = _read_marker().get("last_alert_ts")
+    marker = _read_marker()
+    last = marker.get("last_alert_ts")
+    # Legacy markers (pre-recovery-pairing) have no `alerted` key -> False: we do
+    # not retro-fire a ✅ for an outage that predates the feature.
+    alerted = bool(marker.get("alerted", False))
+
+    if should_notify_recovery(is_down=is_down, alerted=alerted):
+        if _send_tg(recovery_text()):
+            # Keep last_alert_ts: it still guards the DOWN cooldown, so a FLAPPING
+            # runner cannot spam 🔴/✅ pairs. Only the pairing flag is cleared.
+            _write_marker(last if last is not None else now, alerted=False)
+            print("[chatter_watch_check] RECOVERY alert sent to admin")
+        else:
+            # DEV-18: do not clear the flag on a failed send -- retry next cycle
+            # rather than silently swallowing the operator's ✅.
+            print("[chatter_watch_check] recovered but TG alert failed (no token / network)")
+        return 0
+
     if should_alert(is_down=is_down, last_alert_ts=last, now=now, cooldown=ALERT_COOLDOWN_S):
         if _send_tg(alert_text()):
-            _write_marker(now)
+            # alerted=True is what obliges us to send the paired ✅ later.
+            _write_marker(now, alerted=True)
             print("[chatter_watch_check] DOWN alert sent to admin")
         else:
             print("[chatter_watch_check] DOWN but TG alert failed (no token / network)")

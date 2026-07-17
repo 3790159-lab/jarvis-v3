@@ -79,6 +79,21 @@ if (-not $NoLoop) {
     Write-G "chatter guardian started (PID $PID), heartbeat<=${HeartbeatMaxAgeSec}s every ${IntervalSeconds}s, debounce=${DebounceFailures}"
 }
 
+function Invoke-WatchCheck {
+    # Fire the stdlib-only alerter. It is the SINGLE decision point for both the
+    # 🔴 and the paired ✅: it reads the heartbeat + its own marker and self-dedups,
+    # so calling it on any state EDGE is safe and idempotent.
+    #
+    # It MUST be called on the alive edge too, not only on DOWN: the recovery ✅
+    # can only be observed from the healthy side. Calling it only in the DOWN
+    # branch (the original wiring) made a paired ✅ physically unreachable —
+    # the operator got 🔴 at 03:25 and never learned it came back.
+    try { & $py $watchCheck 2>$null } catch {
+        # DEV-18: an alerter that dies silently is how you lose the next outage.
+        Write-G "Invoke-WatchCheck FAILED: $($_.Exception.Message)"
+    }
+}
+
 function Get-RunnerProcesses {
     # INSTANCE-SCOPED to $Root: the runner is always launched as "$py -m
     # chatter.telethon_run" with the venv under $Root, so its cmdline contains
@@ -163,7 +178,16 @@ if (-not $NoLoop) {
 
         if (Test-Runner) {
             $consecutiveFail = 0
-            if ($lastState -ne 'alive') { Write-G 'runner alive'; $lastState = 'alive' }
+            if ($lastState -ne 'alive') {
+                Write-G 'runner alive'
+                $lastState = 'alive'
+                # Alive EDGE (incl. the very first check after a guardian start):
+                # if a 🔴 is still open in the marker, this is what closes it with ✅.
+                # Firing on the first check matters — the guardian itself died and
+                # restarted mid-outage in prod (PID 8928 -> 12912), which resets
+                # $lastState; the marker, not this variable, is the durable memory.
+                Invoke-WatchCheck
+            }
         } else {
             $consecutiveFail++
             if ($consecutiveFail -lt $DebounceFailures) {
@@ -172,11 +196,16 @@ if (-not $NoLoop) {
                 if ($lastState -ne 'dead') { Write-G 'runner DOWN - restarting'; $lastState = 'dead' }
                 # TG-alert the operator (stdlib-only, self-dedups via cooldown) BEFORE
                 # relaunch, so a crash is visible even if recovery also fails.
-                try { & $py $watchCheck 2>$null } catch {}
+                Invoke-WatchCheck
                 $started = Start-Runner
                 if ($started -and (Test-Runner)) {
                     $lastState = 'alive'
                     $consecutiveFail = 0
+                    # THE main recovery path (down -> relaunch -> alive) resolves the
+                    # state right here, so the alive-branch edge above never sees it.
+                    # Without this call a successful self-heal — the common case —
+                    # would still leave the 🔴 unpaired.
+                    Invoke-WatchCheck
                 }
             }
         }

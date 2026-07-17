@@ -39,3 +39,31 @@ def test_alert_text_mentions_chatter_and_recovery():
     txt = cw.alert_text()
     assert "chatter" in txt.lower()
     assert "JarvisChatterGuardian" in txt or "guardian" in txt.lower()
+
+
+def test_should_notify_recovery_only_when_up_after_a_down_alert_was_sent():
+    # The operator got a 🔴; the runner is fresh again -> he MUST get the paired ✅,
+    # otherwise he never learns when it is safe to stop worrying.
+    assert cw.should_notify_recovery(is_down=False, alerted=True) is True
+    # Never alerted (quiet, healthy box) -> a ✅ out of nowhere is noise.
+    assert cw.should_notify_recovery(is_down=False, alerted=False) is False
+    # Still down -> not recovered, no matter the history.
+    assert cw.should_notify_recovery(is_down=True, alerted=True) is False
+    assert cw.should_notify_recovery(is_down=True, alerted=False) is False
+
+
+def test_recovery_text_is_a_green_paired_confirmation():
+    txt = cw.recovery_text()
+    assert "✅" in txt
+    assert "chatter" in txt.lower()
+
+
+def test_marker_roundtrip_preserves_alerted_flag(tmp_path, monkeypatch):
+    # The `alerted` flag is the durable memory that pairs 🔴 with ✅. It MUST
+    # survive a guardian restart (PID 8928 -> 12912 happened in prod), so it
+    # lives in the marker file, not in the guardian's in-memory $lastState.
+    monkeypatch.setattr(cw, "MARKER_PATH", tmp_path / "marker.json")
+    cw._write_marker(1234.0, alerted=True)
+    assert cw._read_marker() == {"last_alert_ts": 1234.0, "alerted": True}
+    cw._write_marker(1234.0, alerted=False)
+    assert cw._read_marker()["alerted"] is False
