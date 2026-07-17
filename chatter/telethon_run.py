@@ -18,6 +18,7 @@ from chatter.core import humanizer as H
 from chatter.core.brain import Brain
 from chatter.core.console import PauseView, format_status, parse_command
 from chatter.core.llm import AnthropicLLM, FakeLLM, LLMClient
+from chatter.core.pause import should_auto_resume
 from chatter.run import Deps, process_batch
 from chatter.storage.db import Store
 from chatter.transport.telethon_tg import SentRegistry, TelethonTransport, send_alert
@@ -603,6 +604,63 @@ async def heartbeat_loop(
         await asyncio.sleep(interval)
 
 
+# --- periodic auto-resume + its OWN heartbeat (arc 3A, spec §8) -------------
+def autoresume_sweep(store: Store, *, now: float, auto_resume_hours: float) -> int:
+    """Один прогон авто-возврата. Возвращает число размороженных диалогов.
+
+    Пишет свой heartbeat (`runtime_flags['autoresume_beat']`) ВСЕГДА -- по
+    его возрасту /status отличает живую задачу от мёртвой. Мёртвая задача
+    выглядит РОВНО как «пауз к возврату нет»: тихо и правдоподобно.
+    Единственная разница -- возраст этого heartbeat.
+
+    ФАКТ-ПРОВЕРКА против плана: план писал heartbeat ОДНОЙ строкой ПОСЛЕ
+    цикла `for row in store.muted_contacts(): ... store.unmute(...)`. Если
+    `unmute`/`add_event` бросает исключение на КАКОЙ-ТО одной строке (сбой
+    БД, гонка с /resume того же контакта из консоли), исключение уносит
+    выполнение мимо строки с heartbeat -- он не пишется, и /status начинает
+    ВРАТЬ «задача жива», хотя она застряла на первой же сломанной строке.
+    Это ровно тот баг-класс, от которого вся идея heartbeat: обёрнуто в
+    try/except на уровне КАЖДОЙ строки (DEV-18: логируем, не глотаем), чтобы
+    одна порченая строка не блокировала ни heartbeat, ни размораживание
+    ОСТАЛЬНЫХ диалогов после неё. Чтение store.muted_contacts() тоже
+    обёрнуто отдельно по той же причине."""
+    resumed = 0
+    try:
+        rows = store.muted_contacts()
+    except Exception:
+        log.exception("autoresume sweep: не смог прочитать список пауз")
+        rows = []
+    for row in rows:
+        try:
+            if should_auto_resume(row, now=now, auto_resume_hours=auto_resume_hours):
+                store.unmute(row["contact_id"])
+                store.add_event("auto_resume", contact_id=row["contact_id"], ts=now)
+                resumed += 1
+        except Exception:
+            log.exception("autoresume sweep: не смог разморозить %s", row.get("contact_id"))
+    store.set_runtime_flag("autoresume_beat", str(now), ts=now)
+    return resumed
+
+
+async def autoresume_loop(
+    store: Store, *, auto_resume_hours: float, interval: float = AUTORESUME_INTERVAL_SECONDS,
+) -> None:
+    """Крутит autoresume_sweep вечно, раз в `interval` секунд. DEV-18:
+    исключение внутри НЕ убивает цикл -- иначе паузы залипнут навсегда, а
+    владелец узнает об этом только по возрасту heartbeat в /status (и то
+    только если додумается посмотреть). autoresume_sweep уже ловит свои
+    внутренние сбои построчно (см. выше) -- этот try/except здесь как вторая
+    линия обороны на случай сбоя ВНЕ цикла по строкам (например
+    store.muted_contacts() и store.set_runtime_flag() оба упали до того, как
+    внутренние try/except успели сработать)."""
+    while True:
+        try:
+            autoresume_sweep(store, now=time.time(), auto_resume_hours=auto_resume_hours)
+        except Exception:
+            log.exception("autoresume sweep failed; продолжаю цикл")
+        await asyncio.sleep(interval)
+
+
 # --- runner assembly / CLI --------------------------------------------------
 def _build_llm(cfg: Config, mode: str) -> LLMClient:
     if mode == "real" or (mode == "auto" and os.environ.get("ANTHROPIC_API_KEY")):
@@ -812,6 +870,11 @@ def main(argv: list[str] | None = None) -> int:
         # Own liveness stamp for the guardian, forever, alongside the one-shot
         # catch-up of anything that arrived while we were down.
         loop.create_task(heartbeat_loop())
+        # Периодический авто-возврат (спека §8) -- тоже вечный фоновый цикл,
+        # запускается рядом с heartbeat_loop по той же причине: должен жить
+        # весь срок процесса, а не один раз при старте.
+        loop.create_task(autoresume_loop(
+            runner.primary_store(), auto_resume_hours=runner.control.auto_resume_hours))
         await runner.catch_up_missed()
 
     print(f"[telethon_run] personas={slugs} session={session_path}")
