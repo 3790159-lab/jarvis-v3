@@ -13,7 +13,7 @@ from typing import Awaitable, Callable
 from telethon import events
 from telethon.errors import AuthKeyError, UnauthorizedError
 
-from chatter.config.loader import Config, ControlConfig, load_config
+from chatter.config.loader import Config, ConfigError, ControlConfig, load_config
 from chatter.core import humanizer as H
 from chatter.core.admission import admission_decision
 from chatter.core.brain import Brain
@@ -368,12 +368,18 @@ class TelethonRunner:
         self, *, client, personas: dict[str, PersonaBundle], primary_slug: str,
         allowlist: frozenset[int], loop: asyncio.AbstractEventLoop,
         denylist: frozenset[int] = frozenset(), funnel_gate: bool = False,
+        clients_dir: Path | None = None, persona_slugs: list[str] | None = None,
+        llm_mode: str = "auto",
     ):
         if primary_slug not in personas:
             raise ValueError(f"primary persona '{primary_slug}' not among loaded personas")
         self.client = client
         self.personas = personas
         self.primary_slug = primary_slug
+        # Для reload без рестарта (config-арка): откуда перечитывать конфиг.
+        self._clients_dir = clients_dir
+        self._persona_slugs = persona_slugs or list(personas.keys())
+        self._llm_mode = llm_mode
         self.allowlist = allowlist
         # Арка 3C: перевёрнутый гейт допуска (по умолчанию off = старое поведение).
         self.denylist = denylist
@@ -394,6 +400,43 @@ class TelethonRunner:
 
     def persona_for(self, sender_id: int) -> str:
         return self._sender_persona.get(sender_id, self.primary_slug)
+
+    def reload_configs(self) -> tuple[bool, str | None]:
+        """Перечитать конфиг БЕЗ рестарта, АТОМАРНО и FAIL-SAFE (config-арка §2).
+
+        Валидируем НОВЫЙ конфиг на scratch-сборке (load_personas → load_config
+        кидает ConfigError на кривом файле) ДО того, как трогаем живое. Успех →
+        атомарный своп personas + полей гейта, переиспользуя ТОТ ЖЕ Store (живое
+        состояние — паузы/история/флаги — цело). Провал → НЕ свопаем, возвращаем
+        (False, человеческая-причина: файл+причина). Аня продолжает на СТАРОМ
+        конфиге — опечатка клиента не имеет права её заглушить (DEV-18)."""
+        if self._clients_dir is None:
+            return False, "reload недоступен: раннер собран без clients_dir"
+        store = self.primary_store()   # ТОТ ЖЕ store — не пересоздаём живое состояние
+        try:
+            new_personas = load_personas(
+                self._clients_dir, self._persona_slugs, store, llm_mode=self._llm_mode)
+        except ConfigError as e:
+            log.warning("reload: конфиг невалиден, остаюсь на старом: %s", e)
+            return False, str(e)
+        except Exception as e:  # noqa: BLE001 — любой сбой сборки = остаёмся на старом
+            log.exception("reload: неожиданный сбой сборки конфига, остаюсь на старом")
+            return False, f"{type(e).__name__}: {e}"
+        # Переинъектим рантайм-зависимости (как build_runner).
+        for bundle in new_personas.values():
+            bundle.deps.notifier = self.notifier
+            bundle.deps.escalation_card = self.build_escalation_card
+        # Атомарный своп (одно присваивание ссылки dict).
+        self.personas = new_personas
+        tg = new_personas[self.primary_slug].cfg.settings.telegram
+        if tg is not None:
+            self.allowlist = frozenset(tg.allowlist)
+            self.denylist = frozenset(tg.denylist)
+            self.funnel_gate = tg.funnel_gate
+        now = time.time()
+        store.set_runtime_flag("config_changed_ts", str(now), ts=now)
+        log.info("reload: конфиг перечитан и заменён успешно")
+        return True, None
 
     def build_escalation_card(
         self, contact_id: str, summary: str, why: str, recent: list[tuple[str, str]],
@@ -1131,6 +1174,7 @@ def build_runner(
         client=client, personas=personas, primary_slug=primary_slug,
         allowlist=frozenset(telegram_cfg.allowlist), loop=loop,
         denylist=frozenset(telegram_cfg.denylist), funnel_gate=telegram_cfg.funnel_gate,
+        clients_dir=Path(clients_dir), persona_slugs=list(persona_slugs), llm_mode=llm_mode,
     )
 
     # Арка 3B: Notifier + (для контрол-бота) поллер. Инъектим Notifier и билдер
