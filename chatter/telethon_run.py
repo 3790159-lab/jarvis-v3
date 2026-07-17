@@ -983,6 +983,22 @@ def load_personas(
     return personas
 
 
+def _resolve_control_token(token_env: str | None) -> str | None:
+    """Токен контрол-бота по ИМЕНИ env-переменной: сначала os.environ, потом
+    .env (как ANTHROPIC_API_KEY) — гардиан-раннер может не унаследовать
+    shell-переменную, а .env читается всегда."""
+    if not token_env:
+        return None
+    token = os.environ.get(token_env)
+    if token:
+        return token
+    try:
+        return _parse_env_file(DEFAULT_ENV_FILE).get(token_env)
+    except Exception:
+        log.warning("не смог прочитать %s из .env для токена контрол-бота", DEFAULT_ENV_FILE, exc_info=True)
+        return None
+
+
 def _build_notifier_and_poller(
     *, client, loop, store: Store, control: ControlConfig, language: str,
 ) -> tuple[Notifier, "ControlBotPoller | None"]:
@@ -992,7 +1008,7 @@ def _build_notifier_and_poller(
     owner_chat_id может быть None (bind на первый /start): и notifier, и поллер
     читают привязанного владельца из runtime_flags — поэтому notifier получает
     РАЗРЕШАТЕЛЬ chat_id, а не фиксированное число."""
-    token = os.environ.get(control.control_bot_token_env) if control.control_bot_token_env else None
+    token = _resolve_control_token(control.control_bot_token_env)
     if not token:
         return SavedMessagesNotifier(client, loop), None
 
