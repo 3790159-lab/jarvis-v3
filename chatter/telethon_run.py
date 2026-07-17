@@ -1184,6 +1184,11 @@ def main(argv: list[str] | None = None) -> int:
         if hasattr(_stream, "reconfigure"):
             _stream.reconfigure(encoding="utf-8")  # incl. stderr: logging writes there; keeps Cyrillic/emoji readable
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    # httpx логирует ПОЛНЫЙ URL запроса на INFO, а URL контрол-бота содержит
+    # токен (…/bot<TOKEN>/getUpdates) — на INFO токен утекал бы в лог-файл
+    # каждые ~25с. Поднимаем httpx до WARNING: токен больше не пишется, ошибки
+    # (4xx/5xx) по-прежнему видны.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
     p = argparse.ArgumentParser(prog="chatter.telethon_run")
     p.add_argument("--personas", default="demo,demo2",

@@ -46,7 +46,7 @@ def _deps(*, notifier=None, classify=None, keywords=None, brain_reply="Прив�
     )
     deps.notifier = notifier
     deps.classify = classify
-    deps.escalation_keywords = keywords if keywords is not None else ["позови", "оплата", "жалоба"]
+    deps.escalation_keywords = keywords if keywords is not None else ["позови", "верните", "жалоба"]
     return deps
 
 
@@ -121,3 +121,31 @@ def test_demo_playbook_has_escalation_keywords():
     cfg = load_config(CLIENTS, "demo")
     kw = parse_escalation_keywords(cfg.playbook)
     assert kw, "demo playbook must declare escalation keywords for arc 3B"
+
+
+def test_payment_intent_does_not_escalate_but_refund_and_complaint_do():
+    # Fix 1: «хочу оплатить» = момент продажи (Аня даёт реквизиты сама),
+    # эскалируем только возврат/жалобу/спор/«позови человека».
+    from chatter.core.escalation import deterministic_escalation
+    cfg = load_config(CLIENTS, "demo")
+    kw = parse_escalation_keywords(cfg.playbook)
+    assert "оплата" not in kw
+    assert "жалоба" in kw
+    assert any(k in ("возврат", "верните") for k in kw)
+    # намерение заплатить — НЕ эскалация
+    assert deterministic_escalation(
+        incoming_text="как можно оплатить съёмку?", reply="ок",
+        knowledge=cfg.knowledge, keywords=kw) is None
+    # возврат / жалоба — эскалация
+    assert deterministic_escalation(
+        incoming_text="верните деньги, я недоволен", reply="ок",
+        knowledge=cfg.knowledge, keywords=kw) is not None
+    assert deterministic_escalation(
+        incoming_text="это жалоба", reply="ок",
+        knowledge=cfg.knowledge, keywords=kw) is not None
+
+
+def test_demo_knowledge_has_payment_requisites():
+    # Чтобы Аня могла отдать реквизиты сама (дефолт: есть реквизиты → отдаёт).
+    cfg = load_config(CLIENTS, "demo")
+    assert "плат" in cfg.knowledge.casefold() or "реквизит" in cfg.knowledge.casefold()
