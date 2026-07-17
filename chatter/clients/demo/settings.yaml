@@ -20,3 +20,16 @@ timings:
 limits: {max_reply_tokens: 20000, per_contact_hourly: 20, daily_cap: 500}
 telegram:
   allowlist: [237616472]
+# Арка 3B — контрол-бот + эскалация. ПОКА ЗАКОММЕНТИРОВАНО: без токена продукт
+# работает ровно как арка 3A (пульт в Saved Messages). Чтобы включить:
+#   1) создать бота в BotFather, положить токен в окружение (напр. в .env)
+#      под именем, указанным в control_bot_token_env;
+#   2) раскомментировать блок ниже;
+#   3) владелец жмёт /start в чате с ботом (owner_chat_id можно не указывать —
+#      привяжется по первому /start).
+# control:
+#   control_bot_token_env: CHATTER_CONTROL_BOT_TOKEN   # ИМЯ env-переменной, НЕ токен
+#   owner_chat_id: 237616472        # опционально: если не задать — bind на /start
+#   classifier_enabled: true        # дешёвый LLM-классификатор эскалации (только на реальном LLM)
+#   classifier_error_threshold: 5   # > стольких ошибок/окно → алерт «классификатор деградировал»
+#   snooze_seconds: 3600            # кнопка «⏸ Ещё 1ч»
