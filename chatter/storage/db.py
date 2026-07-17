@@ -152,17 +152,38 @@ class Store:
     def mute(self, contact_id: str, *, source: str, msg_id: int | None = None,
              detail: str | None = None, until: float | None = None, now: float) -> None:
         """Заглушить диалог. `source` ОБЯЗАТЕЛЕН: пауза без причины — баг-класс
-        (спека §4), поэтому её нельзя поставить даже случайно."""
+        (спека §4), поэтому её нельзя поставить даже случайно.
+
+        Контакт тоже ОБЯЗАН существовать: `KeyError`, а не тихий no-op.
+        `UPDATE ... WHERE contact_id=?` на несуществующей строке обновляет
+        0 строк и без проверки rowcount вернул бы None ровно как при успехе —
+        вызывающий код думал бы, что пауза встала, а Аня продолжила бы
+        отвечать поверх владельца, который уже пишет клиенту руками, и
+        /status соврал бы «пауз нет». Это тот же класс ошибки, что и
+        отсутствие атрибуции причины, поэтому та же паранойя. `KeyError`,
+        а не `ValueError`: это буквально «нет строки с таким ключом»,
+        симметрично dict[missing_key] — тогда как `ValueError` в этом файле
+        уже занят под «источник паузы не из разрешённого набора»."""
         if source not in ROW_MUTE_SOURCES:
             raise ValueError(f"unknown mute source: {source!r} (need one of {sorted(ROW_MUTE_SOURCES)})")
         with self._lock:
-            self._conn.execute(
+            cur = self._conn.execute(
                 "UPDATE contacts SET paused=1, pause_source=?, pause_msg_id=?, "
                 "pause_detail=?, pause_until=?, paused_at=? WHERE contact_id=?",
                 (source, msg_id, detail, until, now, contact_id))
+            if cur.rowcount == 0:
+                # Ничего не менялось — коммитить нечего, и raise внутри
+                # `with self._lock` всё равно корректно освобождает лок
+                # (это гарантия контекст-менеджера, exit вызывается и при
+                # исключении).
+                raise KeyError(f"mute: unknown contact_id {contact_id!r} - no such contact row")
             self._conn.commit()
 
     def unmute(self, contact_id: str) -> None:
+        """В отличие от `mute`, тихий no-op на несуществующем контакте —
+        приемлемое поведение: «снять паузу с того, у кого её нет» уже
+        достигнуто, это идемпотентность, а не потерянное действие (например
+        /resume на диалог, который уже отвечает сам, не должен падать)."""
         with self._lock:
             self._conn.execute(
                 "UPDATE contacts SET paused=0, pause_source=NULL, pause_msg_id=NULL, "
@@ -171,6 +192,14 @@ class Store:
             self._conn.commit()
 
     def muted_contacts(self) -> list[dict]:
+        # ORDER BY paused_at ASC: легаси-строки арки 1 (paused=1 без
+        # paused_at, см. тест на легаси-миграцию) получают NULL, а в SQLite
+        # NULL сортируется РАНЬШЕ любого значения при ASC — такая строка
+        # уместно оказывается первой в выдаче: её "возраст" неизвестен, и
+        # безопаснее показать её владельцу сразу, а не похоронить в хвосте.
+        # Она ОБЯЗАНА присутствовать в выдаче вообще: строка, которая глушит
+        # Аню и невидима в /status, — это и есть тихая вечная самозаглушка,
+        # ровно тот баг-класс, от которого вся эта арка.
         with self._lock:
             rows = self._conn.execute(
                 "SELECT * FROM contacts WHERE paused=1 ORDER BY paused_at").fetchall()
@@ -264,10 +293,18 @@ class Store:
                 (kind, since_ts)).fetchone()[0]
 
     def add_card(self, *, msg_id: int, contact_id: str, kind: str, ts: float) -> None:
+        # На конфликте msg_id перезаписываем ВСЕ поля, не только contact_id:
+        # в реальности msg_id в Saved Messages не переиспользуется, так что
+        # конфликт — либо повторная запись ТОЙ ЖЕ карточки (все поля и так
+        # совпадут), либо программная ошибка/перепривязка. Частичный апдейт
+        # (старый вариант обновлял только contact_id) в последнем случае
+        # оставил бы kind/ts от предыдущей карточки лгать про новый
+        # contact_id — полный оверрайт безопаснее и не добавляет риска.
         with self._lock:
             self._conn.execute(
                 "INSERT INTO console_cards(msg_id, contact_id, kind, ts) VALUES (?,?,?,?) "
-                "ON CONFLICT(msg_id) DO UPDATE SET contact_id=excluded.contact_id",
+                "ON CONFLICT(msg_id) DO UPDATE SET "
+                "contact_id=excluded.contact_id, kind=excluded.kind, ts=excluded.ts",
                 (msg_id, contact_id, kind, ts))
             self._conn.commit()
 

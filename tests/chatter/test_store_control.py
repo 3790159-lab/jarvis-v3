@@ -118,3 +118,80 @@ def test_has_contact_does_not_create_a_row():
         s.has_contact("нет-такого")
         rows = s._conn.execute("SELECT COUNT(*) FROM contacts").fetchone()[0]
         assert rows == 0
+
+
+def test_mute_raises_for_unknown_contact():
+    # Сейчас UPDATE ... WHERE contact_id=? на несуществующей строке молча
+    # обновляет 0 строк и возвращает None — ровно как при успехе. Пауза НЕ
+    # встаёт, а вызывающий код (и /status) этого не узнают: Аня продолжит
+    # отвечать поверх владельца, который уже пишет клиенту руками. mute()
+    # уже параноит про причину паузы (source обязателен) — та же паранойя
+    # обязана распространяться на существование самого контакта.
+    with Store(":memory:") as s:
+        with pytest.raises(KeyError):
+            s.mute("нет-такого-контакта", source="command", now=100.0)
+
+
+def test_unmute_on_unknown_contact_is_a_quiet_noop():
+    # В отличие от mute(), unmute() на несуществующем контакте — ЖЕЛАЕМОЕ
+    # идемпотентное поведение: "снять паузу с того, у кого её нет" уже
+    # достигнуто, это не потерянное действие, а не-действие. Раздутие до
+    # исключения тут было бы шумом без пользы (например /resume на уже
+    # отвеченный диалог не должен падать).
+    with Store(":memory:") as s:
+        s.unmute("нет-такого-контакта")  # не должно поднять исключение
+        rows = s._conn.execute("SELECT COUNT(*) FROM contacts").fetchone()[0]
+        assert rows == 0  # и уж тем более не создаёт строку
+
+
+def test_muted_contacts_orders_by_paused_at_ascending():
+    with Store(":memory:") as s:
+        s.get_or_create_contact("c1")
+        s.get_or_create_contact("c2")
+        s.get_or_create_contact("c3")
+        s.mute("c1", source="command", now=200.0)
+        s.mute("c2", source="command", now=100.0)
+        s.mute("c3", source="command", now=150.0)
+        # Фактический порядок выдачи — от самой старой паузы к новой.
+        assert [r["contact_id"] for r in s.muted_contacts()] == ["c2", "c3", "c1"]
+
+
+def test_muted_contacts_includes_legacy_row_with_null_paused_at():
+    # Легаси-строка из арки 1 (старый set_flag("paused", True)) писала
+    # paused=1 БЕЗ paused_at/pause_source. mute() такого сам не создаст
+    # (now — обязательный аргумент), поэтому имитируем сырым SQL, как это
+    # реально выглядит после миграции существующей продовой базы.
+    with Store(":memory:") as s:
+        s._conn.execute(
+            "INSERT INTO contacts(contact_id, paused) VALUES (?, 1)", ("legacy1",))
+        s._conn.commit()
+        s.get_or_create_contact("c1")
+        s.mute("c1", source="command", now=100.0)
+        rows = s.muted_contacts()
+        ids = [r["contact_id"] for r in rows]
+        # Обязана попасть в выдачу: строка, которая глушит Аню и невидима в
+        # /status, — это и есть тихая вечная самозаглушка, ровно то, от чего
+        # вся эта арка.
+        assert "legacy1" in ids
+        # Фиксируем фактическое поведение SQLite: ORDER BY ... ASC ставит
+        # NULL раньше любого не-NULL значения, так что легаси-строка без
+        # paused_at всегда первая — что уместно, её "возраст" неизвестен и
+        # безопаснее показать её владельцу первой, а не похоронить в хвосте.
+        assert ids[0] == "legacy1"
+
+
+def test_add_card_upsert_overwrites_kind_and_ts_too():
+    # add_card при конфликте msg_id раньше обновлял только contact_id,
+    # оставляя старые kind/ts — частичный апдейт без объяснения. В реальности
+    # msg_id в Saved Messages не переиспользуется, так что конфликт — это
+    # либо повторная попытка записать ТУ ЖЕ карточку (все поля совпадут), либо
+    # программная ошибка. В обоих случаях полный оверрайт безопаснее частичного:
+    # частичный апдейт мог бы оставить kind/ts, которые лгут о новом contact_id.
+    with Store(":memory:") as s:
+        s.add_card(msg_id=1, contact_id="c1", kind="pause", ts=100.0)
+        s.add_card(msg_id=1, contact_id="c2", kind="unattributed", ts=200.0)
+        row = s._conn.execute(
+            "SELECT contact_id, kind, ts FROM console_cards WHERE msg_id=1").fetchone()
+        assert row["contact_id"] == "c2"
+        assert row["kind"] == "unattributed"
+        assert row["ts"] == 200.0
