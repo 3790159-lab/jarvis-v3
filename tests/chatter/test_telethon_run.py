@@ -361,9 +361,18 @@ def test_build_runner_wires_new_message_incoming_handler():
         store=store, loop=loop, llm_mode="fake",
     )
 
-    client.add_event_handler.assert_called_once()
-    handler, event_builder = client.add_event_handler.call_args.args
+    # Два хендлера теперь: входящие (existing) + исходящие (арка 3A, Task 11
+    # -- детект перехвата владельцем). Различаем по incoming/outgoing
+    # NewMessage-фильтру, а не по порядку вызовов add_event_handler.
+    assert client.add_event_handler.call_count == 2
+    calls = client.add_event_handler.call_args_list
+    incoming_calls = [c for c in calls if c.args[1].incoming]
+    outgoing_calls = [c for c in calls if c.args[1].outgoing]
+    assert len(incoming_calls) == 1
+    assert len(outgoing_calls) == 1
+    handler, event_builder = incoming_calls[0].args
     assert isinstance(event_builder, events.NewMessage)
+    assert isinstance(outgoing_calls[0].args[1], events.NewMessage)
     assert runner.allowlist == frozenset({ALLOWED})
     assert runner.primary_slug == "demo"
 

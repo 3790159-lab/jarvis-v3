@@ -19,7 +19,7 @@ from chatter.core.brain import Brain
 from chatter.core.llm import AnthropicLLM, FakeLLM, LLMClient
 from chatter.run import Deps, process_batch
 from chatter.storage.db import Store
-from chatter.transport.telethon_tg import TelethonTransport, send_alert
+from chatter.transport.telethon_tg import SentRegistry, TelethonTransport, send_alert
 from chatter.telethon_login import (
     DEFAULT_ENV_FILE, CredentialsError, _parse_env_file, load_api_credentials,
 )
@@ -113,6 +113,35 @@ def should_handle(
     channels, our own outgoing messages, bot senders and service messages
     (pins, member-joins, etc.) are ignored -- silently, per spec S3."""
     return is_private and not is_outgoing and not sender_is_bot and not is_service
+
+
+# --- 1b. outgoing / human-takeover detection (arc 3A, spec §3) -------------
+async def decide_outgoing(msg_id: int, *, registry: SentRegistry, grace_seconds: float) -> str:
+    """'ours' | 'human' — кто отправил это исходящее.
+
+    ГРЕЙС-ОКНО — НЕ ПАРАНОЙЯ И НЕ КОСТЫЛЬ. Гонка здесь СТРУКТУРНА, она обязана
+    случаться, и вот почему: TelethonTransport.send() крутится в worker-потоке
+    (process_batch синхронный) и маршалит send_message на event loop через
+    run_coroutine_threadsafe, а ЭТОТ обработчик живёт НА том же loop. Значит
+    loop физически может раздать апдейт о нашем сообщении раньше, чем
+    worker-поток проснётся и запишет id в реестр. Порядок не зависит от нашего
+    кода — он зависит от планировщика.
+
+    Цена проигранной гонки: Аня опознаёт СВОЁ сообщение как чужое → глушит сама
+    себя → молчит навсегда, тихо, и это худший отказ продукта.
+
+    Поэтому неопознанный id НЕ решается мгновенно: ждём грейс, перепроверяем
+    реестр. 2 секунды невидимы на фоне её ритма в 30-50с.
+
+    ⚠️ НЕ УДАЛЯТЬ как «лишнюю задержку»: без этого окна Аня начнёт глушить себя
+    ровно тогда, когда планировщик окажется быстрее, — то есть под нагрузкой и
+    не воспроизводимо на тестовой машине. Тесты
+    test_id_registered_during_the_grace_window_is_ours_not_a_takeover и
+    test_our_own_message_never_triggers_a_takeover стерегут это."""
+    if registry.is_ours(msg_id):
+        return "ours"
+    await asyncio.sleep(grace_seconds)
+    return "ours" if registry.is_ours(msg_id) else "human"
 
 
 # --- 2. per-persona bundle ---------------------------------------------------
@@ -214,9 +243,73 @@ class TelethonRunner:
         self.loop = loop
         self._sender_persona: dict[int, str] = {}
         self._debouncers: dict[int, ChatDebouncer] = {}
+        # Арка 3A: реестр СВОИХ исходящих (см. decide_outgoing) и id аккаунта
+        # владельца. me_id стартует None и заполняется в main()'s
+        # _on_connected ПОСЛЕ client.start() -- до этого он живой объект
+        # клиента ещё не знает свой собственный id.
+        self.sent_registry = SentRegistry()
+        self.me_id: int | None = None
 
     def persona_for(self, sender_id: int) -> str:
         return self._sender_persona.get(sender_id, self.primary_slug)
+
+    def primary_store(self) -> Store:
+        """Единственный Store процесса. `load_personas` получает ОДИН `store`
+        и раздаёт его во все `PersonaBundle.deps` (см. build_runner), так что
+        это не «store первичной персоны» — это store, разделяемый всеми."""
+        return self.personas[self.primary_slug].deps.store
+
+    @property
+    def control(self):
+        return self.personas[self.primary_slug].cfg.settings.control
+
+    def contact_id_for_chat(self, event) -> str | None:
+        """Управляемый диалог = есть строка в contacts (Аня уже общалась) ИЛИ
+        отправитель в allowlist. Иначе владелец, написавший с этого аккаунта
+        кому угодно, наплодит паузы в чужих диалогах и утопит /status в
+        мусоре (спека §3)."""
+        peer_id = event.chat_id
+        if peer_id in self.allowlist:
+            return f"{peer_id}:{self.persona_for(peer_id)}"
+        store = self.primary_store()
+        for slug in self.personas:
+            cid = f"{peer_id}:{slug}"
+            if store.has_contact(cid):
+                return cid
+        return None
+
+    async def on_human_takeover(self, event, contact_id: str) -> None:
+        """Владелец перехватил диалог руками: заглушить, атрибутировать,
+        уведомить (спека §3/§4)."""
+        text = (event.raw_text or "").strip()
+        now = time.time()
+        log.info("TAKEOVER %s by owner: msg %s %r", contact_id, event.message.id, text[:60])
+        store = self.primary_store()
+        store.get_or_create_contact(contact_id)
+        # Ручное сообщение владельца -- в историю КАК assistant: brain.py:32
+        # (build_messages) мапит роли истории НАПРЯМУЮ в поле role сообщений
+        # Anthropic-API, а роли 'human' там нет -- отправка её сломала бы
+        # вызов LLM. С точки зрения лида это и есть Аня (общий аккаунт),
+        # так что роль 'assistant' и семантически верна: иначе после
+        # /resume у Ани амнезия и она начнёт противоречить тому, что
+        # владелец уже пообещал руками.
+        store.add_message(contact_id, "assistant", text, ts=now)
+        store.note_human_out(contact_id, ts=now)
+        store.mute(contact_id, source="human_takeover", msg_id=event.message.id,
+                   detail=text[:200], now=now)
+        store.add_event("takeover", contact_id=contact_id, detail=str(event.message.id), ts=now)
+        await self.post_pause_card(event, contact_id, text)
+
+    async def post_pause_card(self, event, contact_id: str, text: str) -> None:
+        """Кладёт в Saved Messages карточку паузы и запоминает её id для
+        адресации `/resume` реплаем (спека §7; полная карточка эскалации --
+        арка 3B)."""
+        who = getattr(event.chat, "first_name", None) or str(event.chat_id)
+        card = await self.client.send_message(
+            "me",
+            f"⏸ Пауза: {who}\nВы вмешались: «{text[:80]}»\n"
+            f"Аня молчит в этом диалоге. Ответьте /resume на это сообщение, чтобы вернуть её.")
+        self.primary_store().add_card(msg_id=card.id, contact_id=contact_id, kind="pause", ts=time.time())
 
     def toggle_persona(self, sender_id: int) -> str:
         """Flip demo<->demo2 for this sender. Requires exactly the two-persona
@@ -259,7 +352,7 @@ class TelethonRunner:
         if text == "/switch":
             new_slug = self.toggle_persona(sender_id)
             new_cfg = self.personas[new_slug].cfg
-            transport = TelethonTransport(self.client, peer, self.loop)
+            transport = TelethonTransport(self.client, peer, self.loop, sent_registry=self.sent_registry)
             await asyncio.to_thread(transport.send, _switch_ack(new_cfg))
             return
 
@@ -276,7 +369,7 @@ class TelethonRunner:
 
         async def _on_ready(batch: list[str]) -> None:
             contact_id = f"{sender_id}:{persona_slug}"
-            transport = TelethonTransport(self.client, peer, self.loop)
+            transport = TelethonTransport(self.client, peer, self.loop, sent_registry=self.sent_registry)
             bundle.deps.store.get_or_create_contact(contact_id)  # process_batch assumes the row exists
             log.info("process START %s batch=%r", contact_id, batch)
             try:
@@ -351,7 +444,7 @@ class TelethonRunner:
         bundle = self.personas[persona_slug]
         contact_id = f"{mm.sender_id}:{persona_slug}"
         peer = await self.client.get_input_entity(mm.sender_id)
-        transport = TelethonTransport(self.client, peer, self.loop)
+        transport = TelethonTransport(self.client, peer, self.loop, sent_registry=self.sent_registry)
         bundle.deps.store.get_or_create_contact(contact_id)
         log.info("catch-up process START %s texts=%r age=%.0fs",
                  contact_id, mm.texts, mm.oldest_age_seconds)
@@ -421,6 +514,27 @@ def build_runner(
         await runner.handle_event(event)
 
     client.add_event_handler(_handler, events.NewMessage(incoming=True))
+
+    async def _outgoing_handler(event) -> None:
+        # Saved Messages -- это пульт, а не диалог лида: /stop не должен
+        # читаться как «владелец перехватил чат с самим собой» (спека §3).
+        # runner.me_id стартует None (заполняется в main()'s _on_connected
+        # ПОСЛЕ client.start()) -- до этого сравнение с int chat_id всегда
+        # False, так что до готовности me_id этот ранний выход просто не
+        # срабатывает; см. "точки внимания" в отчёте по Task 11.
+        if event.chat_id == runner.me_id:
+            return
+        contact_id = runner.contact_id_for_chat(event)
+        if contact_id is None:
+            return   # диалог, который Аня не ведёт: это просто жизнь аккаунта
+        verdict = await decide_outgoing(
+            event.message.id, registry=runner.sent_registry,
+            grace_seconds=runner.control.takeover_grace_seconds)
+        if verdict == "ours":
+            return
+        await runner.on_human_takeover(event, contact_id)
+
+    client.add_event_handler(_outgoing_handler, events.NewMessage(outgoing=True))
     return runner
 
 
@@ -514,6 +628,16 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     async def _on_connected() -> None:
+        # me_id ПЕРВЫМ ДЕЛОМ, до heartbeat и до catch-up: _outgoing_handler
+        # уже зарегистрирован (build_runner отработал до client.start()) и
+        # физически может получить апдейт, как только loop начнёт его
+        # реально гонять -- это тот самый момент. Ставя присвоение me_id
+        # первой строкой планируемой здесь корутины (запланирована
+        # run_client'ом сразу после client.start(), ДО run_until_disconnected
+        # начинает качать апдейты), даём ей выполниться раньше любого
+        # реального сетевого апдейта -- та же гарантия, на которую уже
+        # полагается catch_up_missed ниже.
+        runner.me_id = (await client.get_me()).id
         # Own liveness stamp for the guardian, forever, alongside the one-shot
         # catch-up of anything that arrived while we were down.
         loop.create_task(heartbeat_loop())
