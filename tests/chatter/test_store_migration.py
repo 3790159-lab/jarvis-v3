@@ -32,7 +32,7 @@ def _columns(db_path: Path, table: str) -> set[str]:
         conn.close()
 
 
-def test_migrates_a_copy_of_the_live_db_twice_without_losing_data():
+def test_live_db_copy_is_migrated_or_already_migrated_but_never_loses_data():
     # SKIP громко и с причиной: молчаливый зелёный превратил бы этот тест
     # в пустышку ровно тогда, когда он единственный проверяет реальные данные.
     if not LIVE_DB.exists():
@@ -57,20 +57,42 @@ def test_migrates_a_copy_of_the_live_db_twice_without_losing_data():
         before = sqlite3.connect(str(tmp))
         msgs_before = before.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
         contacts_before = before.execute("SELECT COUNT(*) FROM contacts").fetchone()[0]
+        texts_before = [r[0] for r in before.execute(
+            "SELECT text FROM messages ORDER BY id")]
         before.close()
         assert msgs_before > 0, "живая база пуста — тест бессмыслен"
 
-        Store(tmp).close()          # первый прогон: миграция
+        # Смотрим на РЕАЛЬНОЕ состояние копии ДО прогона Store, а не гадаем:
+        # живую базу могли перезапустить уже смигрированной (как случилось
+        # 2026-07-17), и тогда утверждение теста меняется — с "миграция
+        # сработает" на "Store — чистый no-op". Определяем факт, а не
+        # предполагаем его.
+        was_pre_migration = not (NEW_CONTACT_COLUMNS <= _columns(tmp, "contacts"))
+
+        Store(tmp).close()          # первый прогон: миграция либо no-op
         Store(tmp).close()          # второй прогон: ОБЯЗАН быть no-op, не падать
 
         assert NEW_CONTACT_COLUMNS <= _columns(tmp, "contacts")
         after = sqlite3.connect(str(tmp))
         assert after.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == msgs_before
         assert after.execute("SELECT COUNT(*) FROM contacts").fetchone()[0] == contacts_before
+        texts_after = [r[0] for r in after.execute("SELECT text FROM messages ORDER BY id")]
         after.close()
+        # Тексты, не только счётчик: этот проект уже дважды ловил молчаливую
+        # порчу кириллицы (cp1251) при формально верном количестве строк.
+        assert texts_after == texts_before, "текст сообщений живой базы разошёлся после Store()"
 
         backups = list(tmp.parent.glob(f"{tmp.name}.pre-3a-*.bak"))
-        assert len(backups) == 1, f"ожидался ровно один бэкап, получено: {backups}"
+        if was_pre_migration:
+            # Живая база оказалась до-миграционной (откат/другая машина) —
+            # тогда это по-прежнему проверка самой миграции: колонки
+            # добавлены, бэкап снят ровно один раз.
+            assert len(backups) == 1, f"ожидался ровно один бэкап, получено: {backups}"
+        else:
+            # Живая база уже смигрирована — Store() обязан быть no-op: он
+            # ничего не мигрирует, значит бэкапить нечего. Бэкап здесь был
+            # бы мусором в каталоге клиента без причины.
+            assert backups == [], f"живая база уже смигрирована, бэкап не ожидался: {backups}"
     finally:
         for p in list(tmp.parent.glob(f"{tmp.name}*")):
             p.unlink(missing_ok=True)
