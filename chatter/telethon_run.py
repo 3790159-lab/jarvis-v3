@@ -516,12 +516,23 @@ def build_runner(
     client.add_event_handler(_handler, events.NewMessage(incoming=True))
 
     async def _outgoing_handler(event) -> None:
+        if runner.me_id is None:
+            # Пока не знаем СВОЙ id, мы не можем отличить пульт (Saved
+            # Messages) от диалога лида. Судить о перехвате вслепую нельзя:
+            # цена ошибки -- ложная пауза или прочитанный как перехват
+            # /stop. Раньше это держалось на стечении конфигурации (id
+            # аккаунта Ани случайно не совпадает ни с записью в allowlist,
+            # ни со строкой в contacts) -- ЯВНЫЙ гейт делает это безопасным
+            # по конструкции, а не по счастливой случайности данных. Окно
+            # длится доли секунды между регистрацией хендлеров
+            # (build_runner) и get_me() (_on_connected), и пропущенное в
+            # нём исходящее -- в худшем случае незамеченный перехват за
+            # первые мгновения жизни раннера, что несравнимо дешевле
+            # самозаглушки.
+            log.warning("outgoing event before me_id is known — пропускаю, не сужу")
+            return
         # Saved Messages -- это пульт, а не диалог лида: /stop не должен
         # читаться как «владелец перехватил чат с самим собой» (спека §3).
-        # runner.me_id стартует None (заполняется в main()'s _on_connected
-        # ПОСЛЕ client.start()) -- до этого сравнение с int chat_id всегда
-        # False, так что до готовности me_id этот ранний выход просто не
-        # срабатывает; см. "точки внимания" в отчёте по Task 11.
         if event.chat_id == runner.me_id:
             return
         contact_id = runner.contact_id_for_chat(event)
