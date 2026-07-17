@@ -34,10 +34,10 @@ telegram:
 #        надо. Код сгорает после привязки. Charset [A-Za-z0-9_-], ≤64.
 #   Привязка живёт в SQLite (переживает рестарт); второй /start её не перебивает,
 #   разрыв — только /unbind от владельца.
-# control:
-#   control_bot_token_env: CHATTER_CONTROL_BOT_TOKEN   # ИМЯ env-переменной, НЕ токен
-#   owner_chat_id: 237616472        # demo: жёсткий id-гейт (мой chat_id)
-#   # pairing_code: onboard-demo-01 # альтернатива для онбординга клиента (deep-link)
-#   classifier_enabled: true        # дешёвый LLM-классификатор эскалации (только на реальном LLM)
-#   classifier_error_threshold: 5   # > стольких ошибок/окно → алерт «классификатор деградировал»
-#   snooze_seconds: 3600            # кнопка «⏸ Ещё 1ч»
+control:
+  control_bot_token_env: CHATTER_CONTROL_BOT_TOKEN   # ИМЯ env-переменной, НЕ токен
+  owner_chat_id: 237616472        # demo: жёсткий id-гейт (мой chat_id)
+  # pairing_code: onboard-demo-01 # альтернатива для онбординга клиента (deep-link)
+  classifier_enabled: true        # дешёвый LLM-классификатор эскалации (только на реальном LLM)
+  classifier_error_threshold: 5   # > стольких ошибок/окно → алерт «классификатор деградировал»
+  snooze_seconds: 3600            # кнопка «⏸ Ещё 1ч»
