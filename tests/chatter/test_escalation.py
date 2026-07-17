@@ -116,3 +116,50 @@ def test_keyword_wins_over_bot_question_order():
         incoming_text="ты бот? и позови человека",
         reply="ок", knowledge=KNOWLEDGE, keywords=KEYWORDS)
     assert r is not None and r.tag == "keyword"
+
+
+# --- decide_escalation: combine deterministic + classifier (спека §4) --------
+
+from chatter.core.classifier import ClassifierResult  # noqa: E402
+from chatter.core.escalation import decide_escalation  # noqa: E402
+
+
+def test_decide_deterministic_only_escalates_reason_preferred():
+    det = EscalationReason(tag="keyword", detail="ключевое слово «оплата»")
+    d = decide_escalation(det=det, classifier_result=None)
+    assert d.escalate is True
+    assert "оплата" in d.reason          # детерминированная причина (она достоверна)
+    assert d.degraded is False
+
+
+def test_decide_classifier_escalates_when_no_deterministic():
+    cr = ClassifierResult(escalate=True, reason="готов платить", stage_signal="interested")
+    d = decide_escalation(det=None, classifier_result=cr)
+    assert d.escalate is True
+    assert d.reason == "готов платить"
+    assert d.stage_signal == "interested"
+
+
+def test_decide_deterministic_reason_wins_over_classifier_reason():
+    det = EscalationReason(tag="keyword", detail="ключевое слово «жалоба»")
+    cr = ClassifierResult(escalate=True, reason="что-то другое", stage_signal="needs_human")
+    d = decide_escalation(det=det, classifier_result=cr)
+    assert "жалоба" in d.reason          # достоверный детерминированный приоритетнее
+    assert d.stage_signal == "needs_human"
+
+
+def test_decide_degraded_classifier_does_not_escalate_but_deterministic_still_does():
+    cr = ClassifierResult(escalate=False, reason="", stage_signal=None, degraded=True)
+    # деградация одна — не эскалируем
+    assert decide_escalation(det=None, classifier_result=cr).escalate is False
+    # но детерминированный слой работает даже при мёртвом классификаторе (§4)
+    det = EscalationReason(tag="bot_question", detail="спросили, бот ли это")
+    d = decide_escalation(det=det, classifier_result=cr)
+    assert d.escalate is True and d.degraded is True
+
+
+def test_decide_clean_no_escalation():
+    cr = ClassifierResult(escalate=False, reason="", stage_signal="engaged")
+    d = decide_escalation(det=None, classifier_result=cr)
+    assert d.escalate is False
+    assert d.stage_signal == "engaged"

@@ -1,26 +1,40 @@
 from __future__ import annotations
 import argparse
 import datetime as _dt
+import logging
 import os
 import random
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from chatter.config.loader import Config, load_config
+from chatter.config.loader import Config, ControlConfig, load_config
 from chatter.core import humanizer as H
 from chatter.core.brain import Brain
+from chatter.core.classifier import (
+    ClassifierResult, classifier_degraded, note_classifier_error,
+)
+from chatter.core.console import (
+    console_text, contact_link, escalation_buttons, escape_html,
+    format_escalation_card,
+)
 from chatter.core.disclosure import honest_disclosure, is_bot_question
+from chatter.core.escalation import (
+    advance_funnel, decide_escalation, deterministic_escalation,
+)
 from chatter.core.guardrails import (
-    contains_unbacked_claim, within_daily_cap, within_hourly_limit,
+    within_daily_cap, within_hourly_limit,
 )
 from chatter.core.llm import AnthropicLLM, FakeLLM
 from chatter.core.pause import is_attributed, is_muted
+from chatter.notify.base import Card, Notifier
 from chatter.storage.db import Store
 from chatter.transport.base import Transport
 from chatter.transport.fake import FakeConsoleTransport
+
+log = logging.getLogger("chatter.run")
 
 
 @dataclass
@@ -31,6 +45,14 @@ class Deps:
     rng: random.Random
     clock: Callable[[], float]
     sleep: Callable[[float], None]
+    # Арка 3B (всё опционально → без них поведение как арки 3A/3B-off):
+    notifier: Notifier | None = None
+    classify: Callable[[list[dict]], ClassifierResult] | None = None
+    escalation_keywords: list[str] = field(default_factory=list)
+    # Раннер (Telethon) даёт билдер карточки с кликабельным ИМЕНЕМ/ссылкой
+    # (резолв entity живёт на loop). Без него — текстовый фоллбек по contact_id.
+    escalation_card: Callable[..., Card] | None = None
+    control: ControlConfig | None = None
 
 
 def _persona_first_line(persona: str) -> str:
@@ -118,6 +140,106 @@ def _muted_now(deps: Deps, contact_id: str) -> bool:
     return is_muted(row, kill_switch=kill, now=deps.clock())
 
 
+def _escalation_pass(
+    deps: "Deps", contact_id: str, *, incoming_text: str, reply: str, now: float,
+) -> str:
+    """Арка 3B: свести детерминированный слой и классификатор, оживить воронку,
+    при эскалации отправить карточку владельцу. Возвращает (возможно
+    переписанный) reply. Всё аддитивно: без keywords/classify/notifier это
+    просто гардрейл-переписывание, как в арке 3A."""
+    store = deps.store
+    cfg = deps.cfg
+    det = deterministic_escalation(
+        incoming_text=incoming_text, reply=reply,
+        knowledge=cfg.knowledge, keywords=deps.escalation_keywords)
+    cr = deps.classify(store.history(contact_id)) if deps.classify is not None else None
+    decision = decide_escalation(det=det, classifier_result=cr)
+
+    if decision.degraded:
+        note_classifier_error(store, now=now)
+        _maybe_degraded_alert(deps, now=now)
+
+    advance_funnel(store, contact_id, stage_signal=decision.stage_signal, escalated=decision.escalate)
+
+    if det is not None and det.tag == "unbacked_claim":
+        # Гардрейл (перенесён из инлайна арки 3A): не отправляем выдуманную
+        # цену/срок — честная «уточню и вернусь» вместо неё.
+        print(f"  [escalation flag] unbacked claim for {contact_id}: {reply!r}")
+        reply = (
+            f"Хороший вопрос — уточню детали и вернусь. "
+            f"Если удобно, позову {cfg.settings.owner_id}."
+        )
+
+    if decision.escalate and deps.notifier is not None:
+        _post_escalation_card(deps, contact_id, det=det, cr=cr, now=now)
+    return reply
+
+
+def _post_escalation_card(deps: "Deps", contact_id: str, *, det, cr, now: float) -> None:
+    """Собрать и отправить карточку эскалации. Имя/ссылку строит раннер
+    (`deps.escalation_card`, у него есть Telethon-entity); без него — текстовый
+    фоллбек по contact_id. Никогда не роняет process_batch (DEV-18)."""
+    cfg = deps.cfg
+    language = cfg.settings.language
+    recent = [(m["role"], m["text"]) for m in deps.store.history(contact_id)][-5:]
+    cr_reason = cr.reason if (cr is not None and not cr.degraded and cr.reason) else ""
+    summary = cr_reason or (det.detail if det is not None else "нужно внимание владельца")
+    why = det.detail if det is not None else "классификатор отметил горячий лид"
+    try:
+        if deps.escalation_card is not None:
+            card = deps.escalation_card(contact_id, summary, why, recent)
+        else:
+            peer = contact_id.split(":", 1)[0]
+            text = format_escalation_card(
+                name_html=escape_html(contact_id),
+                link=contact_link(user_id=peer), summary=summary, reason=why,
+                recent=recent, language=language, persona_name=cfg.settings.persona_name)
+            card = Card(
+                kind="escalation", contact_id=contact_id, text_html=text,
+                buttons=escalation_buttons(language),
+                reply_hints=[
+                    console_text("card_resume_reply_hint", language),
+                    console_text("card_resume_status_hint", language),
+                ],
+                link=contact_link(user_id=peer))
+        handle = deps.notifier.notify(card)
+    except Exception:
+        log.exception("escalation card FAILED for %s", contact_id)
+        return
+    if handle is not None:
+        try:
+            msg_id = int(handle.ref.split(":")[-1])
+            deps.store.add_card(msg_id=msg_id, contact_id=contact_id, kind="escalation", ts=now)
+        except Exception:
+            log.warning("could not record escalation card handle %r", handle, exc_info=True)
+
+
+def _maybe_degraded_alert(deps: "Deps", *, now: float) -> None:
+    """Классификатор деградировал (§6): алертим владельца ОДИН раз за окно
+    (не штормим), только если ошибок за окно больше порога."""
+    control = deps.control or ControlConfig()
+    window = control.status_window_hours * 3600.0
+    if not classifier_degraded(
+        deps.store, now=now, window_seconds=window, threshold=control.classifier_error_threshold):
+        return
+    last = deps.store.get_runtime_flag("classifier_degraded_alerted_ts")
+    if last and (now - float(last)) < window:
+        return
+    deps.store.set_runtime_flag("classifier_degraded_alerted_ts", str(now), ts=now)
+    if deps.notifier is None:
+        return
+    count = deps.store.count_events("classifier_error", since_ts=now - window)
+    text = console_text(
+        "degraded_alert", deps.cfg.settings.language,
+        count=count, hours=control.status_window_hours)
+    try:
+        deps.notifier.notify(Card(
+            kind="alert", contact_id="", text_html=escape_html(text),
+            buttons=[], reply_hints=[]))
+    except Exception:
+        log.exception("degraded-classifier alert FAILED to send")
+
+
 def process_batch(
     contact_id: str, incoming: list[str], transport: Transport, deps: Deps,
     *, missed_age_seconds: float | None = None,
@@ -160,13 +282,12 @@ def process_batch(
             deps.store.history(contact_id),
             context_note=missed_reply_context(missed_age_seconds),
         )
-        if contains_unbacked_claim(reply, deps.cfg.knowledge):
-            deps.store.set_state(contact_id, "escalated")  # arc 3 does the actual handoff
-            print(f"  [escalation flag] unbacked claim for {contact_id}: {reply!r}")
-            reply = (
-                f"Хороший вопрос — уточню детали и вернусь. "
-                f"Если удобно, позову {deps.cfg.settings.owner_id}."
-            )
+
+    # Арка 3B: единый проход эскалации (детерминированный слой + классификатор),
+    # оживление воронки и — при эскалации — карточка владельцу. Здесь же
+    # остаётся гардрейл-переписывание необеспеченного обещания (перенесено из
+    # инлайна в _escalation_pass), чтобы Аня не отправила выдуманную цену.
+    reply = _escalation_pass(deps, contact_id, incoming_text=text, reply=reply, now=deps.clock())
 
     now_hour = _dt.datetime.fromtimestamp(deps.clock()).hour
     actions = H.compose_reply(

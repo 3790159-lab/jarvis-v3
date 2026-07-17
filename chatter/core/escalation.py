@@ -107,3 +107,33 @@ def advance_funnel(store, contact_id: str, *, stage_signal: str | None, escalate
     if new != current:
         store.set_state(contact_id, new)
     return new
+
+
+@dataclass(frozen=True)
+class EscalationDecision:
+    escalate: bool
+    reason: str            # человеческое «почему» для карточки
+    stage_signal: str | None
+    degraded: bool
+
+
+def decide_escalation(*, det: "EscalationReason | None", classifier_result) -> EscalationDecision:
+    """Свести два слоя (§4). Детерминированный слой достоверен, поэтому его
+    причина приоритетнее reason классификатора. Классификатор эскалирует ТОЛЬКО
+    если он не деградировал (§6: мусорный/упавший классификатор не эскалирует).
+    stage_signal берём у классификатора (даже при не-эскалации — воронку гонит
+    сигнал стадии). `classifier_result` — ClassifierResult или None."""
+    escalate = det is not None
+    reason = det.detail if det is not None else ""
+    stage_signal = None
+    degraded = False
+    if classifier_result is not None:
+        degraded = classifier_result.degraded
+        if not degraded:
+            stage_signal = classifier_result.stage_signal
+            if classifier_result.escalate:
+                escalate = True
+                if not reason:
+                    reason = classifier_result.reason or "классификатор: горячий лид"
+    return EscalationDecision(
+        escalate=escalate, reason=reason, stage_signal=stage_signal, degraded=degraded)

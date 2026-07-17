@@ -17,6 +17,14 @@ ask what they're looking to automate — the funnel moves to qualifying from the
 - Discount or price requests not covered in knowledge.
 - Legal or contractual questions.
 
+## Escalation keywords
+<!-- Deterministic layer (arc 3B): one word/phrase per line, case-insensitive
+     substring match. Works even if the classifier is down. -->
+- call
+- payment
+- refund
+- complaint
+
 ## What not to promise
 - No discounts or "special rates".
 - Do not quote delivery times shorter than 2 weeks.
