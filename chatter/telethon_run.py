@@ -16,6 +16,7 @@ from telethon.errors import AuthKeyError, UnauthorizedError
 from chatter.config.loader import Config, load_config
 from chatter.core import humanizer as H
 from chatter.core.brain import Brain
+from chatter.core.console import PauseView, format_status, parse_command
 from chatter.core.llm import AnthropicLLM, FakeLLM, LLMClient
 from chatter.run import Deps, process_batch
 from chatter.storage.db import Store
@@ -46,6 +47,15 @@ CATCHUP_MAX_AGE_SECONDS = 24 * 3600
 # (process alive but event loop wedged) is detected, not just a dead PID.
 HEARTBEAT_PATH = Path("state") / "chatter_heartbeat.txt"
 HEARTBEAT_INTERVAL_SECONDS = 30
+
+# Период авто-возврата (спека §8). Объявлена ЗДЕСЬ, на уровне модуля, ДО
+# любых def -- её использует и render_status() (Task 12, ниже) как дефолт
+# отображения, и autoresume_loop() (Task 13) КАК ЗНАЧЕНИЕ ПО УМОЛЧАНИЮ
+# параметра `interval`. Дефолтные значения параметров вычисляются в момент
+# ВЫПОЛНЕНИЯ `def`, а не вызова функции -- если бы эта константа была
+# объявлена НИЖЕ функции, которая её использует как дефолт, импорт модуля
+# упал бы с NameError ещё до того, как что-либо успело выполниться.
+AUTORESUME_INTERVAL_SECONDS = 60.0
 
 
 # --- 0. catch-up: pick up messages that arrived while OFFLINE ---------------
@@ -142,6 +152,59 @@ async def decide_outgoing(msg_id: int, *, registry: SentRegistry, grace_seconds:
         return "ours"
     await asyncio.sleep(grace_seconds)
     return "ours" if registry.is_ours(msg_id) else "human"
+
+
+# --- 1c. console: Saved Messages pult (arc 3A, spec §7) ---------------------
+def execute_command(cmd, *, store: Store, contact_id: str | None, now: float,
+                     status_text: str | None = None) -> str:
+    """Исполнить команду пульта. ЧИСТАЯ относительно Telethon: трогает только
+    `store`, поэтому тестируется юнитами без сети (см. test_console_wiring.py).
+    `contact_id` уже разрешён раннером (из реплая на карточку или явного
+    аргумента) -- эта функция про адресацию не знает."""
+    if cmd.error:
+        # Парсер уже сформулировал жалобу человеческим языком (DEV-18: молча
+        # проглотить кривой аргумент значило бы, что владелец думает, что
+        # пауза встала).
+        return f"⚠️ {cmd.error}"
+
+    if cmd.name == "status":
+        return status_text or "статус недоступен"
+    if cmd.name == "stop":
+        store.set_runtime_flag("kill_switch", "1", ts=now)
+        store.add_event("kill_on", ts=now)
+        return "🔴 Аня ЗАГЛУШЕНА во всех диалогах. Вернуть: /start"
+    if cmd.name == "start":
+        store.set_runtime_flag("kill_switch", "0", ts=now)
+        store.add_event("kill_off", ts=now)
+        return "✅ Аня снова работает во всех диалогах."
+
+    if contact_id is None:
+        # «Хотел притормозить один диалог, а заглушил всю воронку» -- слишком
+        # дорогая опечатка. Глобальное глушение называется /stop намеренно
+        # другим словом, поэтому targeted-команда без адресата НЕ падает
+        # обратно на глобальное действие -- она объясняется (спека §7).
+        return ("Не понял, какой диалог. Ответьте этой командой реплаем на карточку "
+                f"или укажите адресата: /{cmd.name} <ссылка|id>. "
+                "Заглушить ВСЕ диалоги -- это /stop.")
+
+    if cmd.name == "pause":
+        until = now + cmd.duration_seconds if cmd.duration_seconds else None
+        # ОБЯЗАТЕЛЬНО до mute(): Store.mute() кидает KeyError на неизвестном
+        # contact_id (db.py) -- это верно и полезно как защита от порчи, НО
+        # владелец имеет право упредить Аню и заглушить диалог, которого она
+        # ещё не касалась (например через /pause <ссылка> на лида, которому
+        # только собирается написать). get_or_create_contact создаёт строку,
+        # если её нет, и no-op, если есть -- поэтому этот вызов безопасен и
+        # для уже управляемых контактов.
+        store.get_or_create_contact(contact_id)
+        store.mute(contact_id, source="command", until=until, now=now)
+        when = f" на {int(cmd.duration_seconds // 60)} мин" if cmd.duration_seconds else " бессрочно"
+        return f"⏸ Диалог заглушён{when}. Вернуть: /resume реплаем."
+    if cmd.name == "resume":
+        store.unmute(contact_id)
+        store.add_event("resume", contact_id=contact_id, ts=now)
+        return "▶️ Аня снова отвечает в этом диалоге."
+    return f"неизвестная команда: {cmd.name}"
 
 
 # --- 2. per-persona bundle ---------------------------------------------------
@@ -310,6 +373,81 @@ class TelethonRunner:
             f"⏸ Пауза: {who}\nВы вмешались: «{text[:80]}»\n"
             f"Аня молчит в этом диалоге. Ответьте /resume на это сообщение, чтобы вернуть её.")
         self.primary_store().add_card(msg_id=card.id, contact_id=contact_id, kind="pause", ts=time.time())
+
+    async def resolve_target(self, event, cmd) -> str | None:
+        """Какой диалог имел в виду владелец (спека §7). Приоритет у реплая:
+        карточка паузы уже лежит в Saved Messages, и ответить на неё дешевле
+        и надёжнее, чем передавать ссылку/id руками."""
+        if cmd.name not in ("pause", "resume"):
+            return None
+        reply_to = getattr(event, "reply_to_msg_id", None)
+        if reply_to:
+            hit = self.primary_store().card_contact(reply_to)
+            if hit:
+                return hit
+        if not cmd.target:
+            return None
+        # Фоллбек: /resume <id | t.me/user | @user> -- для диалогов без
+        # свежей карточки в Saved Messages.
+        raw = cmd.target.strip().rstrip("/").split("/")[-1].lstrip("@")
+        try:
+            entity = await self.client.get_entity(int(raw) if raw.isdigit() else raw)
+        except Exception:
+            # DEV-18: не молчать -- владелец получит от execute_command
+            # "не понял, какой диалог" вместо тишины, но ПОЧЕМУ не разрешилось
+            # видно только в логе.
+            log.warning("resolve_target: не смог разрешить %r", cmd.target, exc_info=True)
+            return None
+        return f"{entity.id}:{self.persona_for(entity.id)}"
+
+    async def render_status(self) -> str:
+        """Собрать PauseView-ы (единственное место, где для /status нужен
+        живой Telethon -- имя и username) и отдать чистому форматтеру
+        core.console.format_status. Корутина из-за client.get_entity ниже --
+        вызывающая сторона (_console_handler) обязана её await'ить."""
+        store = self.primary_store()
+        now = time.time()
+        window = self.control.status_window_hours * 3600.0
+        views: list[PauseView] = []
+        for row in store.muted_contacts():
+            peer_id = int(row["contact_id"].split(":")[0])
+            try:
+                entity = await self.client.get_entity(peer_id)
+                title = getattr(entity, "first_name", None) or getattr(entity, "title", None) or str(peer_id)
+                username = getattr(entity, "username", None)
+            except Exception:
+                # Разрешение имени -- УДОБСТВО отображения, не критично для
+                # смысла /status (пауза всё равно покажется, просто по id).
+                # DEV-18: тем не менее логируем, не глотаем молча -- иначе
+                # растущее число нерешённых entity останется незамеченным.
+                log.warning("render_status: не смог разрешить peer %s", peer_id, exc_info=True)
+                title, username = str(peer_id), None
+            eta = None
+            if row["pause_until"] is not None:
+                eta = float(row["pause_until"])
+            elif row["pause_source"] == "human_takeover":
+                last = row["last_human_out_ts"] or row["paused_at"] or now
+                eta = float(last) + self.control.auto_resume_hours * 3600.0
+            views.append(PauseView(
+                title=title,
+                link=f"t.me/{username}" if username else f"id {peer_id}",
+                since_ts=float(row["paused_at"] or now),
+                source=row["pause_source"] or "?",
+                detail=row["pause_detail"],
+                msg_id=row["pause_msg_id"],
+                resume_eta_ts=eta,
+            ))
+        beat_raw = store.get_runtime_flag("autoresume_beat")
+        beat_age = (now - float(beat_raw)) if beat_raw else None
+        return format_status(
+            kill_switch=store.get_runtime_flag("kill_switch") == "1",
+            pauses=views,
+            counters={k: store.count_events(k, since_ts=now - window)
+                      for k in ("takeover", "unattributed_pause", "unknown_outgoing")},
+            autoresume_beat_age=beat_age,
+            autoresume_interval=AUTORESUME_INTERVAL_SECONDS,
+            now=now, window_hours=self.control.status_window_hours,
+        )
 
     def toggle_persona(self, sender_id: int) -> str:
         """Flip demo<->demo2 for this sender. Requires exactly the two-persona
@@ -546,6 +684,28 @@ def build_runner(
         await runner.on_human_takeover(event, contact_id)
 
     client.add_event_handler(_outgoing_handler, events.NewMessage(outgoing=True))
+
+    async def _console_handler(event) -> None:
+        # Пульт живёт ТОЛЬКО в Saved Messages (спека §7): второй getUpdates
+        # на боевом токене недопустим, поэтому команд через бота нет, а без
+        # известного me_id (короткое окно на самом старте, см.
+        # _outgoing_handler выше) отличить пульт от обычного диалога нельзя
+        # -- безопаснее промолчать эти доли секунды, чем сработать вслепую.
+        if runner.me_id is None or event.chat_id != runner.me_id:
+            return
+        cmd = parse_command(event.raw_text or "")
+        if cmd is None:
+            return   # обычная заметка в Saved Messages -- не команда, не трогаем
+        contact_id = await runner.resolve_target(event, cmd)
+        # render_status -- КОРУТИНА (внутри await client.get_entity для имён
+        # диалогов): обязательно await, иначе status_text станет объектом
+        # корутины вместо текста и execute_command() отправит его как есть.
+        status_text = await runner.render_status() if cmd.name == "status" else None
+        reply = execute_command(cmd, store=runner.primary_store(), contact_id=contact_id,
+                                 now=time.time(), status_text=status_text)
+        await client.send_message("me", reply)
+
+    client.add_event_handler(_console_handler, events.NewMessage(chats="me"))
     return runner
 
 
