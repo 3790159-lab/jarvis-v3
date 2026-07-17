@@ -72,3 +72,13 @@ def test_unknown_action_no_mutation():
     r = route_callback("explode:42:demo", store=s, now=5.0, language="ru", snooze_seconds=3600)
     assert s.get_or_create_contact("42:demo")["paused"] == 1
     assert s.get_runtime_flag("kill_switch") in (None, "0")
+
+
+def test_owner_action_clears_active_escalation_card():
+    # Fix 2: тап владельца закрывает активную карточку эскалации → следующая
+    # эскалация того же контакта создаст НОВУЮ, а не будет править закрытую.
+    from chatter.core.escalation import esc_active_key
+    s = _store()
+    s.set_runtime_flag(esc_active_key("42:demo"), "bot:1:5", ts=0.0)
+    route_callback("resume:42:demo", store=s, now=200.0, language="ru", snooze_seconds=3600)
+    assert not s.get_runtime_flag(esc_active_key("42:demo"))   # очищен

@@ -20,6 +20,7 @@ import logging
 from dataclasses import dataclass
 
 from chatter.core.console import console_text, contact_link
+from chatter.core.escalation import esc_active_key
 from chatter.notify.base import Action, Card, CardHandle, Notifier
 
 log = logging.getLogger("chatter.notify.control_bot")
@@ -77,6 +78,12 @@ def route_callback(data: str, *, store, now: float, language: str, snooze_second
         fb = console_text("fb_open", language, link=link)
     else:  # pragma: no cover - Action исчерпан выше
         fb = console_text("fb_unknown", language)
+
+    # Fix 2: решающее действие владельца ЗАКРЫВАЕТ активную карточку эскалации
+    # → следующая эскалация этого контакта создаст новую, а не будет править
+    # закрытую. OPEN — навигация (просто ссылка), карточку не закрывает.
+    if action is not Action.OPEN:
+        store.set_runtime_flag(esc_active_key(contact_id), "", ts=now)
     return CallbackResult(feedback_html=fb, answer=fb)
 
 
@@ -150,6 +157,14 @@ class ControlBotNotifier(Notifier):
         return CardHandle(ref=f"bot:{chat_id}:{msg_id}")
 
     def edit(self, handle: CardHandle, text_html: str) -> None:
+        # Тап-feedback: правим ТЕКСТ и УБИРАЕМ кнопки (карточка «решена»).
+        self._edit(handle, text_html, reply_markup={"inline_keyboard": []})
+
+    def update_card(self, handle: CardHandle, card: Card) -> None:
+        # Дедуп (Fix 2): правим существующую карточку, СОХРАНЯЯ кнопки.
+        self._edit(handle, card.text_html, reply_markup=self._keyboard(card) if card.buttons else None)
+
+    def _edit(self, handle: CardHandle, text_html: str, *, reply_markup) -> None:
         try:
             _, chat_id, msg_id = handle.ref.split(":")
             payload = {
@@ -159,6 +174,8 @@ class ControlBotNotifier(Notifier):
                 "parse_mode": "HTML",
                 "disable_web_page_preview": True,
             }
+            if reply_markup is not None:
+                payload["reply_markup"] = reply_markup
             self._post("editMessageText", payload)
         except Exception:
             log.exception("ControlBotNotifier: editMessageText упал для %s", handle.ref)

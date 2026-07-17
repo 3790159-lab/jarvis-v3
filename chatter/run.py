@@ -22,14 +22,14 @@ from chatter.core.console import (
 )
 from chatter.core.disclosure import honest_disclosure, is_bot_question
 from chatter.core.escalation import (
-    advance_funnel, decide_escalation, deterministic_escalation,
+    advance_funnel, decide_escalation, deterministic_escalation, esc_active_key,
 )
 from chatter.core.guardrails import (
     within_daily_cap, within_hourly_limit,
 )
 from chatter.core.llm import AnthropicLLM, FakeLLM
 from chatter.core.pause import is_attributed, is_muted
-from chatter.notify.base import Card, Notifier
+from chatter.notify.base import Card, CardHandle, Notifier
 from chatter.storage.db import Store
 from chatter.transport.base import Transport
 from chatter.transport.fake import FakeConsoleTransport
@@ -182,9 +182,17 @@ def _post_escalation_card(deps: "Deps", contact_id: str, *, det, cr, now: float)
     cfg = deps.cfg
     language = cfg.settings.language
     recent = [(m["role"], m["text"]) for m in deps.store.history(contact_id)][-5:]
+    cr_escalated = cr is not None and not cr.degraded and cr.escalate
     cr_reason = cr.reason if (cr is not None and not cr.degraded and cr.reason) else ""
     summary = cr_reason or (det.detail if det is not None else "нужно внимание владельца")
-    why = det.detail if det is not None else "классификатор отметил горячий лид"
+    # Fix 2: одно решение — НЕСКОЛЬКО причин. Если сработали оба слоя, «почему»
+    # показывает обе («ключевое слово … + классификатор: …»), а не только одну.
+    reasons = []
+    if det is not None:
+        reasons.append(det.detail)
+    if cr_escalated and cr_reason:
+        reasons.append(f"классификатор: {cr_reason}")
+    why = " + ".join(reasons) if reasons else "классификатор отметил горячий лид"
     try:
         if deps.escalation_card is not None:
             card = deps.escalation_card(contact_id, summary, why, recent)
@@ -202,11 +210,21 @@ def _post_escalation_card(deps: "Deps", contact_id: str, *, det, cr, now: float)
                     console_text("card_resume_status_hint", language),
                 ],
                 link=contact_link(user_id=peer))
+        # Fix 2: один лид = одна карточка. Пока по контакту есть НЕ-закрытая
+        # карточка эскалации (владелец ещё не тапнул), повторная эскалация
+        # РЕДАКТИРУЕТ её (обновляет причину), а не шлёт новую. route_callback
+        # чистит active-флаг при любом действии владельца → следующая эскалация
+        # после его реакции = новая карточка.
+        active = deps.store.get_runtime_flag(esc_active_key(contact_id))
+        if active:
+            deps.notifier.update_card(CardHandle(ref=active), card)
+            return
         handle = deps.notifier.notify(card)
     except Exception:
         log.exception("escalation card FAILED for %s", contact_id)
         return
     if handle is not None:
+        deps.store.set_runtime_flag(esc_active_key(contact_id), handle.ref, ts=now)
         try:
             msg_id = int(handle.ref.split(":")[-1])
             deps.store.add_card(msg_id=msg_id, contact_id=contact_id, kind="escalation", ts=now)

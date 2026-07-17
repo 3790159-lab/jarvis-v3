@@ -149,3 +149,27 @@ def test_demo_knowledge_has_payment_requisites():
     # Чтобы Аня могла отдать реквизиты сама (дефолт: есть реквизиты → отдаёт).
     cfg = load_config(CLIENTS, "demo")
     assert "плат" in cfg.knowledge.casefold() or "реквизит" in cfg.knowledge.casefold()
+
+
+def test_reescalation_edits_existing_card_not_duplicate():
+    # Fix 2: один лид = одна карточка. Повторная эскалация того же контакта
+    # РЕДАКТИРУЕТ существующую карточку, а не плодит новую.
+    n = FakeNotifier()
+    deps = _deps(notifier=n)
+    _process(deps, "42:demo", "позови человека")
+    _process(deps, "42:demo", "это жалоба, верните деньги")
+    assert len(n.cards) == 1        # только одна отправка
+    assert len(n.updates) == 1      # вторая эскалация = правка
+    assert n.updates[0][0] == n.card_handles[0]   # правится ТА ЖЕ карточка
+
+
+def test_new_card_after_owner_acted():
+    # После действия владельца (active-card очищен) новая эскалация = новая карточка.
+    n = FakeNotifier()
+    deps = _deps(notifier=n)
+    _process(deps, "42:demo", "позови человека")
+    assert len(n.cards) == 1
+    # владелец нажал кнопку -> active-card очищен (эмулируем то, что делает route_callback)
+    deps.store.set_runtime_flag("esc_active:42:demo", "", ts=1000.0)
+    _process(deps, "42:demo", "снова жалоба")
+    assert len(n.cards) == 2        # новая карточка, не правка

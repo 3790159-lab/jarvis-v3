@@ -56,7 +56,14 @@ class Notifier(ABC):
 
     @abstractmethod
     def edit(self, handle: CardHandle, text_html: str) -> None:
-        """Мгновенная обратная связь на тап (правка сообщения карточки)."""
+        """Мгновенная обратная связь на тап (правка текста, КНОПКИ УБИРАЮТСЯ —
+        карточка «решена»)."""
+
+    @abstractmethod
+    def update_card(self, handle: CardHandle, card: Card) -> None:
+        """Обновить УЖЕ отправленную карточку (текст + кнопки сохраняются) —
+        дедуп: повторная эскалация того же лида правит карточку, а не плодит
+        новую (Fix 2)."""
 
     @property
     @abstractmethod
@@ -69,15 +76,22 @@ class FakeNotifier(Notifier):
 
     def __init__(self, *, has_buttons: bool = True):
         self.cards: list[Card] = []
+        self.card_handles: list[CardHandle] = []
         self.edits: list[tuple[CardHandle, str]] = []
+        self.updates: list[tuple[CardHandle, Card]] = []
         self._has_buttons = has_buttons
 
     def notify(self, card: Card) -> CardHandle | None:
         self.cards.append(card)
-        return CardHandle(ref=f"fake:{len(self.cards)}")
+        handle = CardHandle(ref=f"fake:{len(self.cards)}")
+        self.card_handles.append(handle)
+        return handle
 
     def edit(self, handle: CardHandle, text_html: str) -> None:
         self.edits.append((handle, text_html))
+
+    def update_card(self, handle: CardHandle, card: Card) -> None:
+        self.updates.append((handle, card))
 
     @property
     def has_buttons(self) -> bool:

@@ -57,6 +57,15 @@ def parse_escalation_keywords(playbook: str) -> list[str]:
     return out
 
 
+def esc_active_key(contact_id: str) -> str:
+    """runtime_flag с ref открытой (не закрытой владельцем) карточки эскалации
+    контакта — движок дедупа (Fix 2): пока флаг непуст, повторная эскалация
+    правит ту же карточку; тап владельца (route_callback) его чистит →
+    следующая эскалация создаёт новую карточку. Общий ключ для run.py и
+    control_bot.py, чтобы обе стороны смотрели в одно место."""
+    return f"esc_active:{contact_id}"
+
+
 @dataclass(frozen=True)
 class EscalationReason:
     """Почему диалог эскалирован — для строки «почему» в карточке (§3)."""
