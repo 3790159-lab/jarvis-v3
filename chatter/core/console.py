@@ -189,6 +189,11 @@ CONSOLE_STRINGS: dict[str, dict[str, str]] = {
         "fb_open": "💬 Открыть диалог: {link}",
         "fb_unknown": "не понял действие",
         "fb_not_owner": "эта кнопка не для вас",
+        "bind_welcome": "✅ Пульт подключён. Карточки пауз и эскалаций будут приходить сюда.",
+        "bind_welcome_back": "✅ Пульт уже подключён к вам.",
+        "bind_rejected": "⛔ Этот бот уже привязан к другому владельцу.",
+        "bind_not_authorized": "⛔ Доступ запрещён. Нужен код: /start <код> от продавца.",
+        "unbind_ack": "🔓 Пульт отвязан. Следующий /start привяжет заново.",
         "degraded_alert": (
             "⚠️ Классификатор деградировал: {count} ошибок за {hours}ч. "
             "Эскалации сейчас идут только по ключевым словам."
@@ -253,6 +258,11 @@ CONSOLE_STRINGS: dict[str, dict[str, str]] = {
         "fb_open": "💬 Open chat: {link}",
         "fb_unknown": "didn't get that action",
         "fb_not_owner": "this button isn't for you",
+        "bind_welcome": "✅ Console connected. Pause and escalation cards will arrive here.",
+        "bind_welcome_back": "✅ Console is already connected to you.",
+        "bind_rejected": "⛔ This bot is already bound to another owner.",
+        "bind_not_authorized": "⛔ Access denied. You need a code: /start <code> from the vendor.",
+        "unbind_ack": "🔓 Console unbound. The next /start will bind it again.",
         "degraded_alert": (
             "⚠️ Classifier degraded: {count} errors in {hours}h. "
             "Escalations currently fire on keywords only."
@@ -316,6 +326,11 @@ CONSOLE_STRINGS: dict[str, dict[str, str]] = {
         "fb_open": "💬 Відкрити діалог: {link}",
         "fb_unknown": "не зрозумів дію",
         "fb_not_owner": "ця кнопка не для вас",
+        "bind_welcome": "✅ Пульт підключено. Картки пауз і ескалацій приходитимуть сюди.",
+        "bind_welcome_back": "✅ Пульт уже підключено до вас.",
+        "bind_rejected": "⛔ Цей бот уже прив'язаний до іншого власника.",
+        "bind_not_authorized": "⛔ Доступ заборонено. Потрібен код: /start <код> від продавця.",
+        "unbind_ack": "🔓 Пульт відв'язано. Наступний /start прив'яже знову.",
         "degraded_alert": (
             "⚠️ Класифікатор деградував: {count} помилок за {hours}год. "
             "Ескалації зараз лише за ключовими словами."

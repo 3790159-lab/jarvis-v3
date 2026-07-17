@@ -1021,7 +1021,7 @@ def _build_notifier_and_poller(
     notifier = ControlBotNotifier(token, _owner)
     poller = ControlBotPoller(
         token, store=store, language=language, snooze_seconds=control.snooze_seconds,
-        owner_chat_id=control.owner_chat_id)
+        owner_chat_id=control.owner_chat_id, pairing_code=control.pairing_code)
     return notifier, poller
 
 

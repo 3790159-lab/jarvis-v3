@@ -140,9 +140,19 @@ def test_control_bot_fields_default_off(tmp_path):
     c = cfg.settings.control
     assert c.control_bot_token_env is None
     assert c.owner_chat_id is None
+    assert c.pairing_code is None
     assert c.classifier_enabled is True
     assert c.classifier_error_threshold == 5
     assert c.snooze_seconds == 3600.0
+
+
+def test_pairing_code_with_invalid_chars_fails(tmp_path):
+    # deep link t.me/<bot>?start=<код> ограничивает payload [A-Za-z0-9_-], ≤64.
+    settings = SETTINGS + "control:\n  pairing_code: \"bad code!\"\n"
+    _make_client(tmp_path, settings=settings)
+    with pytest.raises(ConfigError) as e:
+        load_config(tmp_path, "demo")
+    assert "pairing_code" in str(e.value)
 
 
 def test_control_bot_fields_parse(tmp_path):
@@ -150,6 +160,7 @@ def test_control_bot_fields_parse(tmp_path):
         "control:\n"
         "  control_bot_token_env: CHATTER_CONTROL_BOT_TOKEN\n"
         "  owner_chat_id: 237616472\n"
+        "  pairing_code: pair-abc-123\n"
         "  classifier_enabled: false\n"
         "  classifier_error_threshold: 3\n"
         "  snooze_seconds: 1800\n"
@@ -160,6 +171,7 @@ def test_control_bot_fields_parse(tmp_path):
     # settings.yaml хранит ИМЯ переменной окружения, не значение токена.
     assert c.control_bot_token_env == "CHATTER_CONTROL_BOT_TOKEN"
     assert c.owner_chat_id == 237616472
+    assert c.pairing_code == "pair-abc-123"
     assert c.classifier_enabled is False
     assert c.classifier_error_threshold == 3
     assert c.snooze_seconds == 1800.0

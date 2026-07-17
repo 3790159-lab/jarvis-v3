@@ -32,10 +32,11 @@ class FakeApi:
         return next(p for m, p in self.posts if m == method)
 
 
-def _poller(api, *, store, owner_chat_id=237616472, on_bind=None):
+def _poller(api, *, store, owner_chat_id=237616472, pairing_code=None, on_bind=None):
     return ControlBotPoller(
         "TOKEN", store=store, language="ru", snooze_seconds=3600,
-        owner_chat_id=owner_chat_id, http_get=api.get, http_post=api.post,
+        owner_chat_id=owner_chat_id, pairing_code=pairing_code,
+        http_get=api.get, http_post=api.post,
         clock=lambda: 1000.0, on_bind=on_bind,
     )
 
@@ -85,22 +86,135 @@ def test_non_owner_callback_is_rejected_without_mutation():
     assert "editMessageText" not in api.methods()                  # чужому карточку не правим
 
 
-def test_start_with_no_configured_owner_binds_tofu():
+def _start(uid, *, chat_id, arg=None):
+    text = "/start" if arg is None else f"/start {arg}"
+    return {"update_id": uid, "message": {"message_id": uid, "text": text, "chat": {"id": chat_id}}}
+
+
+OWNER = 237616472
+_OWNER_FLAG = "control_owner_chat_id"
+
+
+def test_start_with_no_owner_and_no_code_refuses_to_bind():
+    # ДЫРА TOFU ЗАКРЫТА: без owner_chat_id и без pairing_code любой /start
+    # ОТКЛОНЯЕТСЯ (иначе первый нашедший бота становится владельцем пульта).
     store = Store(":memory:")
     bound = []
-    api = FakeApi([[{
-        "update_id": 5,
-        "message": {"message_id": 1, "text": "/start", "chat": {"id": 555000}},
-    }]])
+    api = FakeApi([[_start(5, chat_id=555000)]])
     poller = _poller(api, store=store, owner_chat_id=None, on_bind=bound.append)
 
     asyncio.run(poller.poll_once())
 
-    assert store.get_runtime_flag("control_owner_chat_id") == "555000"
-    assert bound == [555000]
-    assert "sendMessage" in api.methods()
-    # и теперь этот chat — владелец
-    assert poller._effective_owner() == 555000
+    assert store.get_runtime_flag(_OWNER_FLAG) is None      # НИКТО не привязан
+    assert bound == []
+    assert poller._effective_owner() is None
+
+
+def test_start_binds_only_the_configured_owner_id():
+    store = Store(":memory:")
+    bound = []
+    api = FakeApi([[_start(1, chat_id=OWNER)]])
+    poller = _poller(api, store=store, owner_chat_id=OWNER, on_bind=bound.append)
+    asyncio.run(poller.poll_once())
+    assert store.get_runtime_flag(_OWNER_FLAG) == str(OWNER)
+    assert bound == [OWNER]
+
+
+def test_start_from_wrong_id_is_rejected():
+    store = Store(":memory:")
+    bound = []
+    api = FakeApi([[_start(1, chat_id=999999)]])   # чужой
+    poller = _poller(api, store=store, owner_chat_id=OWNER, on_bind=bound.append)
+    asyncio.run(poller.poll_once())
+    assert store.get_runtime_flag(_OWNER_FLAG) is None       # не привязан
+    assert bound == []
+    # владельцу-нарушителю ответили отказом
+    assert any("Доступ" in p.get("text", "") for _, p in api.posts)
+
+
+def test_pairing_code_binds_whoever_has_the_code():
+    store = Store(":memory:")
+    bound = []
+    api = FakeApi([[_start(1, chat_id=42, arg="secret-xyz")]])
+    poller = _poller(api, store=store, owner_chat_id=None, pairing_code="secret-xyz", on_bind=bound.append)
+    asyncio.run(poller.poll_once())
+    assert store.get_runtime_flag(_OWNER_FLAG) == "42"
+    assert bound == [42]
+
+
+def test_wrong_pairing_code_is_rejected():
+    store = Store(":memory:")
+    api = FakeApi([[_start(1, chat_id=42, arg="nope")]])
+    poller = _poller(api, store=store, owner_chat_id=None, pairing_code="secret-xyz")
+    asyncio.run(poller.poll_once())
+    assert store.get_runtime_flag(_OWNER_FLAG) is None
+
+
+def test_pairing_code_missing_arg_is_rejected():
+    store = Store(":memory:")
+    api = FakeApi([[_start(1, chat_id=42)]])   # /start без кода
+    poller = _poller(api, store=store, owner_chat_id=None, pairing_code="secret-xyz")
+    asyncio.run(poller.poll_once())
+    assert store.get_runtime_flag(_OWNER_FLAG) is None
+
+
+def test_code_burns_after_bind_second_holder_rejected():
+    store = Store(":memory:")
+    # первый с кодом привязался
+    api1 = FakeApi([[_start(1, chat_id=42, arg="secret-xyz")]])
+    p1 = _poller(api1, store=store, owner_chat_id=None, pairing_code="secret-xyz")
+    asyncio.run(p1.poll_once())
+    assert store.get_runtime_flag(_OWNER_FLAG) == "42"
+    # второй с ТЕМ ЖЕ кодом — уже привязано, отказ, владелец не меняется
+    api2 = FakeApi([[_start(2, chat_id=99, arg="secret-xyz")]])
+    p2 = _poller(api2, store=store, owner_chat_id=None, pairing_code="secret-xyz")
+    asyncio.run(p2.poll_once())
+    assert store.get_runtime_flag(_OWNER_FLAG) == "42"       # не перебит
+    assert any("привязан" in p.get("text", "") for _, p in api2.posts)
+
+
+def test_already_bound_owner_not_overridden_by_second_start():
+    store = Store(":memory:")
+    store.set_runtime_flag(_OWNER_FLAG, str(OWNER), ts=0.0)
+    api = FakeApi([[_start(1, chat_id=999999)]])   # чужой пробует перехватить
+    poller = _poller(api, store=store, owner_chat_id=None)
+    asyncio.run(poller.poll_once())
+    assert store.get_runtime_flag(_OWNER_FLAG) == str(OWNER)
+
+
+def test_binding_survives_restart():
+    store = Store(":memory:")
+    store.set_runtime_flag(_OWNER_FLAG, "42", ts=0.0)
+    # свежий поллер (рестарт), owner_chat_id не задан — читает привязку из SQLite
+    poller = _poller(FakeApi([]), store=store, owner_chat_id=None)
+    assert poller._effective_owner() == 42
+
+
+def test_unbind_from_owner_releases_then_rebind_possible():
+    store = Store(":memory:")
+    store.set_runtime_flag(_OWNER_FLAG, str(OWNER), ts=0.0)
+    # владелец отвязывает
+    api = FakeApi([[{"update_id": 1, "message": {
+        "message_id": 1, "text": "/unbind", "chat": {"id": OWNER}}}]])
+    poller = _poller(api, store=store, owner_chat_id=None)
+    asyncio.run(poller.poll_once())
+    assert not store.get_runtime_flag(_OWNER_FLAG)           # пусто = отвязан
+    assert poller._effective_owner() is None
+    # теперь новый код может привязать заново
+    api2 = FakeApi([[_start(2, chat_id=77, arg="fresh-code")]])
+    p2 = _poller(api2, store=store, owner_chat_id=None, pairing_code="fresh-code")
+    asyncio.run(p2.poll_once())
+    assert store.get_runtime_flag(_OWNER_FLAG) == "77"
+
+
+def test_unbind_from_stranger_ignored():
+    store = Store(":memory:")
+    store.set_runtime_flag(_OWNER_FLAG, str(OWNER), ts=0.0)
+    api = FakeApi([[{"update_id": 1, "message": {
+        "message_id": 1, "text": "/unbind", "chat": {"id": 999999}}}]])
+    poller = _poller(api, store=store, owner_chat_id=None)
+    asyncio.run(poller.poll_once())
+    assert store.get_runtime_flag(_OWNER_FLAG) == str(OWNER)  # чужой не отвязал
 
 
 def test_run_forever_swallows_getupdates_error_and_continues():

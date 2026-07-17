@@ -201,7 +201,7 @@ class ControlBotPoller:
 
     def __init__(
         self, token: str, *, store, language: str, snooze_seconds: float,
-        owner_chat_id: int | None = None, notifier=None,
+        owner_chat_id: int | None = None, pairing_code: str | None = None, notifier=None,
         http_get=None, http_post=None, clock=None, async_sleep=None,
         on_bind=None, long_poll_timeout: int = _LONG_POLL_TIMEOUT,
     ):
@@ -209,6 +209,7 @@ class ControlBotPoller:
         self._language = language
         self._snooze = snooze_seconds
         self._owner_chat_id = owner_chat_id
+        self._pairing_code = pairing_code
         self._on_bind = on_bind
         self._timeout = long_poll_timeout
         import time as _time
@@ -267,23 +268,79 @@ class ControlBotPoller:
         await self._post("answerCallbackQuery", {
             "callback_query_id": cq.get("id"), "text": result.answer})
 
+    async def _reply(self, chat_id: int, key: str) -> None:
+        await self._post("sendMessage", {
+            "chat_id": chat_id, "text": console_text(key, self._language)})
+
     async def _on_message(self, m: dict) -> None:
-        text = (m.get("text") or "").strip()
-        if not text.split() or text.split()[0] != "/start":
+        parts = (m.get("text") or "").strip().split()
+        if not parts:
             return
+        cmd = parts[0]
         chat_id = m.get("chat", {}).get("id")
         if chat_id is None:
             return
-        # TOFU: если владелец в настройках не задан — привязываемся к первому
-        # /start и запоминаем навсегда (клиент только жмёт /start).
-        if self._owner_chat_id is None and self._store.get_runtime_flag(_OWNER_FLAG) is None:
-            self._store.set_runtime_flag(_OWNER_FLAG, str(chat_id), ts=self._clock())
-            if self._on_bind:
-                self._on_bind(chat_id)
-        await self._post("sendMessage", {
-            "chat_id": chat_id,
-            "text": "✅ Пульт подключён. Карточки пауз и эскалаций будут приходить сюда.",
-        })
+        if cmd == "/unbind":
+            await self._on_unbind(chat_id)
+        elif cmd == "/start":
+            await self._on_start(chat_id, parts[1] if len(parts) > 1 else None)
+
+    async def _on_start(self, chat_id: int, arg: str | None) -> None:
+        """Привязка владельца — БЕЗ TOFU (спека 3B-sec): пуб­личный юзернейм бота
+        означает, что «первый нашедший» не должен становиться владельцем.
+
+        Уже привязанный пульт не перебивается вторым /start (только /unbind от
+        владельца). Иначе привязка проходит РОВНО одним из настроенных путей:
+        явный owner_chat_id (жёсткий id-гейт) ИЛИ одноразовый pairing_code
+        (/start <код>). Ни один не задан → любой /start отклоняется.
+
+        Онбординг клиента = ОДНА ссылка-deep-link `t.me/<bot>?start=<код>`: тап
+        по ней сам шлёт `/start <код>` (`arg`), клиенту ничего вводить не надо.
+        Код одноразовый — «сгорает» самим фактом привязки (дальше срабатывает
+        ветка bound выше). Charset payload'а Telegram ограничивает [A-Za-z0-9_-],
+        ≤64 симв. — валидируется при загрузке settings (loader)."""
+        bound = self._store.get_runtime_flag(_OWNER_FLAG)
+        if bound:   # truthy: "" (после /unbind) считается непривязанным
+            await self._reply(
+                chat_id, "bind_welcome_back" if int(bound) == chat_id else "bind_rejected")
+            return
+        if self._owner_chat_id is not None:
+            if chat_id == self._owner_chat_id:
+                self._bind(chat_id)
+                await self._reply(chat_id, "bind_welcome")
+            else:
+                log.warning("control-bot: /start от НЕ-владельца %s (ожидался %s) — отказ",
+                            chat_id, self._owner_chat_id)
+                await self._reply(chat_id, "bind_not_authorized")
+            return
+        if self._pairing_code is not None:
+            if arg == self._pairing_code:
+                # Код «сгорает» самим фактом привязки: далее срабатывает ветка
+                # bound is not None выше, второй раз тот же код не привяжет.
+                self._bind(chat_id)
+                await self._reply(chat_id, "bind_welcome")
+            else:
+                log.warning("control-bot: неверный/пустой pairing-код от %s — отказ", chat_id)
+                await self._reply(chat_id, "bind_not_authorized")
+            return
+        # Ни id, ни кода: TOFU-дыра закрыта — не привязываем никого.
+        log.warning("control-bot: /start от %s, но ни owner_chat_id, ни pairing_code не заданы — отказ", chat_id)
+        await self._reply(chat_id, "bind_not_authorized")
+
+    async def _on_unbind(self, chat_id: int) -> None:
+        """Явный разрыв привязки — ТОЛЬКО текущим владельцем (спека 3B-sec:
+        «уже привязанный владелец не перебивается... только явным разрывом»)."""
+        bound = self._store.get_runtime_flag(_OWNER_FLAG)
+        if bound and int(bound) == chat_id:
+            self._store.set_runtime_flag(_OWNER_FLAG, "", ts=self._clock())
+            await self._reply(chat_id, "unbind_ack")
+        else:
+            log.warning("control-bot: /unbind от %s, но он не владелец — игнор", chat_id)
+
+    def _bind(self, chat_id: int) -> None:
+        self._store.set_runtime_flag(_OWNER_FLAG, str(chat_id), ts=self._clock())
+        if self._on_bind:
+            self._on_bind(chat_id)
 
     async def run_forever(self) -> None:
         while True:

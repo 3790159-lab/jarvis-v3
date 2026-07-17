@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
+import re
 from pathlib import Path
 import yaml
 
@@ -47,7 +48,8 @@ class ControlConfig:
     # Арка 3B: контрол-бот + эскалация. ВСЁ off/безопасно по умолчанию —
     # без токена продукт ведёт себя ровно как арка 3A (Saved Messages).
     control_bot_token_env: str | None = None  # ИМЯ env-переменной с токеном, НЕ значение
-    owner_chat_id: int | None = None          # личный чат владельца; None = bind на первый /start
+    owner_chat_id: int | None = None          # личный чат владельца (жёсткий гейт /start)
+    pairing_code: str | None = None           # одноразовый код онбординга: /start <код>, сгорает после привязки
     classifier_enabled: bool = True
     classifier_error_threshold: int = 5       # > стольких ошибок за окно → алерт «деградировал»
     snooze_seconds: float = 3600.0            # кнопка «⏸ Ещё 1ч»
@@ -157,12 +159,22 @@ def load_config(clients_dir: Path, slug: str) -> Config:
             raise ConfigError("settings.yaml: 'control' must be a mapping")
         owner_chat_raw = c_raw.get("owner_chat_id", default_control.owner_chat_id)
         token_env_raw = c_raw.get("control_bot_token_env", default_control.control_bot_token_env)
+        pairing_raw = c_raw.get("pairing_code", default_control.pairing_code)
+        if pairing_raw is not None:
+            pairing_str = str(pairing_raw)
+            # Код едет как payload deep-link'а t.me/<bot>?start=<код>, а Telegram
+            # ограничивает start-параметр алфавитом [A-Za-z0-9_-], ≤64 символа.
+            if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", pairing_str):
+                raise ConfigError(
+                    "settings.yaml.control: 'pairing_code' must match [A-Za-z0-9_-], "
+                    "1-64 chars (Telegram deep-link start payload)")
         control = ControlConfig(
             auto_resume_hours=float(c_raw.get("auto_resume_hours", default_control.auto_resume_hours)),
             takeover_grace_seconds=float(c_raw.get("takeover_grace_seconds", default_control.takeover_grace_seconds)),
             status_window_hours=int(c_raw.get("status_window_hours", default_control.status_window_hours)),
             control_bot_token_env=None if token_env_raw is None else str(token_env_raw),
             owner_chat_id=None if owner_chat_raw is None else int(owner_chat_raw),
+            pairing_code=None if pairing_raw is None else str(pairing_raw),
             classifier_enabled=bool(c_raw.get("classifier_enabled", default_control.classifier_enabled)),
             classifier_error_threshold=int(c_raw.get("classifier_error_threshold", default_control.classifier_error_threshold)),
             snooze_seconds=float(c_raw.get("snooze_seconds", default_control.snooze_seconds)),
