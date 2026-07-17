@@ -49,6 +49,11 @@ CREATE TABLE IF NOT EXISTS control_events (
     detail TEXT,
     ts REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS status_index (
+    n INTEGER PRIMARY KEY,
+    contact_id TEXT NOT NULL,
+    issued_ts REAL NOT NULL
+);
 """
 
 # Источники паузы уровня КОНТАКТА. Глобальный kill switch живёт в
@@ -362,3 +367,50 @@ class Store:
             row = self._conn.execute(
                 "SELECT contact_id FROM console_cards WHERE msg_id=?", (msg_id,)).fetchone()
         return row["contact_id"] if row else None
+
+    def issue_status_index(self, contact_ids: list[str], *, now: float) -> None:
+        """Выдать новый нумерованный список из `/status` — переписывает
+        таблицу ЦЕЛИКОМ. Номер привязывается к контакту В МОМЕНТ ВЫДАЧИ
+        (спека 3A-UX §3): владелец видит "1. Даниил" глазами и копирует
+        "/resume 1" — этот номер обязан навсегда означать Даниила, даже
+        если тот успеет авто-вернуться до того, как владелец наберёт
+        команду. DELETE+INSERT в ОДНОЙ транзакции под self._lock: половинчатый
+        снимок (старые номера удалены, новые ещё не вставлены) — это окно,
+        где /resume N увидел бы "нет такого номера" хотя список только что
+        был; последовательный DELETE и INSERT без общего лока дал бы такое
+        же окно параллельному читателю."""
+        with self._lock:
+            self._conn.execute("DELETE FROM status_index")
+            self._conn.executemany(
+                "INSERT INTO status_index(n, contact_id, issued_ts) VALUES (?,?,?)",
+                [(i, cid, now) for i, cid in enumerate(contact_ids, start=1)],
+            )
+            self._conn.commit()
+
+    def status_index_contact(self, n: int) -> str | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT contact_id FROM status_index WHERE n=?", (n,)).fetchone()
+        return row["contact_id"] if row else None
+
+    def status_index_snapshot(self) -> list[str]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT contact_id FROM status_index ORDER BY n").fetchall()
+        return [r["contact_id"] for r in rows]
+
+    def status_index_is_current(self, muted_contact_ids: list[str]) -> bool:
+        """Отвечает на вопрос "тот ли это список, который владелец видел",
+        а не "сколько минут прошло" (спека §3: TTL гадает про доверие, набор
+        отвечает на настоящий вопрос). Сравнение по МНОЖЕСТВАМ, не по
+        последовательности: `muted_contacts()` сортирует по `paused_at`, и
+        этот порядок может измениться между /status и /resume без изменения
+        сути (например `update_pause_attribution` не трогает paused_at, но
+        параллельный второй takeover где-то ещё мог бы) — а КОМУ соответствует
+        каждый номер уже зафиксировано в самой таблице status_index при
+        выдаче, порядок текущего muted_contacts() на это не влияет. Вопрос
+        "тот ли список" — про состав диалогов, не про их взаимный порядок."""
+        with self._lock:
+            snapshot = {r["contact_id"] for r in self._conn.execute(
+                "SELECT contact_id FROM status_index")}
+        return snapshot == set(muted_contact_ids)

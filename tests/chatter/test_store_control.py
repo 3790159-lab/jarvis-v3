@@ -274,3 +274,98 @@ def test_add_card_upsert_overwrites_kind_and_ts_too():
         assert row["contact_id"] == "c2"
         assert row["kind"] == "unattributed"
         assert row["ts"] == 200.0
+
+
+# --- status_index: нумерованная адресация из /status (спека 3A-UX §3) ---
+
+
+def test_issue_status_index_numbers_from_one_in_list_order():
+    with Store(":memory:") as s:
+        s.issue_status_index(["daniil", "vasya"], now=100.0)
+        assert s.status_index_contact(1) == "daniil"
+        assert s.status_index_contact(2) == "vasya"
+        assert s.status_index_snapshot() == ["daniil", "vasya"]
+
+
+def test_issue_status_index_overwrites_the_whole_table():
+    # Вторая выдача — новый /status, старые номера не должны остаться
+    # хвостом (например при уменьшении списка старый №3 обязан исчезнуть,
+    # а не продолжать указывать на кого-то, кого уже нет в новом списке).
+    with Store(":memory:") as s:
+        s.issue_status_index(["a", "b", "c"], now=100.0)
+        s.issue_status_index(["x", "y"], now=200.0)
+        assert s.status_index_snapshot() == ["x", "y"]
+        assert s.status_index_contact(3) is None
+
+
+def test_status_index_contact_unknown_number_returns_none():
+    with Store(":memory:") as s:
+        s.issue_status_index(["a"], now=100.0)
+        assert s.status_index_contact(999) is None
+
+
+def test_status_index_number_stays_bound_to_the_original_contact():
+    # ГЛАВНЫЙ тест этой таблицы (спека §3): номер привязан к контакту В
+    # МОМЕНТ ВЫДАЧИ. Даниил (1) авто-вернулся (перестал быть заглушённым) —
+    # это НЕ меняет то, что значит "1". Если бы номера пересчитывались "на
+    # лету" от текущего muted_contacts(), "1" стал бы Васей — владелец,
+    # набравший /resume 1, попал бы в ЧУЖОЙ диалог. Это и есть "промах в
+    # чужой диалог = катастрофа доверия" из спеки.
+    with Store(":memory:") as s:
+        s.get_or_create_contact("daniil")
+        s.get_or_create_contact("vasya")
+        s.mute("daniil", source="human_takeover", now=100.0)
+        s.mute("vasya", source="human_takeover", now=100.0)
+        s.issue_status_index(["daniil", "vasya"], now=100.0)
+
+        s.unmute("daniil")  # авто-возврат — daniil больше не заглушён
+
+        # "1" всё ещё означает Даниила, а не сдвинулся на Васю.
+        assert s.status_index_contact(1) == "daniil"
+        assert s.status_index_contact(2) == "vasya"
+
+
+def test_status_index_survives_restart(tmp_path):
+    db = tmp_path / "s.db"
+    with Store(db) as s:
+        s.issue_status_index(["daniil", "vasya"], now=100.0)
+    with Store(db) as s2:
+        assert s2.status_index_contact(1) == "daniil"
+        assert s2.status_index_contact(2) == "vasya"
+
+
+def test_status_index_is_current_true_when_muted_set_matches_snapshot():
+    with Store(":memory:") as s:
+        s.get_or_create_contact("daniil")
+        s.get_or_create_contact("vasya")
+        s.mute("daniil", source="human_takeover", now=100.0)
+        s.mute("vasya", source="human_takeover", now=100.0)
+        s.issue_status_index(["daniil", "vasya"], now=100.0)
+        assert s.status_index_is_current(["daniil", "vasya"]) is True
+
+
+def test_status_index_is_current_false_when_a_new_contact_got_muted():
+    # Картина мира устарела: владелец видел список без Пети, а сейчас Петя
+    # тоже заглушён — номера больше не значат ровно то, что он видел.
+    with Store(":memory:") as s:
+        s.issue_status_index(["daniil", "vasya"], now=100.0)
+        assert s.status_index_is_current(["daniil", "vasya", "petya"]) is False
+
+
+def test_status_index_is_current_false_when_one_contact_returned():
+    with Store(":memory:") as s:
+        s.issue_status_index(["daniil", "vasya"], now=100.0)
+        assert s.status_index_is_current(["vasya"]) is False
+
+
+def test_status_index_is_current_ignores_order():
+    # Сверка идёт по МНОЖЕСТВУ, а не по последовательности: /status показал
+    # [даниил, вася], а muted_contacts() (ORDER BY paused_at) мог отдать их
+    # в другом порядке при той же паузе (например обновление paused_at при
+    # продолжении перехвата — see update_pause_attribution). Смысл вопроса
+    # "тот ли это список, который он видел" — про СОСТАВ диалогов, а не про
+    # то, в каком порядке их перечислили: номера уже привязаны к контактам
+    # в status_index, порядок muted_contacts() их не переопределяет.
+    with Store(":memory:") as s:
+        s.issue_status_index(["daniil", "vasya"], now=100.0)
+        assert s.status_index_is_current(["vasya", "daniil"]) is True
