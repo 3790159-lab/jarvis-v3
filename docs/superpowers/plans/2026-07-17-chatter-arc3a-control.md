@@ -1878,7 +1878,38 @@ git diff --stat d35b2be..HEAD -- chatter/core/brain.py chatter/core/humanizer.py
 ```
 Expected: пустой вывод. Непустой = шов сломан, ДОЛОЖИТЬ (не чинить молча).
 
-- [ ] **Step 2: Перезапустить раннер на новом коде**
+- [ ] **Step 2: 🔴 РУЧНОЙ БЭКАП ЖИВОЙ БАЗЫ — ДО перезапуска, ОТДЕЛЬНО от Store._backup**
+
+Рестарт раннера — момент, когда миграция ВПЕРВЫЕ тронет реальную базу оператора (29 сообщений, единственная живая переписка Ани). Если она сожрёт историю — откатывать будет нечем.
+
+`Store._backup` кладёт `.bak` РЯДОМ с базой, в `.secrets/` — то есть в тот же каталог, который может утащить за собой любая ошибка, чистка или сама неудачная миграция. Это защита от бага в ALTER, а НЕ от потери каталога. Нужна вторая копия, вне `.secrets/` и вне репозитория:
+
+```bash
+cd /c/jarvis
+mkdir -p "E:/backups/chatter"
+cp .secrets/chatter_telethon.db "E:/backups/chatter/chatter_telethon.pre-3a-manual-$(date +%Y%m%d-%H%M%S).db"
+ls -la "E:/backups/chatter/"
+```
+
+(`E:` — SSD 953.9ГБ, отдельный физический диск от `C:`.)
+
+Проверить, что копия ЧИТАЕТСЯ и данные в ней целы — файл ненулевого размера это не доказательство:
+
+```bash
+cd /c/jarvis && PYTHONUTF8=1 python -c "
+import sqlite3, glob
+p = sorted(glob.glob('E:/backups/chatter/chatter_telethon.pre-3a-manual-*.db'))[-1]
+c = sqlite3.connect(p)
+print('бэкап:', p)
+print('сообщений:', c.execute('select count(*) from messages').fetchone()[0], '(ожидаем 29)')
+print('контактов:', c.execute('select count(*) from contacts').fetchone()[0], '(ожидаем 1)')
+print('последнее:', c.execute('select text from messages order by id desc limit 1').fetchone()[0][:50])
+"
+```
+
+**Не переходить к Step 3, пока этот вывод не показал 29 сообщений и читаемую кириллицу.**
+
+- [ ] **Step 3: Перезапустить раннер на новом коде**
 
 Гардиан перезапустит сам после kill (~90с, debounce 3×30с):
 ```bash
@@ -1888,7 +1919,7 @@ powershell.exe -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name
 Дождаться в `logs/chatter_guardian.stdout.log` строки `runner heartbeat fresh`.
 Проверить в `logs/chatter_telethon.log`: миграция прошла, `.secrets/chatter_telethon.db.pre-3a-*.bak` создан.
 
-- [ ] **Step 3: Живой дрил (пункт Е задания) — прогнать с оператором**
+- [ ] **Step 4: Живой дрил (пункт Е задания) — прогнать с оператором**
 
 1. Оператор (237616472) пишет Ане → Аня отвечает.
 2. Оператор пишет с аккаунта TAMAPI **руками** в тот же диалог → **Аня замолкает**; в Saved Messages появляется карточка паузы.
@@ -1898,11 +1929,11 @@ powershell.exe -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name
 6. `/stop` → Аня молчит везде; `/status` показывает 🔴; `/start` → снова работает.
 7. **Пауза переживает рестарт:** снова заглушить, убить раннер, дождаться гардиана → `/status` показывает ту же паузу с той же причиной.
 
-- [ ] **Step 4: Записать результат дрила в спеку**
+- [ ] **Step 5: Записать результат дрила в спеку**
 
 Дописать в спеку секцию «Результат» с фактами: PID раннера, время каждого шага, что показал `/status`, вывод `git diff --stat` по пяти core-файлам. Как в арке 2 — фактами, не «всё работает».
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 cd /c/jarvis
@@ -1910,6 +1941,6 @@ git add docs/superpowers/specs/2026-07-17-chatter-arc3a-control-design.md
 git commit -m "docs(chatter): 3A drill results — takeover proven live"
 ```
 
-- [ ] **Step 6: СТОП. Не мерджить.**
+- [ ] **Step 7: СТОП. Не мерджить.**
 
 Доложить оператору: что сделано, вывод `git diff --stat` по пяти core-файлам, результат дрила, счётчик тестов. Ждать решения о мердже.
