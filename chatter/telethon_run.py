@@ -15,6 +15,7 @@ from telethon.errors import AuthKeyError, UnauthorizedError
 
 from chatter.config.loader import Config, ControlConfig, load_config
 from chatter.core import humanizer as H
+from chatter.core.admission import admission_decision
 from chatter.core.brain import Brain
 from chatter.core.classifier import ClassifierResult, classify as _classify
 from chatter.core.console import (
@@ -82,6 +83,7 @@ class MissedMessage:
 
 def select_missed(
     dialogs: list[dict], *, allowlist: frozenset[int], now: float, max_age_seconds: float,
+    denylist: frozenset[int] = frozenset(), funnel_gate: bool = False,
 ) -> list[MissedMessage]:
     """Pure core of catch-up. Given a snapshot of private dialogs with unread
     messages, decide which to answer after a restart.
@@ -99,7 +101,13 @@ def select_missed(
     for d in dialogs:
         if not d.get("is_user") or d.get("is_bot"):
             continue
-        if d.get("sender_id") not in allowlist:
+        # Арка 3C: тот же гейт, что live (handle_event). Оффлайн-незнакомец —
+        # тоже лид; знакомый/denylist — не отвечаем. funnel_gate off → старое
+        # поведение (только allowlist).
+        if admission_decision(
+            sender_id=d.get("sender_id"), is_contact=bool(d.get("is_contact")),
+            allowlist=allowlist, denylist=denylist, funnel_gate=funnel_gate,
+        ) != "answer":
             continue
         picked = [
             m for m in sorted(d.get("messages", []), key=lambda m: m["date_ts"])
@@ -359,6 +367,7 @@ class TelethonRunner:
     def __init__(
         self, *, client, personas: dict[str, PersonaBundle], primary_slug: str,
         allowlist: frozenset[int], loop: asyncio.AbstractEventLoop,
+        denylist: frozenset[int] = frozenset(), funnel_gate: bool = False,
     ):
         if primary_slug not in personas:
             raise ValueError(f"primary persona '{primary_slug}' not among loaded personas")
@@ -366,6 +375,9 @@ class TelethonRunner:
         self.personas = personas
         self.primary_slug = primary_slug
         self.allowlist = allowlist
+        # Арка 3C: перевёрнутый гейт допуска (по умолчанию off = старое поведение).
+        self.denylist = denylist
+        self.funnel_gate = funnel_gate
         self.loop = loop
         self._sender_persona: dict[int, str] = {}
         self._debouncers: dict[int, ChatDebouncer] = {}
@@ -581,6 +593,32 @@ class TelethonRunner:
         except Exception:
             log.exception("не смог уведомить пульт (inline-cmd notice)")
 
+    async def _notify_known_contact(self, event, sender_id: int) -> None:
+        """Арка 3C: знакомый (User.contact) написал — Аня ему НЕ отвечает,
+        а владелец получает уведомление в пульт. Дебаунс: один знакомый = одно
+        уведомление за окно (status_window_hours), иначе болтливый контакт
+        засыпал бы пульт."""
+        store = self.primary_store()
+        settings = self.personas[self.primary_slug].cfg.settings
+        language = settings.language
+        now = time.time()
+        key = f"known_contact_notified:{sender_id}"
+        last = store.get_runtime_flag(key)
+        window = self.control.status_window_hours * 3600.0
+        if last and (now - float(last)) < window:
+            log.info("known contact %s написал снова — уведомление уже слал (дебаунс)", sender_id)
+            return
+        store.set_runtime_flag(key, str(now), ts=now)
+        name = display_name(
+            first_name=getattr(event.sender, "first_name", None),
+            last_name=getattr(event.sender, "last_name", None),
+            username=getattr(event.sender, "username", None),
+            user_id=sender_id)
+        text = console_text(
+            "known_contact_notice", language, name=name,
+            snippet=safe_snippet(event.raw_text or "", limit=120), id=sender_id)
+        await self._notify_owner_notice(text)
+
     async def handle_inline_command(self, event, contact_id: str, cmd) -> None:
         """Fix 3: владелец набрал команду (/resume и т.п.) ПРЯМО в диалоге лида,
         а не в пульте. Люди так делают — это естественно. Обрабатываем ДО
@@ -794,8 +832,16 @@ class TelethonRunner:
             return
 
         sender_id = event.sender_id
-        if sender_id not in self.allowlist:
-            log.info("ignored non-allowlisted %s", sender_id)
+        # Арка 3C: перевёрнутый гейт. is_contact — знакомый ли аккаунта
+        # (Telethon User.contact). funnel_gate off → старое поведение (allowlist).
+        decision = admission_decision(
+            sender_id=sender_id, is_contact=bool(getattr(event.sender, "contact", False)),
+            allowlist=self.allowlist, denylist=self.denylist, funnel_gate=self.funnel_gate)
+        if decision == "notify_owner":
+            await self._notify_known_contact(event, sender_id)
+            return
+        if decision != "answer":
+            log.info("admission: %s -> %s (не отвечаю)", sender_id, decision)
             return
 
         text = (event.raw_text or "").strip()
@@ -870,6 +916,7 @@ class TelethonRunner:
                 "sender_id": sender_id,
                 "is_user": True,
                 "is_bot": bool(getattr(entity, "bot", False)),
+                "is_contact": bool(getattr(entity, "contact", False)),  # арка 3C
                 "messages": messages,
             })
         return dialogs
@@ -890,7 +937,9 @@ class TelethonRunner:
         except Exception:
             log.exception("catch-up: failed to collect dialogs; skipping catch-up")
             return
-        missed = select_missed(dialogs, allowlist=self.allowlist, now=now, max_age_seconds=max_age_seconds)
+        missed = select_missed(
+            dialogs, allowlist=self.allowlist, now=now, max_age_seconds=max_age_seconds,
+            denylist=self.denylist, funnel_gate=self.funnel_gate)
         log.info("catch-up: %d dialog(s) with missed messages", len(missed))
         for mm in missed:
             try:
@@ -1081,6 +1130,7 @@ def build_runner(
     runner = TelethonRunner(
         client=client, personas=personas, primary_slug=primary_slug,
         allowlist=frozenset(telegram_cfg.allowlist), loop=loop,
+        denylist=frozenset(telegram_cfg.denylist), funnel_gate=telegram_cfg.funnel_gate,
     )
 
     # Арка 3B: Notifier + (для контрол-бота) поллер. Инъектим Notifier и билдер

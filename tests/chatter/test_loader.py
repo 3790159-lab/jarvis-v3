@@ -96,6 +96,28 @@ def test_telegram_block_parses_allowlist(tmp_path):
     assert cfg.settings.telegram is not None
     assert cfg.settings.telegram.allowlist == (237616472, 42)
 
+def test_telegram_funnel_gate_and_denylist_default_off(tmp_path):
+    # Арка 3C: без явной настройки переворот гейта ВЫКЛЮЧЕН (безопасный дефолт).
+    settings = SETTINGS + "telegram:\n  allowlist: [237616472]\n"
+    _make_client(tmp_path, settings=settings)
+    cfg = load_config(tmp_path, "demo")
+    assert cfg.settings.telegram.funnel_gate is False
+    assert cfg.settings.telegram.denylist == ()
+
+
+def test_telegram_funnel_gate_and_denylist_parse(tmp_path):
+    settings = SETTINGS + (
+        "telegram:\n"
+        "  allowlist: [237616472]\n"
+        "  denylist: [666, 777]\n"
+        "  funnel_gate: true\n"
+    )
+    _make_client(tmp_path, settings=settings)
+    cfg = load_config(tmp_path, "demo")
+    assert cfg.settings.telegram.funnel_gate is True
+    assert cfg.settings.telegram.denylist == (666, 777)
+
+
 def test_telegram_block_missing_allowlist_key_fails(tmp_path):
     settings = SETTINGS + "telegram: {}\n"
     _make_client(tmp_path, settings=settings)

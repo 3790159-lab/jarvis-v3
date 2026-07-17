@@ -38,6 +38,12 @@ class WorkHours:
 @dataclass(frozen=True)
 class TelegramConfig:
     allowlist: tuple[int, ...]
+    # Арка 3C: переворот гейта допуска. funnel_gate=False → старое поведение
+    # (отвечаем только allowlist). True → отвечаем незнакомцам-лидам, знакомых
+    # (User.contact) не отвечаем (уведомляем владельца), denylist блокируем.
+    # Включение = подтверждение оператора «аккаунт выделен под воронку».
+    denylist: tuple[int, ...] = ()
+    funnel_gate: bool = False
 
 @dataclass(frozen=True)
 class ControlConfig:
@@ -146,7 +152,14 @@ def load_config(clients_dir: Path, slug: str) -> Config:
         allowlist_raw = _require(tg_raw, "allowlist", "settings.yaml.telegram")
         if not isinstance(allowlist_raw, list):
             raise ConfigError("settings.yaml.telegram: 'allowlist' must be a list")
-        telegram = TelegramConfig(allowlist=tuple(int(x) for x in allowlist_raw))
+        denylist_raw = tg_raw.get("denylist", [])
+        if not isinstance(denylist_raw, list):
+            raise ConfigError("settings.yaml.telegram: 'denylist' must be a list")
+        telegram = TelegramConfig(
+            allowlist=tuple(int(x) for x in allowlist_raw),
+            denylist=tuple(int(x) for x in denylist_raw),
+            funnel_gate=bool(tg_raw.get("funnel_gate", False)),
+        )
 
     # Единственный источник дефолтов — сам ControlConfig(): читаем их из
     # инстанса, а не дублируем числами здесь, иначе код и дефолты дата-класса

@@ -139,6 +139,7 @@ def test_message_after_ceiling_still_fires_even_if_quiet_gap_not_elapsed():
 @dataclass
 class FakeSender:
     bot: bool = False
+    contact: bool = False   # арка 3C: Telethon User.contact (знакомый аккаунта)
 
 
 @dataclass
@@ -612,3 +613,29 @@ def test_run_client_does_not_swallow_unrelated_errors():
             run_client(client, loop)
     finally:
         _stop_loop_thread(loop, thread)
+
+
+# --- arc 3C: catch-up honours the flipped gate ------------------------------
+def test_select_missed_funnel_gate_picks_stranger_skips_contact():
+    now = 10_000.0
+    dialogs = [
+        {"sender_id": 999, "is_user": True, "is_bot": False, "is_contact": False,
+         "messages": [{"text": "лид оффлайн", "out": False, "date_ts": now - 100}]},
+        {"sender_id": 888, "is_user": True, "is_bot": False, "is_contact": True,
+         "messages": [{"text": "знакомый оффлайн", "out": False, "date_ts": now - 100}]},
+    ]
+    missed = select_missed(dialogs, allowlist=frozenset(), now=now,
+                           max_age_seconds=CATCHUP_MAX_AGE_SECONDS,
+                           denylist=frozenset(), funnel_gate=True)
+    ids = {m.sender_id for m in missed}
+    assert ids == {999}   # незнакомец подхвачен, знакомый — нет
+
+
+def test_select_missed_funnel_gate_denylist_skipped():
+    now = 10_000.0
+    dialogs = [{"sender_id": 999, "is_user": True, "is_bot": False, "is_contact": False,
+                "messages": [{"text": "x", "out": False, "date_ts": now - 100}]}]
+    missed = select_missed(dialogs, allowlist=frozenset(), now=now,
+                           max_age_seconds=CATCHUP_MAX_AGE_SECONDS,
+                           denylist=frozenset({999}), funnel_gate=True)
+    assert missed == []
