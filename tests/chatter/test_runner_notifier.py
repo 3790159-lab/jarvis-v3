@@ -34,9 +34,22 @@ def _clients_with_control(tmp_path, token_env: str) -> Path:
     return dst
 
 
-def test_no_control_block_uses_saved_messages_and_no_poller():
+def _clients_no_control(tmp_path) -> Path:
+    """Демо БЕЗ control-блока — реальный demo теперь его имеет (боевой пульт),
+    поэтому фоллбек-инвариант проверяем на копии с вырезанным control."""
+    dst = tmp_path / "clients"
+    shutil.copytree(CLIENTS_DIR, dst)
+    p = dst / "demo" / "settings.yaml"
+    lines = p.read_text(encoding="utf-8").splitlines()
+    idx = next((i for i, l in enumerate(lines) if l.strip() == "control:"), len(lines))
+    p.write_text("\n".join(lines[:idx]) + "\n", encoding="utf-8")
+    return dst
+
+
+def test_no_control_block_uses_saved_messages_and_no_poller(tmp_path):
+    clients = _clients_no_control(tmp_path)
     runner = build_runner(
-        client=_client(), clients_dir=CLIENTS_DIR, persona_slugs=["demo", "demo2"],
+        client=_client(), clients_dir=clients, persona_slugs=["demo", "demo2"],
         store=Store(":memory:"), loop=asyncio.new_event_loop(), llm_mode="fake")
     assert isinstance(runner.notifier, SavedMessagesNotifier)
     assert runner.poller is None
