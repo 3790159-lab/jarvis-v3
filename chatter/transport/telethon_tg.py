@@ -2,6 +2,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections import OrderedDict
 from typing import Awaitable, Callable
 
 from telethon.errors import FloodWaitError
@@ -43,6 +44,33 @@ def send_alert(client, loop: asyncio.AbstractEventLoop, text: str) -> None:
         log.error("failed to deliver alert to Saved Messages: %s", text, exc_info=True)
 
 
+class SentRegistry:
+    """id сообщений, которые отправили МЫ. Единственный надёжный признак
+    «своё vs владелец печатает руками»: текст сравнивать нельзя (Аня и
+    владелец могут написать одно и то же одними словами), а других отличий у
+    двух сообщений из ОДНОГО аккаунта нет — оба выглядят как исходящее от
+    этого же Telegram-юзера.
+
+    Ограничен по размеру: процесс живёт неделями (гардиан держит его живым
+    постоянно), а неограниченное множество id иначе растёт вечно."""
+
+    def __init__(self, max_size: int = 500):
+        self._ids: "OrderedDict[int, None]" = OrderedDict()
+        self._max = max_size
+
+    def add(self, msg_id: int) -> None:
+        self._ids[msg_id] = None
+        self._ids.move_to_end(msg_id)
+        while len(self._ids) > self._max:
+            self._ids.popitem(last=False)   # забываем САМЫЙ старый id
+
+    def is_ours(self, msg_id: int) -> bool:
+        return msg_id in self._ids
+
+    def __len__(self) -> int:
+        return len(self._ids)
+
+
 class TelethonTransport(Transport):
     """Bridges the SYNC core (process_batch runs in a worker thread, see
     chatter.telethon_run) to an ASYNC Telethon client living on its own event
@@ -58,6 +86,7 @@ class TelethonTransport(Transport):
     def __init__(
         self, client, chat, loop: asyncio.AbstractEventLoop,
         backoff_sleep: Callable[[float], None] = time.sleep,
+        sent_registry: "SentRegistry | None" = None,
     ):
         self._client = client
         self._chat = chat
@@ -69,6 +98,10 @@ class TelethonTransport(Transport):
         # transport already runs in a worker thread, so blocking it is fine
         # and does not stall the Telethon event loop).
         self._backoff_sleep = backoff_sleep
+        # Optional so callers that never wire up takeover-detection (older
+        # tests, one-off scripts) keep working -- `send` below checks for
+        # None before touching it.
+        self._sent = sent_registry
 
     def receive(self, timeout: float | None = None) -> str | None:
         raise NotImplementedError(
@@ -108,10 +141,30 @@ class TelethonTransport(Transport):
 
     def send(self, text: str) -> None:
         log.info("OUT %s: %s", self._chat, text)
-        self._call_with_floodwait_retry(
+        sent = self._call_with_floodwait_retry(
             lambda: self._client.send_message(self._chat, text),
             desc=f"send_message to {self._chat}",
         )
+        # Регистрируем id СВОЕГО сообщения, чтобы telethon_run.decide_outgoing
+        # (Task 11) мог опознать его как "ours", а не как перехват владельцем.
+        #
+        # ВАЖНО: это НЕ закрывает гонку и не должно. send() крутится в
+        # worker-потоке (process_batch синхронный) и лишь МАРШАЛИТ корутину
+        # send_message на event loop через run_coroutine_threadsafe — а
+        # обработчик исходящих в telethon_run живёт НА этом же loop. Значит
+        # планировщик вполне может раздать апдейт о новом исходящем раньше,
+        # чем этот поток проснётся после fut.result() и допишет id сюда.
+        # Порядок "апдейт из Telethon" vs "запись в реестр" НЕ гарантирован
+        # этим кодом. Закрывает гонку грейс-окно в telethon_run.decide_outgoing
+        # (Task 11: ждём и перепроверяем реестр, а не решаем мгновенно) —
+        # здесь важно только НЕ ПОТЕРЯТЬ id совсем.
+        #
+        # `sent` = None, когда отправка не состоялась вовсе (сдались после
+        # повторного FloodWaitError, см. _call_with_floodwait_retry) —
+        # регистрировать нечего; getattr(..., "id", None) ловит и этот
+        # случай, и случай sent_registry=None (не сконфигурирован вызывающим).
+        if self._sent is not None and getattr(sent, "id", None) is not None:
+            self._sent.add(sent.id)
 
     def send_typing(self, on: bool) -> None:
         if on:

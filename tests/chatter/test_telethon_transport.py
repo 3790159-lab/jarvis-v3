@@ -7,7 +7,7 @@ from telethon.errors import FloodWaitError
 from telethon.tl.functions.account import UpdateStatusRequest
 
 from chatter.transport.base import Transport
-from chatter.transport.telethon_tg import TelethonTransport, send_alert
+from chatter.transport.telethon_tg import SentRegistry, TelethonTransport, send_alert
 
 
 def _running_loop():
@@ -46,6 +46,60 @@ def test_send_schedules_send_message_on_loop():
         transport.send("hello there")
 
         client.send_message.assert_called_once_with(12345, "hello there")
+    finally:
+        _stop(loop, thread)
+
+
+# ---------------------------------------------------------------------------
+# SentRegistry wiring (arc 3A, Task 10): send() must record the id of the
+# Message it actually got back from Telethon, not something we invent.
+# ---------------------------------------------------------------------------
+def test_send_registers_the_returned_message_id():
+    loop, thread = _running_loop()
+    try:
+        client = MagicMock()
+        sent_message = MagicMock(id=4821)
+        client.send_message = AsyncMock(return_value=sent_message)
+        registry = SentRegistry()
+        transport = TelethonTransport(client, chat=12345, loop=loop, sent_registry=registry)
+
+        transport.send("hello there")
+
+        assert registry.is_ours(4821) is True
+    finally:
+        _stop(loop, thread)
+
+
+def test_send_registers_nothing_when_floodwait_gives_up():
+    # _call_with_floodwait_retry returns None once it gives up after repeated
+    # FloodWait -- there is no message id to register, and getattr(None, "id",
+    # None) must not blow up trying to find one.
+    loop, thread = _running_loop()
+    try:
+        client, counter = _make_flooding_client(chat_flood_count=99)
+        registry = SentRegistry()
+        transport = TelethonTransport(
+            client, chat=54321, loop=loop, backoff_sleep=lambda _s: None,
+            sent_registry=registry,
+        )
+
+        transport.send("hello")  # must not raise
+
+        assert len(registry) == 0
+    finally:
+        _stop(loop, thread)
+
+
+def test_send_without_a_registry_does_not_crash():
+    # Production always passes one, but nothing here should require it --
+    # older callers / the give-up path with sent_registry=None must be safe.
+    loop, thread = _running_loop()
+    try:
+        client = MagicMock()
+        client.send_message = AsyncMock(return_value=MagicMock(id=1))
+        transport = TelethonTransport(client, chat=12345, loop=loop)
+
+        transport.send("hello there")  # no sent_registry passed -- must not raise
     finally:
         _stop(loop, thread)
 
