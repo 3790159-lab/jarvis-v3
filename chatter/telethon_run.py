@@ -734,10 +734,26 @@ def build_runner(
         contact_id = runner.contact_id_for_chat(event)
         if contact_id is None:
             return   # диалог, который Аня не ведёт: это просто жизнь аккаунта
+        # Снимок ДО decide_outgoing: сам decide_outgoing может дождаться
+        # грейс-окна и застать id уже пополнившим реестр -- тогда признак
+        # "реестр опоздал" потеряется. was_known фиксирует состояние на
+        # момент прихода апдейта, а не на момент, когда мы закончили решать.
+        was_known = runner.sent_registry.is_ours(event.message.id)
         verdict = await decide_outgoing(
             event.message.id, registry=runner.sent_registry,
             grace_seconds=runner.control.takeover_grace_seconds)
         if verdict == "ours":
+            if not was_known:
+                # КАНАРЕЙКА (спека §4). Своё сообщение, которого не было в
+                # реестре при первом взгляде: гонка worker-поток/loop реально
+                # проигралась, и от самозаглушки нас спас только грейс.
+                # Ноль здесь = гонка не проявляется. Рост = грейс из
+                # страховки стал единственной защитой -- разбираться надо
+                # сейчас, а не когда Аня замолчит.
+                runner.primary_store().add_event(
+                    "unknown_outgoing", contact_id=contact_id,
+                    detail=str(event.message.id), ts=time.time())
+                log.warning("реестр опоздал: id %s опознан только после грейса", event.message.id)
             return
         await runner.on_human_takeover(event, contact_id)
 
