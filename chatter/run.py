@@ -17,6 +17,7 @@ from chatter.core.guardrails import (
     contains_unbacked_claim, within_daily_cap, within_hourly_limit,
 )
 from chatter.core.llm import AnthropicLLM, FakeLLM
+from chatter.core.pause import is_attributed, is_muted
 from chatter.storage.db import Store
 from chatter.transport.base import Transport
 from chatter.transport.fake import FakeConsoleTransport
@@ -101,6 +102,22 @@ def gather_batch(transport: Transport, deps: Deps, first: str) -> list[str]:
     return batch
 
 
+def _muted_now(deps: Deps, contact_id: str) -> bool:
+    """Читает состояние ЗАНОВО при каждом вызове, а не один раз в начале
+    process_batch: владелец мог вмешаться секунду назад, пока Аня "печатала"
+    (Pause/Typing из humanizer реально спят wall-clock время), и гейт обязан
+    это увидеть перед следующей же отправкой, а не только на входе."""
+    row = deps.store.get_or_create_contact(contact_id)
+    if not is_attributed(row):
+        # DEV-18: пауза без причины — баг-класс (спека §4), а не повод тихо
+        # проглотить состояние. Логируем и считаем событие, но НЕ решаем сами
+        # снять паузу — is_muted ниже всё равно её уважит.
+        deps.store.add_event("unattributed_pause", contact_id=contact_id, ts=deps.clock())
+        print(f"  [BUG] paused without a source: {contact_id}")
+    kill = deps.store.get_runtime_flag("kill_switch") == "1"
+    return is_muted(row, kill_switch=kill, now=deps.clock())
+
+
 def process_batch(
     contact_id: str, incoming: list[str], transport: Transport, deps: Deps,
     *, missed_age_seconds: float | None = None,
@@ -117,6 +134,12 @@ def process_batch(
     if not text:
         return
     deps.store.add_message(contact_id, "user", text, ts=deps.clock())
+
+    if _muted_now(deps, contact_id):
+        # Проверка В НАЧАЛЕ: заглушённый диалог не должен даже дойти до
+        # brain/LLM. Входящее уже сохранено выше — контекст не рвётся.
+        print(f"  [muted] {contact_id}: входящее записано, ответа не будет")
+        return
 
     limits = deps.cfg.settings.limits
     if not within_hourly_limit(deps.store, contact_id, now=deps.clock(), limit=limits.per_contact_hourly):
@@ -159,6 +182,13 @@ def process_batch(
         elif isinstance(action, H.Typing):
             transport.send_typing(action.on)
         elif isinstance(action, H.Say):
+            if _muted_now(deps, contact_id):
+                # Позорный сценарий (спека §3): Аня ушла в паузу
+                # чтения+печати, за это время владелец ответил руками — этот
+                # чек ловит его ПЕРЕД каждой отправкой, не только один раз в
+                # начале, иначе она договорит поверх него.
+                print(f"  [muted mid-reply] {contact_id}: отменяю остаток ответа")
+                return
             transport.send(action.text)
             deps.store.add_message(contact_id, "assistant", action.text, ts=deps.clock())
 
