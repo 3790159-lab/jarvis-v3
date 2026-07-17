@@ -78,6 +78,20 @@ def _hhmm(ts: float) -> str:
     return _dt.datetime.fromtimestamp(ts).strftime("%H:%M")
 
 
+def _one_line(text: str) -> str:
+    """Схлопывает переводы строк в пробел.
+
+    p.detail — дословный текст ВЛАДЕЛЬЦА (Shift+Enter в Telegram даёт
+    многострочное сообщение, это обычный сценарий, не эксплойт), p.title —
+    тоже произвольная строка. Если пропустить \n как есть в lines.append(...),
+    join("\n") печатает внедрённый перевод строки как отдельную "физическую"
+    строку статуса — без отступа, неотличимую от настоящей (вторая половина
+    может даже начаться с "• " и выглядеть как ещё один заглушённый диалог).
+    /status обязан быть тем, чему владелец может доверять не глядя — поэтому
+    схлопываем ДО обрезки [:40], иначе \n съедает лимит длины."""
+    return " ".join(text.split())
+
+
 def _humanize_gap(seconds: float) -> str:
     seconds = max(0.0, seconds)
     if seconds < 60:
@@ -101,10 +115,12 @@ def format_status(
 
     lines.append(f"Заглушено диалогов: {len(pauses)}")
     for p in pauses:
-        lines.append(f" • {p.title} — {p.link} — с {_hhmm(p.since_ts)}")
+        title = _one_line(p.title)
+        lines.append(f" • {title} — {p.link} — с {_hhmm(p.since_ts)}")
         why = SOURCE_LABELS.get(p.source, p.source)
         if p.detail:
-            snippet = p.detail if len(p.detail) <= 40 else p.detail[:40] + "…"
+            detail = _one_line(p.detail)
+            snippet = detail if len(detail) <= 40 else detail[:40] + "…"
             why += f" («{snippet}»"
             why += f", msg {p.msg_id})" if p.msg_id else ")"
         lines.append(f"   причина: {why}")

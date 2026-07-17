@@ -112,6 +112,44 @@ def test_status_indefinite_pause_says_so_and_omits_auto_resume_line():
     assert "авто-возврат через" not in out
 
 
+def test_status_multiline_detail_does_not_forge_an_extra_status_line():
+    # Владелец пишет клиенту через Shift+Enter — это ОБЫЧНЫЙ сценарий, не
+    # эксплойт. Если \n просочится в lines.append(...) как есть, join('\n')
+    # печатает второй "физический" абзац без отступа "   причина: " —
+    # неотличимый от новой строки статуса (может даже начаться с "• ").
+    # Однострочный и многострочный detail ОДИНАКОВОЙ смысловой длины обязаны
+    # давать ОДИНАКОВОЕ число строк в выводе.
+    single = format_status(
+        kill_switch=False,
+        pauses=[_view(detail="Уже беру трубку, отвечу через 10 минут")],
+        counters={}, autoresume_beat_age=12.0, autoresume_interval=60.0,
+        now=1 * HOUR, window_hours=24)
+    multi = format_status(
+        kill_switch=False,
+        pauses=[_view(detail="Уже беру трубку,\nотвечу через 10 минут")],
+        counters={}, autoresume_beat_age=12.0, autoresume_interval=60.0,
+        now=1 * HOUR, window_hours=24)
+    assert len(multi.splitlines()) == len(single.splitlines())
+    # Вторая половина текста не должна всплыть в начале отдельной строки —
+    # это и есть подделанная строка статуса.
+    assert not any(line.startswith("отвечу через 10 минут") for line in multi.splitlines())
+
+
+def test_status_multiline_title_does_not_forge_an_extra_status_line():
+    out = format_status(
+        kill_switch=False,
+        pauses=[_view(title="Иван\n• Мария", detail=None)],
+        counters={}, autoresume_beat_age=12.0, autoresume_interval=60.0,
+        now=1 * HOUR, window_hours=24)
+    baseline = format_status(
+        kill_switch=False,
+        pauses=[_view(title="Иван — Мария", detail=None)],
+        counters={}, autoresume_beat_age=12.0, autoresume_interval=60.0,
+        now=1 * HOUR, window_hours=24)
+    assert len(out.splitlines()) == len(baseline.splitlines())
+    assert not any(line.strip().startswith("• Мария") for line in out.splitlines())
+
+
 def test_status_shows_the_kill_switch_first():
     out = format_status(kill_switch=True, pauses=[], counters={},
                         autoresume_beat_age=5.0, autoresume_interval=60.0,

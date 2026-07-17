@@ -52,5 +52,12 @@ def should_auto_resume(contact_row: dict, *, now: float, auto_resume_hours: floa
     # и отсчёт съезжал бы на paused_at.
     last = contact_row.get("last_human_out_ts")
     if last is None:
-        last = contact_row.get("paused_at") or 0.0
+        # Тот же класс поля (эпоховый timestamp), тот же риск, что и строкой
+        # выше: `or` совпадает с `is None` только пока дефолт == 0.0.
+        # paused_at здесь сегодня недостижим как None (Store.mute() пишет его
+        # в том же UPDATE, что и pause_source, а легаси-строка с paused_at=NULL
+        # обрывается предыдущей веткой) — но явный `is None` не полагается на
+        # это и не откроется молча при будущем рефакторинге Store.
+        paused_at = contact_row.get("paused_at")
+        last = 0.0 if paused_at is None else paused_at
     return (now - float(last)) >= auto_resume_hours * 3600.0
