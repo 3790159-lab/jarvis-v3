@@ -13,15 +13,21 @@ from typing import Awaitable, Callable
 from telethon import events
 from telethon.errors import AuthKeyError, UnauthorizedError
 
-from chatter.config.loader import Config, load_config
+from chatter.config.loader import Config, ControlConfig, load_config
 from chatter.core import humanizer as H
 from chatter.core.brain import Brain
+from chatter.core.classifier import ClassifierResult, classify as _classify
 from chatter.core.console import (
-    PauseView, console_text, contact_link, display_name, format_status,
-    html_link, parse_command, safe_snippet,
+    PauseView, console_text, contact_link, display_name, escalation_buttons,
+    format_escalation_card, format_status, html_link, parse_command,
+    pause_buttons, safe_snippet,
 )
+from chatter.core.escalation import parse_escalation_keywords
 from chatter.core.llm import AnthropicLLM, FakeLLM, LLMClient
 from chatter.core.pause import should_auto_resume
+from chatter.notify.base import Card, Notifier
+from chatter.notify.control_bot import ControlBotNotifier, ControlBotPoller
+from chatter.notify.saved_messages import SavedMessagesNotifier
 from chatter.run import Deps, process_batch
 from chatter.storage.db import Store
 from chatter.transport.telethon_tg import SentRegistry, TelethonTransport, send_alert
@@ -365,9 +371,52 @@ class TelethonRunner:
         # клиента ещё не знает свой собственный id.
         self.sent_registry = SentRegistry()
         self.me_id: int | None = None
+        # Арка 3B: Notifier (Saved Messages ЛИБО контрол-бот) + его поллер.
+        # Ставятся build_runner'ом после конструктора (нужен client/loop/store).
+        self.notifier: Notifier | None = None
+        self.poller: ControlBotPoller | None = None
 
     def persona_for(self, sender_id: int) -> str:
         return self._sender_persona.get(sender_id, self.primary_slug)
+
+    def build_escalation_card(
+        self, contact_id: str, summary: str, why: str, recent: list[tuple[str, str]],
+    ) -> Card:
+        """Билдер карточки эскалации с КЛИКАБЕЛЬНЫМ именем/ссылкой (§3). Вызывается
+        из process_batch (worker-поток) — резолв entity маршалим на loop через
+        run_coroutine_threadsafe (как транспорт). Инъектится в Deps.escalation_card."""
+        peer = int(contact_id.split(":", 1)[0])
+        settings = self._persona_settings(contact_id)
+        language = settings.language
+        try:
+            entity = asyncio.run_coroutine_threadsafe(
+                self.client.get_entity(peer), self.loop).result(timeout=15)
+            name_html = html_link(
+                display_name(
+                    first_name=getattr(entity, "first_name", None),
+                    last_name=getattr(entity, "last_name", None),
+                    title=getattr(entity, "title", None),
+                    username=getattr(entity, "username", None),
+                    user_id=peer,
+                ),
+                contact_link(username=getattr(entity, "username", None), user_id=peer),
+            )
+            link = contact_link(username=getattr(entity, "username", None), user_id=peer)
+        except Exception:
+            log.warning("build_escalation_card: не смог разрешить peer %s", peer, exc_info=True)
+            name_html = html_link(display_name(user_id=peer), contact_link(user_id=peer))
+            link = contact_link(user_id=peer)
+        text = format_escalation_card(
+            name_html=name_html, link=link, summary=summary, reason=why,
+            recent=recent, language=language, persona_name=settings.persona_name)
+        return Card(
+            kind="escalation", contact_id=contact_id, text_html=text,
+            buttons=escalation_buttons(language),
+            reply_hints=[
+                console_text("card_resume_reply_hint", language),
+                console_text("card_resume_status_hint", language),
+            ],
+            link=link)
 
     def primary_store(self) -> Store:
         """Единственный Store процесса. `load_personas` получает ОДИН `store`
@@ -528,6 +577,7 @@ class TelethonRunner:
         находка ТОГО ЖЕ дрила: владелец не понял, как вернуть Аню, имея
         только одну."""
         settings = self._persona_settings(contact_id)
+        language = settings.language
         name_html = html_link(
             display_name(
                 first_name=getattr(event.chat, "first_name", None),
@@ -538,16 +588,42 @@ class TelethonRunner:
             ),
             contact_link(username=getattr(event.chat, "username", None), user_id=event.chat_id),
         )
-        card_text = "\n".join([
-            console_text("card_header", settings.language, name=name_html),
-            console_text("card_intervened_detail", settings.language, detail=safe_snippet(text, limit=200)),
-            console_text("card_silent", settings.language, persona=settings.persona_name),
-            "",
-            console_text("card_resume_reply_hint", settings.language),
-            console_text("card_resume_status_hint", settings.language),
+        card_body = "\n".join([
+            console_text("card_header", language, name=name_html),
+            console_text("card_intervened_detail", language, detail=safe_snippet(text, limit=200)),
+            console_text("card_silent", language, persona=settings.persona_name),
         ])
-        card = await self.client.send_message("me", card_text, parse_mode="html")
-        self.primary_store().add_card(msg_id=card.id, contact_id=contact_id, kind="pause", ts=time.time())
+        hints = [
+            console_text("card_resume_reply_hint", language),
+            console_text("card_resume_status_hint", language),
+        ]
+        # Арка 3B: карточка идёт через Notifier — контрол-бот рисует инлайн-кнопки,
+        # Saved Messages приклеивает hints (то же тело, что арка 3A). Notifier
+        # синхронный → с loop оборачиваем в to_thread (иначе SavedMessages-
+        # маршалинг run_coroutine_threadsafe заблокировал бы этот же loop).
+        if self.notifier is None:
+            # Прямой фоллбек (напр. раннер, собранный в обход build_runner в
+            # тестах): сохраняем прежнее поведение арки 3A.
+            card = await self.client.send_message(
+                "me", card_body + "\n\n" + "\n".join(hints), parse_mode="html")
+            self.primary_store().add_card(
+                msg_id=card.id, contact_id=contact_id, kind="pause", ts=time.time())
+            return
+        card = Card(
+            kind="pause", contact_id=contact_id, text_html=card_body,
+            buttons=pause_buttons(language), reply_hints=hints,
+            link=contact_link(username=getattr(event.chat, "username", None), user_id=event.chat_id))
+        handle = await asyncio.to_thread(self.notifier.notify, card)
+        if handle is None:
+            # Доставка не удалась — пусть сработает аварийный алерт в
+            # on_human_takeover (DEV-18: владелец обязан узнать, что карточки нет).
+            raise RuntimeError("notifier failed to deliver the pause card")
+        try:
+            msg_id = int(handle.ref.split(":")[-1])
+            self.primary_store().add_card(
+                msg_id=msg_id, contact_id=contact_id, kind="pause", ts=time.time())
+        except Exception:
+            log.warning("post_pause_card: не смог записать handle %r", handle, exc_info=True)
 
     async def resolve_target(self, event, cmd) -> tuple[str | None, str | None]:
         """Какой диалог имел в виду владелец (спека §3/§7). Возвращает
@@ -877,6 +953,14 @@ def _build_llm(cfg: Config, mode: str) -> LLMClient:
     return FakeLLM()
 
 
+def _bind_classifier(llm: LLMClient, cfg: Config):
+    """Замыкание дешёвого классификатора эскалации на LLM/плейбук персоны."""
+    def _run(history: list[dict]) -> ClassifierResult:
+        return _classify(
+            llm, playbook=cfg.playbook, language=cfg.settings.language, history=history)
+    return _run
+
+
 def load_personas(
     clients_dir: Path, slugs: list[str], store: Store, *, llm_mode: str = "auto",
 ) -> dict[str, PersonaBundle]:
@@ -887,9 +971,42 @@ def load_personas(
         deps = Deps(
             cfg=cfg, store=store, brain=Brain(llm, cfg),
             rng=random.Random(), clock=time.time, sleep=time.sleep,
+            escalation_keywords=parse_escalation_keywords(cfg.playbook),
+            control=cfg.settings.control,
         )
+        # Классификатор — только на РЕАЛЬНОМ LLM: в fake-режиме он делил бы
+        # scripted-очередь с Brain и деградировал бы на каждом ходу (шум +
+        # ложный алерт). Детерминированный слой эскалации работает всегда.
+        if cfg.settings.control.classifier_enabled and isinstance(llm, AnthropicLLM):
+            deps.classify = _bind_classifier(llm, cfg)
         personas[slug] = PersonaBundle(cfg=cfg, deps=deps)
     return personas
+
+
+def _build_notifier_and_poller(
+    *, client, loop, store: Store, control: ControlConfig, language: str,
+) -> tuple[Notifier, "ControlBotPoller | None"]:
+    """Контрол-бот, если его токен есть в окружении (по ИМЕНИ из settings.yaml);
+    иначе — Saved Messages (инвариант арки: без токена = поведение 3A).
+
+    owner_chat_id может быть None (bind на первый /start): и notifier, и поллер
+    читают привязанного владельца из runtime_flags — поэтому notifier получает
+    РАЗРЕШАТЕЛЬ chat_id, а не фиксированное число."""
+    token = os.environ.get(control.control_bot_token_env) if control.control_bot_token_env else None
+    if not token:
+        return SavedMessagesNotifier(client, loop), None
+
+    def _owner() -> int | None:
+        if control.owner_chat_id is not None:
+            return control.owner_chat_id
+        flag = store.get_runtime_flag("control_owner_chat_id")
+        return int(flag) if flag else None
+
+    notifier = ControlBotNotifier(token, _owner)
+    poller = ControlBotPoller(
+        token, store=store, language=language, snooze_seconds=control.snooze_seconds,
+        owner_chat_id=control.owner_chat_id)
+    return notifier, poller
 
 
 def build_runner(
@@ -914,6 +1031,17 @@ def build_runner(
         client=client, personas=personas, primary_slug=primary_slug,
         allowlist=frozenset(telegram_cfg.allowlist), loop=loop,
     )
+
+    # Арка 3B: Notifier + (для контрол-бота) поллер. Инъектим Notifier и билдер
+    # карточки в Deps КАЖДОЙ персоны. Токен берём по ИМЕНИ env-переменной из
+    # settings.yaml — само значение в git не попадает.
+    control = personas[primary_slug].cfg.settings.control
+    primary_language = personas[primary_slug].cfg.settings.language
+    runner.notifier, runner.poller = _build_notifier_and_poller(
+        client=client, loop=loop, store=store, control=control, language=primary_language)
+    for bundle in personas.values():
+        bundle.deps.notifier = runner.notifier
+        bundle.deps.escalation_card = runner.build_escalation_card
 
     async def _handler(event) -> None:
         await runner.handle_event(event)
@@ -1107,6 +1235,11 @@ def main(argv: list[str] | None = None) -> int:
         # весь срок процесса, а не один раз при старте.
         loop.create_task(autoresume_loop(
             runner.primary_store(), auto_resume_hours=runner.control.auto_resume_hours))
+        # Арка 3B: изолированный long-poll контрол-бота (свой токен → без 409
+        # с основным Jarvis-ботом). Только если контрол-бот настроен.
+        if runner.poller is not None:
+            log.info("control-bot poller starting (isolated token)")
+            loop.create_task(runner.poller.run_forever())
         await runner.catch_up_missed()
 
     print(f"[telethon_run] personas={slugs} session={session_path}")

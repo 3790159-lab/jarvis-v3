@@ -103,10 +103,16 @@ class ControlBotNotifier(Notifier):
     """Отправляет карточки С ИНЛАЙН-КНОПКАМИ через Bot API (sync httpx).
     Никогда не бросает (DEV-18): на сбое логирует и возвращает None/no-op."""
 
-    def __init__(self, token: str, chat_id: int, *, http_post=None):
+    def __init__(self, token: str, chat_id, *, http_post=None):
+        # chat_id: int ЛИБО callable() -> int|None. Callable нужен, когда
+        # владелец не задан в настройках и привязывается TOFU по первому /start
+        # (контрол-бот-поллер пишет chat_id в runtime_flags, notifier читает).
         self._token = token
         self._chat_id = chat_id
         self._post = http_post or _default_http_post(token)
+
+    def _resolve_chat_id(self):
+        return self._chat_id() if callable(self._chat_id) else self._chat_id
 
     def _keyboard(self, card: Card) -> dict:
         buttons = [
@@ -116,8 +122,14 @@ class ControlBotNotifier(Notifier):
         return {"inline_keyboard": _chunk(buttons, _BUTTONS_PER_ROW)}
 
     def notify(self, card: Card) -> CardHandle | None:
+        chat_id = self._resolve_chat_id()
+        if chat_id is None:
+            # Владелец ещё не нажал /start — доставлять некуда. Не ошибка, но и
+            # не молчание: логируем, чтобы это было видно, если /start забыли.
+            log.warning("ControlBotNotifier: владелец не привязан (нет /start) — карточка не отправлена")
+            return None
         payload = {
-            "chat_id": self._chat_id,
+            "chat_id": chat_id,
             "text": card.text_html,
             "parse_mode": "HTML",
             "disable_web_page_preview": True,
@@ -135,7 +147,7 @@ class ControlBotNotifier(Notifier):
         msg_id = data.get("result", {}).get("message_id")
         if msg_id is None:
             return None
-        return CardHandle(ref=f"bot:{self._chat_id}:{msg_id}")
+        return CardHandle(ref=f"bot:{chat_id}:{msg_id}")
 
     def edit(self, handle: CardHandle, text_html: str) -> None:
         try:
