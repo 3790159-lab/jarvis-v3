@@ -103,10 +103,12 @@ on/off (funnel_gate) + allow/deny counts; model; last config change (relative ti
 - ✅ E: `handle_config_command` runner method + `/knowledge <text>` write + reload.
 - ✅ F: wired into control-bot poller (owner-gated) + Saved Messages console.
 - ✅ G: mtime auto-reload loop (opt-in `control.auto_reload`).
-- ⏳ H: **forwarded-document / voice knowledge upload — NOT done (the one remaining requirement).**
-  `/knowledge <text>` works now. Document upload = poller handles `message.document`, Bot API
-  getFile+download, route to `_set_knowledge`. **Voice → backlog** (needs a transcription service;
-  text+document deliver the core). Flagged for owner priority.
+- 🗄️ H: **forwarded-document / voice knowledge upload — BOTH BACKLOGGED (owner decision).** Not a
+  first-client blocker: the first client's setup is done by hand (setup fee), and day-two "change the
+  price" is `/knowledge <text>`, which works. File/voice is onboarding convenience for the 5th client,
+  not the 1st — don't build what nobody asked for.
+  **Backlog note: VOICE > document in value** — an entrepreneur will *talk* about their business more
+  readily than type it. Whisper is cheap; revisit when a client actually hits the wall.
 - ⏳ I: live acceptance (needs owner): change price → /reload → new price in next message; break config
   → Аня serves on old + pult reports. Deploy the branch to the live runner for the drill (like arc3b),
   then merge if it passes.
