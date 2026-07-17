@@ -9,6 +9,21 @@ from dataclasses import dataclass
 
 GLOBAL_COMMANDS = frozenset({"status", "stop", "start", "help"})
 TARGETED_COMMANDS = frozenset({"pause", "resume"})
+# Config-арка: команды конфигурации (обрабатываются раннером, не execute_command).
+CONFIG_COMMANDS = frozenset({"config", "reload", "knowledge", "rollback"})
+
+
+def parse_config_command(text: str) -> tuple[str, str] | None:
+    """(name, arg) для config-команды пульта, иначе None. arg — остаток строки
+    (для /knowledge <текст>). Отдельно от parse_command: эти команды исполняет
+    раннер (rebuild personas / запись файлов), а не чистый execute_command."""
+    parts = (text or "").strip().split(maxsplit=1)
+    if not parts or not parts[0].startswith("/"):
+        return None
+    name = parts[0][1:].casefold()
+    if name not in CONFIG_COMMANDS:
+        return None
+    return name, (parts[1] if len(parts) > 1 else "")
 
 _DURATION_RE = re.compile(r"^(\d+)([hm])$", re.IGNORECASE)
 
@@ -609,6 +624,7 @@ _CFG_STRINGS: dict[str, dict[str, str]] = {
         "cfg_rollback_none": "Нет предыдущей версии для отката.",
         "cfg_rollback_fail": "⚠️ Откат не удался ({reason}). Остаюсь на текущем.",
         "cfg_unknown": "неизвестная config-команда",
+        "cfg_startup_recovered": "⚠️ Стартовал на ПОСЛЕДНЕЙ РАБОЧЕЙ версии конфига — текущий сломан ({reason}). Аня работает. Проверь /config, при нужде /rollback или почини файл.",
     },
     "en": {
         "cfg_header": "⚙️ Settings",
@@ -631,6 +647,7 @@ _CFG_STRINGS: dict[str, dict[str, str]] = {
         "cfg_rollback_none": "No previous version to roll back to.",
         "cfg_rollback_fail": "⚠️ Rollback failed ({reason}). Staying on current.",
         "cfg_unknown": "unknown config command",
+        "cfg_startup_recovered": "⚠️ Started on the LAST KNOWN-GOOD config — the current one is broken ({reason}). Anya is serving. Check /config, then /rollback or fix the file.",
     },
     "uk": {
         "cfg_header": "⚙️ Налаштування",
@@ -653,6 +670,7 @@ _CFG_STRINGS: dict[str, dict[str, str]] = {
         "cfg_rollback_none": "Немає попередньої версії для відкату.",
         "cfg_rollback_fail": "⚠️ Відкат не вдався ({reason}). Залишаюся на поточному.",
         "cfg_unknown": "невідома config-команда",
+        "cfg_startup_recovered": "⚠️ Стартував на ОСТАННІЙ РОБОЧІЙ версії конфігу — поточний зламаний ({reason}). Аня працює. Перевір /config, за потреби /rollback або полагодь файл.",
     },
 }
 

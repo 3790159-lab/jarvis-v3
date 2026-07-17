@@ -14,7 +14,7 @@ SRC = Path(__file__).resolve().parents[2] / "chatter" / "clients"
 
 def _clients(tmp_path) -> Path:
     dst = tmp_path / "clients"
-    shutil.copytree(SRC, dst)
+    shutil.copytree(SRC, dst, ignore=shutil.ignore_patterns(".versions"))
     p = dst / "demo" / "settings.yaml"
     lines = p.read_text(encoding="utf-8").splitlines()
     idx = next((i for i, l in enumerate(lines) if l.strip() == "control:"), len(lines))

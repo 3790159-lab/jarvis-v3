@@ -19,7 +19,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 
-from chatter.core.console import console_text, contact_link
+from chatter.core.console import console_text, contact_link, parse_config_command
 from chatter.core.escalation import esc_active_key
 from chatter.notify.base import Action, Card, CardHandle, Notifier
 
@@ -220,10 +220,12 @@ class ControlBotPoller:
         self, token: str, *, store, language: str, snooze_seconds: float,
         owner_chat_id: int | None = None, pairing_code: str | None = None, notifier=None,
         http_get=None, http_post=None, clock=None, async_sleep=None,
-        on_bind=None, long_poll_timeout: int = _LONG_POLL_TIMEOUT,
+        on_bind=None, config_handler=None, long_poll_timeout: int = _LONG_POLL_TIMEOUT,
     ):
         self._store = store
         self._language = language
+        # config-арка: async (name, arg, language) -> текст-ответ (runner.handle_config_command)
+        self._config_handler = config_handler
         self._snooze = snooze_seconds
         self._owner_chat_id = owner_chat_id
         self._pairing_code = pairing_code
@@ -301,6 +303,27 @@ class ControlBotPoller:
             await self._on_unbind(chat_id)
         elif cmd == "/start":
             await self._on_start(chat_id, parts[1] if len(parts) > 1 else None)
+        else:
+            await self._maybe_config_command(chat_id, m.get("text") or "")
+
+    async def _maybe_config_command(self, chat_id: int, text: str) -> None:
+        """config-арка: /config /reload /knowledge /rollback — ТОЛЬКО владельцу.
+        Чужой id вообще не видит config-поверхность."""
+        cc = parse_config_command(text)
+        if cc is None or self._config_handler is None:
+            return
+        if chat_id != self._effective_owner():
+            log.warning("control-bot: config-команда от НЕ-владельца %s — отказ", chat_id)
+            return
+        name, arg = cc
+        try:
+            reply = await self._config_handler(name, arg, self._language)
+        except Exception:
+            log.exception("config-команда %s упала", name)
+            return
+        await self._post("sendMessage", {
+            "chat_id": chat_id, "text": reply, "parse_mode": "HTML",
+            "disable_web_page_preview": True})
 
     async def _on_start(self, chat_id: int, arg: str | None) -> None:
         """Привязка владельца — БЕЗ TOFU (спека 3B-sec): пуб­личный юзернейм бота

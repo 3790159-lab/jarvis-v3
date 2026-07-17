@@ -22,7 +22,8 @@ from chatter.core.classifier import ClassifierResult, classify as _classify
 from chatter.core.console import (
     GLOBAL_COMMANDS, TARGETED_COMMANDS, PauseView, _humanize_gap, cfg_text,
     console_text, contact_link, display_name, escalation_buttons, format_config,
-    format_escalation_card, format_status, html_link, parse_command, pause_buttons,
+    format_escalation_card, format_status, html_link, parse_command,
+    parse_config_command, pause_buttons,
     safe_snippet,
 )
 
@@ -399,6 +400,9 @@ class TelethonRunner:
         # Ставятся build_runner'ом после конструктора (нужен client/loop/store).
         self.notifier: Notifier | None = None
         self.poller: ControlBotPoller | None = None
+        # config-арка §2b: непусто, если стартовали на last-known-good из-за
+        # битого текущего конфига — _on_connected об этом алертит владельцу.
+        self._startup_recovery: str | None = None
 
     def persona_for(self, sender_id: int) -> str:
         return self._sender_persona.get(sender_id, self.primary_slug)
@@ -1207,7 +1211,7 @@ def _resolve_control_token(token_env: str | None) -> str | None:
 
 
 def _build_notifier_and_poller(
-    *, client, loop, store: Store, control: ControlConfig, language: str,
+    *, client, loop, store: Store, control: ControlConfig, language: str, config_handler=None,
 ) -> tuple[Notifier, "ControlBotPoller | None"]:
     """Контрол-бот, если его токен есть в окружении (по ИМЕНИ из settings.yaml);
     иначе — Saved Messages (инвариант арки: без токена = поведение 3A).
@@ -1228,8 +1232,39 @@ def _build_notifier_and_poller(
     notifier = ControlBotNotifier(token, _owner)
     poller = ControlBotPoller(
         token, store=store, language=language, snooze_seconds=control.snooze_seconds,
-        owner_chat_id=control.owner_chat_id, pairing_code=control.pairing_code)
+        owner_chat_id=control.owner_chat_id, pairing_code=control.pairing_code,
+        config_handler=config_handler)
     return notifier, poller
+
+
+def _load_personas_failsafe(
+    clients_dir: Path, slugs: list[str], store: Store, llm_mode: str,
+) -> tuple[dict[str, PersonaBundle], str | None]:
+    """Загрузка персон со СТАРТОВЫМ fail-safe (config-арка §2b): если текущий
+    конфиг битый, восстанавливаем last-known-good из `.versions` и грузим его.
+    Так `git checkout`/опечатка клиента + рестарт больше не = crash-loop через
+    гардиан. Возвращает (personas, recovery_reason|None). Hard-fail ТОЛЬКО если
+    снимков нет вовсе (самый первый запуск с битым конфигом)."""
+    try:
+        return load_personas(clients_dir, slugs, store, llm_mode=llm_mode), None
+    except ConfigError as e:
+        log.error("startup: конфиг битый, пробую last-known-good: %s", e)
+        restored = False
+        for slug in slugs:
+            v = latest_version(clients_dir / slug)
+            if v is not None:
+                restore(clients_dir / slug, v)
+                restored = True
+        if not restored:
+            raise ConfigError(
+                f"config broken at startup and NO last-known-good snapshot to recover from: {e}"
+            ) from e
+        try:
+            return load_personas(clients_dir, slugs, store, llm_mode=llm_mode), str(e)
+        except ConfigError as e2:
+            raise ConfigError(
+                f"config broken at startup and even the last-known-good snapshot failed: {e2}"
+            ) from e2
 
 
 def build_runner(
@@ -1242,7 +1277,8 @@ def build_runner(
     `client` and never touch the network."""
     if not persona_slugs:
         raise ValueError("need at least one persona")
-    personas = load_personas(clients_dir, persona_slugs, store, llm_mode=llm_mode)
+    personas, startup_recovery = _load_personas_failsafe(
+        Path(clients_dir), persona_slugs, store, llm_mode)
     primary_slug = persona_slugs[0]
     telegram_cfg = personas[primary_slug].cfg.settings.telegram
     if telegram_cfg is None:
@@ -1263,13 +1299,15 @@ def build_runner(
     control = personas[primary_slug].cfg.settings.control
     primary_language = personas[primary_slug].cfg.settings.language
     runner.notifier, runner.poller = _build_notifier_and_poller(
-        client=client, loop=loop, store=store, control=control, language=primary_language)
+        client=client, loop=loop, store=store, control=control, language=primary_language,
+        config_handler=runner.handle_config_command)
     for bundle in personas.values():
         bundle.deps.notifier = runner.notifier
         bundle.deps.escalation_card = runner.build_escalation_card
     # Базовый снимок конфига (config-арка §4): даёт /rollback точку возврата и
     # стартовому fail-safe последний-хороший на будущее.
     runner._snapshot_configs(time.time())
+    runner._startup_recovery = startup_recovery
 
     async def _handler(event) -> None:
         await runner.handle_event(event)
@@ -1340,6 +1378,13 @@ def build_runner(
         # _outgoing_handler выше) отличить пульт от обычного диалога нельзя
         # -- безопаснее промолчать эти доли секунды, чем сработать вслепую.
         if runner.me_id is None or event.chat_id != runner.me_id:
+            return
+        # config-арка: config-команды и в Saved Messages (фоллбек-пульт).
+        cc = parse_config_command(event.raw_text or "")
+        if cc is not None:
+            language = runner.personas[runner.primary_slug].cfg.settings.language
+            reply = await runner.handle_config_command(cc[0], cc[1], language=language)
+            await client.send_message("me", reply, parse_mode="html")
             return
         cmd = parse_command(event.raw_text or "")
         if cmd is None:
@@ -1482,6 +1527,12 @@ def main(argv: list[str] | None = None) -> int:
         if runner.poller is not None:
             log.info("control-bot poller starting (isolated token)")
             loop.create_task(runner.poller.run_forever())
+        # config-арка §2b: если стартовали на last-known-good (текущий конфиг
+        # битый) — владелец обязан узнать (DEV-18), а не думать, что всё ок.
+        if runner._startup_recovery:
+            lang = runner.personas[runner.primary_slug].cfg.settings.language
+            await runner._notify_owner_notice(
+                cfg_text("cfg_startup_recovered", lang, reason=runner._startup_recovery))
         # Fix 3 (одноразово): вычистить из истории команды пульта, которые
         # владелец мог набрать прямо в диалоге лида ДО этого фикса — иначе они
         # так и будут уходить в модель как «сообщения Ани».

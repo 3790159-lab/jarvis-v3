@@ -15,7 +15,7 @@ SRC_CLIENTS = Path(__file__).resolve().parents[2] / "chatter" / "clients"
 def _clients(tmp_path) -> Path:
     """Копия demo/demo2 БЕЗ control-блока (герметично, без контрол-бота)."""
     dst = tmp_path / "clients"
-    shutil.copytree(SRC_CLIENTS, dst)
+    shutil.copytree(SRC_CLIENTS, dst, ignore=shutil.ignore_patterns(".versions"))
     p = dst / "demo" / "settings.yaml"
     lines = p.read_text(encoding="utf-8").splitlines()
     idx = next((i for i, l in enumerate(lines) if l.strip() == "control:"), len(lines))
@@ -110,6 +110,43 @@ def test_reload_updates_gate_fields():
         assert ok is True
         assert runner.funnel_gate is True
         assert 666 in runner.denylist
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        asyncio.run(scenario(Path(d)))
+
+
+def test_startup_recovers_from_last_known_good_when_config_broken():
+    # Снятие мины crash-loop: битый конфиг на старте → грузимся с последней
+    # рабочей версии + помечаем recovery, а НЕ падаем в петлю гардиана.
+    async def scenario(tmp_path):
+        clients = _clients(tmp_path)
+        _runner(clients)                       # первый билд → базовый снимок хорошего
+        (clients / "demo" / "settings.yaml").write_text("model: [broken yaml", encoding="utf-8")
+        r2 = build_runner(                     # НЕ должен упасть
+            client=_client(), clients_dir=clients, persona_slugs=["demo", "demo2"],
+            store=Store(":memory:"), loop=asyncio.new_event_loop(), llm_mode="fake")
+        assert r2._startup_recovery is not None          # помечено, что восстановились
+        assert "5000" in r2.personas["demo"].cfg.knowledge  # рабочий конфиг загружен
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        asyncio.run(scenario(Path(d)))
+
+
+def test_startup_hard_fails_only_when_no_snapshot_exists():
+    # Единственный случай hard-fail: первый запуск, конфиг битый, снимков нет.
+    async def scenario(tmp_path):
+        clients = _clients(tmp_path)
+        (clients / "demo" / "settings.yaml").write_text("model: [broken", encoding="utf-8")
+        from chatter.config.loader import ConfigError
+        raised = False
+        try:
+            build_runner(
+                client=_client(), clients_dir=clients, persona_slugs=["demo", "demo2"],
+                store=Store(":memory:"), loop=asyncio.new_event_loop(), llm_mode="fake")
+        except ConfigError as e:
+            raised = True
+            assert "last-known-good" in str(e) or "snapshot" in str(e)
+        assert raised
     import tempfile
     with tempfile.TemporaryDirectory() as d:
         asyncio.run(scenario(Path(d)))

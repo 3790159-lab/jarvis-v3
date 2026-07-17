@@ -246,3 +246,48 @@ def test_run_forever_swallows_getupdates_error_and_continues():
             await poller.run_forever()
 
     asyncio.run(scenario())   # если бы RuntimeError не глотался, вылетел бы он, а не _Stop
+
+
+# --- config-арка: контрол-бот маршрутизирует config-команды владельца --------
+def test_owner_config_command_routed_and_replied():
+    store = Store(":memory:")
+    called = {}
+
+    async def config_handler(name, arg, language):
+        called["args"] = (name, arg, language)
+        return "⚙️ ОТВЕТ КОНФИГА"
+
+    api = FakeApi([[{
+        "update_id": 7,
+        "message": {"message_id": 1, "text": "/knowledge новая цена 9999", "chat": {"id": OWNER}},
+    }]])
+    poller = ControlBotPoller(
+        "T", store=store, language="ru", snooze_seconds=3600, owner_chat_id=OWNER,
+        http_get=api.get, http_post=api.post, clock=lambda: 0.0,
+        config_handler=config_handler)
+    asyncio.run(poller.poll_once())
+
+    assert called["args"] == ("knowledge", "новая цена 9999", "ru")
+    sent = api.payload_for("sendMessage")
+    assert sent["text"] == "⚙️ ОТВЕТ КОНФИГА"
+
+
+def test_non_owner_config_command_rejected():
+    store = Store(":memory:")
+    called = {}
+
+    async def config_handler(name, arg, language):
+        called["hit"] = True
+        return "x"
+
+    api = FakeApi([[{
+        "update_id": 7,
+        "message": {"message_id": 1, "text": "/reload", "chat": {"id": 999999}},
+    }]])
+    poller = ControlBotPoller(
+        "T", store=store, language="ru", snooze_seconds=3600, owner_chat_id=OWNER,
+        http_get=api.get, http_post=api.post, clock=lambda: 0.0,
+        config_handler=config_handler)
+    asyncio.run(poller.poll_once())
+
+    assert "hit" not in called   # чужому config-команды недоступны

@@ -79,3 +79,6 @@ data/block_m2_face_swap/
 
 # --- CHATTER-2 arc 2 (Milestone F): Telethon session = full account access ---
 /.secrets/
+
+# chatter config versions (created at runtime, never commit)
+chatter/clients/*/.versions/
