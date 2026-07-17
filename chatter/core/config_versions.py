@@ -57,7 +57,10 @@ def snapshot(client_dir: Path, *, now: float, keep: int = _DEFAULT_KEEP) -> Path
     latest = latest_version(client_dir)
     if latest is not None and _content(latest) == _content(client_dir):
         return None
-    dest = _versions_root(client_dir) / str(int(now))
+    # Микросекундное имя: несколько изменений в одну СЕКУНДУ (типично в проде при
+    # правке через пульт и в тестах) не должны схлопываться в один каталог,
+    # иначе теряется история и /rollback остаётся без предыдущей версии.
+    dest = _versions_root(client_dir) / str(int(now * 1_000_000))
     dest.mkdir(parents=True, exist_ok=True)
     for f in CONFIG_FILES:
         src = client_dir / f

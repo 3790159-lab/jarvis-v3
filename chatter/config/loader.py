@@ -69,6 +69,7 @@ class Settings:
     work_hours: WorkHours
     timings: Timings
     limits: Limits
+    persona_age: int | None = None   # опционально, для /config; возраст живёт и в persona.md
     telegram: TelegramConfig | None = None
     control: ControlConfig = field(default_factory=ControlConfig)
 
@@ -197,6 +198,7 @@ def load_config(clients_dir: Path, slug: str) -> Config:
         slug=slug, persona=persona, knowledge=knowledge, playbook=playbook,
         settings=Settings(model=str(model), language=str(language), owner_id=str(owner_id),
                           persona_name=str(persona_name),
+                          persona_age=(int(raw["persona_age"]) if raw.get("persona_age") is not None else None),
                           work_hours=work_hours, timings=timings, limits=limits,
                           telegram=telegram, control=control),
     )

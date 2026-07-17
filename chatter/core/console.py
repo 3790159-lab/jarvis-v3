@@ -582,3 +582,121 @@ def format_escalation_card(
         who = escape_html(lead if role == "user" else persona)
         lines.append(f"<b>{who}:</b> {safe_snippet(text, limit=200)}")
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Config-арка: /config /reload /knowledge /rollback — человекочитаемо, i18n.
+# ---------------------------------------------------------------------------
+_CFG_STRINGS: dict[str, dict[str, str]] = {
+    "ru": {
+        "cfg_header": "⚙️ Настройки",
+        "cfg_persona": "Персона: {name}",
+        "cfg_persona_aged": "Персона: {name}, {age} лет",
+        "cfg_language": "Язык: {language}",
+        "cfg_model": "Модель: {model}",
+        "cfg_knowledge": "База знаний: {sections} разделов, {bullets} пунктов",
+        "cfg_gate_on": "Гейт воронки: ВКЛ (незнакомцы→лиды, знакомые→уведомление)",
+        "cfg_gate_off": "Гейт воронки: выкл (отвечаю только allowlist)",
+        "cfg_lists": "Списки: allowlist {allow}, denylist {deny}",
+        "cfg_changed": "Конфиг менялся: {ago}",
+        "cfg_changed_never": "Конфиг менялся: с запуска не менялся",
+        "cfg_reload_ok": "✅ Конфиг перечитан. Аня отвечает по новому.",
+        "cfg_reload_fail": "⚠️ Не перечитал ({reason}). Работаю на ПРЕЖНЕМ конфиге — Аня не замолчала.",
+        "cfg_kb_current": "📚 База знаний:\n\n{knowledge}",
+        "cfg_kb_updated": "✅ База знаний обновлена ({n} симв.) и перечитана.",
+        "cfg_kb_empty": "⚠️ Пустой текст — база знаний не может быть пустой.",
+        "cfg_rollback_ok": "↩️ Откатил конфиг на предыдущую версию и перечитал.",
+        "cfg_rollback_none": "Нет предыдущей версии для отката.",
+        "cfg_rollback_fail": "⚠️ Откат не удался ({reason}). Остаюсь на текущем.",
+        "cfg_unknown": "неизвестная config-команда",
+    },
+    "en": {
+        "cfg_header": "⚙️ Settings",
+        "cfg_persona": "Persona: {name}",
+        "cfg_persona_aged": "Persona: {name}, age {age}",
+        "cfg_language": "Language: {language}",
+        "cfg_model": "Model: {model}",
+        "cfg_knowledge": "Knowledge: {sections} sections, {bullets} items",
+        "cfg_gate_on": "Funnel gate: ON (strangers→leads, contacts→notice)",
+        "cfg_gate_off": "Funnel gate: off (answering allowlist only)",
+        "cfg_lists": "Lists: allowlist {allow}, denylist {deny}",
+        "cfg_changed": "Config changed: {ago}",
+        "cfg_changed_never": "Config changed: unchanged since start",
+        "cfg_reload_ok": "✅ Config reloaded. Anya now uses the new one.",
+        "cfg_reload_fail": "⚠️ Reload failed ({reason}). Running on the PREVIOUS config — Anya kept serving.",
+        "cfg_kb_current": "📚 Knowledge base:\n\n{knowledge}",
+        "cfg_kb_updated": "✅ Knowledge updated ({n} chars) and reloaded.",
+        "cfg_kb_empty": "⚠️ Empty text — the knowledge base can't be empty.",
+        "cfg_rollback_ok": "↩️ Rolled config back to the previous version and reloaded.",
+        "cfg_rollback_none": "No previous version to roll back to.",
+        "cfg_rollback_fail": "⚠️ Rollback failed ({reason}). Staying on current.",
+        "cfg_unknown": "unknown config command",
+    },
+    "uk": {
+        "cfg_header": "⚙️ Налаштування",
+        "cfg_persona": "Персона: {name}",
+        "cfg_persona_aged": "Персона: {name}, {age} р.",
+        "cfg_language": "Мова: {language}",
+        "cfg_model": "Модель: {model}",
+        "cfg_knowledge": "База знань: {sections} розділів, {bullets} пунктів",
+        "cfg_gate_on": "Гейт воронки: УВІМК (незнайомці→ліди, знайомі→сповіщення)",
+        "cfg_gate_off": "Гейт воронки: вимк (відповідаю лише allowlist)",
+        "cfg_lists": "Списки: allowlist {allow}, denylist {deny}",
+        "cfg_changed": "Конфіг змінювався: {ago}",
+        "cfg_changed_never": "Конфіг змінювався: з запуску не змінювався",
+        "cfg_reload_ok": "✅ Конфіг перечитано. Аня відповідає по-новому.",
+        "cfg_reload_fail": "⚠️ Не перечитав ({reason}). Працюю на ПОПЕРЕДНЬОМУ конфігу — Аня не замовкла.",
+        "cfg_kb_current": "📚 База знань:\n\n{knowledge}",
+        "cfg_kb_updated": "✅ Базу знань оновлено ({n} симв.) і перечитано.",
+        "cfg_kb_empty": "⚠️ Порожній текст — база знань не може бути порожньою.",
+        "cfg_rollback_ok": "↩️ Відкотив конфіг на попередню версію і перечитав.",
+        "cfg_rollback_none": "Немає попередньої версії для відкату.",
+        "cfg_rollback_fail": "⚠️ Відкат не вдався ({reason}). Залишаюся на поточному.",
+        "cfg_unknown": "невідома config-команда",
+    },
+}
+
+
+def cfg_text(key: str, lang: str = "ru", **kwargs) -> str:
+    # Параметр называется `lang` (а не `language`), потому что среди kwargs
+    # шаблонов есть плейсхолдер {language} (язык персоны) — одноимённый
+    # позиционный параметр столкнулся бы с ним.
+    strings = _CFG_STRINGS.get(lang, _CFG_STRINGS["ru"])
+    t = strings[key]
+    return t.format(**kwargs) if kwargs else t
+
+
+def knowledge_stats(knowledge: str) -> tuple[int, int]:
+    """(разделов ##, пунктов -). Грубая метрика «сколько позиций» для /config."""
+    sections = bullets = 0
+    for line in (knowledge or "").splitlines():
+        s = line.strip()
+        if s.startswith("## "):
+            sections += 1
+        elif s.startswith("- "):
+            bullets += 1
+    return sections, bullets
+
+
+def format_config(
+    *, persona_name: str, persona_age: int | None, language: str, model: str,
+    knowledge: str, funnel_gate: bool, allow_count: int, deny_count: int,
+    changed_ago: str | None, lang: str = "ru",
+) -> str:
+    sections, bullets = knowledge_stats(knowledge)
+    persona_line = (
+        cfg_text("cfg_persona_aged", lang, name=escape_html(persona_name), age=persona_age)
+        if persona_age is not None
+        else cfg_text("cfg_persona", lang, name=escape_html(persona_name)))
+    lines = [
+        cfg_text("cfg_header", lang),
+        persona_line,
+        cfg_text("cfg_language", lang, language=language),
+        cfg_text("cfg_model", lang, model=escape_html(model)),
+        cfg_text("cfg_knowledge", lang, sections=sections, bullets=bullets),
+        cfg_text("cfg_gate_on" if funnel_gate else "cfg_gate_off", lang),
+        cfg_text("cfg_lists", lang, allow=allow_count, deny=deny_count),
+        cfg_text("cfg_changed", lang, ago=changed_ago) if changed_ago
+        else cfg_text("cfg_changed_never", lang),
+    ]
+    return "\n".join(lines)

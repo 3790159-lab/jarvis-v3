@@ -17,11 +17,13 @@ from chatter.config.loader import Config, ConfigError, ControlConfig, load_confi
 from chatter.core import humanizer as H
 from chatter.core.admission import admission_decision
 from chatter.core.brain import Brain
+from chatter.core.config_versions import latest_version, previous_version, restore, snapshot
 from chatter.core.classifier import ClassifierResult, classify as _classify
 from chatter.core.console import (
-    GLOBAL_COMMANDS, TARGETED_COMMANDS, PauseView, console_text, contact_link,
-    display_name, escalation_buttons, format_escalation_card, format_status,
-    html_link, parse_command, pause_buttons, safe_snippet,
+    GLOBAL_COMMANDS, TARGETED_COMMANDS, PauseView, _humanize_gap, cfg_text,
+    console_text, contact_link, display_name, escalation_buttons, format_config,
+    format_escalation_card, format_status, html_link, parse_command, pause_buttons,
+    safe_snippet,
 )
 
 # Префиксы команд пульта для одноразовой чистки истории от «/resume» и т.п.,
@@ -435,8 +437,86 @@ class TelethonRunner:
             self.funnel_gate = tg.funnel_gate
         now = time.time()
         store.set_runtime_flag("config_changed_ts", str(now), ts=now)
+        self._snapshot_configs(now)   # версия нового хорошего состояния (для /rollback + fail-safe)
         log.info("reload: конфиг перечитан и заменён успешно")
         return True, None
+
+    def _snapshot_configs(self, now: float) -> None:
+        """Снять версию каждого клиент-каталога (config-арка §4). Best-effort:
+        сбой версионирования не должен ронять reload (DEV-18)."""
+        if self._clients_dir is None:
+            return
+        for slug in self._persona_slugs:
+            try:
+                snapshot(self._clients_dir / slug, now=now)
+            except Exception:
+                log.warning("snapshot версии не удался для %s", slug, exc_info=True)
+
+    async def handle_config_command(self, name: str, arg: str, *, language: str) -> str:
+        """Диспетчер config-команд пульта (/config /reload /knowledge /rollback).
+        Возвращает текст-ответ для пульта. Работает и из контрол-бота, и из
+        Saved Messages (общий раннер-метод)."""
+        if name == "config":
+            return self._format_config(language)
+        if name == "reload":
+            ok, err = self.reload_configs()
+            return cfg_text("cfg_reload_ok", language) if ok \
+                else cfg_text("cfg_reload_fail", language, reason=err)
+        if name == "knowledge":
+            return self._show_knowledge(language) if not arg.strip() \
+                else self._set_knowledge(arg, language)
+        if name == "rollback":
+            return self._rollback_config(language)
+        return cfg_text("cfg_unknown", language)
+
+    def _primary_dir(self) -> Path:
+        return self._clients_dir / self.primary_slug
+
+    def _format_config(self, language: str) -> str:
+        cfg = self.personas[self.primary_slug].cfg
+        s = cfg.settings
+        store = self.primary_store()
+        beat = store.get_runtime_flag("config_changed_ts")
+        changed_ago = _humanize_gap(time.time() - float(beat)) if beat else None
+        return format_config(
+            persona_name=s.persona_name, persona_age=s.persona_age, language=s.language,
+            model=s.model, knowledge=cfg.knowledge, funnel_gate=self.funnel_gate,
+            allow_count=len(self.allowlist), deny_count=len(self.denylist),
+            changed_ago=changed_ago, lang=language)
+
+    def _show_knowledge(self, language: str) -> str:
+        kb = self.personas[self.primary_slug].cfg.knowledge
+        return cfg_text("cfg_kb_current", language, knowledge=safe_snippet(kb, limit=3500))
+
+    def _set_knowledge(self, text: str, language: str) -> str:
+        if not text.strip():
+            return cfg_text("cfg_kb_empty", language)
+        kb = self._primary_dir() / "knowledge.md"
+        old = kb.read_text(encoding="utf-8") if kb.exists() else ""
+        kb.write_text(text, encoding="utf-8")
+        ok, err = self.reload_configs()
+        if not ok:
+            # knowledge.md — свободный markdown, валидатор проверяет лишь
+            # непустоту; сюда попадём только на неожиданном сбое. Восстанавливаем.
+            kb.write_text(old, encoding="utf-8")
+            self.reload_configs()
+            return cfg_text("cfg_reload_fail", language, reason=err)
+        return cfg_text("cfg_kb_updated", language, n=len(text))
+
+    def _rollback_config(self, language: str) -> str:
+        client_dir = self._primary_dir()
+        prev = previous_version(client_dir)
+        if prev is None:
+            return cfg_text("cfg_rollback_none", language)
+        try:
+            restore(client_dir, prev)
+        except Exception as e:  # noqa: BLE001
+            log.exception("rollback restore упал")
+            return cfg_text("cfg_rollback_fail", language, reason=str(e))
+        ok, err = self.reload_configs()
+        if not ok:
+            return cfg_text("cfg_rollback_fail", language, reason=err)
+        return cfg_text("cfg_rollback_ok", language)
 
     def build_escalation_card(
         self, contact_id: str, summary: str, why: str, recent: list[tuple[str, str]],
@@ -1187,6 +1267,9 @@ def build_runner(
     for bundle in personas.values():
         bundle.deps.notifier = runner.notifier
         bundle.deps.escalation_card = runner.build_escalation_card
+    # Базовый снимок конфига (config-арка §4): даёт /rollback точку возврата и
+    # стартовому fail-safe последний-хороший на будущее.
+    runner._snapshot_configs(time.time())
 
     async def _handler(event) -> None:
         await runner.handle_event(event)
