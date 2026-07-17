@@ -17,7 +17,9 @@ from chatter.config.loader import Config, ConfigError, ControlConfig, load_confi
 from chatter.core import humanizer as H
 from chatter.core.admission import admission_decision
 from chatter.core.brain import Brain
-from chatter.core.config_versions import latest_version, previous_version, restore, snapshot
+from chatter.core.config_versions import (
+    CONFIG_FILES, latest_version, previous_version, restore, snapshot,
+)
 from chatter.core.classifier import ClassifierResult, classify as _classify
 from chatter.core.console import (
     GLOBAL_COMMANDS, TARGETED_COMMANDS, PauseView, _humanize_gap, cfg_text,
@@ -74,6 +76,9 @@ HEARTBEAT_INTERVAL_SECONDS = 30
 # объявлена НИЖЕ функции, которая её использует как дефолт, импорт модуля
 # упал бы с NameError ещё до того, как что-либо успело выполниться.
 AUTORESUME_INTERVAL_SECONDS = 60.0
+
+# config-арка §5: как часто опрашивать mtime конфига при auto_reload.
+CONFIG_WATCH_INTERVAL_SECONDS = 5.0
 
 
 # --- 0. catch-up: pick up messages that arrived while OFFLINE ---------------
@@ -403,6 +408,9 @@ class TelethonRunner:
         # config-арка §2b: непусто, если стартовали на last-known-good из-за
         # битого текущего конфига — _on_connected об этом алертит владельцу.
         self._startup_recovery: str | None = None
+        # config-арка §5: базовый mtime конфига для авто-перечитывания.
+        self._config_mtime: float = 0.0
+        self._auto_reload_error: str | None = None
 
     def persona_for(self, sender_id: int) -> str:
         return self._sender_persona.get(sender_id, self.primary_slug)
@@ -444,6 +452,32 @@ class TelethonRunner:
         self._snapshot_configs(now)   # версия нового хорошего состояния (для /rollback + fail-safe)
         log.info("reload: конфиг перечитан и заменён успешно")
         return True, None
+
+    def _config_mtime_now(self) -> float:
+        """Максимальный mtime среди 4 конфиг-файлов всех персон."""
+        if self._clients_dir is None:
+            return 0.0
+        mtimes = [
+            (self._clients_dir / slug / f).stat().st_mtime
+            for slug in self._persona_slugs for f in CONFIG_FILES
+            if (self._clients_dir / slug / f).exists()
+        ]
+        return max(mtimes) if mtimes else 0.0
+
+    def maybe_reload_on_change(self) -> bool:
+        """config-арка §5: если файлы правились руками (mtime вырос) — перечитать
+        (тот же fail-safe). Возвращает True, если изменение замечено (и попытка
+        перечитывания сделана). Базовый mtime двигаем ВСЕГДА — даже при кривом
+        файле, иначе битую правку дёргали бы каждый тик (шторм)."""
+        m = self._config_mtime_now()
+        if m <= self._config_mtime:
+            return False
+        self._config_mtime = m
+        ok, err = self.reload_configs()
+        if not ok:
+            log.warning("auto-reload: конфиг битый, остаюсь на старом: %s", err)
+            self._auto_reload_error = err
+        return True
 
     def _snapshot_configs(self, now: float) -> None:
         """Снять версию каждого клиент-каталога (config-арка §4). Best-effort:
@@ -1090,6 +1124,26 @@ class TelethonRunner:
         log.info("catch-up process END %s", contact_id)
 
 
+async def config_watch_loop(
+    runner: "TelethonRunner", *, interval: float = CONFIG_WATCH_INTERVAL_SECONDS,
+    async_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+) -> None:
+    """config-арка §5: вечный фон — при auto_reload перечитывает конфиг, когда
+    файлы правились руками (mtime вырос). Тот же fail-safe (кривой файл →
+    остаёмся на старом), а владельца уведомляем через пульт. DEV-18: сбой не
+    убивает цикл. Само перечитывание — в to_thread, чтобы не блокировать loop."""
+    while True:
+        try:
+            changed = await asyncio.to_thread(runner.maybe_reload_on_change)
+            if changed and runner._auto_reload_error:
+                err, runner._auto_reload_error = runner._auto_reload_error, None
+                lang = runner.personas[runner.primary_slug].cfg.settings.language
+                await runner._notify_owner_notice(cfg_text("cfg_reload_fail", lang, reason=err))
+        except Exception:
+            log.exception("config-watch: сбой, продолжаю цикл")
+        await async_sleep(interval)
+
+
 async def heartbeat_loop(
     *, interval: float = HEARTBEAT_INTERVAL_SECONDS, path: Path = HEARTBEAT_PATH,
 ) -> None:
@@ -1308,6 +1362,7 @@ def build_runner(
     # стартовому fail-safe последний-хороший на будущее.
     runner._snapshot_configs(time.time())
     runner._startup_recovery = startup_recovery
+    runner._config_mtime = runner._config_mtime_now()   # базовый mtime (config-арка §5)
 
     async def _handler(event) -> None:
         await runner.handle_event(event)
@@ -1533,6 +1588,10 @@ def main(argv: list[str] | None = None) -> int:
             lang = runner.personas[runner.primary_slug].cfg.settings.language
             await runner._notify_owner_notice(
                 cfg_text("cfg_startup_recovered", lang, reason=runner._startup_recovery))
+        # config-арка §5: авто-перечитывание по mtime (opt-in из settings).
+        if runner.control.auto_reload:
+            log.info("config auto-reload watch starting (mtime)")
+            loop.create_task(config_watch_loop(runner))
         # Fix 3 (одноразово): вычистить из истории команды пульта, которые
         # владелец мог набрать прямо в диалоге лида ДО этого фикса — иначе они
         # так и будут уходить в модель как «сообщения Ани».

@@ -150,3 +150,21 @@ def test_startup_hard_fails_only_when_no_snapshot_exists():
     import tempfile
     with tempfile.TemporaryDirectory() as d:
         asyncio.run(scenario(Path(d)))
+
+
+def test_auto_reload_on_mtime_change():
+    # §5: правка файла руками (mtime меняется) → перечитывание без команды.
+    async def scenario(tmp_path):
+        import os
+        clients = _clients(tmp_path)
+        runner = _runner(clients)
+        assert runner.maybe_reload_on_change() is False   # ничего не менялось
+        kb = clients / "demo" / "knowledge.md"
+        kb.write_text(kb.read_text(encoding="utf-8").replace("5000", "4242"), encoding="utf-8")
+        os.utime(kb, (10**10, 10**10))                    # заведомо новее (bump mtime)
+        assert runner.maybe_reload_on_change() is True    # заметил и перечитал
+        assert "4242" in runner.personas["demo"].cfg.knowledge
+        assert runner.maybe_reload_on_change() is False   # повторно уже не перечитывает
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        asyncio.run(scenario(Path(d)))

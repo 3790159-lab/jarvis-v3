@@ -59,6 +59,7 @@ class ControlConfig:
     classifier_enabled: bool = True
     classifier_error_threshold: int = 5       # > стольких ошибок за окно → алерт «деградировал»
     snooze_seconds: float = 3600.0            # кнопка «⏸ Ещё 1ч»
+    auto_reload: bool = False                 # config-арка §5: перечитывать по mtime без команды
 
 @dataclass(frozen=True)
 class Settings:
@@ -192,6 +193,7 @@ def load_config(clients_dir: Path, slug: str) -> Config:
             classifier_enabled=bool(c_raw.get("classifier_enabled", default_control.classifier_enabled)),
             classifier_error_threshold=int(c_raw.get("classifier_error_threshold", default_control.classifier_error_threshold)),
             snooze_seconds=float(c_raw.get("snooze_seconds", default_control.snooze_seconds)),
+            auto_reload=bool(c_raw.get("auto_reload", default_control.auto_reload)),
         )
 
     return Config(
