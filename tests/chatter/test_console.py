@@ -36,6 +36,21 @@ def test_pause_with_explicit_target():
     assert parse_command("/resume 237616472") == Command(name="resume", target="237616472")
 
 
+def test_pause_with_target_only_no_duration():
+    # «Заглуши вот этот диалог насовсем» — реальный сценарий, отдельный от
+    # /pause <длительность> <ссылка>. Ссылка не должна приниматься за кривую
+    # длительность и падать в error.
+    assert parse_command("/pause t.me/ivan") == Command(
+        name="pause", duration_seconds=None, target="t.me/ivan")
+
+
+def test_pause_with_numeric_id_target_only_no_duration():
+    # Числовой id тоже похож на «аргумент без буквы h/m» — убедиться, что он
+    # уходит в target, а не ошибочно трактуется как кривая длительность.
+    assert parse_command("/pause 237616472") == Command(
+        name="pause", duration_seconds=None, target="237616472")
+
+
 def test_not_a_command():
     assert parse_command("просто текст") is None
     assert parse_command("") is None
@@ -58,6 +73,43 @@ def test_status_answers_why_is_she_silent_with_a_reason_per_dialog():
     assert "Здравствуйте, я сам перезвоню" in out    # ЧТО именно вызвало паузу
     assert "4821" in out                              # атрибуция по id
     assert "РАБОТАЕТ" in out
+
+
+def test_status_with_multiple_pauses_keeps_each_dialog_distinct():
+    # Спека §11/§4: несколько пауз одновременно — с РАЗНЫМИ причинами и ETA.
+    # Цикл по pauses, порядок и границы между блоками ничем не проверялись.
+    maria = _view(title="Мария К.", link="t.me/maria", since_ts=1 * HOUR,
+                  source="command", detail=None, msg_id=None,
+                  resume_eta_ts=5 * HOUR)
+    out = format_status(kill_switch=False, pauses=[_view(), maria],
+                        counters={"takeover": 2, "unattributed_pause": 0, "unknown_outgoing": 0},
+                        autoresume_beat_age=12.0, autoresume_interval=60.0,
+                        now=2 * HOUR, window_hours=24)
+    assert "Заглушено диалогов: 2" in out
+    assert "Иван Петров" in out
+    assert "Мария К." in out
+    assert "вы вмешались" in out
+    assert "команда /pause" in out
+
+    # Блоки не слиплись: причина Ивана («вы вмешались», с деталью/msg_id)
+    # не приклеилась к строке Марии, у которой своя причина без детали.
+    lines = out.splitlines()
+    ivan_reason_idx = next(i for i, l in enumerate(lines) if "вы вмешались" in l)
+    maria_reason_idx = next(i for i, l in enumerate(lines) if "команда /pause" in l)
+    assert "Мария" not in lines[ivan_reason_idx]
+    assert "Иван" not in lines[maria_reason_idx]
+
+
+def test_status_indefinite_pause_says_so_and_omits_auto_resume_line():
+    # §8: /pause без длительности бессрочен — is_muted/should_auto_resume это
+    # уже гарантируют в коде (pause.py), но владелец видит только ЭКРАН.
+    # Без этой строки гарантия существует для кода, не для человека.
+    out = format_status(kill_switch=False, pauses=[_view(resume_eta_ts=None)],
+                        counters={"takeover": 1, "unattributed_pause": 0, "unknown_outgoing": 0},
+                        autoresume_beat_age=12.0, autoresume_interval=60.0,
+                        now=1 * HOUR, window_hours=24)
+    assert "авто-возврата нет" in out
+    assert "авто-возврат через" not in out
 
 
 def test_status_shows_the_kill_switch_first():

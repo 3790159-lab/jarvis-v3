@@ -41,6 +41,16 @@ def test_pause_without_a_source_is_flagged_as_a_bug_not_silently_trusted():
     assert is_attributed(_row(paused=0, pause_source=None)) is True
 
 
+def test_attributed_none_row_is_true_symmetric_with_is_muted():
+    # contact_row=None (раннер ещё не знает про этот диалог) — нет строки,
+    # значит нечего атрибутировать: True, симметрично is_muted(None) == False
+    # («не заглушено»). Ветка `not contact_row` сейчас не исполняется НИ ОДНИМ
+    # тестом — рефакторинг, который случайно разъединит `not contact_row or
+    # not contact_row.get("paused")` (например, уберёт `or`), прошёл бы
+    # зелёным и уронил раннер AttributeError на первом неизвестном диалоге.
+    assert is_attributed(None) is True
+
+
 HOUR = 3600.0
 
 
