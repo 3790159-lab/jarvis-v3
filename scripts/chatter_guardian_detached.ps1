@@ -37,7 +37,14 @@ $lockDir   = Join-Path $Root 'state\locks'
 New-Item -ItemType Directory -Force -Path $logDir, $stateDir, $lockDir | Out-Null
 $lockFile  = Join-Path $lockDir 'chatter_guardian.pid'
 $gOut      = Join-Path $logDir 'chatter_guardian.stdout.log'
-$rOut      = Join-Path $logDir 'chatter_telethon.log'          # same runner log as the manual launch
+# Start-Process REQUIRES distinct files for stdout and stderr (pointing both at
+# one file throws "file name ... is the same" and the launch silently fails —
+# the exact cold-start bug caught on first real guardian relaunch). The runner's
+# Python logging (IN/OUT/catch-up/telethon) goes to STDERR, so $rErr is the
+# primary operational log (== the manual `2>&1` file); $rOut only gets the tiny
+# startup print.
+$rErr      = Join-Path $logDir 'chatter_telethon.log'
+$rOut      = Join-Path $logDir 'chatter_telethon.stdout.log'
 $hbFile    = Join-Path $stateDir 'chatter_heartbeat.txt'
 $gHbFile   = Join-Path $stateDir 'chatter_guardian_heartbeat.txt'
 $watchCheck = Join-Path $Root 'scripts\chatter_watch_check.py'
@@ -125,9 +132,21 @@ function Start-Runner {
         return $false
     }
     $runnerArgs = @('-u', '-m', 'chatter.telethon_run', '--llm', 'real')
-    $p = Start-Process -FilePath $py -ArgumentList $runnerArgs -WorkingDirectory $Root `
-        -WindowStyle Hidden -RedirectStandardOutput $rOut -RedirectStandardError $rOut -PassThru
-    Write-G "launched chatter runner (PID $($p.Id)) -> $rOut"
+    $p = $null
+    try {
+        $p = Start-Process -FilePath $py -ArgumentList $runnerArgs -WorkingDirectory $Root `
+            -WindowStyle Hidden -RedirectStandardOutput $rOut -RedirectStandardError $rErr -PassThru -ErrorAction Stop
+    } catch {
+        Write-G "Start-Runner: Start-Process FAILED: $($_.Exception.Message)"
+        return $false
+    }
+    # DEV-18: never claim success we didn't get. A null/empty PID means the
+    # launch didn't actually spawn a process (e.g. bad redirect) -- bail loudly.
+    if (-not $p -or -not $p.Id) {
+        Write-G "Start-Runner: launch returned no process handle - treating as FAILED"
+        return $false
+    }
+    Write-G "launched chatter runner (PID $($p.Id)) -> $rErr"
     for ($i = 0; $i -lt 45; $i++) {
         Start-Sleep -Seconds 1
         if (Test-Runner) { Write-G "runner heartbeat fresh after ~${i}s"; return $true }
