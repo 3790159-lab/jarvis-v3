@@ -53,6 +53,29 @@ def should_alert(*, is_down: bool, last_alert_ts, now: float, cooldown: float) -
     return (now - float(last_alert_ts)) >= cooldown
 
 
+def resolve_is_down(state_arg, hb_text, *, now: float, max_age: float) -> bool:
+    """Decide DOWN from the guardian's verdict when it gave one, else from the
+    heartbeat.
+
+    The guardian and this script had DIFFERENT definitions of "down", and the
+    weaker one won: the guardian calls DOWN when the PROCESS is gone (after ~90s
+    of debounce), but this script only ever looked at heartbeat age (>180s). A
+    killed runner leaves a heartbeat that stays "fresh" for another ~90s, so the
+    alerter contradicted the guardian and said nothing — a real 85s outage went
+    unannounced (drill, 13:06:25). Last night's 🔴 only fired because the relaunch
+    was ALSO broken, which let the heartbeat rot past 180s; fixing cold-start
+    would have silently taken the alert away with it.
+
+    The guardian checks process existence + heartbeat + debounce, so it is the
+    authority. `state_arg` is that verdict ("down"/"up"). Falling back to the
+    heartbeat keeps this script standalone for an external/manual invocation."""
+    if state_arg == "down":
+        return True
+    if state_arg == "up":
+        return False
+    return not is_heartbeat_fresh(hb_text, now=now, max_age=max_age)
+
+
 def should_notify_recovery(*, is_down: bool, alerted: bool) -> bool:
     """Send the ✅ only to close a 🔴 we actually sent: up now AND we alerted
     before. A DOWN alert with no paired recovery leaves the operator unable to
@@ -123,13 +146,23 @@ def _send_tg(text: str) -> bool:
         return False
 
 
-def main() -> int:
+def main(argv=None) -> int:
+    # --state is the GUARDIAN's verdict (it knows about the process; we only see
+    # a file). Optional on purpose: without it this stays a standalone
+    # heartbeat-only checker, like boot_watch_check.py.
+    argv = sys.argv[1:] if argv is None else argv
+    state_arg = None
+    if "--state" in argv:
+        i = argv.index("--state")
+        if i + 1 < len(argv) and argv[i + 1] in ("down", "up"):
+            state_arg = argv[i + 1]
+
     now = time.time()
     try:
         hb_text = HEARTBEAT_PATH.read_text(encoding="ascii")
     except Exception:
         hb_text = None
-    is_down = not is_heartbeat_fresh(hb_text, now=now, max_age=HEARTBEAT_MAX_AGE_S)
+    is_down = resolve_is_down(state_arg, hb_text, now=now, max_age=HEARTBEAT_MAX_AGE_S)
     marker = _read_marker()
     last = marker.get("last_alert_ts")
     # Legacy markers (pre-recovery-pairing) have no `alerted` key -> False: we do

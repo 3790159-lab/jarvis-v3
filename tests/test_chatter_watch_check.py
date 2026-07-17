@@ -58,6 +58,22 @@ def test_recovery_text_is_a_green_paired_confirmation():
     assert "chatter" in txt.lower()
 
 
+def test_resolve_is_down_trusts_the_guardians_verdict_over_the_heartbeat():
+    now = 10_000.0
+    fresh, stale = "9990", "9000"
+    # THE DRILL BUG: the guardian declares DOWN on a dead PROCESS after ~90s of
+    # debounce, while the heartbeat file it left behind is still < 180s old and
+    # therefore "fresh". The alerter must not overrule the guardian and stay
+    # silent — that is exactly how a real 85s outage went unannounced.
+    assert cw.resolve_is_down("down", fresh, now=now, max_age=180) is True
+    # Symmetrically: the guardian saw the runner alive (process + fresh beat).
+    # A heartbeat that has not been rewritten yet must not fake an outage.
+    assert cw.resolve_is_down("up", stale, now=now, max_age=180) is False
+    # No verdict passed (standalone / external invocation) -> derive as before.
+    assert cw.resolve_is_down(None, stale, now=now, max_age=180) is True
+    assert cw.resolve_is_down(None, fresh, now=now, max_age=180) is False
+
+
 def test_marker_roundtrip_preserves_alerted_flag(tmp_path, monkeypatch):
     # The `alerted` flag is the durable memory that pairs 🔴 with ✅. It MUST
     # survive a guardian restart (PID 8928 -> 12912 happened in prod), so it
