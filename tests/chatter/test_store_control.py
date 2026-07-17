@@ -180,6 +180,85 @@ def test_muted_contacts_includes_legacy_row_with_null_paused_at():
         assert ids[0] == "legacy1"
 
 
+def test_begin_takeover_wins_on_a_free_contact():
+    with Store(":memory:") as s:
+        s.get_or_create_contact("c1")
+        assert s.begin_takeover("c1", msg_id=100, detail="msg1", now=50.0) is True
+        row = s.get_or_create_contact("c1")
+        assert row["paused"] == 1
+        assert row["pause_source"] == "human_takeover"
+        assert row["pause_msg_id"] == 100
+        assert row["pause_detail"] == "msg1"
+        assert row["paused_at"] == 50.0
+
+
+def test_begin_takeover_loses_on_an_already_paused_contact():
+    # Три параллельных _outgoing_handler на быстрый залп сообщений владельца
+    # (Telethon без sequential_updates=True): только ПЕРВЫЙ обязан выиграть
+    # эпизод и получить право слать карточку/событие takeover.
+    with Store(":memory:") as s:
+        s.get_or_create_contact("c1")
+        assert s.begin_takeover("c1", msg_id=100, detail="msg1", now=50.0) is True
+        assert s.begin_takeover("c1", msg_id=101, detail="msg2", now=51.0) is False
+        # Проигравший вызов НЕ переписал атрибуцию (это работа
+        # update_pause_attribution, отдельного вызова).
+        row = s.get_or_create_contact("c1")
+        assert row["pause_msg_id"] == 100
+
+
+def test_begin_takeover_wins_again_after_unmute():
+    # unmute -> заново свободный контакт -> следующий takeover это НОВЫЙ
+    # эпизод, а не продолжение старого.
+    with Store(":memory:") as s:
+        s.get_or_create_contact("c1")
+        assert s.begin_takeover("c1", msg_id=100, detail="msg1", now=50.0) is True
+        s.unmute("c1")
+        assert s.begin_takeover("c1", msg_id=200, detail="msg2", now=99.0) is True
+        row = s.get_or_create_contact("c1")
+        assert row["pause_msg_id"] == 200
+
+
+def test_update_pause_attribution_advances_to_a_newer_message():
+    with Store(":memory:") as s:
+        s.get_or_create_contact("c1")
+        s.begin_takeover("c1", msg_id=100, detail="msg1", now=50.0)
+        s.update_pause_attribution("c1", msg_id=105, detail="msg2 -- свежее")
+        row = s.get_or_create_contact("c1")
+        assert row["pause_msg_id"] == 105
+        assert row["pause_detail"] == "msg2 -- свежее"
+
+
+def test_update_pause_attribution_ignores_an_older_message_arriving_late():
+    # Гонка завершения параллельных задач: более РАННЕЕ сообщение (msg_id
+    # меньше) может обработаться ПОСЛЕ более позднего. /status обязан
+    # показывать самую свежую реплику по id, а не по порядку завершения.
+    with Store(":memory:") as s:
+        s.get_or_create_contact("c1")
+        s.begin_takeover("c1", msg_id=100, detail="msg1", now=50.0)
+        s.update_pause_attribution("c1", msg_id=105, detail="msg2 -- свежее")
+        s.update_pause_attribution("c1", msg_id=101, detail="msg1.5 -- опоздавшее")
+        row = s.get_or_create_contact("c1")
+        assert row["pause_msg_id"] == 105
+        assert row["pause_detail"] == "msg2 -- свежее"
+
+
+def test_last_human_out_ts_updates_on_every_call_regardless_of_takeover_outcome():
+    # last_human_out_ts -- от него авто-возврат (спека §8) отсчитывает
+    # молчание владельца, и он обязан двигаться на КАЖДОМ его ручном
+    # сообщении, не только на первом в эпизоде (иначе владелец активно
+    # пишет второй час, а таймер думает, что молчит с первой реплики).
+    # note_human_out — отдельный вызов от begin_takeover, поэтому он
+    # обновляется одинаково независимо от True/False результата захвата.
+    with Store(":memory:") as s:
+        s.get_or_create_contact("c1")
+        s.note_human_out("c1", ts=50.0)
+        assert s.begin_takeover("c1", msg_id=100, detail="msg1", now=50.0) is True
+        assert s.get_or_create_contact("c1")["last_human_out_ts"] == 50.0
+        s.note_human_out("c1", ts=99.0)   # второе сообщение того же эпизода
+        assert s.begin_takeover("c1", msg_id=101, detail="msg2", now=99.0) is False
+        assert s.get_or_create_contact("c1")["last_human_out_ts"] == 99.0
+
+
 def test_add_card_upsert_overwrites_kind_and_ts_too():
     # add_card при конфликте msg_id раньше обновлял только contact_id,
     # оставляя старые kind/ts — частичный апдейт без объяснения. В реальности

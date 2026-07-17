@@ -179,6 +179,55 @@ class Store:
                 raise KeyError(f"mute: unknown contact_id {contact_id!r} - no such contact row")
             self._conn.commit()
 
+    def begin_takeover(self, contact_id: str, *, msg_id: int | None = None,
+                        detail: str | None = None, now: float) -> bool:
+        """Атомарно попытаться начать НОВЫЙ эпизод перехвата человеком.
+
+        Telethon без `sequential_updates=True` диспетчеризует каждый
+        `NewMessage(outgoing=True)` ОТДЕЛЬНОЙ параллельной задачей: владелец
+        быстро печатает 3 сообщения лиду -- три параллельных обработчика,
+        каждый по отдельности решает "человек вмешался" (после своего
+        грейс-окна) и был бы готов заново мутить/слать карточку/писать
+        событие `takeover`, хотя это ОДИН эпизод, а не три.
+
+        Один `UPDATE ... WHERE contact_id=? AND paused=0` под `self._lock`
+        закрывает это атомарно: rowcount==1 значит строка была свободна и
+        теперь заглушена НАМИ -- эпизод наш, единственный, кому положено
+        слать карточку и событие `takeover`. rowcount==0 значит контакт УЖЕ
+        заглушён (либо параллельный вызов уже выиграл эпизод, либо пауза
+        стоит по другой причине) -- эпизод не наш.
+
+        Контакт обязан существовать (`get_or_create_contact` до этого вызова)
+        — как и `mute()`, эта операция не создаёт строк сама."""
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE contacts SET paused=1, pause_source='human_takeover', "
+                "pause_msg_id=?, pause_detail=?, pause_until=NULL, paused_at=? "
+                "WHERE contact_id=? AND paused=0",
+                (msg_id, detail, now, contact_id))
+            self._conn.commit()
+            return cur.rowcount == 1
+
+    def update_pause_attribution(self, contact_id: str, *, msg_id: int | None,
+                                  detail: str | None) -> None:
+        """Обновить причину УЖЕ идущего эпизода на более свежее сообщение
+        (продолжение перехвата -- см. begin_takeover). Условие
+        `pause_msg_id IS NULL OR pause_msg_id<?` — намеренно СРАВНЕНИЕ ID, А
+        НЕ "последний вызов побеждает": Telegram message id монотонно
+        растёт с каждым новым сообщением, а порядок ЗАВЕРШЕНИЯ параллельных
+        asyncio-задач (см. begin_takeover) не гарантирует порядок
+        сообщений -- более раннее сообщение может обработаться позже более
+        позднего. Без этого условия /status показал бы случайную реплику
+        вместо действительно последней."""
+        if msg_id is None:
+            return
+        with self._lock:
+            self._conn.execute(
+                "UPDATE contacts SET pause_msg_id=?, pause_detail=? "
+                "WHERE contact_id=? AND (pause_msg_id IS NULL OR pause_msg_id<?)",
+                (msg_id, detail, contact_id, msg_id))
+            self._conn.commit()
+
     def unmute(self, contact_id: str) -> None:
         """В отличие от `mute`, тихий no-op на несуществующем контакте —
         приемлемое поведение: «снять паузу с того, у кого её нет» уже

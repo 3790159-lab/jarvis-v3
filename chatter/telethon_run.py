@@ -344,25 +344,99 @@ class TelethonRunner:
 
     async def on_human_takeover(self, event, contact_id: str) -> None:
         """Владелец перехватил диалог руками: заглушить, атрибутировать,
-        уведомить (спека §3/§4)."""
+        уведомить (спека §3/§4).
+
+        Telethon без `sequential_updates=True` (наш дефолт) диспетчеризует
+        КАЖДОЕ исходящее `NewMessage` отдельной параллельной задачей -- если
+        владелец быстро печатает лиду 3 сообщения подряд, это 3 параллельных
+        `_outgoing_handler`, каждый ждёт свой грейс и был бы готов заново
+        мутить/слать карточку/писать событие `takeover`, хотя это ОДИН
+        эпизод. `Store.begin_takeover` захватывает эпизод атомарно (один
+        UPDATE ... WHERE paused=0): только победитель шлёт карточку и
+        событие, проигравшие лишь освежают атрибуцию на более позднее
+        сообщение (`update_pause_attribution`, устойчиво к тому, что задачи
+        завершаются не в порядке сообщений)."""
         text = (event.raw_text or "").strip()
         now = time.time()
-        log.info("TAKEOVER %s by owner: msg %s %r", contact_id, event.message.id, text[:60])
         store = self.primary_store()
         store.get_or_create_contact(contact_id)
+        # Всегда, независимо от исхода ниже: история и last_human_out_ts
+        # (от него авто-возврат, спека §8, отсчитывает молчание владельца)
+        # обязаны видеть КАЖДОЕ его ручное сообщение в этом диалоге, не
+        # только первое, что открыло эпизод -- иначе после /resume у Ани
+        # амнезия про часть переписки, а таймер авто-возврата думает, что
+        # владелец молчит, пока он активно печатает.
+        #
         # Ручное сообщение владельца -- в историю КАК assistant: brain.py:32
         # (build_messages) мапит роли истории НАПРЯМУЮ в поле role сообщений
         # Anthropic-API, а роли 'human' там нет -- отправка её сломала бы
-        # вызов LLM. С точки зрения лида это и есть Аня (общий аккаунт),
-        # так что роль 'assistant' и семантически верна: иначе после
-        # /resume у Ани амнезия и она начнёт противоречить тому, что
-        # владелец уже пообещал руками.
+        # вызов LLM. С точки зрения лида это и есть Аня (общий аккаунт), так
+        # что роль 'assistant' и семантически верна.
         store.add_message(contact_id, "assistant", text, ts=now)
         store.note_human_out(contact_id, ts=now)
-        store.mute(contact_id, source="human_takeover", msg_id=event.message.id,
-                   detail=text[:200], now=now)
+
+        started = store.begin_takeover(
+            contact_id, msg_id=event.message.id, detail=text[:200], now=now)
+        if not started:
+            row = store.get_or_create_contact(contact_id)
+            if row["pause_source"] == "human_takeover":
+                # Продолжение уже идущего эпизода (типично: параллельный
+                # залп сообщений владельца). Одна карточка на эпизод, но
+                # атрибуция обязана указывать на самое СВЕЖЕЕ сообщение --
+                # update_pause_attribution сравнивает msg_id, а не порядок
+                # завершения asyncio-задач.
+                store.update_pause_attribution(
+                    contact_id, msg_id=event.message.id, detail=text[:200])
+                log.info("TAKEOVER %s: продолжение эпизода (msg %s), карточку не шлю",
+                         contact_id, event.message.id)
+            else:
+                # Диалог уже заглушён ДРУГОЙ причиной (например /pause из
+                # консоли). История и last_human_out_ts выше уже это
+                # отразили; менять существующую атрибуцию/причину и слать
+                # вторую карточку не нужно -- /status и так покажет диалог
+                # заглушённым.
+                log.info("TAKEOVER %s: уже заглушён источником %r, карточку не шлю",
+                         contact_id, row["pause_source"])
+            return
+
+        log.info("TAKEOVER %s by owner: msg %s %r (новый эпизод)",
+                 contact_id, event.message.id, text[:60])
         store.add_event("takeover", contact_id=contact_id, detail=str(event.message.id), ts=now)
-        await self.post_pause_card(event, contact_id, text)
+        try:
+            await self.post_pause_card(event, contact_id, text)
+        except Exception:
+            # Мут (выше) УЖЕ встал -- отказ карточки не оставляет Аню
+            # отвечающей поверх владельца, отказ безопасный. Но без карточки
+            # владельцу нечем адресовать /resume реплаем -- только
+            # /status + /resume <id> руками, и он об этом даже не узнает,
+            # если промолчать. DEV-18: разница между "залогировано в файл" и
+            # "владелец узнал" -- ровно то, на чём эта арка стоит.
+            #
+            # НЕ через send_alert() из telethon_tg.py: та функция
+            # рассчитана на вызов С ДРУГОГО потока (worker-поток через
+            # asyncio.to_thread, либо main() ПОСЛЕ того как
+            # run_until_disconnected() уже вернул управление и loop не
+            # крутится) -- она блокирующе ждёт `fut.result(timeout=30)`
+            # результата корутины, запланированной НА ТОТ ЖЕ loop через
+            # run_coroutine_threadsafe. on_human_takeover уже выполняется
+            # КАК КОРУТИНА НА ЭТОМ САМОМ loop (обработчик Telethon-события),
+            # так что send_alert() отсюда заблокировала бы поток loop'а,
+            # ожидая корутину, которую сам же не даёт выполнить -- то есть
+            # loop встал бы целиком на 30с. Проверено отдельным скриптом
+            # (run_coroutine_threadsafe + fut.result() с того же loop
+            # гарантированно таймаутит). Здесь мы уже на loop, поэтому
+            # обычный await -- корректный и небllocking способ.
+            log.exception("post_pause_card FAILED for %s (msg %s)", contact_id, event.message.id)
+            try:
+                await self.client.send_message(
+                    "me",
+                    f"⚠️ Диалог {contact_id} заглушён (вы вмешались), но карточка в "
+                    "Saved Messages не отправилась -- реплаем адресовать нечем. "
+                    "Снять паузу: /status покажет диалог, затем /resume <ссылка|id>.",
+                )
+            except Exception:
+                log.exception(
+                    "alert about a failed pause card ALSO failed to send for %s", contact_id)
 
     async def post_pause_card(self, event, contact_id: str, text: str) -> None:
         """Кладёт в Saved Messages карточку паузы и запоминает её id для
