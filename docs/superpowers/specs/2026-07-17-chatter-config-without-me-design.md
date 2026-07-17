@@ -94,13 +94,22 @@ on/off (funnel_gate) + allow/deny counts; model; last config change (relative ti
 2. Break `settings.yaml` deliberately → Аня keeps serving on the old config + the pult reports the file
    + reason. Then `/rollback` restores.
 
-## Phases (TDD)
-- A: `reload_persona_configs` core (validate→swap|keep-old) + last-known-good snapshot. **critical.**
-- B: startup fail-safe (build_runner falls back to last-known-good + alert).
-- C: `/config` + `/knowledge` show formatters (pure).
-- D: versioning (`snapshot`/`versions`/`restore_previous`) + `/rollback`.
-- E: `handle_config_command` runner method + `/knowledge` write + reload.
-- F: wire into control-bot poller + Saved Messages console.
-- G: mtime auto-reload loop.
-- H: forwarded-document knowledge (Bot API getFile). Voice → backlog.
-- I: live acceptance.
+## Phases (TDD) — STATUS
+- ✅ A: `reload_configs` core (validate→swap|keep-old), reuses Store. **critical, done.**
+- ✅ B: startup fail-safe — `build_runner` recovers from last-known-good + owner alert; hard-fail only
+  on first-ever run with no snapshot. **The crash-loop mine is removed.**
+- ✅ C: `/config` + `/knowledge` show formatters (pure, i18n).
+- ✅ D: versioning (`config_versions.py`: snapshot/latest/previous/restore, pruned, µs-named) + `/rollback`.
+- ✅ E: `handle_config_command` runner method + `/knowledge <text>` write + reload.
+- ✅ F: wired into control-bot poller (owner-gated) + Saved Messages console.
+- ✅ G: mtime auto-reload loop (opt-in `control.auto_reload`).
+- ⏳ H: **forwarded-document / voice knowledge upload — NOT done (the one remaining requirement).**
+  `/knowledge <text>` works now. Document upload = poller handles `message.document`, Bot API
+  getFile+download, route to `_set_knowledge`. **Voice → backlog** (needs a transcription service;
+  text+document deliver the core). Flagged for owner priority.
+- ⏳ I: live acceptance (needs owner): change price → /reload → new price in next message; break config
+  → Аня serves on old + pult reports. Deploy the branch to the live runner for the drill (like arc3b),
+  then merge if it passes.
+
+**501 tests green, seam (5 core files) = 0 changes. Guardrail robustness verified. Branch:
+`chatter-config`.**
