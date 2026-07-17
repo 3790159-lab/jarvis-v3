@@ -1,5 +1,5 @@
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import yaml
 
@@ -39,6 +39,13 @@ class TelegramConfig:
     allowlist: tuple[int, ...]
 
 @dataclass(frozen=True)
+class ControlConfig:
+    """Пульт владельца (арка 3A). Блок опционален: дефолты — рабочие."""
+    auto_resume_hours: float = 6.0
+    takeover_grace_seconds: float = 2.0   # окно на опознание своего исходящего
+    status_window_hours: int = 24
+
+@dataclass(frozen=True)
 class Settings:
     model: str
     language: str
@@ -48,6 +55,7 @@ class Settings:
     timings: Timings
     limits: Limits
     telegram: TelegramConfig | None = None
+    control: ControlConfig = field(default_factory=ControlConfig)
 
 @dataclass(frozen=True)
 class Config:
@@ -131,10 +139,25 @@ def load_config(clients_dir: Path, slug: str) -> Config:
             raise ConfigError("settings.yaml.telegram: 'allowlist' must be a list")
         telegram = TelegramConfig(allowlist=tuple(int(x) for x in allowlist_raw))
 
+    # Единственный источник дефолтов — сам ControlConfig(): читаем их из
+    # инстанса, а не дублируем числами здесь, иначе код и дефолты дата-класса
+    # разъедутся при следующей правке одного без другого.
+    default_control = ControlConfig()
+    control = default_control
+    c_raw = raw.get("control")
+    if c_raw is not None:
+        if not isinstance(c_raw, dict):
+            raise ConfigError("settings.yaml: 'control' must be a mapping")
+        control = ControlConfig(
+            auto_resume_hours=float(c_raw.get("auto_resume_hours", default_control.auto_resume_hours)),
+            takeover_grace_seconds=float(c_raw.get("takeover_grace_seconds", default_control.takeover_grace_seconds)),
+            status_window_hours=int(c_raw.get("status_window_hours", default_control.status_window_hours)),
+        )
+
     return Config(
         slug=slug, persona=persona, knowledge=knowledge, playbook=playbook,
         settings=Settings(model=str(model), language=str(language), owner_id=str(owner_id),
                           persona_name=str(persona_name),
                           work_hours=work_hours, timings=timings, limits=limits,
-                          telegram=telegram),
+                          telegram=telegram, control=control),
     )

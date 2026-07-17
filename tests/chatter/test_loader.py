@@ -102,3 +102,31 @@ def test_telegram_block_missing_allowlist_key_fails(tmp_path):
     with pytest.raises(ConfigError) as e:
         load_config(tmp_path, "demo")
     assert "allowlist" in str(e.value)
+
+def test_control_block_is_optional_and_has_defaults(tmp_path):
+    # Клиент без блока control обязан работать: дефолты живут в коде.
+    _make_client(tmp_path)
+    cfg = load_config(tmp_path, "demo")
+    assert cfg.settings.control.auto_resume_hours == 6.0
+    assert cfg.settings.control.takeover_grace_seconds == 2.0
+    assert cfg.settings.control.status_window_hours == 24
+
+def test_control_block_overrides_defaults(tmp_path):
+    settings = SETTINGS + (
+        "control:\n"
+        "  auto_resume_hours: 2\n"
+        "  takeover_grace_seconds: 0.5\n"
+        "  status_window_hours: 48\n"
+    )
+    _make_client(tmp_path, settings=settings)
+    cfg = load_config(tmp_path, "demo")
+    assert cfg.settings.control.auto_resume_hours == 2.0
+    assert cfg.settings.control.takeover_grace_seconds == 0.5
+    assert cfg.settings.control.status_window_hours == 48
+
+def test_control_block_non_mapping_fails(tmp_path):
+    settings = SETTINGS + "control: \"nope\"\n"
+    _make_client(tmp_path, settings=settings)
+    with pytest.raises(ConfigError) as e:
+        load_config(tmp_path, "demo")
+    assert "control" in str(e.value)
