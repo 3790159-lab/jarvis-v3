@@ -13,6 +13,7 @@ from typing import Callable
 from chatter.config.loader import Config, ControlConfig, load_config
 from chatter.core import humanizer as H
 from chatter.core.brain import Brain
+from chatter.core.brand_safety import forbidden_mention
 from chatter.core.classifier import (
     ClassifierResult, classifier_degraded, note_classifier_error,
 )
@@ -164,13 +165,24 @@ def _escalation_pass(
 
     if det is not None and det.tag in ("unbacked_claim", "forbidden_reply"):
         # Гардрейл-подавление: НЕ отправляем ни выдуманную цену/срок, ни
-        # запрещённый термин (рубли/росбанк — brand-safety). Честная «уточню и
-        # вернусь» вместо этого + эскалация владельцу.
+        # запрещённый термин (рубли/росбанк — brand-safety). НО подавление ≠
+        # тишина: на вопрос об оплате лид обязан получить КОРРЕКТНЫЙ ответ
+        # (верные способы, без запрещённого слова) — иначе бот молчит на «как
+        # заплатить», и мы теряем продажу, защитив репутацию. Даём безопасный
+        # ответ + эскалируем владельцу.
         print(f"  [escalation flag] {det.tag} for {contact_id}: {reply!r}")
-        reply = (
-            f"Хороший вопрос — уточню детали и вернусь. "
-            f"Если удобно, позову {cfg.settings.owner_id}."
-        )
+        safe = cfg.settings.safe_payment_reply
+        # Защита от само-простреливания: если клиент вписал запрещённый термин в
+        # сам safe_payment_reply — не отправляем его, откатываемся к нейтральному.
+        if det.tag == "forbidden_reply" and safe and forbidden_mention(safe, cfg.settings.forbidden_terms) is None:
+            reply = safe
+        else:
+            if det.tag == "forbidden_reply" and safe:
+                log.warning("safe_payment_reply сам содержит запрещённый термин — не использую")
+            reply = (
+                f"Хороший вопрос — уточню детали и вернусь. "
+                f"Если удобно, позову {cfg.settings.owner_id}."
+            )
 
     if decision.escalate and deps.notifier is not None:
         _post_escalation_card(deps, contact_id, det=det, cr=cr, now=now)

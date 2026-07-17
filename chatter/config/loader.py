@@ -75,6 +75,9 @@ class Settings:
     # термины (для укр. бизнеса: рубли, российские банки/платёжные системы).
     currency: str | None = None                # напр. "грн"/"₴"/"USD" — валюта клиента
     forbidden_terms: tuple[str, ...] = ()      # упоминание в ответе → подавить+эскалация
+    # Чем ЗАМЕНИТЬ подавленный ответ про оплату: подавление ≠ тишина. Лид должен
+    # получить КОРРЕКТНЫЙ ответ (названы верные способы), без запрещённого слова.
+    safe_payment_reply: str | None = None
     telegram: TelegramConfig | None = None
     control: ControlConfig = field(default_factory=ControlConfig)
 
@@ -207,6 +210,7 @@ def load_config(clients_dir: Path, slug: str) -> Config:
                           persona_age=(int(raw["persona_age"]) if raw.get("persona_age") is not None else None),
                           currency=(str(raw["currency"]) if raw.get("currency") is not None else None),
                           forbidden_terms=tuple(str(x) for x in raw.get("forbidden_terms", []) or []),
+                          safe_payment_reply=(str(raw["safe_payment_reply"]) if raw.get("safe_payment_reply") is not None else None),
                           work_hours=work_hours, timings=timings, limits=limits,
                           telegram=telegram, control=control),
     )

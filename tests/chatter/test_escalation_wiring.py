@@ -205,3 +205,27 @@ def test_lead_asks_about_sberbank_escalates():
     process_batch("42:demo", ["можно оплатить картой Сбербанка?"], RecordingTransport(), deps)
     assert len(n.cards) == 1                                    # лид про росбанк → эскалация
     assert deps.store.get_or_create_contact("42:demo")["state"] == "escalated"
+
+
+def test_suppressed_payment_reply_is_helpful_not_silence_not_stall():
+    # Ловушка: честный «Сбербанком не принимаем, только Monobank» содержит
+    # запрещённое → подавляется. Лид должен получить КОРРЕКТНЫЙ ответ (верные
+    # способы), а НЕ тишину и НЕ пустой «уточню и вернусь».
+    n = FakeNotifier()
+    deps = _deps(notifier=n, keywords=[],
+                 brain_reply="Сбербанком не принимаем, только Monobank.")
+    t = RecordingTransport()
+    process_batch("42:demo", ["можно картой Сбербанка?"], t, deps)
+    got = " ".join(t.sent)
+    assert got.strip()                                  # НЕ тишина
+    assert "сбербанк" not in got.casefold() and "рубл" not in got.casefold()  # подавлено
+    # безопасный ответ называет ВЕРНЫЙ способ (steer to sale, не глухой стол)
+    assert "monobank" in got.casefold() or "приватбанк" in got.casefold()
+    assert len(n.cards) == 1                            # + эскалация владельцу
+
+
+def test_demo_has_safe_payment_reply():
+    cfg = load_config(CLIENTS, "demo")
+    assert cfg.settings.safe_payment_reply
+    assert "monobank" in cfg.settings.safe_payment_reply.casefold() \
+        or "приватбанк" in cfg.settings.safe_payment_reply.casefold()
