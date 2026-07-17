@@ -369,3 +369,20 @@ def test_status_index_is_current_ignores_order():
     with Store(":memory:") as s:
         s.issue_status_index(["daniil", "vasya"], now=100.0)
         assert s.status_index_is_current(["vasya", "daniil"]) is True
+
+
+def test_delete_command_messages_purges_recorded_commands():
+    # Fix 3: почистить уже попавшие в историю «/resume»/«/pause» и т.п.,
+    # которые владелец набрал прямо в диалоге лида.
+    from chatter.storage.db import Store
+    s = Store(":memory:")
+    s.get_or_create_contact("42:demo")
+    s.add_message("42:demo", "user", "привет", ts=1.0)
+    s.add_message("42:demo", "assistant", "Здравствуйте!", ts=2.0)
+    s.add_message("42:demo", "assistant", "/resume", ts=3.0)          # команда в диалоге
+    s.add_message("42:demo", "assistant", "  /pause 1h ", ts=4.0)     # с пробелами
+    s.add_message("42:demo", "assistant", "оплата по ссылке", ts=5.0) # НЕ команда
+    n = s.delete_command_messages(["/resume", "/pause", "/stop", "/start", "/status", "/help"])
+    assert n == 2
+    texts = [m["text"] for m in s.history("42:demo")]
+    assert texts == ["привет", "Здравствуйте!", "оплата по ссылке"]

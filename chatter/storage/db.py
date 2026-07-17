@@ -274,6 +274,21 @@ class Store:
                 (contact_id, role, text, ts))
             self._conn.commit()
 
+    def delete_command_messages(self, prefixes: list[str], role: str = "assistant") -> int:
+        """Удалить из истории сообщения-команды (Fix 3): владелец набрал /resume
+        и т.п. ПРЯМО в диалоге лида, они легли как сообщения Ани и теперь идут в
+        модель как контекст. Матч по trim+lower + LIKE '<prefix>%'. Возвращает
+        число удалённых. Пустой список префиксов → no-op (0)."""
+        if not prefixes:
+            return 0
+        conds = " OR ".join(["lower(trim(text)) LIKE ?"] * len(prefixes))
+        params = [role] + [p.lower() + "%" for p in prefixes]
+        with self._lock:
+            cur = self._conn.execute(
+                f"DELETE FROM messages WHERE role=? AND ({conds})", params)
+            self._conn.commit()
+            return cur.rowcount
+
     def history(self, contact_id: str, limit: int | None = None) -> list[dict]:
         with self._lock:
             rows = self._conn.execute(

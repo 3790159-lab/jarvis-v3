@@ -18,10 +18,14 @@ from chatter.core import humanizer as H
 from chatter.core.brain import Brain
 from chatter.core.classifier import ClassifierResult, classify as _classify
 from chatter.core.console import (
-    PauseView, console_text, contact_link, display_name, escalation_buttons,
-    format_escalation_card, format_status, html_link, parse_command,
-    pause_buttons, safe_snippet,
+    GLOBAL_COMMANDS, TARGETED_COMMANDS, PauseView, console_text, contact_link,
+    display_name, escalation_buttons, format_escalation_card, format_status,
+    html_link, parse_command, pause_buttons, safe_snippet,
 )
+
+# Префиксы команд пульта для одноразовой чистки истории от «/resume» и т.п.,
+# которые владелец мог набрать в диалоге лида ДО Fix 3 (см. _on_connected).
+_COMMAND_PREFIXES = sorted("/" + c for c in (GLOBAL_COMMANDS | TARGETED_COMMANDS))
 from chatter.core.escalation import parse_escalation_keywords
 from chatter.core.llm import AnthropicLLM, FakeLLM, LLMClient
 from chatter.core.pause import should_auto_resume
@@ -566,6 +570,37 @@ class TelethonRunner:
         slug = contact_id.rsplit(":", 1)[-1]
         return self.personas.get(slug, self.personas[self.primary_slug]).cfg.settings
 
+    async def _notify_owner_notice(self, text_html: str) -> None:
+        """Короткое информационное сообщение владельцу через Notifier (без
+        кнопок). С loop → sync-notifier оборачиваем в to_thread."""
+        if self.notifier is None:
+            return
+        card = Card(kind="notice", contact_id="", text_html=text_html, buttons=[], reply_hints=[])
+        try:
+            await asyncio.to_thread(self.notifier.notify, card)
+        except Exception:
+            log.exception("не смог уведомить пульт (inline-cmd notice)")
+
+    async def handle_inline_command(self, event, contact_id: str, cmd) -> None:
+        """Fix 3: владелец набрал команду (/resume и т.п.) ПРЯМО в диалоге лида,
+        а не в пульте. Люди так делают — это естественно. Обрабатываем ДО
+        детекции перехвата: выполняем команду, НЕ пишем её в историю (модель не
+        должна видеть «/resume»), удаляем сообщение (лид уже увидел пуш, но экран
+        чище) и подсказываем в пульт, что команды лучше набирать там."""
+        store = self.primary_store()
+        language = self._persona_settings(contact_id).language
+        status_text = await self.render_status() if cmd.name == "status" else None
+        result = execute_command(
+            cmd, store=store, contact_id=contact_id, now=time.time(),
+            status_text=status_text, language=language)
+        log.info("INLINE-CMD /%s в диалоге %s -> %s", cmd.name, contact_id, result[:60])
+        try:
+            await self.client.delete_messages(event.chat_id, [event.message.id])
+        except Exception:
+            log.warning("inline-cmd: не смог удалить команду из диалога лида", exc_info=True)
+        notice = console_text("inline_cmd_notice", language, cmd=f"/{cmd.name}")
+        await self._notify_owner_notice(f"{notice}\n\n{result}")
+
     async def post_pause_card(self, event, contact_id: str, text: str) -> None:
         """Кладёт в Saved Messages карточку паузы и запоминает её id для
         адресации `/resume` реплаем (спека §5/§7; полная карточка эскалации --
@@ -1087,6 +1122,15 @@ def build_runner(
         contact_id = runner.contact_id_for_chat(event)
         if contact_id is None:
             return   # диалог, который Аня не ведёт: это просто жизнь аккаунта
+        # Fix 3: владелец набрал команду ПРЯМО в диалоге лида (естественное
+        # движение). Ловим ДО детекции перехвата: Аня сама «/resume» не шлёт
+        # (её id был бы в реестре), поэтому не-наше исходящее, парсящееся как
+        # команда, — это команда владельца. Выполнить, не писать в историю,
+        # удалить, подсказать пульту. НЕ трактуем как перехват.
+        cmd = parse_command(event.raw_text or "")
+        if cmd is not None and not runner.sent_registry.is_ours(event.message.id):
+            await runner.handle_inline_command(event, contact_id, cmd)
+            return
         # Снимок ДО decide_outgoing: сам decide_outgoing может дождаться
         # грейс-окна и застать id уже пополнившим реестр -- тогда признак
         # "реестр опоздал" потеряется. was_known фиксирует состояние на
@@ -1261,6 +1305,15 @@ def main(argv: list[str] | None = None) -> int:
         if runner.poller is not None:
             log.info("control-bot poller starting (isolated token)")
             loop.create_task(runner.poller.run_forever())
+        # Fix 3 (одноразово): вычистить из истории команды пульта, которые
+        # владелец мог набрать прямо в диалоге лида ДО этого фикса — иначе они
+        # так и будут уходить в модель как «сообщения Ани».
+        _store = runner.primary_store()
+        if _store.get_runtime_flag("cmd_history_purged") != "1":
+            removed = _store.delete_command_messages(_COMMAND_PREFIXES)
+            _store.set_runtime_flag("cmd_history_purged", "1", ts=time.time())
+            if removed:
+                log.info("history purge: удалено %d команд из истории (Fix 3)", removed)
         await runner.catch_up_missed()
 
     print(f"[telethon_run] personas={slugs} session={session_path}")

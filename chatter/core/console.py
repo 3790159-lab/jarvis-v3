@@ -194,6 +194,7 @@ CONSOLE_STRINGS: dict[str, dict[str, str]] = {
         "bind_rejected": "⛔ Этот бот уже привязан к другому владельцу.",
         "bind_not_authorized": "⛔ Доступ запрещён. Нужен код: /start <код> от продавца.",
         "unbind_ack": "🔓 Пульт отвязан. Следующий /start привяжет заново.",
+        "inline_cmd_notice": "✅ Выполнил {cmd} из диалога. Совет: команды набирайте здесь, в пульте — в самом диалоге их видит лид.",
         "degraded_alert": (
             "⚠️ Классификатор деградировал: {count} ошибок за {hours}ч. "
             "Эскалации сейчас идут только по ключевым словам."
@@ -263,6 +264,7 @@ CONSOLE_STRINGS: dict[str, dict[str, str]] = {
         "bind_rejected": "⛔ This bot is already bound to another owner.",
         "bind_not_authorized": "⛔ Access denied. You need a code: /start <code> from the vendor.",
         "unbind_ack": "🔓 Console unbound. The next /start will bind it again.",
+        "inline_cmd_notice": "✅ Ran {cmd} from the chat. Tip: type commands here in the console — the lead sees them in the chat itself.",
         "degraded_alert": (
             "⚠️ Classifier degraded: {count} errors in {hours}h. "
             "Escalations currently fire on keywords only."
@@ -331,6 +333,7 @@ CONSOLE_STRINGS: dict[str, dict[str, str]] = {
         "bind_rejected": "⛔ Цей бот уже прив'язаний до іншого власника.",
         "bind_not_authorized": "⛔ Доступ заборонено. Потрібен код: /start <код> від продавця.",
         "unbind_ack": "🔓 Пульт відв'язано. Наступний /start прив'яже знову.",
+        "inline_cmd_notice": "✅ Виконав {cmd} з діалогу. Порада: команди набирайте тут, у пульті — у самому діалозі їх бачить лід.",
         "degraded_alert": (
             "⚠️ Класифікатор деградував: {count} помилок за {hours}год. "
             "Ескалації зараз лише за ключовими словами."
