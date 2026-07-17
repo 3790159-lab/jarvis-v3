@@ -130,3 +130,36 @@ def test_control_block_non_mapping_fails(tmp_path):
     with pytest.raises(ConfigError) as e:
         load_config(tmp_path, "demo")
     assert "control" in str(e.value)
+
+
+def test_control_bot_fields_default_off(tmp_path):
+    # Арка 3B: без блока control контрол-бот выключен, эскалация на дефолтах.
+    # Токен НЕ настроен -> Saved Messages остаётся фоллбеком (инвариант арки).
+    _make_client(tmp_path)
+    cfg = load_config(tmp_path, "demo")
+    c = cfg.settings.control
+    assert c.control_bot_token_env is None
+    assert c.owner_chat_id is None
+    assert c.classifier_enabled is True
+    assert c.classifier_error_threshold == 5
+    assert c.snooze_seconds == 3600.0
+
+
+def test_control_bot_fields_parse(tmp_path):
+    settings = SETTINGS + (
+        "control:\n"
+        "  control_bot_token_env: CHATTER_CONTROL_BOT_TOKEN\n"
+        "  owner_chat_id: 237616472\n"
+        "  classifier_enabled: false\n"
+        "  classifier_error_threshold: 3\n"
+        "  snooze_seconds: 1800\n"
+    )
+    _make_client(tmp_path, settings=settings)
+    cfg = load_config(tmp_path, "demo")
+    c = cfg.settings.control
+    # settings.yaml хранит ИМЯ переменной окружения, не значение токена.
+    assert c.control_bot_token_env == "CHATTER_CONTROL_BOT_TOKEN"
+    assert c.owner_chat_id == 237616472
+    assert c.classifier_enabled is False
+    assert c.classifier_error_threshold == 3
+    assert c.snooze_seconds == 1800.0

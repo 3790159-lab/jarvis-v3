@@ -40,10 +40,17 @@ class TelegramConfig:
 
 @dataclass(frozen=True)
 class ControlConfig:
-    """Пульт владельца (арка 3A). Блок опционален: дефолты — рабочие."""
+    """Пульт владельца (арки 3A/3B). Блок опционален: дефолты — рабочие."""
     auto_resume_hours: float = 6.0
     takeover_grace_seconds: float = 2.0   # окно на опознание своего исходящего
     status_window_hours: int = 24
+    # Арка 3B: контрол-бот + эскалация. ВСЁ off/безопасно по умолчанию —
+    # без токена продукт ведёт себя ровно как арка 3A (Saved Messages).
+    control_bot_token_env: str | None = None  # ИМЯ env-переменной с токеном, НЕ значение
+    owner_chat_id: int | None = None          # личный чат владельца; None = bind на первый /start
+    classifier_enabled: bool = True
+    classifier_error_threshold: int = 5       # > стольких ошибок за окно → алерт «деградировал»
+    snooze_seconds: float = 3600.0            # кнопка «⏸ Ещё 1ч»
 
 @dataclass(frozen=True)
 class Settings:
@@ -148,10 +155,17 @@ def load_config(clients_dir: Path, slug: str) -> Config:
     if c_raw is not None:
         if not isinstance(c_raw, dict):
             raise ConfigError("settings.yaml: 'control' must be a mapping")
+        owner_chat_raw = c_raw.get("owner_chat_id", default_control.owner_chat_id)
+        token_env_raw = c_raw.get("control_bot_token_env", default_control.control_bot_token_env)
         control = ControlConfig(
             auto_resume_hours=float(c_raw.get("auto_resume_hours", default_control.auto_resume_hours)),
             takeover_grace_seconds=float(c_raw.get("takeover_grace_seconds", default_control.takeover_grace_seconds)),
             status_window_hours=int(c_raw.get("status_window_hours", default_control.status_window_hours)),
+            control_bot_token_env=None if token_env_raw is None else str(token_env_raw),
+            owner_chat_id=None if owner_chat_raw is None else int(owner_chat_raw),
+            classifier_enabled=bool(c_raw.get("classifier_enabled", default_control.classifier_enabled)),
+            classifier_error_threshold=int(c_raw.get("classifier_error_threshold", default_control.classifier_error_threshold)),
+            snooze_seconds=float(c_raw.get("snooze_seconds", default_control.snooze_seconds)),
         )
 
     return Config(
