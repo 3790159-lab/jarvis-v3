@@ -1,6 +1,8 @@
 from __future__ import annotations
+import shutil
 import sqlite3
 import threading
+import time
 from pathlib import Path
 
 _SCHEMA = """
@@ -8,7 +10,13 @@ CREATE TABLE IF NOT EXISTS contacts (
     contact_id TEXT PRIMARY KEY,
     state TEXT NOT NULL DEFAULT 'new',
     paused INTEGER NOT NULL DEFAULT 0,
-    human_took_over INTEGER NOT NULL DEFAULT 0
+    human_took_over INTEGER NOT NULL DEFAULT 0,
+    paused_at REAL,
+    pause_source TEXT,
+    pause_msg_id INTEGER,
+    pause_detail TEXT,
+    pause_until REAL,
+    last_human_out_ts REAL
 );
 CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -23,7 +31,38 @@ CREATE TABLE IF NOT EXISTS facts (
     value TEXT NOT NULL,
     PRIMARY KEY (contact_id, key)
 );
+CREATE TABLE IF NOT EXISTS runtime_flags (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    ts REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS console_cards (
+    msg_id INTEGER PRIMARY KEY,
+    contact_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    ts REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS control_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,
+    contact_id TEXT,
+    detail TEXT,
+    ts REAL NOT NULL
+);
 """
+
+# Колонки, которых нет в базах арки 1/2. CREATE TABLE IF NOT EXISTS не добавляет
+# колонки в СУЩЕСТВУЮЩУЮ таблицу — старая база получит их только через ALTER.
+_ADDED_COLUMNS = {
+    "contacts": {
+        "paused_at": "REAL",
+        "pause_source": "TEXT",
+        "pause_msg_id": "INTEGER",
+        "pause_detail": "TEXT",
+        "pause_until": "REAL",
+        "last_human_out_ts": "REAL",
+    },
+}
 
 class Store:
     """One SQLite file, safe to use across threads.
@@ -38,12 +77,47 @@ class Store:
     """
 
     def __init__(self, path: str | Path):
+        path = Path(path)
+        # ':memory:' не файл — Path(':memory:').exists() корректно даёт False,
+        # а str(Path(':memory:')) == ':memory:', так что sqlite3.connect
+        # по-прежнему получает in-memory базу, а не создаёт файл на диске.
+        pre_existing = path.exists()
         self._conn = sqlite3.connect(str(path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._lock = threading.Lock()
         with self._lock:
             self._conn.executescript(_SCHEMA)
             self._conn.commit()
+            missing = self._missing_columns()
+            if missing:
+                # Бэкап ТОЛЬКО когда реально мигрируем существующую базу:
+                # иначе каждый рестарт раннера сыпал бы .bak-файлы клиенту.
+                if pre_existing:
+                    self._backup(path)
+                self._apply_migration(missing)
+
+    def _missing_columns(self) -> dict[str, dict[str, str]]:
+        out: dict[str, dict[str, str]] = {}
+        for table, cols in _ADDED_COLUMNS.items():
+            have = {r["name"] for r in self._conn.execute(f"PRAGMA table_info({table})")}
+            gap = {c: decl for c, decl in cols.items() if c not in have}
+            if gap:
+                out[table] = gap
+        return out
+
+    def _backup(self, path: Path) -> None:
+        dest = path.with_name(f"{path.name}.pre-3a-{int(time.time())}.bak")
+        shutil.copy2(path, dest)
+
+    def _apply_migration(self, missing: dict[str, dict[str, str]]) -> None:
+        # Идемпотентность через ПРОВЕРКУ наличия колонки, а не через ловлю
+        # исключения: гардиан перезапускает раннер постоянно, и миграция,
+        # падающая на втором прогоне, = краш-петля, которую гардиан будет
+        # вечно поддерживать.
+        for table, cols in missing.items():
+            for col, decl in cols.items():
+                self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+        self._conn.commit()
 
     def close(self) -> None:
         with self._lock:
