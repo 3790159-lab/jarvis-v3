@@ -13,6 +13,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from chatter.core.conversation import next_state
+from chatter.core.disclosure import is_bot_question
+from chatter.core.guardrails import contains_unbacked_claim
+
+# Зеркалит conversation._TERMINAL (приватное там). Завершённый диалог не
+# воскрешаем ни сигналом воронки, ни эскалацией.
+_TERMINAL_STATES = frozenset({"closed", "dead"})
+
 # Заголовки секции ключевых слов по языкам (settings.language). Значение
 # заголовка не важно для парсинга по существу — важно найти начало списка.
 _KEYWORD_HEADINGS = (
@@ -47,3 +55,55 @@ def parse_escalation_keywords(playbook: str) -> list[str]:
             if word:
                 out.append(word.casefold())
     return out
+
+
+@dataclass(frozen=True)
+class EscalationReason:
+    """Почему диалог эскалирован — для строки «почему» в карточке (§3)."""
+    tag: str        # "keyword" | "bot_question" | "unbacked_claim" | "classifier"
+    detail: str     # человеческая однострочная причина
+
+
+def deterministic_escalation(
+    *, incoming_text: str, reply: str, knowledge: str, keywords: list[str],
+) -> EscalationReason | None:
+    """Слой 1 (спека §4): бесплатные детерминированные триггеры. Работают, даже
+    если классификатор/сеть лежат. Возвращает ПЕРВЫЙ сработавший триггер, иначе
+    None. Порядок: ключевое слово во входящем → вопрос про бота → необеспеченное
+    обещание в ответе.
+
+    ШОВ: вызывает `is_bot_question`/`contains_unbacked_claim`, не правит их.
+    """
+    text = (incoming_text or "").casefold()
+    for kw in keywords:
+        if kw and kw in text:
+            return EscalationReason(tag="keyword", detail=f"ключевое слово «{kw}»")
+    if is_bot_question(incoming_text or ""):
+        return EscalationReason(tag="bot_question", detail="спросили, бот ли это")
+    if contains_unbacked_claim(reply or "", knowledge or ""):
+        return EscalationReason(
+            tag="unbacked_claim", detail="ответ обещал цену/срок вне базы знаний")
+    return None
+
+
+def advance_funnel(store, contact_id: str, *, stage_signal: str | None, escalated: bool) -> str:
+    """Оживляет мёртвый `conversation.next_state` (§5): stage_signal
+    классификатора гонит воронку new→qualifying→hot→escalated. Эскалация —
+    внешний оверрайд (сильнее переходов воронки): уводит в 'escalated' сразу,
+    даже если из текущего состояния такого перехода по сигналу нет.
+
+    Завершённый диалог (closed/dead) не трогаем. Пишем в БД только при реальной
+    смене состояния. ШОВ: вызывает `next_state`, не правит conversation.py.
+    """
+    current = store.get_or_create_contact(contact_id)["state"]
+    if current in _TERMINAL_STATES:
+        return current
+    if escalated:
+        new = "escalated"
+    elif stage_signal:
+        new = next_state(current, stage_signal)
+    else:
+        new = current
+    if new != current:
+        store.set_state(contact_id, new)
+    return new

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from chatter.core.escalation import parse_escalation_keywords
+from chatter.core.escalation import (
+    EscalationReason,
+    deterministic_escalation,
+    parse_escalation_keywords,
+)
 
 
 PLAYBOOK_RU = """\
@@ -51,3 +55,64 @@ def test_ukrainian_heading():
 def test_blank_and_comment_lines_ignored():
     pb = "## Ключевые слова эскалации\n\n<!-- коммент -->\n- позови\n\n"
     assert parse_escalation_keywords(pb) == ["позови"]
+
+
+# --- deterministic_escalation (спека §4, слой 1: бесплатно, без сети) --------
+
+KEYWORDS = ["позови", "оплата", "верните", "жалоба"]
+KNOWLEDGE = "Консультация 5000 руб. Съёмка 15000 руб."
+
+
+def test_keyword_in_incoming_escalates():
+    r = deterministic_escalation(
+        incoming_text="Можно позови владельца?", reply="Конечно.",
+        knowledge=KNOWLEDGE, keywords=KEYWORDS)
+    assert isinstance(r, EscalationReason)
+    assert r.tag == "keyword"
+    assert "позови" in r.detail.casefold()
+
+
+def test_keyword_match_is_casefold():
+    r = deterministic_escalation(
+        incoming_text="ОПЛАТА как проходит?", reply="ок",
+        knowledge=KNOWLEDGE, keywords=KEYWORDS)
+    assert r is not None and r.tag == "keyword"
+
+
+def test_bot_question_escalates():
+    r = deterministic_escalation(
+        incoming_text="ты бот?", reply="ок",
+        knowledge=KNOWLEDGE, keywords=KEYWORDS)
+    assert r is not None and r.tag == "bot_question"
+
+
+def test_unbacked_claim_in_reply_escalates():
+    # Ответ обещает цену, которой нет в knowledge -> guardrail-триггер.
+    r = deterministic_escalation(
+        incoming_text="сколько стоит?", reply="Всего 999 рублей со скидкой!",
+        knowledge=KNOWLEDGE, keywords=KEYWORDS)
+    assert r is not None and r.tag == "unbacked_claim"
+
+
+def test_clean_conversation_no_escalation():
+    r = deterministic_escalation(
+        incoming_text="привет, расскажите про услуги",
+        reply="Привет! Помогу с выбором, что именно интересует?",
+        knowledge=KNOWLEDGE, keywords=KEYWORDS)
+    assert r is None
+
+
+def test_empty_keywords_disables_keyword_layer():
+    # Пустой список ключевых слов не должен матчить ничего (и не падать).
+    r = deterministic_escalation(
+        incoming_text="оплата оплата оплата", reply="ок",
+        knowledge=KNOWLEDGE, keywords=[])
+    assert r is None
+
+
+def test_keyword_wins_over_bot_question_order():
+    # Первый сработавший триггер: порядок keyword -> bot_question -> unbacked.
+    r = deterministic_escalation(
+        incoming_text="ты бот? и позови человека",
+        reply="ок", knowledge=KNOWLEDGE, keywords=KEYWORDS)
+    assert r is not None and r.tag == "keyword"
