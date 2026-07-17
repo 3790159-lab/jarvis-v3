@@ -51,6 +51,10 @@ CREATE TABLE IF NOT EXISTS control_events (
 );
 """
 
+# Источники паузы уровня КОНТАКТА. Глобальный kill switch живёт в
+# runtime_flags и сюда не входит: он не про конкретный диалог.
+ROW_MUTE_SOURCES = frozenset({"human_takeover", "command"})
+
 # Колонки, которых нет в базах арки 1/2. CREATE TABLE IF NOT EXISTS не добавляет
 # колонки в СУЩЕСТВУЮЩУЮ таблицу — старая база получит их только через ALTER.
 _ADDED_COLUMNS = {
@@ -145,12 +149,39 @@ class Store:
             self._conn.execute("UPDATE contacts SET state=? WHERE contact_id=?", (state, contact_id))
             self._conn.commit()
 
-    def set_flag(self, contact_id: str, flag: str, value: bool) -> None:
-        if flag not in {"paused", "human_took_over"}:
-            raise ValueError(f"unknown flag: {flag}")
+    def mute(self, contact_id: str, *, source: str, msg_id: int | None = None,
+             detail: str | None = None, until: float | None = None, now: float) -> None:
+        """Заглушить диалог. `source` ОБЯЗАТЕЛЕН: пауза без причины — баг-класс
+        (спека §4), поэтому её нельзя поставить даже случайно."""
+        if source not in ROW_MUTE_SOURCES:
+            raise ValueError(f"unknown mute source: {source!r} (need one of {sorted(ROW_MUTE_SOURCES)})")
         with self._lock:
             self._conn.execute(
-                f"UPDATE contacts SET {flag}=? WHERE contact_id=?", (int(value), contact_id))
+                "UPDATE contacts SET paused=1, pause_source=?, pause_msg_id=?, "
+                "pause_detail=?, pause_until=?, paused_at=? WHERE contact_id=?",
+                (source, msg_id, detail, until, now, contact_id))
+            self._conn.commit()
+
+    def unmute(self, contact_id: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE contacts SET paused=0, pause_source=NULL, pause_msg_id=NULL, "
+                "pause_detail=NULL, pause_until=NULL, paused_at=NULL WHERE contact_id=?",
+                (contact_id,))
+            self._conn.commit()
+
+    def muted_contacts(self) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM contacts WHERE paused=1 ORDER BY paused_at").fetchall()
+        return [dict(r) for r in rows]
+
+    def note_human_out(self, contact_id: str, *, ts: float) -> None:
+        """Отметить ручное сообщение владельца — от него, а НЕ от paused_at,
+        отсчитывается авто-возврат."""
+        with self._lock:
+            self._conn.execute(
+                "UPDATE contacts SET last_human_out_ts=? WHERE contact_id=?", (ts, contact_id))
             self._conn.commit()
 
     def add_message(self, contact_id: str, role: str, text: str, ts: float) -> None:

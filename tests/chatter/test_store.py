@@ -33,13 +33,14 @@ def test_get_or_create_contact_defaults(tmp_path):
     # idempotent
     assert s.get_or_create_contact("u1")["state"] == "new"
 
-def test_state_and_flags_persist(tmp_path):
+def test_state_persists(tmp_path):
+    # set_flag (which used to be tested alongside set_state here) is retired
+    # in arc 3A — pause/unpause coverage now lives in test_store_control.py.
     s = Store(tmp_path / "c.db")
     s.get_or_create_contact("u1")
     s.set_state("u1", "hot")
-    s.set_flag("u1", "paused", True)
     c = s.get_or_create_contact("u1")
-    assert c["state"] == "hot" and c["paused"] == 1
+    assert c["state"] == "hot"
 
 def test_messages_and_history(tmp_path):
     s = Store(tmp_path / "c.db")
