@@ -170,6 +170,29 @@ CONSOLE_STRINGS: dict[str, dict[str, str]] = {
         "card_silent": "{persona} молчит в этом диалоге.",
         "card_resume_reply_hint": "Ответьте /resume на это сообщение",
         "card_resume_status_hint": "или: /status → /resume <номер>",
+        # Арка 3B — кнопки, карточка эскалации, feedback на тап, алерт деградации.
+        "btn_resume": "▶️ Вернуть Аню",
+        "btn_snooze": "⏸ Ещё 1ч",
+        "btn_open": "💬 Открыть диалог",
+        "btn_stop": "🔴 Стоп везде",
+        "btn_keep": "✅ Оставить Ане",
+        "esc_header": "🔴 Горячий лид: {name}",
+        "esc_wants": "Хочет: {summary}",
+        "esc_why": "Почему: {reason}",
+        "esc_recent_header": "Последние сообщения:",
+        "esc_role_lead": "Клиент",
+        "esc_role_persona": "Ассистент",
+        "fb_resumed": "▶️ Аня вернулась в диалог",
+        "fb_snoozed": "⏸ Пауза ещё на час",
+        "fb_stopped": "🔴 Аня остановлена во всех диалогах",
+        "fb_kept": "✅ Оставлено Ане",
+        "fb_open": "💬 Открыть диалог: {link}",
+        "fb_unknown": "не понял действие",
+        "fb_not_owner": "эта кнопка не для вас",
+        "degraded_alert": (
+            "⚠️ Классификатор деградировал: {count} ошибок за {hours}ч. "
+            "Эскалации сейчас идут только по ключевым словам."
+        ),
         "help_text": (
             "📖 Пульт Ани — как это работает\n\n"
             "Аня отвечает лидам сама. Как только вы напишете в диалог руками — "
@@ -212,6 +235,28 @@ CONSOLE_STRINGS: dict[str, dict[str, str]] = {
         "card_silent": "{persona} is silent in this chat.",
         "card_resume_reply_hint": "Reply /resume to this message",
         "card_resume_status_hint": "or: /status → /resume <number>",
+        "btn_resume": "▶️ Bring Anya back",
+        "btn_snooze": "⏸ +1h",
+        "btn_open": "💬 Open chat",
+        "btn_stop": "🔴 Stop everywhere",
+        "btn_keep": "✅ Leave it to Anya",
+        "esc_header": "🔴 Hot lead: {name}",
+        "esc_wants": "Wants: {summary}",
+        "esc_why": "Why: {reason}",
+        "esc_recent_header": "Recent messages:",
+        "esc_role_lead": "Lead",
+        "esc_role_persona": "Assistant",
+        "fb_resumed": "▶️ Anya is back in the chat",
+        "fb_snoozed": "⏸ Paused for another hour",
+        "fb_stopped": "🔴 Anya stopped in all chats",
+        "fb_kept": "✅ Left to Anya",
+        "fb_open": "💬 Open chat: {link}",
+        "fb_unknown": "didn't get that action",
+        "fb_not_owner": "this button isn't for you",
+        "degraded_alert": (
+            "⚠️ Classifier degraded: {count} errors in {hours}h. "
+            "Escalations currently fire on keywords only."
+        ),
         "help_text": (
             "📖 Anya's console — how this works\n\n"
             "Anya replies to leads on her own. The moment you write into a chat "
@@ -253,6 +298,28 @@ CONSOLE_STRINGS: dict[str, dict[str, str]] = {
         "card_silent": "{persona} мовчить у цьому діалозі.",
         "card_resume_reply_hint": "Відповідайте /resume на це повідомлення",
         "card_resume_status_hint": "або: /status → /resume <номер>",
+        "btn_resume": "▶️ Повернути Аню",
+        "btn_snooze": "⏸ Ще 1год",
+        "btn_open": "💬 Відкрити діалог",
+        "btn_stop": "🔴 Стоп скрізь",
+        "btn_keep": "✅ Залишити Ані",
+        "esc_header": "🔴 Гарячий лід: {name}",
+        "esc_wants": "Хоче: {summary}",
+        "esc_why": "Чому: {reason}",
+        "esc_recent_header": "Останні повідомлення:",
+        "esc_role_lead": "Клієнт",
+        "esc_role_persona": "Асистент",
+        "fb_resumed": "▶️ Аня повернулася в діалог",
+        "fb_snoozed": "⏸ Пауза ще на годину",
+        "fb_stopped": "🔴 Аню зупинено в усіх діалогах",
+        "fb_kept": "✅ Залишено Ані",
+        "fb_open": "💬 Відкрити діалог: {link}",
+        "fb_unknown": "не зрозумів дію",
+        "fb_not_owner": "ця кнопка не для вас",
+        "degraded_alert": (
+            "⚠️ Класифікатор деградував: {count} помилок за {hours}год. "
+            "Ескалації зараз лише за ключовими словами."
+        ),
         "help_text": (
             "📖 Пульт Ані — як це працює\n\n"
             "Аня відповідає лідам сама. Щойно ви напишете в діалог власноруч — "
@@ -432,3 +499,65 @@ def _autoresume_warning(language: str, beat_age: float | None) -> str:
     if beat_age is None:
         return console_text("status_autoresume_never", language)
     return console_text("status_autoresume_stale", language, gap=_humanize_gap(beat_age))
+
+
+# ---------------------------------------------------------------------------
+# Арка 3B: наборы кнопок + карточка эскалации. Button/Action живут в
+# chatter.notify.base (односторонняя зависимость console -> notify.base, без
+# цикла: notify.base ничего из console не импортирует).
+# ---------------------------------------------------------------------------
+from chatter.notify.base import Action, Button  # noqa: E402
+
+
+_BUTTON_LABEL_KEY = {
+    Action.RESUME: "btn_resume",
+    Action.SNOOZE: "btn_snooze",
+    Action.OPEN: "btn_open",
+    Action.STOP: "btn_stop",
+    Action.KEEP: "btn_keep",
+}
+
+
+def _buttons(actions: list[Action], language: str) -> list[Button]:
+    return [Button(action=a, label=console_text(_BUTTON_LABEL_KEY[a], language)) for a in actions]
+
+
+def escalation_buttons(language: str = "ru") -> list[Button]:
+    """Полный набор карточки эскалации (§2/§3): вернуть, ещё 1ч, открыть, стоп,
+    оставить Ане."""
+    return _buttons(
+        [Action.RESUME, Action.SNOOZE, Action.OPEN, Action.STOP, Action.KEEP], language)
+
+
+def pause_buttons(language: str = "ru") -> list[Button]:
+    """Карточка паузы: как эскалация, но без «Оставить Ане» (это не эскалация,
+    диалог уже на паузе)."""
+    return _buttons([Action.RESUME, Action.SNOOZE, Action.OPEN, Action.STOP], language)
+
+
+def format_escalation_card(
+    *, name_html: str, link: str, summary: str, reason: str,
+    recent: list[tuple[str, str]], language: str = "ru",
+    persona_name: str | None = None, recent_limit: int = 5,
+) -> str:
+    """Карточка эскалации, по которой владелец решает за 3 секунды (§3):
+    кто (кликабельное имя) · что хочет (summary одной строкой) · последние
+    3-5 реплик · почему эскалировано.
+
+    `name_html` уже HTML-экранирован (результат display_name/html_link).
+    `summary`/`reason` — доверенные короткие строки (наши или reason
+    классификатора), но экранируем защитно. Текст реплик (`recent`) — СЫРОЙ
+    (слова лида/персоны), гоним через safe_snippet."""
+    lead = console_text("esc_role_lead", language)
+    persona = persona_name or console_text("esc_role_persona", language)
+    lines = [
+        console_text("esc_header", language, name=name_html),
+        console_text("esc_wants", language, summary=safe_snippet(summary, limit=200)),
+        console_text("esc_why", language, reason=safe_snippet(reason, limit=120)),
+        "",
+        console_text("esc_recent_header", language),
+    ]
+    for role, text in recent[-recent_limit:]:
+        who = escape_html(lead if role == "user" else persona)
+        lines.append(f"<b>{who}:</b> {safe_snippet(text, limit=200)}")
+    return "\n".join(lines)
