@@ -1,7 +1,20 @@
 """Чистый парсер команд пульта. Ноль Telethon."""
 from __future__ import annotations
 
-from chatter.core.console import Command, PauseView, format_status, parse_command
+import re
+
+from chatter.core.console import (
+    CONSOLE_STRINGS,
+    Command,
+    PauseView,
+    console_text,
+    contact_link,
+    display_name,
+    escape_html,
+    format_status,
+    parse_command,
+    safe_snippet,
+)
 
 HOUR = 3600.0
 
@@ -172,6 +185,149 @@ def test_status_without_any_pause_says_so_plainly():
                         autoresume_beat_age=3.0, autoresume_interval=60.0,
                         now=0.0, window_hours=24)
     assert "Заглушено диалогов: 0" in out
+
+
+
+# ---------------------------------------------------------------------------
+# Задача 1 под-арки 3A-UX: человеческие имена вместо голых id, i18n, escaping.
+# ---------------------------------------------------------------------------
+
+def test_display_name_full_name():
+    assert display_name(first_name="Даниил", last_name="Лапин") == "Даниил Лапин"
+
+
+def test_display_name_first_name_only():
+    assert display_name(first_name="Вася") == "Вася"
+
+
+def test_display_name_last_name_only():
+    # first_name бывает пуст (Telegram это допускает) — фамилия одна тоже имя.
+    assert display_name(last_name="Иванов") == "Иванов"
+
+
+def test_display_name_title_for_channels_and_groups():
+    assert display_name(title="Клиенты салона") == "Клиенты салона"
+
+
+def test_display_name_username_only():
+    assert display_name(username="lapin") == "@lapin"
+
+
+def test_display_name_nothing_but_id():
+    # Голый id — признак того, что о человеке НИЧЕГО не известно, а не норма.
+    assert display_name(user_id=237616472) == "237616472"
+
+
+def test_display_name_combines_name_and_username():
+    assert display_name(first_name="Даниил", last_name="Лапин", username="lapin") == \
+        "Даниил Лапин (@lapin)"
+
+
+def test_display_name_never_bare_id_when_name_or_username_known():
+    # Главный тест под критерий приёмки спеки: если известно хоть что-то --
+    # имя, фамилия или юзернейм -- голый числовой id не должен всплыть.
+    uid = 237616472
+    assert str(uid) not in display_name(first_name="Иван", user_id=uid)
+    assert str(uid) not in display_name(username="ivan", user_id=uid)
+    assert str(uid) not in display_name(title="Группа", user_id=uid)
+
+
+def test_display_name_escapes_html_special_chars():
+    # first_name -- ПОЛЬЗОВАТЕЛЬСКИЙ текст (владелец профиля пишет что хочет
+    # себе в имя). Если не экранировать, "<script>" в имени сломает
+    # HTML-разметку карточки/статуса ровно как detail с тегами (спека §7).
+    out = display_name(first_name="<script>")
+    assert "<script>" not in out
+    assert "&lt;script&gt;" in out
+
+
+def test_contact_link_prefers_username():
+    assert contact_link(username="lapin", user_id=237616472) == "t.me/lapin"
+
+
+def test_contact_link_falls_back_to_id_link():
+    assert contact_link(user_id=237616472) == "tg://user?id=237616472"
+
+
+def test_escape_html_covers_all_five_special_chars():
+    out = escape_html("<b>a & b \"c\" 'd'</b>")
+    assert "<" not in out.replace("&lt;", "").replace("&gt;", "")
+    assert "&lt;b&gt;" in out
+    assert "&amp;" in out
+    assert "&quot;" in out
+    # html.escape(quote=True) кодирует апостроф числовой сущностью &#x27;.
+    assert "&#x27;" in out
+
+
+def test_safe_snippet_escapes_angle_brackets_and_ampersand():
+    assert safe_snippet("<b>hi</b>") == "&lt;b&gt;hi&lt;/b&gt;"
+
+
+def test_safe_snippet_escapes_quotes():
+    out = safe_snippet('she said "hi"')
+    assert "&quot;" in out
+    assert '"' not in out
+
+
+def test_safe_snippet_collapses_newline_and_escapes_together():
+    # Комбинация из спеки: перевод строки (подделка "физической" строки
+    # статуса, найдено в 3A) И спецсимвол (подделка HTML-разметки) в ОДНОМ
+    # detail. Обе защиты обязаны сработать одновременно, не по очереди.
+    out = safe_snippet("line1 <b>&\nline2")
+    assert "\n" not in out
+    assert "<b>" not in out
+    assert "&lt;b&gt;" in out
+
+
+def test_safe_snippet_truncation_never_cuts_an_entity_in_half():
+    # Если бы порядок был "экранировать -> обрезать", символ "&" ровно на
+    # границе среза расширился бы в "&amp;" (5 симв.), а обрезка по [:40]
+    # разрубила бы её на "&am" -- Telegram отказался бы парсить HTML
+    # целиком. Экранирование ПОСЛЕ обрезки исключает это по построению:
+    # что бы ни осталось после среза сырого текста, escape() всегда выдаёт
+    # ЦЕЛУЮ сущность для каждого спецсимвола в остатке.
+    text = "a" * 39 + "&" + "amp;rest of a very long trailing string"
+    out = safe_snippet(text, limit=40)
+    assert "&amp;" in out
+    # Ни одной "оборванной" сущности: любой "&" в результате -- начало
+    # ПОЛНОЙ известной сущности, не хвост "&am"/"&l"/"&quo" и т.п.
+    assert re.search(r"&(?!amp;|lt;|gt;|quot;|#x27;)", out) is None
+
+
+def test_safe_snippet_short_text_unaffected():
+    assert safe_snippet("hello") == "hello"
+
+
+def test_console_text_ru_default():
+    assert console_text("list_is_stale", "ru") == "список устарел, набери /status"
+
+
+def test_console_text_en():
+    assert console_text("list_is_stale", "en") == "list is stale, run /status"
+
+
+def test_console_text_uk():
+    assert console_text("list_is_stale", "uk") == "список застарів, наберіть /status"
+
+
+def test_console_text_unknown_language_falls_back_to_ru():
+    # Тот же паттерн, что disclosure.honest_disclosure: неизвестный язык -> ru.
+    assert console_text("list_is_stale", "de") == console_text("list_is_stale", "ru")
+
+
+def test_console_text_formats_kwargs():
+    assert console_text("resume_hint", "ru", n=3) == "→ /resume 3"
+
+
+def test_console_strings_no_key_lost_in_any_language():
+    # Тест-страж: набор ключей во всех трёх словарях ОБЯЗАН совпадать -- иначе
+    # английский клиент получит дыру в интерфейсе (KeyError или голый ключ)
+    # там, где русский владелец её никогда не увидит.
+    ru_keys = set(CONSOLE_STRINGS["ru"])
+    en_keys = set(CONSOLE_STRINGS["en"])
+    uk_keys = set(CONSOLE_STRINGS["uk"])
+    assert ru_keys == en_keys == uk_keys
+    assert len(ru_keys) > 0
 
 
 def test_status_flags_autoresume_that_never_ran_even_once():

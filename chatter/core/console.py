@@ -3,6 +3,7 @@
 Ноль Telethon и ноль сети: раннер приносит текст, получает Command."""
 from __future__ import annotations
 
+import html
 import re
 from dataclasses import dataclass
 
@@ -58,6 +59,151 @@ SOURCE_LABELS = {
     "human_takeover": "вы вмешались",
     "command": "команда /pause",
 }
+
+
+# ---------------------------------------------------------------------------
+# Задача 1 под-арки 3A-UX (спека 2026-07-17-chatter-arc3a-ux-design.md §7):
+# человеческие имена вместо голых id + HTML-экранирование + i18n.
+# Чистые кирпичи — раннер (Telethon) достаёт first_name/last_name/title/
+# username из entity и передаёт сюда голыми аргументами, сети здесь нет.
+# ---------------------------------------------------------------------------
+
+def display_name(
+    *, first_name: str | None = None, last_name: str | None = None,
+    title: str | None = None, username: str | None = None,
+    user_id: int | str | None = None,
+) -> str:
+    """Имя для интерфейса, цепочка fallback из спеки §7:
+    first_name+last_name -> title (каналы/группы) -> @username -> id.
+
+    Голый числовой id — это признак того, что о человеке НЕ известно НИЧЕГО,
+    а не нормальный вид карточки (находка живого дрила: оператор не смог
+    возобновить диалог, увидев только число). Если известны и имя (или
+    title), и username — оба идут в одну строку: "Даниил Лапин (@lapin)".
+
+    Возвращаемая строка уже HTML-экранирована (escape_html) — она всегда
+    подставляется в HTML-сообщение (кликабельное имя требует parse_mode),
+    а first_name/last_name/title — ПОЛЬЗОВАТЕЛЬСКИЙ текст (человек может
+    вписать себе в профиль что угодно, включая "<script>")."""
+    full_name = " ".join(p for p in (first_name, last_name) if p)
+    primary = full_name or title or None
+
+    if primary:
+        name = escape_html(primary)
+        if username:
+            name += f" (@{escape_html(username)})"
+        return name
+    if username:
+        return f"@{escape_html(username)}"
+    return escape_html(str(user_id))
+
+
+def contact_link(*, username: str | None = None, user_id: int | str | None = None) -> str:
+    """Кликабельная ссылка на диалог (спека §7): t.me/<username>, а если
+    юзернейма нет — tg://user?id=<id> (работает, пока entity в кэше сессии).
+
+    Username в Telegram ограничен алфавитом [A-Za-z0-9_] (сервер не
+    позволяет ничего другого), поэтому здесь, в отличие от display_name,
+    экранировать нечего — сюда не может попасть текст, который развалит
+    HTML-разметку."""
+    if username:
+        return f"t.me/{username}"
+    return f"tg://user?id={user_id}"
+
+
+def escape_html(text: str) -> str:
+    """Единая точка экранирования для ВСЕГО пользовательского текста,
+    который подставляется в HTML-сообщение Telegram (parse_mode=HTML):
+    имя, username, detail. html.escape(quote=True) закрывает все 5
+    спецсимволов (<, >, &, ", '), не только <>& — Telegram-парсер такой же
+    строгий к кавычкам внутри атрибутов, как браузер."""
+    return html.escape(text, quote=True)
+
+
+def safe_snippet(text: str, limit: int = 40) -> str:
+    """Безопасный обрезанный фрагмент пользовательского текста (detail и
+    т.п.) для HTML-сообщения. Порядок ОБЯЗАТЕЛЬНО такой:
+
+        схлопнуть переводы строк -> обрезать СЫРОЙ текст -> экранировать
+
+    а не "экранировать -> обрезать": html.escape раздувает один символ в
+    многосимвольную сущность (& -> &amp;, 5 символов). Если резать ПОСЛЕ
+    экранирования по количеству символов, срез может прийтись на середину
+    сущности ("&amp;" -> "&am") — Telegram увидит незакрытую сущность и
+    ОТКАЖЕТСЯ парсить HTML целиком, то есть /status перестанет отправляться
+    вообще (это злее старого бага с \\n в detail — там ломалась только
+    вёрстка). Экранирование ПОСЛЕ обрезки безопасно по построению: что бы
+    ни осталось после среза сырого текста, escape() всегда выдаёт ЦЕЛУЮ
+    сущность для каждого спецсимвола в остатке — оборванной сущности
+    получиться не может в принципе."""
+    collapsed = _one_line(text)
+    truncated = collapsed if len(collapsed) <= limit else collapsed[:limit] + "…"
+    return escape_html(truncated)
+
+
+# {язык: {смысловой_ключ: шаблон}} — по образцу disclosure.py (тот же
+# паттерн словарь-на-язык с .get(language, ru-словарь) фолбэком), но там
+# несколько узких словарей под разные части фразы, здесь один словарь под
+# все строки пульта, потому что пульт — это много независимых сообщений,
+# а не одна собираемая фраза. Ключи по СМЫСЛУ (status_header, resume_hint),
+# не по русскому тексту — иначе переименование в одном языке шаталo бы все.
+CONSOLE_STRINGS: dict[str, dict[str, str]] = {
+    "ru": {
+        "status_header": "⏸ Паузы ({n}):",
+        "status_intervened": "вы вмешались {gap} назад",
+        "status_paused_for": "/pause {duration}, осталось {remaining}",
+        "status_active_footer": "🟢 Бот активен · авто-возврат: прогон {gap} назад",
+        "status_stopped_footer": "🔴 Бот остановлен (/stop). Снять: /start",
+        "resume_hint": "→ /resume {n}",
+        "list_is_stale": "список устарел, набери /status",
+        "no_such_number": "нет такого номера, набери /status",
+        "card_header": "⏸ Пауза: {name}",
+        "card_intervened_detail": "Вы вмешались: «{detail}»",
+        "card_silent": "{persona} молчит в этом диалоге.",
+        "card_resume_reply_hint": "Ответьте /resume на это сообщение",
+        "card_resume_status_hint": "или: /status → /resume <номер>",
+    },
+    "en": {
+        "status_header": "⏸ Paused ({n}):",
+        "status_intervened": "you stepped in {gap} ago",
+        "status_paused_for": "/pause {duration}, {remaining} left",
+        "status_active_footer": "🟢 Bot active · auto-resume: last run {gap} ago",
+        "status_stopped_footer": "🔴 Bot stopped (/stop). Lift with: /start",
+        "resume_hint": "→ /resume {n}",
+        "list_is_stale": "list is stale, run /status",
+        "no_such_number": "no such number, run /status",
+        "card_header": "⏸ Paused: {name}",
+        "card_intervened_detail": "You stepped in: «{detail}»",
+        "card_silent": "{persona} is silent in this chat.",
+        "card_resume_reply_hint": "Reply /resume to this message",
+        "card_resume_status_hint": "or: /status → /resume <number>",
+    },
+    "uk": {
+        "status_header": "⏸ Паузи ({n}):",
+        "status_intervened": "ви втрутилися {gap} тому",
+        "status_paused_for": "/pause {duration}, залишилось {remaining}",
+        "status_active_footer": "🟢 Бот активний · авто-повернення: запуск {gap} тому",
+        "status_stopped_footer": "🔴 Бот зупинено (/stop). Зняти: /start",
+        "resume_hint": "→ /resume {n}",
+        "list_is_stale": "список застарів, наберіть /status",
+        "no_such_number": "немає такого номера, наберіть /status",
+        "card_header": "⏸ Пауза: {name}",
+        "card_intervened_detail": "Ви втрутилися: «{detail}»",
+        "card_silent": "{persona} мовчить у цьому діалозі.",
+        "card_resume_reply_hint": "Відповідайте /resume на це повідомлення",
+        "card_resume_status_hint": "або: /status → /resume <номер>",
+    },
+}
+
+
+def console_text(key: str, language: str = "ru", **kwargs) -> str:
+    """Строка пульта на нужном языке (settings.yaml: language). Неизвестный
+    язык -> ru, тот же фолбэк, что disclosure.honest_disclosure — владелец
+    всегда получит понятный текст, даже если раннер передал опечатку/новый
+    язык, которого ещё нет в словаре, вместо KeyError на ровном месте."""
+    strings = CONSOLE_STRINGS.get(language, CONSOLE_STRINGS["ru"])
+    template = strings[key]
+    return template.format(**kwargs) if kwargs else template
 
 
 @dataclass(frozen=True)
