@@ -17,6 +17,7 @@ from chatter.core.brand_safety import forbidden_mention
 from chatter.core.conversation import next_state
 from chatter.core.disclosure import is_bot_question
 from chatter.core.guardrails import contains_unbacked_claim
+from chatter.core.obligations import DEFAULT_PROMISE_TERMS, unbacked_promise
 
 # Зеркалит conversation._TERMINAL (приватное там). Завершённый диалог не
 # воскрешаем ни сигналом воронки, ни эскалацией.
@@ -76,24 +77,30 @@ class EscalationReason:
 
 def deterministic_escalation(
     *, incoming_text: str, reply: str, knowledge: str, keywords: list[str],
-    forbidden_terms=(),
+    forbidden_terms=(), promise_terms=DEFAULT_PROMISE_TERMS,
 ) -> EscalationReason | None:
     """Слой 1 (спека §4): бесплатные детерминированные триггеры. Работают, даже
     если классификатор/сеть лежат. Возвращает ПЕРВЫЙ сработавший триггер, иначе
     None.
 
-    Порядок по КРИТИЧНОСТИ: brand-safety в ответе (Аня вот-вот скажет
-    запрещённое — рубли/росбанк — подавить ОБЯЗАТЕЛЬНО) → ключевое слово →
-    вопрос про бота → brand-safety во входящем (лид спросил про запрещённое) →
-    необеспеченное обещание. forbidden_reply → run.py переписывает ответ.
+    Порядок по КРИТИЧНОСТИ: brand-safety в ответе (запрещённое — рубли/росбанк) →
+    необеспеченное ОБЕЩАНИЕ в ответе (скидка/гарантия/«свяжется» вне базы, H1) →
+    ключевое слово → вопрос про бота → brand-safety во входящем → необеспеченная
+    ЦИФРА в ответе. Оба «в ответе»-триггера (forbidden_reply, unbacked_promise)
+    идут ДО keyword: иначе keyword эскалирует, но run.py НЕ подавит ответ, и
+    запрещённое/обещание уйдёт лиду.
 
-    ШОВ: вызывает `is_bot_question`/`contains_unbacked_claim`/`forbidden_mention`,
-    не правит core-файлы.
+    ШОВ: вызывает is_bot_question/contains_unbacked_claim/forbidden_mention/
+    unbacked_promise, не правит core-файлы.
     """
     hit = forbidden_mention(reply or "", forbidden_terms)
     if hit:
         return EscalationReason(
             tag="forbidden_reply", detail=f"ответ упомянул запрещённое «{hit}»")
+    promise = unbacked_promise(reply or "", knowledge or "", promise_terms)
+    if promise:
+        return EscalationReason(
+            tag="unbacked_promise", detail=f"обещание вне базы знаний «{promise}»")
     text = (incoming_text or "").casefold()
     for kw in keywords:
         if kw and kw in text:

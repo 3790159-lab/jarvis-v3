@@ -88,10 +88,46 @@ def test_bot_question_escalates():
 
 def test_unbacked_claim_in_reply_escalates():
     # Ответ обещает цену, которой нет в knowledge -> guardrail-триггер.
+    # (без «скидкой» — иначе сработал бы более ранний unbacked_promise; здесь
+    #  проверяем именно цифровой слой.)
     r = deterministic_escalation(
-        incoming_text="сколько стоит?", reply="Всего 999 рублей со скидкой!",
+        incoming_text="сколько стоит?", reply="Всего 999 рублей за всё!",
         knowledge=KNOWLEDGE, keywords=KEYWORDS)
     assert r is not None and r.tag == "unbacked_claim"
+
+
+def test_unbacked_promise_in_reply_escalates():
+    # H1: безцифровое обещание в ОТВЕТЕ Ани, которого нет в knowledge.
+    r = deterministic_escalation(
+        incoming_text="а скидку дадите?", reply="Конечно, могу сделать скидку.",
+        knowledge=KNOWLEDGE, keywords=KEYWORDS)
+    assert r is not None and r.tag == "unbacked_promise"
+
+
+def test_promise_checked_on_reply_not_incoming():
+    # Обещание проверяем в ОТВЕТЕ Ани, не во входящем лида. Лид спросил про
+    # скидку — это не обещание Ани, не триггер.
+    r = deterministic_escalation(
+        incoming_text="есть скидка?", reply="Актуальные цены пришлю.",
+        knowledge=KNOWLEDGE, keywords=[])
+    assert r is None
+
+
+def test_honest_refusal_in_reply_not_escalated():
+    # Негейт-гард: честный отказ обязан проходить, не подавляться.
+    r = deterministic_escalation(
+        incoming_text="скидка будет?", reply="Скидок нет, цена фиксированная.",
+        knowledge=KNOWLEDGE, keywords=[])
+    assert r is None
+
+
+def test_promise_wins_over_keyword_for_suppression_priority():
+    # Обещание в ответе + keyword во входящем: unbacked_promise ВЫИГРЫВАЕТ, иначе
+    # keyword эскалирует, но обещание уходит лиду неподавленным.
+    r = deterministic_escalation(
+        incoming_text="жалоба! и скидку дайте", reply="Хорошо, сделаю скидку.",
+        knowledge=KNOWLEDGE, keywords=KEYWORDS)
+    assert r is not None and r.tag == "unbacked_promise"
 
 
 def test_clean_conversation_no_escalation():

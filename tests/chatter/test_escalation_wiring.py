@@ -226,6 +226,34 @@ def test_suppressed_payment_reply_is_helpful_not_silence_not_stall():
     assert len(n.cards) == 1                            # + эскалация владельцу
 
 
+def test_unbacked_promise_reply_suppressed_and_escalated():
+    # H1: Аня пообещала скидку (нет в knowledge, без цифры) → подавить на
+    # нейтральный ПОЛЕЗНЫЙ ответ (не тишина, не глухой стол) + эскалация.
+    n = FakeNotifier()
+    deps = _deps(notifier=n, keywords=[], brain_reply="Конечно, могу сделать скидку при заказе.")
+    t = RecordingTransport()
+    deps.store.get_or_create_contact("42:demo")
+    process_batch("42:demo", ["а можно скидку?"], t, deps)
+    joined = " ".join(t.sent)
+    assert joined.strip()                          # НЕ тишина
+    assert "скидк" not in joined.casefold()        # обещание подавлено
+    assert len(n.cards) == 1                        # эскалация владельцу
+    assert deps.store.get_or_create_contact("42:demo")["state"] == "escalated"
+
+
+def test_honest_refusal_reply_not_suppressed_not_escalated():
+    # Негейт-гард на уровне process_batch: честный отказ проходит дословно,
+    # не подавляется и не эскалирует (бот обязан уметь сказать «нет»).
+    n = FakeNotifier()
+    deps = _deps(notifier=n, keywords=[], brain_reply="Скидок нет, цена фиксированная.")
+    t = RecordingTransport()
+    deps.store.get_or_create_contact("42:demo")
+    process_batch("42:demo", ["скидка есть?"], t, deps)
+    joined = " ".join(t.sent).casefold()
+    assert "скидок нет" in joined                   # правда доставлена
+    assert n.cards == []                            # не эскалировано
+
+
 def test_demo_has_safe_payment_reply():
     cfg = load_config(CLIENTS, "demo")
     assert cfg.settings.safe_payment_reply
