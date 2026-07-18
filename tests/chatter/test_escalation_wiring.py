@@ -254,6 +254,53 @@ def test_honest_refusal_reply_not_suppressed_not_escalated():
     assert n.cards == []                            # не эскалировано
 
 
+class _FailingNotifier(FakeNotifier):
+    """Строит карточку, но доставка проваливается (notify → None) — как реальный
+    notify(), который глотает сетевые сбои Bot API."""
+    def notify(self, card):
+        self.cards.append(card)     # карточка собрана
+        return None                 # но не доставлена
+
+
+def test_owner_contact_promise_kept_when_card_delivered():
+    # H2: «Дмитрий свяжется» H1 подавляет до нейтрального «…позову Дмитрий».
+    # Карточка ДОШЛА до владельца → обещание участия владельца допустимо.
+    n = FakeNotifier()
+    deps = _deps(notifier=n, keywords=[], brain_reply="Дмитрий свяжется с вами.")
+    t = RecordingTransport()
+    deps.store.get_or_create_contact("42:demo")
+    process_batch("42:demo", ["позовите владельца"], t, deps)
+    joined = " ".join(t.sent)
+    assert len(n.cards) == 1
+    assert "свяж" not in joined.casefold()   # сырое обещание за владельца снято (H1)
+    assert "Дмитрий" in joined               # но участие владельца обещано — карточка дошла
+
+
+def test_owner_contact_promise_stripped_when_card_not_delivered():
+    # H2 ядро: карточка НЕ дошла до владельца (сбой доставки) → Аня НЕ обещает
+    # контакт от его имени. Говорит то, что выполнит сама (без имени владельца).
+    n = _FailingNotifier()
+    deps = _deps(notifier=n, keywords=[], brain_reply="Дмитрий свяжется с вами.")
+    t = RecordingTransport()
+    deps.store.get_or_create_contact("42:demo")
+    process_batch("42:demo", ["позовите владельца"], t, deps)
+    joined = " ".join(t.sent)
+    assert joined.strip()                     # НЕ тишина
+    assert "Дмитрий" not in joined            # владелец НЕ обещан (карточка не дошла)
+    assert "свяж" not in joined.casefold()    # и сырого обещания нет
+
+
+def test_owner_contact_promise_stripped_when_no_notifier():
+    # Нет канала доставки владельцу (notifier=None) → обещать его контакт нельзя.
+    deps = _deps(notifier=None, keywords=[], brain_reply="Дмитрий свяжется с вами.")
+    t = RecordingTransport()
+    deps.store.get_or_create_contact("42:demo")
+    process_batch("42:demo", ["позовите владельца"], t, deps)
+    joined = " ".join(t.sent)
+    assert joined.strip()
+    assert "Дмитрий" not in joined
+
+
 def test_demo_has_safe_payment_reply():
     cfg = load_config(CLIENTS, "demo")
     assert cfg.settings.safe_payment_reply

@@ -163,7 +163,7 @@ def _escalation_pass(
 
     advance_funnel(store, contact_id, stage_signal=decision.stage_signal, escalated=decision.escalate)
 
-    if det is not None and det.tag in ("unbacked_claim", "forbidden_reply", "unbacked_promise"):
+    if det is not None and det.tag in _SUPPRESS_TAGS:
         # Гардрейл-подавление: НЕ отправляем ни выдуманную цену/срок (unbacked_claim),
         # ни запрещённый термин (forbidden_reply, рубли/росбанк), ни безцифровое
         # ОБЕЩАНИЕ вне базы (unbacked_promise: скидка/гарантия/рассрочка/«свяжется» —
@@ -184,15 +184,44 @@ def _escalation_pass(
                 f"Если удобно, позову {cfg.settings.owner_id}."
             )
 
+    delivered = False
     if decision.escalate and deps.notifier is not None:
-        _post_escalation_card(deps, contact_id, det=det, cr=cr, now=now)
+        delivered = _post_escalation_card(deps, contact_id, det=det, cr=cr, now=now)
+    # H2: обещание участия ВЛАДЕЛЬЦА (называет его по имени или «свяжется/
+    # перезвонит») допустимо, только если карточка реально дошла до владельца.
+    # Не дошла (сбой доставки, нет notifier, эскалации не было) → не обещаем
+    # контакт от его имени: говорим то, что Аня выполнит сама. Причина↔следствие.
+    # ТОЛЬКО для подавленных ответов (промис-путь): честное раскрытие «я бот,
+    # подключу владельца» тоже называет владельца, но это НЕ обещание за него и
+    # его трогать нельзя (оно защищено, tag=bot_question, не suppress).
+    suppressed = det is not None and det.tag in _SUPPRESS_TAGS
+    if suppressed and not delivered and _reply_implies_owner_contact(reply, cfg.settings.owner_id):
+        reply = "Хороший вопрос — уточню детали и вернусь к вам."
     return reply
 
 
-def _post_escalation_card(deps: "Deps", contact_id: str, *, det, cr, now: float) -> None:
+_SUPPRESS_TAGS = ("unbacked_claim", "forbidden_reply", "unbacked_promise")
+_OWNER_CONTACT_VERBS = ("свяж", "перезвон", "передзвон", "созвон")
+
+
+def _reply_implies_owner_contact(reply: str, owner_id: str) -> bool:
+    """Ответ обещает участие ЧЕЛОВЕКА-владельца: называет его по имени или несёт
+    глагол стороннего контакта («свяжется/перезвонит»). Такое обещание завязано
+    на то, что владелец реально узнал о лиде (H2)."""
+    low = (reply or "").casefold()
+    if owner_id and owner_id.casefold() in low:
+        return True
+    return any(v in low for v in _OWNER_CONTACT_VERBS)
+
+
+def _post_escalation_card(deps: "Deps", contact_id: str, *, det, cr, now: float) -> bool:
     """Собрать и отправить карточку эскалации. Имя/ссылку строит раннер
     (`deps.escalation_card`, у него есть Telethon-entity); без него — текстовый
-    фоллбек по contact_id. Никогда не роняет process_batch (DEV-18)."""
+    фоллбек по contact_id. Никогда не роняет process_batch (DEV-18).
+
+    Возвращает True, если карточка ДОШЛА до владельца (notify/update успешны),
+    иначе False. H2: обещание участия владельца лиду допустимо, только если
+    владелец реально получил карточку — иначе он «слеп», а лид ждёт впустую."""
     cfg = deps.cfg
     language = cfg.settings.language
     recent = [(m["role"], m["text"]) for m in deps.store.history(contact_id)][-5:]
@@ -241,18 +270,20 @@ def _post_escalation_card(deps: "Deps", contact_id: str, *, det, cr, now: float)
         active = deps.store.get_runtime_flag(esc_active_key(contact_id))
         if active:
             deps.notifier.update_card(CardHandle(ref=active), card)
-            return
+            return True    # карточка у владельца уже есть, обновили — доставлено
         handle = deps.notifier.notify(card)
     except Exception:
         log.exception("escalation card FAILED for %s", contact_id)
-        return
-    if handle is not None:
-        deps.store.set_runtime_flag(esc_active_key(contact_id), handle.ref, ts=now)
-        try:
-            msg_id = int(handle.ref.split(":")[-1])
-            deps.store.add_card(msg_id=msg_id, contact_id=contact_id, kind="escalation", ts=now)
-        except Exception:
-            log.warning("could not record escalation card handle %r", handle, exc_info=True)
+        return False
+    if handle is None:
+        return False       # notify проглотил сбой доставки — владелец НЕ получил
+    deps.store.set_runtime_flag(esc_active_key(contact_id), handle.ref, ts=now)
+    try:
+        msg_id = int(handle.ref.split(":")[-1])
+        deps.store.add_card(msg_id=msg_id, contact_id=contact_id, kind="escalation", ts=now)
+    except Exception:
+        log.warning("could not record escalation card handle %r", handle, exc_info=True)
+    return True
 
 
 def _maybe_degraded_alert(deps: "Deps", *, now: float) -> None:
