@@ -47,9 +47,36 @@ _WEEKDAY_DEADLINE = re.compile(rf"\bк\s+({_WEEKDAY})", re.IGNORECASE)
 
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 
+# Любая единица времени где-либо во фрагменте — чтобы пометить его числа как
+# «срочные» при разборе knowledge (M1: контекстное подтверждение).
+_ANY_TIME_UNIT = re.compile(_TIME_UNIT, re.IGNORECASE)
+
 
 def _numbers(text: str) -> set[str]:
     return {re.sub(r"\s", "", m.group()) for m in _NUMBER.finditer(text or "")}
+
+
+def _context_numbers(knowledge: str) -> tuple[set[str], set[str]]:
+    """Числа knowledge по КОНТЕКСТУ (M1): (ценовые, срочные). Число «обеспечено»
+    для ценового/срочного обещания, только если стоит в ТОМ ЖЕ контексте в
+    knowledge, а не просто где-то в файле (плоское known_numbers пускало
+    выдуманный срок, переиспользующий цену/номер как «известное» число).
+
+    knowledge режем по строкам и границам предложений; фрагмент с ценовым
+    словом/валютой отдаёт свои числа в ценовые, фрагмент с единицей времени —
+    в срочные (один фрагмент, напр. «15000 грн за съёмку (2 часа)», может дать
+    в оба)."""
+    price: set[str] = set()
+    deadline: set[str] = set()
+    for frag in re.split(r"[\n.!?;]", knowledge or ""):
+        nums = _numbers(frag)
+        if not nums:
+            continue
+        if _PRICE_CONTEXT.search(frag):
+            price |= nums
+        if _ANY_TIME_UNIT.search(frag):
+            deadline |= nums
+    return price, deadline
 
 
 def _split_sentences(text: str) -> list[str]:
@@ -79,6 +106,7 @@ def contains_unbacked_claim(reply: str, knowledge: str) -> bool:
     """
     text = reply or ""
     known_numbers = _numbers(knowledge)
+    price_numbers, deadline_numbers = _context_numbers(knowledge)
     knowledge_lower = (knowledge or "").lower()
 
     for m in _WEEKDAY_DEADLINE.finditer(text):
@@ -87,8 +115,10 @@ def contains_unbacked_claim(reply: str, knowledge: str) -> bool:
             return True
 
     for m in _DEADLINE_NUM.finditer(text):
+        # M1: срок обеспечен, только если это число стоит в СРОЧНОМ контексте
+        # knowledge, а не просто где-то (цена/номер карты не обеспечивают срок).
         num = re.sub(r"\s", "", m.group(1))
-        if num not in known_numbers:
+        if num not in deadline_numbers:
             return True
 
     for m in _DEADLINE_NO_NUM.finditer(text):
@@ -99,7 +129,8 @@ def contains_unbacked_claim(reply: str, knowledge: str) -> bool:
     for sentence in _split_sentences(text):
         if _PRICE_CONTEXT.search(sentence):
             for num in _numbers(sentence):
-                if num not in known_numbers:
+                # M1: цена обеспечена только числом из ЦЕНОВОГО контекста knowledge.
+                if num not in price_numbers:
                     return True
 
     for num in _numbers(text):

@@ -49,6 +49,42 @@ def test_ma_substring_words_do_not_false_positive_as_may_deadline(reply):
     assert contains_unbacked_claim(reply, KNOWLEDGE) is False
 
 
+# --- M1: подтверждение числа КОНТЕКСТНОЕ, не «где-то в файле» ------------------
+# Реальные значения демо-базы (цены и срок), обеспеченные СВОИМ контекстом.
+DEMO_KB = (
+    "Консультация онлайн 60 минут. Цена: 5000 грн. "
+    "Фотосессия 15000 грн за съёмку (1.5–2 часа, 15 обработанных кадров). "
+    "Студия +2000 грн. Предоплата 50% для брони. "
+    "Перенос возможен не позднее чем за 48 часов. Готовые фото в течение 7 дней."
+)
+
+
+@pytest.mark.parametrize("reply", [
+    "Консультация 5000 грн.",
+    "Съёмка 15000 грн.",
+    "Студия +2000 грн.",
+    "Предоплата 50%.",
+    "Перенос возможен за 48 часов.",
+])
+def test_demo_backed_values_stay_backed(reply):
+    # СТОП-ГАРД: контекстное подтверждение НЕ должно душить реальные обеспеченные
+    # ответы демо (цена в ценовом контексте, срок 48ч в срочном).
+    assert contains_unbacked_claim(reply, DEMO_KB) is False
+
+
+def test_price_number_reused_as_deadline_is_flagged():
+    # 5000 обеспечено как ЦЕНА; переиспользованное как СРОК — не обеспечено.
+    assert contains_unbacked_claim("Приедем через 5000 дней", DEMO_KB) is True
+
+
+def test_count_number_reused_as_deadline_is_flagged():
+    # 15 обеспечено как КОЛИЧЕСТВО кадров (не срок, не цена). Выдуманный срок,
+    # переиспользующий 15, теперь флагается (раньше плоское known_numbers пускало).
+    kb = "В съёмку входит 15 обработанных кадров. Готово за 7 дней."
+    assert contains_unbacked_claim("Перенесём за 15 часов", kb) is True
+    assert contains_unbacked_claim("Готово за 7 дней", kb) is False   # реальный срок обеспечен
+
+
 def test_hourly_limit(tmp_path):
     s = Store(tmp_path / "c.db")
     s.get_or_create_contact("u1")
