@@ -24,3 +24,4 @@ def test_plain_reply_is_not_a_return_promise():
     assert not promises_return("Съёмка стоит 15000 грн.")
     assert not promises_return("Наверное, вам подойдёт портретная съёмка.")
     assert not promises_return("")
+    assert not promises_return("Верните деньги за съёмку.")   # «верните» — слово лида, не обещание Ани
