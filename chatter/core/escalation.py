@@ -68,16 +68,48 @@ def esc_active_key(contact_id: str) -> str:
     return f"esc_active:{contact_id}"
 
 
+# Глаголы стороннего контакта + ролевые стемы владельца. Держатся ЗДЕСЬ (не в
+# run.py), потому что их использует и триггер owner_handoff, и H2-детектор в
+# run.py — один источник правды, иначе разъедутся (как разъехались keyword-слой
+# и H2 на дриле 07-19).
+_OWNER_CONTACT_VERBS = ("свяж", "перезвон", "передзвон", "созвон", "подключ")
+_OWNER_ROLE_STEMS = ("владел", "хозяин")   # владелец/владельцем/владельца/…
+
+
+def mentions_owner_contact(reply: str, owner_id: str = "", owner_ref: str | None = None) -> bool:
+    """Ответ обещает участие/контакт ЧЕЛОВЕКА-владельца: глагол стороннего
+    контакта («свяжется/перезвонит/подключу»), ролевое слово («владелец» в любом
+    падеже) ИЛИ имя владельца (в т.ч. склонённое: «Дмитрием»/«Дмитрия»).
+
+    Философия сети H1: лучше поймать лишнее (безобидная лишняя карточка), чем
+    пропустить обещание контакта. Имя матчим по стему (owner_id без последней
+    буквы) ТОЛЬКО для длинных имён (≥6 симв.), чтобы короткие имена не давали
+    ложных подстрок («Аня» → «заняться»)."""
+    low = (reply or "").casefold()
+    if any(v in low for v in _OWNER_CONTACT_VERBS):
+        return True
+    if any(s in low for s in _OWNER_ROLE_STEMS):
+        return True
+    oid = (owner_id or "").casefold()
+    if oid and (oid in low or (len(oid) >= 6 and oid[:-1] in low)):
+        return True
+    ref = (owner_ref or "").casefold()
+    if ref and (ref in low or (len(ref) >= 6 and ref[:-2] in low)):
+        return True
+    return False
+
+
 @dataclass(frozen=True)
 class EscalationReason:
     """Почему диалог эскалирован — для строки «почему» в карточке (§3)."""
-    tag: str        # "keyword" | "bot_question" | "unbacked_claim" | "classifier"
+    tag: str        # "keyword" | "bot_question" | "unbacked_claim" | "owner_handoff" | "classifier"
     detail: str     # человеческая однострочная причина
 
 
 def deterministic_escalation(
     *, incoming_text: str, reply: str, knowledge: str, keywords: list[str],
     forbidden_terms=(), promise_terms=DEFAULT_PROMISE_TERMS,
+    owner_id: str = "", owner_ref: str | None = None,
 ) -> EscalationReason | None:
     """Слой 1 (спека §4): бесплатные детерминированные триггеры. Работают, даже
     если классификатор/сеть лежат. Возвращает ПЕРВЫЙ сработавший триггер, иначе
@@ -114,6 +146,15 @@ def deterministic_escalation(
     if contains_unbacked_claim(reply or "", knowledge or ""):
         return EscalationReason(
             tag="unbacked_claim", detail="ответ обещал цену/срок вне базы знаний")
+    # owner_handoff — ПОСЛЕДНИЙ и НЕ suppress: ответ передаёт лида владельцу
+    # («обсудить с владельцем», «Дмитрий свяжется», склонённое имя). Идёт после
+    # всех suppress-триггеров (иначе выдуманная цена/скидка+«обсудим с владельцем»
+    # ушла бы неподавленной). Гарантирует карточку владельцу ДЕТЕРМИНИРОВАННО,
+    # без опоры на опциональный классификатор (дрил 07-19: скидочный хэндофф
+    # молча уходил мимо владельца). Ответ НЕ подавляем — честный отказ сохраняем.
+    if mentions_owner_contact(reply or "", owner_id=owner_id, owner_ref=owner_ref):
+        return EscalationReason(
+            tag="owner_handoff", detail="ответ предлагает контакт/участие владельца")
     return None
 
 

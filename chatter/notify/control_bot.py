@@ -160,11 +160,15 @@ class ControlBotNotifier(Notifier):
         # Тап-feedback: правим ТЕКСТ и УБИРАЕМ кнопки (карточка «решена»).
         self._edit(handle, text_html, reply_markup={"inline_keyboard": []})
 
-    def update_card(self, handle: CardHandle, card: Card) -> None:
-        # Дедуп (Fix 2): правим существующую карточку, СОХРАНЯЯ кнопки.
-        self._edit(handle, card.text_html, reply_markup=self._keyboard(card) if card.buttons else None)
+    def update_card(self, handle: CardHandle, card: Card) -> bool:
+        # Дедуп (Fix 2): правим существующую карточку, СОХРАНЯЯ кнопки. Возвращает
+        # РЕАЛЬНЫЙ успех правки — H2 полагается на это, чтобы решить, обещать ли
+        # лиду контакт владельца (тихая правка ≠ владелец уведомлён).
+        return self._edit(
+            handle, card.text_html,
+            reply_markup=self._keyboard(card) if card.buttons else None)
 
-    def _edit(self, handle: CardHandle, text_html: str, *, reply_markup) -> None:
+    def _edit(self, handle: CardHandle, text_html: str, *, reply_markup) -> bool:
         try:
             _, chat_id, msg_id = handle.ref.split(":")
             payload = {
@@ -176,9 +180,14 @@ class ControlBotNotifier(Notifier):
             }
             if reply_markup is not None:
                 payload["reply_markup"] = reply_markup
-            self._post("editMessageText", payload)
+            data = self._post("editMessageText", payload)
         except Exception:
             log.exception("ControlBotNotifier: editMessageText упал для %s", handle.ref)
+            return False
+        if not isinstance(data, dict) or not data.get("ok"):
+            log.error("ControlBotNotifier: editMessageText вернул не-ok: %r", data)
+            return False
+        return True
 
     @property
     def has_buttons(self) -> bool:

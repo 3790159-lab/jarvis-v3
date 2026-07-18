@@ -60,10 +60,11 @@ class Notifier(ABC):
         карточка «решена»)."""
 
     @abstractmethod
-    def update_card(self, handle: CardHandle, card: Card) -> None:
+    def update_card(self, handle: CardHandle, card: Card) -> bool:
         """Обновить УЖЕ отправленную карточку (текст + кнопки сохраняются) —
         дедуп: повторная эскалация того же лида правит карточку, а не плодит
-        новую (Fix 2)."""
+        новую (Fix 2). Возвращает True, только если правка РЕАЛЬНО доставлена
+        (H2 полагается на честный delivered; никогда не бросает)."""
 
     @property
     @abstractmethod
@@ -74,12 +75,13 @@ class Notifier(ABC):
 class FakeNotifier(Notifier):
     """Тестовый Notifier: пишет вызовы в .cards / .edits."""
 
-    def __init__(self, *, has_buttons: bool = True):
+    def __init__(self, *, has_buttons: bool = True, update_ok: bool = True):
         self.cards: list[Card] = []
         self.card_handles: list[CardHandle] = []
         self.edits: list[tuple[CardHandle, str]] = []
         self.updates: list[tuple[CardHandle, Card]] = []
         self._has_buttons = has_buttons
+        self._update_ok = update_ok
 
     def notify(self, card: Card) -> CardHandle | None:
         self.cards.append(card)
@@ -90,8 +92,9 @@ class FakeNotifier(Notifier):
     def edit(self, handle: CardHandle, text_html: str) -> None:
         self.edits.append((handle, text_html))
 
-    def update_card(self, handle: CardHandle, card: Card) -> None:
+    def update_card(self, handle: CardHandle, card: Card) -> bool:
         self.updates.append((handle, card))
+        return self._update_ok
 
     @property
     def has_buttons(self) -> bool:

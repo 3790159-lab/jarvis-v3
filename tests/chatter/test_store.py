@@ -100,3 +100,13 @@ def test_store_is_a_context_manager(tmp_path):
         s.get_or_create_contact("u1")
     with pytest.raises(sqlite3.ProgrammingError):
         s.get_or_create_contact("u1")
+
+def test_get_runtime_flag_ts_returns_write_time(tmp_path):
+    # Дедуп эскалации меряет ВОЗРАСТ активной карточки → нужен ts записи флага,
+    # а не только его значение.
+    s = Store(tmp_path / "c.db")
+    assert s.get_runtime_flag_ts("k") is None      # нет флага → None
+    s.set_runtime_flag("k", "v", ts=1234.5)
+    assert s.get_runtime_flag_ts("k") == 1234.5
+    s.set_runtime_flag("k", "v2", ts=9999.0)       # перезапись двигает ts
+    assert s.get_runtime_flag_ts("k") == 9999.0

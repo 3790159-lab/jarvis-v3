@@ -71,6 +71,10 @@ class Settings:
     timings: Timings
     limits: Limits
     persona_age: int | None = None   # опционально, для /config; возраст живёт и в persona.md
+    # Как Аня называет владельца в БЕЗОПАСНЫХ ответах лиду («свяжу вас с …»).
+    # Пишется клиентом уже В НУЖНОМ ПАДЕЖЕ (напр. «владельцем», «менеджером»,
+    # «Дмитрием»), чтобы не склонять owner_id программно. Пусто → «владельцем».
+    owner_ref: str | None = None
     # Brand-safety (валюта/оплата на клиента): валюта показа + запрещённые
     # термины (для укр. бизнеса: рубли, российские банки/платёжные системы).
     currency: str | None = None                # напр. "грн"/"₴"/"USD" — валюта клиента
@@ -208,6 +212,7 @@ def load_config(clients_dir: Path, slug: str) -> Config:
         settings=Settings(model=str(model), language=str(language), owner_id=str(owner_id),
                           persona_name=str(persona_name),
                           persona_age=(int(raw["persona_age"]) if raw.get("persona_age") is not None else None),
+                          owner_ref=(str(raw["owner_ref"]) if raw.get("owner_ref") is not None else None),
                           currency=(str(raw["currency"]) if raw.get("currency") is not None else None),
                           forbidden_terms=tuple(str(x) for x in raw.get("forbidden_terms", []) or []),
                           safe_payment_reply=(str(raw["safe_payment_reply"]) if raw.get("safe_payment_reply") is not None else None),

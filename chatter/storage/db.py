@@ -347,6 +347,14 @@ class Store:
                 "SELECT value FROM runtime_flags WHERE key=?", (key,)).fetchone()
         return row["value"] if row else None
 
+    def get_runtime_flag_ts(self, key: str) -> float | None:
+        """Момент последней записи флага (unix-время), None если флага нет.
+        Дедуп эскалации меряет по нему ВОЗРАСТ активной карточки."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT ts FROM runtime_flags WHERE key=?", (key,)).fetchone()
+        return float(row["ts"]) if row else None
+
     def add_event(self, kind: str, *, contact_id: str | None = None,
                   detail: str | None = None, ts: float) -> None:
         with self._lock:

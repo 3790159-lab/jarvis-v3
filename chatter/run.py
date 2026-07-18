@@ -4,6 +4,7 @@ import datetime as _dt
 import logging
 import os
 import random
+import re
 import sys
 import time
 from dataclasses import dataclass, field
@@ -24,6 +25,7 @@ from chatter.core.console import (
 from chatter.core.disclosure import honest_disclosure, is_bot_question
 from chatter.core.escalation import (
     advance_funnel, decide_escalation, deterministic_escalation, esc_active_key,
+    mentions_owner_contact,
 )
 from chatter.core.guardrails import (
     within_daily_cap, within_hourly_limit,
@@ -153,7 +155,8 @@ def _escalation_pass(
     det = deterministic_escalation(
         incoming_text=incoming_text, reply=reply,
         knowledge=cfg.knowledge, keywords=deps.escalation_keywords,
-        forbidden_terms=cfg.settings.forbidden_terms)
+        forbidden_terms=cfg.settings.forbidden_terms,
+        owner_id=cfg.settings.owner_id, owner_ref=cfg.settings.owner_ref)
     cr = deps.classify(store.history(contact_id)) if deps.classify is not None else None
     decision = decide_escalation(det=det, classifier_result=cr)
 
@@ -179,39 +182,67 @@ def _escalation_pass(
         else:
             if det.tag == "forbidden_reply" and safe:
                 log.warning("safe_payment_reply сам содержит запрещённый термин — не использую")
+            # Падеж-безопасно (owner_id не склоняем: «позову Дмитрий» → криво):
+            # глагол «свяж» держит H2-детекцию, а как назвать владельца задаёт
+            # owner_ref (уже в нужном падеже; пусто → «владельцем»).
+            owner_ref = cfg.settings.owner_ref or "владельцем"
             reply = (
                 f"Хороший вопрос — уточню детали и вернусь. "
-                f"Если удобно, позову {cfg.settings.owner_id}."
+                f"Если удобно, свяжу вас с {owner_ref}."
             )
 
     delivered = False
     if decision.escalate and deps.notifier is not None:
         delivered = _post_escalation_card(deps, contact_id, det=det, cr=cr, now=now)
     # H2: обещание участия ВЛАДЕЛЬЦА (называет его по имени или «свяжется/
-    # перезвонит») допустимо, только если карточка реально дошла до владельца.
-    # Не дошла (сбой доставки, нет notifier, эскалации не было) → не обещаем
-    # контакт от его имени: говорим то, что Аня выполнит сама. Причина↔следствие.
-    # ТОЛЬКО для подавленных ответов (промис-путь): честное раскрытие «я бот,
-    # подключу владельца» тоже называет владельца, но это НЕ обещание за него и
-    # его трогать нельзя (оно защищено, tag=bot_question, не suppress).
-    suppressed = det is not None and det.tag in _SUPPRESS_TAGS
-    if suppressed and not delivered and _reply_implies_owner_contact(reply, cfg.settings.owner_id):
+    # перезвонит») допустимо, ТОЛЬКО если карточка реально дошла до владельца
+    # (delivered). Не дошла (сбой доставки, тихая правка устаревшей карточки,
+    # нет notifier, эскалации не было) → не обещаем контакт от его имени: говорим
+    # то, что Аня выполнит сама. Причина↔следствие.
+    #
+    # Покрывает ВСЕ пути (suppress/keyword/классификатор/без эскалации), а не
+    # только suppress: дрил 07-18 показал, что обещание «позову Дмитрия» на
+    # keyword-эскалации со сбоем доставки старый гейт пропускал. ИСКЛЮЧЕНИЕ —
+    # честное раскрытие «я бот, подключу владельца» (tag=bot_question): там
+    # упоминание владельца часть ЧЕСТНОСТИ (H3), не обещание за него, и трогать
+    # его нельзя даже при неудачной доставке.
+    protected = det is not None and det.tag == "bot_question"
+    implies_owner = mentions_owner_contact(
+        reply, owner_id=cfg.settings.owner_id, owner_ref=cfg.settings.owner_ref)
+    if not protected and not delivered and implies_owner:
         reply = "Хороший вопрос — уточню детали и вернусь к вам."
+        implies_owner = False   # заменили на само-действие — контакта больше нет
+    # Q2 (дрил 07-19): обещание контакта/эскалация не тянет встречный вопрос —
+    # лида ПЕРЕДАЛИ, а бот бы продолжал продавать в том же сообщении и сбивал его.
+    # Одно из двух: либо хэндофф, либо ведение диалога — не оба. Режем хвостовой
+    # вопрос у ответов, реально обещающих контакт владельца (fallback выше его не
+    # содержит → там no-op).
+    if implies_owner and not protected:
+        reply = _drop_trailing_question(reply)
     return reply
 
 
 _SUPPRESS_TAGS = ("unbacked_claim", "forbidden_reply", "unbacked_promise")
-_OWNER_CONTACT_VERBS = ("свяж", "перезвон", "передзвон", "созвон")
+
+# Разбивка на предложения по границе .!? + пробел (хвостовой вопрос режем с конца).
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?…])\s+")
 
 
-def _reply_implies_owner_contact(reply: str, owner_id: str) -> bool:
-    """Ответ обещает участие ЧЕЛОВЕКА-владельца: называет его по имени или несёт
-    глагол стороннего контакта («свяжется/перезвонит»). Такое обещание завязано
-    на то, что владелец реально узнал о лиде (H2)."""
-    low = (reply or "").casefold()
-    if owner_id and owner_id.casefold() in low:
-        return True
-    return any(v in low for v in _OWNER_CONTACT_VERBS)
+def _drop_trailing_question(reply: str) -> str:
+    """Убрать хвостовые предложения-вопросы. «А. Б? В?» → «А.». Если ВЕСЬ ответ —
+    вопрос (резать нечего осмысленно), возвращаем исходный (не молчим)."""
+    parts = _SENTENCE_SPLIT.split((reply or "").strip())
+    while parts and parts[-1].rstrip().endswith("?"):
+        parts.pop()
+    return " ".join(parts).strip() or reply
+
+
+# Окно дедупа карточек эскалации: повторная эскалация того же лида В ПРЕДЕЛАХ
+# окна правит существующую карточку (гасит случайные двойные срабатывания
+# одного залпа — дебаунсер уже склеивает залп в один process_batch). За окном
+# это НОВЫЙ ход лида → новая уведомляющая карточка (editMessageText не шлёт пуш,
+# тихая правка устаревшей карточки = владелец слеп; дрил 07-18).
+_ESCALATION_DEDUP_SECONDS = 60.0
 
 
 def _post_escalation_card(deps: "Deps", contact_id: str, *, det, cr, now: float) -> bool:
@@ -262,15 +293,18 @@ def _post_escalation_card(deps: "Deps", contact_id: str, *, det, cr, now: float)
                     console_text("card_resume_status_hint", language),
                 ],
                 link=contact_link(user_id=peer))
-        # Fix 2: один лид = одна карточка. Пока по контакту есть НЕ-закрытая
-        # карточка эскалации (владелец ещё не тапнул), повторная эскалация
-        # РЕДАКТИРУЕТ её (обновляет причину), а не шлёт новую. route_callback
-        # чистит active-флаг при любом действии владельца → следующая эскалация
-        # после его реакции = новая карточка.
+        # Fix 2 + дрил 07-18: дедуп только в пределах КОРОТКОГО окна. Внутри окна
+        # (случайное двойное срабатывание того же залпа) правим существующую
+        # карточку. За окном — активный флаг УСТАРЕЛ: владелец давно не тапал, а
+        # editMessageText НЕ шлёт пуш, значит тихая правка = владелец слеп.
+        # Поэтому новый ход лида после окна = НОВАЯ уведомляющая карточка
+        # (sendMessage). route_callback чистит флаг при действии владельца.
         active = deps.store.get_runtime_flag(esc_active_key(contact_id))
-        if active:
-            deps.notifier.update_card(CardHandle(ref=active), card)
-            return True    # карточка у владельца уже есть, обновили — доставлено
+        active_ts = deps.store.get_runtime_flag_ts(esc_active_key(contact_id))
+        if active and active_ts is not None and (now - active_ts) < _ESCALATION_DEDUP_SECONDS:
+            # delivered = РЕАЛЬНЫЙ успех правки (не безусловный True): H2 обязан
+            # видеть, дошло ли до владельца на самом деле.
+            return deps.notifier.update_card(CardHandle(ref=active), card)
         handle = deps.notifier.notify(card)
     except Exception:
         log.exception("escalation card FAILED for %s", contact_id)

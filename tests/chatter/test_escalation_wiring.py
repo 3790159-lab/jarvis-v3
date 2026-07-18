@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import random
 import time
 from pathlib import Path
@@ -48,6 +49,22 @@ def _deps(*, notifier=None, classify=None, keywords=None, brain_reply="Прив�
     )
     deps.notifier = notifier
     deps.classify = classify
+    deps.escalation_keywords = keywords if keywords is not None else ["позови", "верните", "жалоба"]
+    return deps
+
+
+def _deps_clock(clock, *, notifier=None, keywords=None, brain_reply="ок"):
+    """Как _deps, но с ВНЕШНИМ (двигаемым) clock — нужно тестам окна дедупа
+    эскалации, где важно ПРОШЕДШЕЕ время между ходами лида (фиксированный
+    clock у _deps схлопывает всё в один момент)."""
+    cfg = load_config(CLIENTS, "demo")
+    store = Store(":memory:")
+    deps = Deps(
+        cfg=cfg, store=store,
+        brain=Brain(FakeLLM(scripted=[brain_reply] * 4), cfg),
+        rng=random.Random(0), clock=clock, sleep=lambda s: None,
+    )
+    deps.notifier = notifier
     deps.escalation_keywords = keywords if keywords is not None else ["позови", "верните", "жалоба"]
     return deps
 
@@ -263,8 +280,9 @@ class _FailingNotifier(FakeNotifier):
 
 
 def test_owner_contact_promise_kept_when_card_delivered():
-    # H2: «Дмитрий свяжется» H1 подавляет до нейтрального «…позову Дмитрий».
-    # Карточка ДОШЛА до владельца → обещание участия владельца допустимо.
+    # H2: «Дмитрий свяжется» H1 подавляет до нейтрального падеж-безопасного
+    # «…свяжу вас с владельцем». Карточка ДОШЛА до владельца → обещание участия
+    # владельца допустимо (НЕ снимается до «уточню и вернусь к вам»).
     n = FakeNotifier()
     deps = _deps(notifier=n, keywords=[], brain_reply="Дмитрий свяжется с вами.")
     t = RecordingTransport()
@@ -272,8 +290,8 @@ def test_owner_contact_promise_kept_when_card_delivered():
     process_batch("42:demo", ["позовите владельца"], t, deps)
     joined = " ".join(t.sent)
     assert len(n.cards) == 1
-    assert "свяж" not in joined.casefold()   # сырое обещание за владельца снято (H1)
-    assert "Дмитрий" in joined               # но участие владельца обещано — карточка дошла
+    assert "владельц" in joined.casefold()   # участие владельца обещано — карточка дошла
+    assert "вернусь к вам" not in joined      # НЕ снятая (H2-stripped) формулировка
 
 
 def test_owner_contact_promise_stripped_when_card_not_delivered():
@@ -386,3 +404,181 @@ def test_escalation_path_handles_empty_and_blank_lead_input_without_crash():
     _process(deps, "42:demo", "")           # пусто
     _process(deps, "42:demo", "   \n\t ")   # только пробелы
     assert n.cards == []
+
+
+# --- Дрил 07-18: устаревшая карточка → тихая правка → владелец слеп ----------
+
+def test_stale_active_card_reescalation_posts_new_notifying_card():
+    # КОРЕНЬ блокера: esc_active-флаг остаётся, пока владелец не тапнул кнопку.
+    # Через СУТКИ новая эскалация уходила в ТИХИЙ editMessageText (Telegram не
+    # шлёт пуш на правку) → владелец не получал уведомления. Новый ход лида ПОСЛЕ
+    # окна дедупа обязан быть НОВОЙ уведомляющей карточкой (sendMessage), не
+    # правкой суточной давности.
+    now = [1000.0]
+    n = FakeNotifier()
+    deps = _deps_clock(lambda: now[0], notifier=n)
+    _process(deps, "42:demo", "позови человека")      # эскалация 1 → карточка
+    assert len(n.cards) == 1
+    now[0] += 3600.0                                    # час спустя — новый ход
+    _process(deps, "42:demo", "это жалоба")            # эскалация 2 → НОВАЯ карточка
+    assert len(n.cards) == 2, "устаревший флаг → должна быть НОВАЯ карточка, не тихая правка"
+    assert n.updates == [], "не тихий edit — владелец обязан получить пуш"
+
+
+def test_reescalation_within_window_still_edits_not_duplicate():
+    # Окно дедупа (случайное двойное срабатывание в пределах ~минуты) по-прежнему
+    # правит ту же карточку, а не плодит.
+    now = [1000.0]
+    n = FakeNotifier()
+    deps = _deps_clock(lambda: now[0], notifier=n)
+    _process(deps, "42:demo", "позови человека")
+    now[0] += 5.0                                       # в пределах окна
+    _process(deps, "42:demo", "снова позови")
+    assert len(n.cards) == 1
+    assert len(n.updates) == 1
+
+
+def test_dedup_edit_failure_reports_not_delivered_and_strips_owner_promise():
+    # H2 × дедуп: правка карточки в пределах окна МОЖЕТ провалиться (сеть).
+    # Тогда delivered=False (а не «безусловно True», как было) → H2 снимает
+    # обещание контакта владельца.
+    now = [1000.0]
+    n = FakeNotifier(update_ok=False)                   # правка карточки проваливается
+    deps = _deps_clock(lambda: now[0], notifier=n, keywords=[],
+                       brain_reply="Дмитрий свяжется с вами.")
+    _process(deps, "42:demo", "позовите владельца")    # эскалация 1: notify OK, флаг ставится
+    now[0] += 5.0                                        # в пределах окна → правка (провал)
+    t = RecordingTransport()
+    deps.store.get_or_create_contact("42:demo")
+    process_batch("42:demo", ["и ещё вопрос, позовите"], t, deps)
+    joined = " ".join(t.sent).casefold()
+    assert joined.strip()                               # НЕ тишина
+    assert "дмитрий" not in joined and "владельц" not in joined  # обещание снято
+    assert "свяж" not in joined
+
+
+def test_owner_name_promise_on_keyword_escalation_stripped_when_not_delivered():
+    # Q4-дыра: эскалация по КЛЮЧЕВОМУ СЛОВУ (не suppress-тег), а ответ brain
+    # называет владельца по имени БЕЗ глагол-стема обещания («Дмитрий поможет»).
+    # Старый H2 стрипал только suppress-теги → обещание утекало. Карточка не
+    # дошла → обещание участия владельца снять.
+    n = _FailingNotifier()
+    deps = _deps(notifier=n, brain_reply="Дмитрий вам поможет с этим.")
+    t = RecordingTransport()
+    deps.store.get_or_create_contact("42:demo")
+    process_batch("42:demo", ["позови человека"], t, deps)   # keyword «позови»
+    joined = " ".join(t.sent)
+    assert joined.strip()
+    assert "Дмитрий" not in joined            # обещание участия владельца снято (карточка не дошла)
+
+
+def test_honest_disclosure_owner_mention_survives_failed_delivery():
+    # H3-защита при расширении H2: честное «я бот, подключу владельца» упоминает
+    # владельца, но это НЕ обещание за него — H2 его НЕ трогает даже при
+    # неудачной доставке карточки (иначе сломали бы гарантию честности).
+    n = _FailingNotifier()
+    deps = _deps(notifier=n, keywords=[])
+    t = RecordingTransport()
+    deps.store.get_or_create_contact("42:demo")
+    process_batch("42:demo", ["ты бот?"], t, deps)
+    joined = " ".join(t.sent).casefold()
+    assert "бот" in joined or "ассистент" in joined or "виртуальн" in joined  # честное раскрытие
+    assert "дмитрий" in joined or "владел" in joined      # владелец упомянут и НЕ вырезан
+
+
+# --- «мелочь»: падеж имени владельца в шаблоне suppress-ответа ---------------
+
+def test_suppress_reply_owner_reference_is_case_safe_no_bare_nominative():
+    # «Позову Дмитрий» не склонялось. Теперь падеж обходится формулировкой
+    # «свяжу вас с владельцем» (глагол «свяж» держит H2-детекцию).
+    n = FakeNotifier()
+    deps = _deps(notifier=n, keywords=[], brain_reply="Дмитрий свяжется с вами.")
+    t = RecordingTransport()
+    deps.store.get_or_create_contact("42:demo")
+    process_batch("42:demo", ["позовите владельца"], t, deps)   # доставлено → обещание оставлено
+    joined = " ".join(t.sent)
+    assert "позову Дмитрий" not in joined            # сломанный именительный падеж ушёл
+    assert "владельцем" in joined.casefold()          # падеж-безопасная формулировка
+
+
+def test_owner_handoff_reply_posts_card_without_classifier():
+    # Q1 (дрил 07-19): «обсудить с владельцем Дмитрием» — не keyword и не
+    # глагол-обещание → раньше карточка зависела от опционального классификатора
+    # (и не пришла). Теперь эскалация ДЕТЕРМИНИРОВАННА.
+    n = FakeNotifier()
+    deps = _deps(notifier=n, classify=None, keywords=[],
+                 brain_reply="Со скидками я не работаю. Лучше обсудить с владельцем Дмитрием. Что вы планируете?")
+    t = RecordingTransport()
+    deps.store.get_or_create_contact("42:demo")
+    process_batch("42:demo", ["Дадите скидку на большой заказ?"], t, deps)
+    assert len(n.cards) == 1                          # карточка владельцу ушла
+    assert deps.store.get_or_create_contact("42:demo")["state"] == "escalated"
+
+
+def test_owner_handoff_keeps_honest_refusal_when_delivered():
+    # НЕ suppress: честный «со скидками не работаю» сохраняется (не заменяется
+    # шаблоном), раз карточка дошла.
+    n = FakeNotifier()
+    deps = _deps(notifier=n, classify=None, keywords=[],
+                 brain_reply="Со скидками я не работаю. Обсудим с владельцем.")
+    t = RecordingTransport()
+    deps.store.get_or_create_contact("42:demo")
+    process_batch("42:demo", ["скидку?"], t, deps)
+    joined = " ".join(t.sent).casefold()
+    assert "со скидками я не работаю" in joined       # честный отказ сохранён
+
+
+def test_owner_contact_reply_drops_trailing_sell_question():
+    # Q2: после обещания контакта Аня НЕ ведёт дальше встречным вопросом (лида
+    # передали — бот не должен продолжать продавать в том же сообщении).
+    n = FakeNotifier()
+    deps = _deps(notifier=n, classify=None, keywords=[],
+                 brain_reply="Со скидками я не работаю. Лучше обсудить с владельцем Дмитрием. Что вы планируете?")
+    t = RecordingTransport()
+    deps.store.get_or_create_contact("42:demo")
+    process_batch("42:demo", ["скидку?"], t, deps)
+    joined = " ".join(t.sent)
+    assert "Что вы планируете" not in joined          # хвостовой вопрос убран
+    assert "обсудить с владельцем" in joined.casefold()  # сама передача осталась
+
+
+def test_non_contact_reply_keeps_its_question():
+    # Обычный ответ (не эскалация/не контакт) со встречным вопросом НЕ трогаем.
+    n = FakeNotifier()
+    deps = _deps(notifier=n, classify=None, keywords=[],
+                 brain_reply="Отлично! А что именно вы планируете снимать?")
+    t = RecordingTransport()
+    deps.store.get_or_create_contact("42:demo")
+    process_batch("42:demo", ["расскажите про съёмку"], t, deps)
+    joined = " ".join(t.sent).casefold()
+    assert "что именно вы планируете снимать" in joined   # вопрос сохранён
+    assert n.cards == []                                  # и не эскалировано
+
+
+def test_owner_handoff_promise_stripped_when_card_not_delivered():
+    # H2 теперь ВИДИТ «обсудить с владельцем»/склонённое имя: карточка не дошла →
+    # обещание контакта снять (раньше этот путь H2 не покрывал).
+    n = _FailingNotifier()
+    deps = _deps(notifier=n, classify=None, keywords=[],
+                 brain_reply="Со скидками я не работаю. Обсудим с владельцем Дмитрием.")
+    t = RecordingTransport()
+    deps.store.get_or_create_contact("42:demo")
+    process_batch("42:demo", ["скидку?"], t, deps)
+    joined = " ".join(t.sent).casefold()
+    assert joined.strip()
+    assert "владельц" not in joined and "дмитри" not in joined   # обещание контакта снято
+
+
+def test_owner_ref_config_customizes_reference():
+    # Клиент может задать, как называть владельца в ответах (уже в нужном падеже:
+    # «менеджером», «Дмитрием», …). Пусто → дефолт «владельцем».
+    n = FakeNotifier()
+    deps = _deps(notifier=n, keywords=[], brain_reply="Дмитрий свяжется с вами.")
+    deps.cfg = dataclasses.replace(
+        deps.cfg, settings=dataclasses.replace(deps.cfg.settings, owner_ref="менеджером"))
+    t = RecordingTransport()
+    deps.store.get_or_create_contact("42:demo")
+    process_batch("42:demo", ["позовите владельца"], t, deps)
+    joined = " ".join(t.sent).casefold()
+    assert "менеджером" in joined
+    assert "свяж" in joined                           # H2-детекция по глаголу сохраняется

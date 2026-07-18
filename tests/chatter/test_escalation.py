@@ -3,6 +3,7 @@ from __future__ import annotations
 from chatter.core.escalation import (
     EscalationReason,
     deterministic_escalation,
+    mentions_owner_contact,
     parse_escalation_keywords,
 )
 
@@ -152,6 +153,56 @@ def test_keyword_wins_over_bot_question_order():
         incoming_text="ты бот? и позови человека",
         reply="ок", knowledge=KNOWLEDGE, keywords=KEYWORDS)
     assert r is not None and r.tag == "keyword"
+
+
+# --- owner_handoff: передача владельцу в ОТВЕТЕ (дрил 07-19, undercovered H2) --
+
+def test_owner_handoff_reply_escalates_without_keyword_or_promise_verb():
+    # «лучше обсудить с владельцем Дмитрием» — не keyword, не глагол-стем
+    # обещания, но это ПЕРЕДАЧА владельцу → карточка обязана уйти детерминированно
+    # (не полагаясь на опциональный классификатор).
+    r = deterministic_escalation(
+        incoming_text="Дадите скидку на большой заказ?",
+        reply="Со скидками я не работаю. Лучше обсудить с владельцем Дмитрием.",
+        knowledge=KNOWLEDGE, keywords=["жалоба"], owner_id="Дмитрий")
+    assert r is not None and r.tag == "owner_handoff"
+
+
+def test_owner_handoff_is_not_a_suppress_trigger():
+    # owner_handoff ЭСКАЛИРУЕТ, но НЕ suppress: честный отказ в ответе сохраняем
+    # (в отличие от unbacked_promise). Проверяем сам тег — suppress-логика в run.
+    r = deterministic_escalation(
+        incoming_text="скидку?", reply="Обсудим с владельцем.",
+        knowledge=KNOWLEDGE, keywords=[], owner_id="Дмитрий")
+    assert r is not None and r.tag == "owner_handoff"
+
+
+def test_suppress_promise_wins_over_owner_handoff():
+    # Ответ И обещает скидку (suppress) И зовёт владельца → suppress важнее,
+    # иначе скидка уйдёт лиду неподавленной.
+    r = deterministic_escalation(
+        incoming_text="скидку?", reply="Сделаю скидку, обсудим с владельцем.",
+        knowledge=KNOWLEDGE, keywords=[], owner_id="Дмитрий")
+    assert r is not None and r.tag == "unbacked_promise"
+
+
+def test_clean_reply_no_owner_mention_no_handoff():
+    r = deterministic_escalation(
+        incoming_text="привет", reply="Привет! Чем могу помочь?",
+        knowledge=KNOWLEDGE, keywords=[], owner_id="Дмитрий")
+    assert r is None
+
+
+def test_mentions_owner_contact_predicate():
+    # Ловит: глагол контакта, ролевое слово «владел», склонённое имя владельца.
+    assert mentions_owner_contact("Дмитрий вам перезвонит")                 # verb
+    assert mentions_owner_contact("передам владельцу ваш вопрос")           # role word
+    assert mentions_owner_contact("обсудите это с владельцем")              # role word
+    assert mentions_owner_contact("свяжу вас с Дмитрием", owner_id="Дмитрий")   # declined name
+    assert mentions_owner_contact("Дмитрий поможет", owner_id="Дмитрий")        # bare name
+    # НЕ ловит нейтральное:
+    assert not mentions_owner_contact("Спасибо, чем ещё помочь?", owner_id="Дмитрий")
+    assert not mentions_owner_contact("Цена фиксированная.", owner_id="Дмитрий")
 
 
 # --- decide_escalation: combine deterministic + classifier (спека §4) --------

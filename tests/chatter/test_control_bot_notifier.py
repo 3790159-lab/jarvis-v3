@@ -73,3 +73,24 @@ def test_notify_failure_returns_none_never_raises():
 def test_notify_bot_api_not_ok_returns_none():
     n = ControlBotNotifier("T", 1, http_post=FakePost(result={"ok": False, "description": "bad"}))
     assert n.notify(_card()) is None
+
+
+def test_update_card_returns_true_when_edit_ok():
+    # Дедуп-правка карточки обязана СООБЩАТЬ об успехе (H2 полагается на это,
+    # чтобы решить, обещать ли лиду контакт владельца).
+    post = FakePost()
+    n = ControlBotNotifier("TOKEN", 237616472, http_post=post)
+    assert n.update_card(CardHandle(ref="bot:237616472:555"), _card()) is True
+    assert post.calls[0][0] == "editMessageText"
+
+
+def test_update_card_returns_false_on_network_failure():
+    n = ControlBotNotifier("T", 1, http_post=FakePost(fail=True))
+    assert n.update_card(CardHandle(ref="bot:1:555"), _card()) is False
+
+
+def test_update_card_returns_false_on_bot_api_not_ok():
+    # editMessageText «message to edit not found» и т.п. → правка НЕ доставлена.
+    post = FakePost(result={"ok": False, "description": "message to edit not found"})
+    n = ControlBotNotifier("T", 1, http_post=post)
+    assert n.update_card(CardHandle(ref="bot:1:555"), _card()) is False

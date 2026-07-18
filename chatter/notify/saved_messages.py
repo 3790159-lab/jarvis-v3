@@ -53,13 +53,20 @@ class SavedMessagesNotifier(Notifier):
         except Exception:
             log.exception("SavedMessagesNotifier: не смог отредактировать карточку %s", handle.ref)
 
-    def update_card(self, handle: CardHandle, card: Card) -> None:
+    def update_card(self, handle: CardHandle, card: Card) -> bool:
         # У Saved Messages кнопок нет — обновляем текст + копипаст-подсказки,
-        # ровно как при первичной отправке (дедуп Fix 2).
+        # ровно как при первичной отправке (дедуп Fix 2). Возвращает РЕАЛЬНЫЙ
+        # успех правки (H2 полагается на честный delivered).
         body = card.text_html
         if card.reply_hints:
             body = body + "\n\n" + "\n".join(card.reply_hints)
-        self.edit(handle, body)
+        try:
+            msg_id = int(handle.ref.split(":", 1)[1])
+            self._run(self._client.edit_message("me", msg_id, body, parse_mode="html"))
+        except Exception:
+            log.exception("SavedMessagesNotifier: не смог обновить карточку %s", handle.ref)
+            return False
+        return True
 
     @property
     def has_buttons(self) -> bool:
