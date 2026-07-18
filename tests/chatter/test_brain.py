@@ -27,6 +27,19 @@ def test_system_prompt_has_style_and_language_rules(tmp_path):
     assert "русском" in sp                    # language ru directive
 
 
+def test_system_prompt_has_honesty_clause_backup(tmp_path):
+    """H3 backup: the deterministic is_bot_question pre-empt is primary, but when
+    it misses (an unenumerated phrasing/language), control falls to the LLM,
+    whose _STYLE previously said NOTHING about honesty. The system prompt must
+    carry an explicit 'admit you're an assistant, never pose as a human' rule so
+    the DEFAULT path stays honest."""
+    cfg = _cfg(tmp_path)
+    sp = build_system_prompt(cfg).lower()
+    assert "бот" in sp                                   # names the bot/ИИ question
+    assert "честно" in sp                                # instructed to answer honestly
+    assert "не выдавай себя за живого человека" in sp    # never pose as a human
+
+
 def test_system_prompt_language_directive_for_en_and_uk(tmp_path):
     _make_client(tmp_path, slug="demo_en", settings=SETTINGS.replace("language: ru", "language: en"))
     cfg_en = load_config(tmp_path, "demo_en")

@@ -74,6 +74,53 @@ def test_detects_en_bot_question_with_words_in_between(q):
 def test_ignores_en_messages_mentioning_bot_human_without_addressing_assistant(q):
     assert is_bot_question(q) is False
 
+# UK phrasings -- the product's stated market is Ukrainian. The RU adjacency
+# patterns key on "ты"; Ukrainian "ти" never matches them, so a lead asking
+# "ти бот?" slipped the honesty guarantee entirely and fell through to the LLM,
+# whose prompt carries no honesty instruction (audit 2026-07-18, finding H3).
+UK_BOT_QUESTIONS = [
+    "ти бот?",
+    "це бот?",
+    "ти робот?",
+    "ти жива людина?",
+    "ти справжня?",
+    "ти реальна людина?",
+    "з ким я говорю, з ботом?",
+    "ти людина чи бот?",
+    "ти часом не бот?",
+    "а ти взагалі бот?",
+    "ти штучний інтелект?",
+    "ти ші?",
+]
+
+UK_NOT_BOT_QUESTIONS = [
+    "продаю ботів у телеграмі",
+    "скільки коштує бот для розсилки?",
+    "розкажіть про послуги",
+    "ти вільна завтра?",
+    "яка ціна на зйомку?",
+]
+
+
+@pytest.mark.parametrize("q", UK_BOT_QUESTIONS)
+def test_detects_uk_bot_question(q):
+    assert is_bot_question(q) is True
+
+
+@pytest.mark.parametrize("q", UK_NOT_BOT_QUESTIONS)
+def test_ignores_uk_messages_not_addressing_the_assistant(q):
+    assert is_bot_question(q) is False
+
+
+@pytest.mark.parametrize("q", UK_BOT_QUESTIONS)
+def test_uk_bot_question_gets_honest_uk_disclosure(q):
+    # Detection must lead to the honest UK disclosure (the whole point of H3):
+    # the marker "я — віртуальний асистент" reaches a Ukrainian lead.
+    assert is_bot_question(q) is True
+    reply = honest_disclosure(owner_id="Олена", persona_line="", language="uk")
+    assert HONESTY_MARKERS["uk"] in reply
+
+
 @pytest.mark.parametrize("q", ["сколько стоит?", "а фото делаете?", "привет"])
 def test_ignores_normal_messages(q):
     assert is_bot_question(q) is False
