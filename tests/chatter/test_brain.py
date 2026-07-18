@@ -52,6 +52,17 @@ def test_system_prompt_language_directive_for_en_and_uk(tmp_path):
     assert "украинском" in sp_uk
 
 
+def test_style_instructs_answer_from_knowledge_immediately():
+    from chatter.config.loader import load_config
+    from chatter.core.brain import build_system_prompt
+    from pathlib import Path
+    CLIENTS = Path(__file__).resolve().parents[2] / "chatter" / "clients"
+    prompt = build_system_prompt(load_config(CLIENTS, "demo"))
+    low = prompt.casefold()
+    assert "ответь сразу" in low
+    assert "уточню и вернусь" in low
+
+
 def test_build_messages_maps_history_roles():
     hist = [{"role": "user", "text": "привет"}, {"role": "assistant", "text": "здравствуйте"}]
     msgs = build_messages(hist)
