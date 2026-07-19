@@ -400,7 +400,15 @@ class Store:
                 "SELECT * FROM follow_ups WHERE contact_id=?", (contact_id,)).fetchone()
         return dict(row) if row else None
 
-    def set_follow_up(self, contact_id: str, **fields) -> None:
+    def set_follow_up(self, contact_id: str, *, now: float, **fields) -> None:
+        """Частичный апдейт по белому списку `_FOLLOW_UP_SETTABLE` (проверка
+        идёт ДО чтения `now` — неизвестное поле роняет ValueError независимо
+        от того, что передано в `now`). `now` ОБЯЗАН прийти явно (как во
+        всех остальных time-mutating методах файла): `updated_ts` тут не
+        косметика, а сортировочный ключ `follow_ups_by_state` — Фаза 3
+        обрабатывает `follow_ups_by_state("ready")` FIFO под дневным капом,
+        так что застывший updated_ts (например, захардкоженный 0.0) сделал
+        бы порядок бессмысленным."""
         bad = set(fields) - self._FOLLOW_UP_SETTABLE
         if bad:
             raise ValueError(f"нельзя менять поля follow-up: {sorted(bad)}")
@@ -411,10 +419,12 @@ class Store:
         with self._lock:
             self._conn.execute(
                 f"UPDATE follow_ups SET {cols}, updated_ts=? WHERE contact_id=?",
-                (*vals, 0.0, contact_id))
+                (*vals, now, contact_id))
             self._conn.commit()
 
     def follow_ups_by_state(self, state: str) -> list[dict]:
+        """ORDER BY updated_ts — важно для Фазы 3: дневной кап обрабатывает
+        готовые follow-up'ы FIFO, старейший обновлённый первым."""
         with self._lock:
             rows = self._conn.execute(
                 "SELECT * FROM follow_ups WHERE state=? ORDER BY updated_ts", (state,)).fetchall()

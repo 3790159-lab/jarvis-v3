@@ -127,7 +127,7 @@ def test_follow_up_register_and_get(tmp_path):
 def test_follow_up_reregister_supersedes(tmp_path):
     s = Store(tmp_path / "c.db")
     s.register_follow_up("42:demo", topic="A", lead_last_ts=1.0, card_ref="bot:1:7", now=1.0)
-    s.set_follow_up("42:demo", state="ready", owner_answer="да", mode="instruction")
+    s.set_follow_up("42:demo", now=1.5, state="ready", owner_answer="да", mode="instruction")
     s.register_follow_up("42:demo", topic="B", lead_last_ts=2.0, card_ref="bot:1:9", now=2.0)
     fu = s.get_follow_up("42:demo")
     assert fu["state"] == "pending_owner"
@@ -139,7 +139,7 @@ def test_follow_up_set_and_list_by_state(tmp_path):
     s = Store(tmp_path / "c.db")
     s.register_follow_up("42:demo", topic="A", lead_last_ts=1.0, card_ref="r", now=1.0)
     s.register_follow_up("99:demo", topic="B", lead_last_ts=1.0, card_ref="r2", now=1.0)
-    s.set_follow_up("42:demo", state="ready", owner_answer="ответ", owner_answer_ts=5.0)
+    s.set_follow_up("42:demo", now=5.0, state="ready", owner_answer="ответ", owner_answer_ts=5.0)
     ready = s.follow_ups_by_state("ready")
     assert [f["contact_id"] for f in ready] == ["42:demo"]
     assert ready[0]["owner_answer"] == "ответ" and ready[0]["owner_answer_ts"] == 5.0
@@ -150,4 +150,14 @@ def test_follow_up_set_rejects_unknown_field(tmp_path):
     s = Store(tmp_path / "c.db")
     s.register_follow_up("42:demo", topic="A", lead_last_ts=1.0, card_ref="r", now=1.0)
     with pytest.raises(ValueError):
-        s.set_follow_up("42:demo", bogus_column="x")
+        s.set_follow_up("42:demo", now=1.0, bogus_column="x")
+
+def test_follow_up_set_updates_updated_ts_and_orders(tmp_path):
+    s = Store(tmp_path / "c.db")
+    s.register_follow_up("42:demo", topic="A", lead_last_ts=1.0, card_ref="r", now=1.0)
+    s.register_follow_up("99:demo", topic="B", lead_last_ts=1.0, card_ref="r2", now=1.0)
+    s.set_follow_up("42:demo", now=10.0, state="ready")
+    s.set_follow_up("99:demo", now=20.0, state="ready")
+    assert s.get_follow_up("42:demo")["updated_ts"] == 10.0        # not 0.0
+    # follow_ups_by_state ordered by updated_ts ascending
+    assert [f["contact_id"] for f in s.follow_ups_by_state("ready")] == ["42:demo", "99:demo"]
