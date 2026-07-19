@@ -10,7 +10,7 @@ from dataclasses import dataclass
 GLOBAL_COMMANDS = frozenset({"status", "stop", "start", "help"})
 TARGETED_COMMANDS = frozenset({"pause", "resume"})
 # Config-арка: команды конфигурации (обрабатываются раннером, не execute_command).
-CONFIG_COMMANDS = frozenset({"config", "reload", "knowledge", "rollback"})
+CONFIG_COMMANDS = frozenset({"config", "reload", "knowledge", "rollback", "funnel_gate"})
 
 
 def parse_config_command(text: str) -> tuple[str, str] | None:
@@ -630,6 +630,13 @@ _CFG_STRINGS: dict[str, dict[str, str]] = {
         "cfg_rollback_fail": "⚠️ Откат не удался ({reason}). Остаюсь на текущем.",
         "cfg_unknown": "неизвестная config-команда",
         "cfg_startup_recovered": "⚠️ Стартовал на ПОСЛЕДНЕЙ РАБОЧЕЙ версии конфига — текущий сломан ({reason}). Аня работает. Проверь /config, при нужде /rollback или почини файл.",
+        "cfg_gate_status_on": "Гейт воронки: ВКЛ (незнакомцы→лиды, знакомые→уведомление владельцу).",
+        "cfg_gate_status_off": "Гейт воронки: выкл (отвечаю только allowlist).",
+        "cfg_gate_confirm": "⚠️ Включение гейта = Аня начнёт отвечать НЕЗНАКОМЦАМ, а знакомым (контактам) отвечать перестанет — вместо ответа тебе придёт уведомление.\n\nЭто безопасно ТОЛЬКО на аккаунте, ВЫДЕЛЕННОМ под воронку. На личном аккаунте Аня заговорит с чужими людьми от твоего имени.\n\nАккаунт выделенный? Подтверди: /funnel_gate on confirm",
+        "cfg_gate_on_done": "✅ Гейт воронки ВКЛ. Незнакомцы→Аня отвечает, знакомые→уведомление тебе. Выключить: /funnel_gate off",
+        "cfg_gate_off_done": "✅ Гейт воронки выкл. Аня отвечает только allowlist ({allow} id).",
+        "cfg_gate_usage": "Использование: /funnel_gate on | off (без аргумента — показать текущее состояние).",
+        "cfg_gate_fail": "⚠️ Не переключил ({reason}). Гейт остался как был.",
     },
     "en": {
         "cfg_header": "⚙️ Settings",
@@ -655,6 +662,13 @@ _CFG_STRINGS: dict[str, dict[str, str]] = {
         "cfg_rollback_fail": "⚠️ Rollback failed ({reason}). Staying on current.",
         "cfg_unknown": "unknown config command",
         "cfg_startup_recovered": "⚠️ Started on the LAST KNOWN-GOOD config — the current one is broken ({reason}). Anya is serving. Check /config, then /rollback or fix the file.",
+        "cfg_gate_status_on": "Funnel gate: ON (strangers→leads, contacts→owner notice).",
+        "cfg_gate_status_off": "Funnel gate: off (answering allowlist only).",
+        "cfg_gate_confirm": "⚠️ Enabling the gate = Anya starts answering STRANGERS and stops answering your contacts — you get a notice instead.\n\nThis is safe ONLY on an account DEDICATED to the funnel. On a personal account Anya will talk to real people as you.\n\nIs the account dedicated? Confirm: /funnel_gate on confirm",
+        "cfg_gate_on_done": "✅ Funnel gate ON. Strangers→Anya answers, contacts→you get a notice. Disable: /funnel_gate off",
+        "cfg_gate_off_done": "✅ Funnel gate off. Anya answers the allowlist only ({allow} ids).",
+        "cfg_gate_usage": "Usage: /funnel_gate on | off (no argument — show current state).",
+        "cfg_gate_fail": "⚠️ Not switched ({reason}). The gate is unchanged.",
     },
     "uk": {
         "cfg_header": "⚙️ Налаштування",
@@ -680,6 +694,13 @@ _CFG_STRINGS: dict[str, dict[str, str]] = {
         "cfg_rollback_fail": "⚠️ Відкат не вдався ({reason}). Залишаюся на поточному.",
         "cfg_unknown": "невідома config-команда",
         "cfg_startup_recovered": "⚠️ Стартував на ОСТАННІЙ РОБОЧІЙ версії конфігу — поточний зламаний ({reason}). Аня працює. Перевір /config, за потреби /rollback або полагодь файл.",
+        "cfg_gate_status_on": "Гейт воронки: УВІМК (незнайомці→ліди, знайомі→сповіщення власнику).",
+        "cfg_gate_status_off": "Гейт воронки: вимк (відповідаю лише allowlist).",
+        "cfg_gate_confirm": "⚠️ Увімкнення гейта = Аня почне відповідати НЕЗНАЙОМЦЯМ, а знайомим (контактам) відповідати перестане — замість відповіді тобі прийде сповіщення.\n\nЦе безпечно ЛИШЕ на акаунті, ВИДІЛЕНОМУ під воронку. На особистому акаунті Аня заговорить із чужими людьми від твого імені.\n\nАкаунт виділений? Підтверди: /funnel_gate on confirm",
+        "cfg_gate_on_done": "✅ Гейт воронки УВІМК. Незнайомці→Аня відповідає, знайомі→сповіщення тобі. Вимкнути: /funnel_gate off",
+        "cfg_gate_off_done": "✅ Гейт воронки вимк. Аня відповідає лише allowlist ({allow} id).",
+        "cfg_gate_usage": "Використання: /funnel_gate on | off (без аргументу — показати поточний стан).",
+        "cfg_gate_fail": "⚠️ Не перемкнув ({reason}). Гейт лишився як був.",
     },
 }
 

@@ -14,6 +14,7 @@ from telethon import events
 from telethon.errors import AuthKeyError, UnauthorizedError
 
 from chatter.config.loader import Config, ConfigError, ControlConfig, load_config
+from chatter.config.yaml_edit import YamlEditError, set_funnel_gate
 from chatter.core import humanizer as H
 from chatter.core.admission import admission_decision
 from chatter.core.brain import Brain
@@ -580,7 +581,45 @@ class TelethonRunner:
                 else self._set_knowledge(arg, language)
         if name == "rollback":
             return self._rollback_config(language)
+        if name == "funnel_gate":
+            return self._set_funnel_gate(arg, language)
         return cfg_text("cfg_unknown", language)
+
+    def _set_funnel_gate(self, arg: str, language: str) -> str:
+        """Онбординг-дырка №2: переключатель гейта — команда, а не правка yaml.
+
+        Включение требует ЯВНОГО подтверждения: на невыделенном аккаунте это
+        означает, что Аня заговорит с реальными знакомыми владельца от его
+        имени. Выключение — безопасное направление, исполняется сразу (чинить
+        аварию надо быстро, а не через второй экран)."""
+        tokens = arg.strip().casefold().split()
+        action = tokens[0] if tokens else ""
+        confirmed = len(tokens) > 1 and tokens[1] in ("confirm", "да", "yes", "так")
+
+        if not action:
+            return cfg_text(
+                "cfg_gate_status_on" if self.funnel_gate else "cfg_gate_status_off", language)
+        if action not in ("on", "off"):
+            return cfg_text("cfg_gate_usage", language)
+        if action == "on" and not confirmed:
+            return cfg_text("cfg_gate_confirm", language)
+
+        enabled = action == "on"
+        path = self._primary_dir() / "settings.yaml"
+        old = path.read_text(encoding="utf-8")
+        try:
+            path.write_text(set_funnel_gate(old, enabled), encoding="utf-8")
+        except (YamlEditError, OSError) as e:
+            log.warning("funnel_gate: правка settings.yaml не удалась", exc_info=True)
+            return cfg_text("cfg_gate_fail", language, reason=str(e))
+
+        ok, err = self.reload_configs()
+        if not ok:
+            path.write_text(old, encoding="utf-8")   # вернуть заведомо рабочий файл
+            self.reload_configs()
+            return cfg_text("cfg_gate_fail", language, reason=err)
+        return cfg_text("cfg_gate_on_done", language) if enabled \
+            else cfg_text("cfg_gate_off_done", language, allow=len(self.allowlist))
 
     def _primary_dir(self) -> Path:
         return self._clients_dir / self.primary_slug
