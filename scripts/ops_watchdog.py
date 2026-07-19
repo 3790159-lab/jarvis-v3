@@ -144,11 +144,21 @@ def detect_reboot(prev_state: dict, boot_time: float) -> tuple[bool, dict]:
     return prev_boot != boot_id, new_state
 
 
+def humanize_uptime(seconds: float) -> str:
+    """Алерт читают в стрессе — «48323 с» разбирать некогда."""
+    s = max(0, int(seconds))
+    if s < 90:
+        return "%s с" % s
+    if s < 5400:
+        return "%s мин" % (s // 60)
+    return "%s ч" % round(s / 3600)
+
+
 def reboot_alert_text(boot_time: float, now: float, localtime=time.localtime) -> str:
     hhmm = time.strftime("%H:%M", localtime(boot_time))
-    ago = max(0, int(now - boot_time))
-    return ("🔄 Машина перезагрузилась в %s (аптайм %s с). "
-            "Гардианы поднимают сервисы — проверь, не погибла ли долгая задача." % (hhmm, ago))
+    return ("🔄 Машина перезагрузилась в %s (аптайм %s). "
+            "Гардианы поднимают сервисы — проверь, не погибла ли долгая задача."
+            % (hhmm, humanize_uptime(now - boot_time)))
 
 
 def _boot_time() -> float | None:

@@ -126,3 +126,18 @@ def test_evaluate_does_not_alert_on_boot_key():
     prev = {BOOT_KEY: {"boot_id": 123}}
     alerts, _ = evaluate(prev, {})
     assert alerts == []
+
+
+def test_uptime_is_human_readable():
+    """«аптайм 48323 с» в 3 часа ночи разбирать некогда."""
+    from ops_watchdog import humanize_uptime
+    assert humanize_uptime(42) == "42 с"
+    assert humanize_uptime(600) == "10 мин"
+    assert humanize_uptime(48323) == "13 ч"
+    assert humanize_uptime(-5) == "0 с"
+
+
+def test_alert_text_uses_human_uptime_for_long_gaps():
+    text = reboot_alert_text(BOOT_A, BOOT_A + 48323, localtime=_fake_localtime)
+    assert "13 ч" in text
+    assert "48323" not in text
