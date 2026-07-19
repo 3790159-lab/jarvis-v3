@@ -2,7 +2,7 @@ from __future__ import annotations
 from pathlib import Path
 import textwrap
 import pytest
-from chatter.config.loader import load_config, ConfigError
+from chatter.config.loader import DEFAULT_LIMITS, load_config, ConfigError
 
 SETTINGS = """\
 model: claude-haiku-4-5
@@ -69,12 +69,23 @@ def test_bad_language_fails(tmp_path):
         load_config(tmp_path, "demo")
     assert "language" in str(e.value)
 
-def test_missing_settings_key_fails(tmp_path):
-    broken = "\n".join(l for l in SETTINGS.splitlines() if "daily_cap" not in l)
+def test_missing_optional_key_now_uses_default(tmp_path):
+    """Онбординг-дырка №1 сменила контракт: раньше пропуск daily_cap ронял
+    клиента (12 обязательных полей в timings + 3 в limits — забыл одно, не
+    стартуешь). Теперь у таких полей есть боевые дефолты."""
+    relaxed = "\n".join(l for l in SETTINGS.splitlines() if "daily_cap" not in l)
+    _make_client(tmp_path, settings=relaxed)
+    cfg = load_config(tmp_path, "demo")
+    assert cfg.settings.limits.daily_cap == DEFAULT_LIMITS.daily_cap
+
+def test_missing_identity_key_still_fails(tmp_path):
+    """А вот идентичность персоны дефолту не подлежит — без неё конфиг
+    бессмыслен, и молчать об этом нельзя."""
+    broken = "\n".join(l for l in SETTINGS.splitlines() if "persona_name" not in l)
     _make_client(tmp_path, settings=broken)
     with pytest.raises(ConfigError) as e:
         load_config(tmp_path, "demo")
-    assert "daily_cap" in str(e.value)
+    assert "persona_name" in str(e.value)
 
 def test_persona_name_equals_owner_fails(tmp_path):
     colliding = SETTINGS.replace('owner_id: "owner-1"', 'owner_id: "Аня"')

@@ -100,6 +100,36 @@ _TIMING_FIELDS = [
 ]
 _LIMIT_FIELDS = ["max_reply_tokens", "per_contact_hourly", "daily_cap"]
 
+# Дефолты = боевые значения demo-клиента: они обкатаны в проде, поэтому
+# клиент, не указавший блок вовсе, получает заведомо рабочее поведение.
+DEFAULT_TIMINGS = Timings(
+    read_delay_min=1.5, read_delay_max=4.0, cps_min=4.0, cps_max=7.0,
+    jitter_min=0.9, jitter_max=1.2, split_pause_min=0.6, split_pause_max=1.8,
+    split_max_len=160, night_multiplier=2.5, debounce_window=3.0, debounce_max=15.0,
+)
+DEFAULT_LIMITS = Limits(max_reply_tokens=20000, per_contact_hourly=20, daily_cap=500)
+DEFAULT_WORK_HOURS = WorkHours(start=9, end=22)
+
+
+def _optional_mapping(raw: dict, key: str) -> dict:
+    """Блок настроек, который можно не писать вовсе. Явно указанный, но не
+    словарь — ошибка (это опечатка структуры, а не осознанный пропуск)."""
+    val = raw.get(key)
+    if val is None:
+        return {}
+    if not isinstance(val, dict):
+        raise ConfigError(f"settings.yaml: '{key}' must be a mapping")
+    return val
+
+
+def _reject_unknown(block: dict, allowed, where: str) -> None:
+    unknown = sorted(set(block) - set(allowed))
+    if unknown:
+        raise ConfigError(
+            f"{where}: unknown key(s) {', '.join(unknown)} "
+            f"(known: {', '.join(sorted(allowed))})")
+
+
 def _require(d: dict, key: str, where: str):
     if not isinstance(d, dict) or key not in d:
         raise ConfigError(f"{where}: missing required key '{key}'")
@@ -145,19 +175,28 @@ def load_config(clients_dir: Path, slug: str) -> Config:
             f"(both '{owner_id}')"
         )
 
-    wh = _require(raw, "work_hours", "settings.yaml")
+    # Онбординг-дырка №1: блоки work_hours/timings/limits НЕОБЯЗАТЕЛЬНЫ —
+    # у каждого поля есть рабочий дефолт. Раньше 12 обязательных полей в
+    # timings означали, что забытое поле не даёт клиенту стартовать вообще.
+    # Но ОПЕЧАТКА в имени поля по-прежнему громкая (_reject_unknown): молча
+    # проигнорированный ключ = тихо разъехавшиеся тайминги и вопрос «почему
+    # Аня печатает не так», на который нечем ответить (DEV-18).
+    wh = _optional_mapping(raw, "work_hours")
+    _reject_unknown(wh, ("start", "end"), "settings.yaml.work_hours")
     work_hours = WorkHours(
-        start=int(_require(wh, "start", "settings.yaml.work_hours")),
-        end=int(_require(wh, "end", "settings.yaml.work_hours")),
+        start=int(wh.get("start", DEFAULT_WORK_HOURS.start)),
+        end=int(wh.get("end", DEFAULT_WORK_HOURS.end)),
     )
 
-    t = _require(raw, "timings", "settings.yaml")
-    timing_kwargs = {f: float(_require(t, f, "settings.yaml.timings")) for f in _TIMING_FIELDS}
+    t = _optional_mapping(raw, "timings")
+    _reject_unknown(t, _TIMING_FIELDS, "settings.yaml.timings")
+    timing_kwargs = {f: float(t.get(f, getattr(DEFAULT_TIMINGS, f))) for f in _TIMING_FIELDS}
     timing_kwargs["split_max_len"] = int(timing_kwargs["split_max_len"])
     timings = Timings(**timing_kwargs)
 
-    l = _require(raw, "limits", "settings.yaml")
-    limits = Limits(**{f: int(_require(l, f, "settings.yaml.limits")) for f in _LIMIT_FIELDS})
+    l = _optional_mapping(raw, "limits")
+    _reject_unknown(l, _LIMIT_FIELDS, "settings.yaml.limits")
+    limits = Limits(**{f: int(l.get(f, getattr(DEFAULT_LIMITS, f))) for f in _LIMIT_FIELDS})
 
     telegram: TelegramConfig | None = None
     tg_raw = raw.get("telegram")
