@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from chatter.core.brand_safety import forbidden_mention
 from chatter.core.conversation import next_state
 from chatter.core.disclosure import is_bot_question
+from chatter.core.follow_up import promises_return
 from chatter.core.guardrails import contains_unbacked_claim
 from chatter.core.obligations import DEFAULT_PROMISE_TERMS, unbacked_promise
 
@@ -155,6 +156,16 @@ def deterministic_escalation(
     if mentions_owner_contact(reply or "", owner_id=owner_id, owner_ref=owner_ref):
         return EscalationReason(
             tag="owner_handoff", detail="ответ предлагает контакт/участие владельца")
+    # return_promise — ПОСЛЕДНИЙ и НЕ suppress (арка follow-up, Task 1.3): ответ
+    # обещает вернуться с ответом («уточню и вернусь», «отвечу позже»), без
+    # keyword/owner/promise-триггера. Гарантирует карточку ДАЖЕ для чистого
+    # обещания-без-ничего-другого — иначе follow-up (более поздняя задача) не
+    # к чему привязать. Идёт после всех suppress-триггеров и owner_handoff:
+    # выдуманная цена/скидка ИЛИ передача владельцу «и вернусь» ловятся раньше
+    # своими более конкретными тегами.
+    if promises_return(reply or ""):
+        return EscalationReason(
+            tag="return_promise", detail="обещание вернуться с ответом")
     return None
 
 

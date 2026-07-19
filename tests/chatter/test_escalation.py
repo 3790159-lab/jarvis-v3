@@ -205,6 +205,35 @@ def test_mentions_owner_contact_predicate():
     assert not mentions_owner_contact("Цена фиксированная.", owner_id="Дмитрий")
 
 
+# --- return_promise: обещание вернуться, non-suppress (Task 1.3) ------------
+
+def test_return_promise_reply_escalates_without_other_trigger():
+    # Чистое обещание вернуться, без keyword/промиса/владельца → карточка нужна
+    # (иначе follow-up некуда регистрировать). НЕ suppress.
+    r = deterministic_escalation(
+        incoming_text="а когда будут свободные даты?",
+        reply="Отвечу позже, как свериться с календарём.",
+        knowledge=KNOWLEDGE, keywords=[], owner_id="Дмитрий")
+    assert r is not None and r.tag == "return_promise"
+
+
+def test_suppress_and_owner_handoff_win_over_return_promise():
+    # Приоритет: suppress (unbacked_promise) > owner_handoff > return_promise.
+    r1 = deterministic_escalation(
+        incoming_text="скидку?", reply="Сделаю скидку, уточню и вернусь.",
+        knowledge=KNOWLEDGE, keywords=[], owner_id="Дмитрий")
+    assert r1 is not None and r1.tag == "unbacked_promise"
+    # ПРИМ.: "свяжу"/"перезвоню" и т.п. — одновременно и owner-контакт-глагол, и
+    # promise-стем ("свяж" в DEFAULT_PROMISE_TERMS), поэтому для чистой проверки
+    # owner_handoff > return_promise берём ролевое слово («владельцем») без
+    # контакт-глагола, чтобы не задеть suppress-триггер (проверено вручную:
+    # unbacked_promise=None, mentions_owner_contact=True, promises_return=True).
+    r2 = deterministic_escalation(
+        incoming_text="?", reply="Уточню и вернусь. Обсудим с владельцем.",
+        knowledge=KNOWLEDGE, keywords=[], owner_id="Дмитрий")
+    assert r2 is not None and r2.tag == "owner_handoff"
+
+
 # --- decide_escalation: combine deterministic + classifier (спека §4) --------
 
 from chatter.core.classifier import ClassifierResult  # noqa: E402
