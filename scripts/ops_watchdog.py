@@ -79,7 +79,8 @@ def build_alert(check: str, kind: str, detail: str) -> str:
     return "🚨 DOWN: %s. %s" % (label, detail)
 
 
-def evaluate(prev_state: dict, probes: dict, debounce: int = DEBOUNCE):
+def evaluate(prev_state: dict, probes: dict, debounce: int = DEBOUNCE,
+             suppress_down: bool = False):
     """Pure core: fold this cycle's probe results into per-check state and emit
     the alerts the transitions warrant.
 
@@ -100,11 +101,98 @@ def evaluate(prev_state: dict, probes: dict, debounce: int = DEBOUNCE):
             st = {"fail": 0, "alerted": False}
         else:
             st["fail"] = st.get("fail", 0) + 1
-            if st["fail"] >= debounce and not st.get("alerted"):
+            if st["fail"] >= debounce and not st.get("alerted") and not suppress_down:
                 alerts.append(build_alert(check, "down", res.get("detail", "")))
                 st["alerted"] = True
+            # suppress_down: считаем, но молчим. `alerted` НЕ ставим — поэтому
+            # (а) после окна загрузки не поднявшийся сервис немедленно даст
+            # 🚨 (debounce уже набран), (б) поднявшийся не даст ✅ о том, о чём
+            # владельцу не сообщали.
         new_state[check] = st
     return alerts, new_state
+
+
+# ── DEV-24: алерт «машина перезагрузилась» ────────────────────────────────
+# Инцидент 2026-07-15: Windows Update ребутнул прод дважды за три минуты
+# (Event 1074 в 03:14:09 и 03:16:48), погибла аудит-задача, узнали утром.
+# Остальные проверки этого не ловят по построению: они спрашивают «сервис
+# отвечает?», а после ребута сервисы поднимаются гардианами — и всё выглядит
+# нормой. Простой и потеря работы проходят бесследно.
+#
+# Сигнал по СМЕНЕ ЗАГРУЗКИ, а не по порогу аптайма: порог пропустил бы ребут,
+# если watchdog стартовал с задержкой, и слил бы двойной ребут в один алерт.
+BOOT_KEY = "_boot"          # служебный ключ в том же файле состояния, НЕ проверка
+# Окно, в котором падения сервисов ПОСЛЕ ЗАГРУЗКИ ожидаемы: гардианы ещё
+# поднимают backend/бота/раннер. Утренний ребут 2026-07-19 дал 🚨 в 07:01-07:03
+# (три штуки) плюс ✅ на каждую — до шести сообщений об ОДНОМ событии, и ни
+# одно не называло причину. 5 минут с запасом покрывают этот разброс.
+BOOT_GRACE_S = 300
+
+
+def within_boot_grace(boot_time: float, now: float, grace: float = BOOT_GRACE_S) -> bool:
+    """Идёт ли ещё загрузочное окно. В нём 🚨 по сервисам подавляются в пользу
+    одного осмысленного «машина перезагрузилась»."""
+    return (now - boot_time) <= grace
+
+
+def detect_reboot(prev_state: dict, boot_time: float) -> tuple[bool, dict]:
+    """(нужен_ли_алерт, новое_состояние). Чистая функция.
+
+    Первый запуск не алертит — предыдущей загрузки мы не видели, это база.
+    Дальше алертим на КАЖДУЮ смену идентификатора загрузки, поэтому два
+    ребута подряд честно дают два алерта."""
+    boot_id = int(boot_time)
+    new_state = {k: (dict(v) if isinstance(v, dict) else v)
+                 for k, v in prev_state.items()}
+    new_state[BOOT_KEY] = {"boot_id": boot_id}
+
+    entry = prev_state.get(BOOT_KEY)
+    prev_boot = entry.get("boot_id") if isinstance(entry, dict) else None
+    try:
+        # JSON мог сохранить число строкой; кривой стейт не должен ни падать,
+        # ни давать ложный 🔄 (DEV-18: не молча — но и не умирая).
+        prev_boot = int(prev_boot) if prev_boot is not None else None
+    except (TypeError, ValueError):
+        prev_boot = None
+
+    if prev_boot is None:
+        return False, new_state
+    return prev_boot != boot_id, new_state
+
+
+def humanize_uptime(seconds: float) -> str:
+    """Алерт читают в стрессе — «48323 с» разбирать некогда."""
+    s = max(0, int(seconds))
+    if s < 90:
+        return "%s с" % s
+    if s < 5400:
+        return "%s мин" % (s // 60)
+    return "%s ч" % round(s / 3600)
+
+
+def reboot_alert_text(boot_time: float, now: float, localtime=time.localtime,
+                      grace: float = BOOT_GRACE_S) -> str:
+    """ОДНО сообщение вместо россыпи 🚨 по каждому сервису. Явно говорит, что
+    тишина дальше — намеренная, иначе подавление само выглядит как поломка."""
+    hhmm = time.strftime("%H:%M", localtime(boot_time))
+    return ("🔄 Машина перезагрузилась в %s (аптайм %s). "
+            "Гардианы поднимают сервисы — тревоги по ним молчат %s мин. "
+            "Если что-то не встанет, придёт отдельный 🚨. "
+            "Проверь, не погибла ли долгая задача."
+            % (hhmm, humanize_uptime(now - boot_time), int(grace // 60)))
+
+
+def _boot_time() -> float | None:
+    """Момент загрузки по psutil. None — если получить не удалось: тогда
+    ребут-детект молча пропускается, но остальные проверки обязаны идти."""
+    try:
+        import psutil
+        return float(psutil.boot_time())
+    except Exception:
+        log_exc = getattr(sys, "stderr", None)
+        if log_exc:
+            print("[ops_watchdog] не смог определить время загрузки", file=sys.stderr)
+        return None
 
 
 def parse_token(env_text: str) -> str:
@@ -199,11 +287,31 @@ def _write_state(state: dict) -> None:
 
 
 def main() -> int:
+    state = _read_state()
+
+    # DEV-24: ребут проверяем ПЕРВЫМ и шлём отдельным сообщением. Он не
+    # зависит от здоровья сервисов — наоборот, чаще всего они уже здоровы
+    # (гардианы подняли), и именно поэтому раньше ребут проходил незаметно.
+    reboot_text = None
+    in_boot_grace = False
+    boot_time = _boot_time()
+    if boot_time is not None:
+        fired, state = detect_reboot(state, boot_time)
+        if fired:
+            reboot_text = reboot_alert_text(boot_time, time.time())
+        # Окно проверяем ОТДЕЛЬНО от факта детекта: 🚨 прилетали в 07:01-07:03,
+        # то есть на нескольких тиках подряд, а не только на том, где сменился
+        # boot_id. Подавлять надо всё окно, иначе дедупликация ничего не даст.
+        in_boot_grace = within_boot_grace(boot_time, time.time())
+
     probes = probe_all(_http_get, _disk_usage)
-    alerts, new_state = evaluate(_read_state(), probes)
+    alerts, state = evaluate(state, probes, suppress_down=in_boot_grace)
+
+    if reboot_text:
+        _send_tg(reboot_text)
     for text in alerts:
         _send_tg(text)
-    _write_state(new_state)
+    _write_state(state)
     return 0
 
 
