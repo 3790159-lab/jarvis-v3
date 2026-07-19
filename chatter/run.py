@@ -1,5 +1,6 @@
 from __future__ import annotations
 import argparse
+import dataclasses
 import datetime as _dt
 import logging
 import os
@@ -27,6 +28,7 @@ from chatter.core.escalation import (
     advance_funnel, decide_escalation, deterministic_escalation, esc_active_key,
     mentions_owner_contact,
 )
+from chatter.core.follow_up import promises_return
 from chatter.core.guardrails import (
     within_daily_cap, within_hourly_limit,
 )
@@ -191,9 +193,11 @@ def _escalation_pass(
                 f"Если удобно, свяжу вас с {owner_ref}."
             )
 
+    is_return = promises_return(reply)
     delivered = False
     if decision.escalate and deps.notifier is not None:
-        delivered = _post_escalation_card(deps, contact_id, det=det, cr=cr, now=now)
+        delivered = _post_escalation_card(
+            deps, contact_id, det=det, cr=cr, now=now, followup=is_return)
     # H2: обещание участия ВЛАДЕЛЬЦА (называет его по имени или «свяжется/
     # перезвонит») допустимо, ТОЛЬКО если карточка реально дошла до владельца
     # (delivered). Не дошла (сбой доставки, тихая правка устаревшей карточки,
@@ -219,6 +223,15 @@ def _escalation_pass(
     # содержит → там no-op).
     if implies_owner and not protected:
         reply = _drop_trailing_question(reply)
+    # Follow-up (Фаза 1): Аня обещала вернуться И карточка ДОСТАВЛЕНА (I3) →
+    # регистрируем pending follow-up. Курьер довезёт ответ владельца ПОЗЖЕ
+    # (Фаза 3). ЗДЕСЬ лиду НИЧЕГО не шлём (I1) — только запись в БД.
+    if delivered and promises_return(reply):
+        card_ref = store.get_runtime_flag(esc_active_key(contact_id))
+        if card_ref:
+            store.register_follow_up(
+                contact_id, topic=incoming_text, lead_last_ts=now,
+                card_ref=card_ref, now=now)
     return reply
 
 
@@ -245,7 +258,9 @@ def _drop_trailing_question(reply: str) -> str:
 _ESCALATION_DEDUP_SECONDS = 60.0
 
 
-def _post_escalation_card(deps: "Deps", contact_id: str, *, det, cr, now: float) -> bool:
+def _post_escalation_card(
+    deps: "Deps", contact_id: str, *, det, cr, now: float, followup: bool = False,
+) -> bool:
     """Собрать и отправить карточку эскалации. Имя/ссылку строит раннер
     (`deps.escalation_card`, у него есть Telethon-entity); без него — текстовый
     фоллбек по contact_id. Никогда не роняет process_batch (DEV-18).
@@ -293,6 +308,10 @@ def _post_escalation_card(deps: "Deps", contact_id: str, *, det, cr, now: float)
                     console_text("card_resume_status_hint", language),
                 ],
                 link=contact_link(user_id=peer))
+        if followup:
+            card = dataclasses.replace(
+                card,
+                text_html=card.text_html + "\n\n" + console_text("card_followup_hint", language))
         # Fix 2 + дрил 07-18: дедуп только в пределах КОРОТКОГО окна. Внутри окна
         # (случайное двойное срабатывание того же залпа) правим существующую
         # карточку. За окном — активный флаг УСТАРЕЛ: владелец давно не тапал, а

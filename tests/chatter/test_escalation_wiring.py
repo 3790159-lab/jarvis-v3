@@ -569,6 +569,52 @@ def test_owner_handoff_promise_stripped_when_card_not_delivered():
     assert "владельц" not in joined and "дмитри" not in joined   # обещание контакта снято
 
 
+def test_return_promise_registers_pending_followup_when_card_delivered():
+    n = FakeNotifier()
+    deps = _deps(notifier=n, classify=None, keywords=[],
+                 brain_reply="Отвечу позже, как свериться с календарём.")
+    t = RecordingTransport()
+    deps.store.get_or_create_contact("42:demo")
+    process_batch("42:demo", ["когда свободные даты?"], t, deps)
+    fu = deps.store.get_follow_up("42:demo")
+    assert fu is not None and fu["state"] == "pending_owner"
+    assert fu["topic"] == "когда свободные даты?"
+    assert fu["card_ref"]
+    # I1: НИ ОДНОГО проактивного сообщения лиду — только реактивный ответ Ани.
+    assert t.sent == ["Отвечу позже, как свериться с календарём."]
+
+
+def test_no_followup_registered_when_card_not_delivered():
+    n = _FailingNotifier()
+    deps = _deps(notifier=n, classify=None, keywords=[],
+                 brain_reply="Отвечу позже, дам знать.")
+    t = RecordingTransport()
+    deps.store.get_or_create_contact("42:demo")
+    process_batch("42:demo", ["когда свободные даты?"], t, deps)
+    assert deps.store.get_follow_up("42:demo") is None
+
+
+def test_no_followup_when_reply_is_not_a_return_promise():
+    n = FakeNotifier()
+    deps = _deps(notifier=n, classify=None, keywords=[],
+                 brain_reply="Съёмка стоит 15000 грн.")
+    t = RecordingTransport()
+    deps.store.get_or_create_contact("42:demo")
+    process_batch("42:demo", ["сколько стоит съёмка?"], t, deps)
+    assert deps.store.get_follow_up("42:demo") is None
+
+
+def test_followup_card_carries_reply_hint():
+    n = FakeNotifier()
+    deps = _deps(notifier=n, classify=None, keywords=[],
+                 brain_reply="Отвечу позже, дам знать.")
+    t = RecordingTransport()
+    deps.store.get_or_create_contact("42:demo")
+    process_batch("42:demo", ["когда даты?"], t, deps)
+    assert len(n.cards) == 1
+    assert "передам" in n.cards[0].text_html.casefold()
+
+
 def test_owner_ref_config_customizes_reference():
     # Клиент может задать, как называть владельца в ответах (уже в нужном падеже:
     # «менеджером», «Дмитрием», …). Пусто → дефолт «владельцем».
