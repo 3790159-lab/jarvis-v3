@@ -8,7 +8,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Awaitable, Callable
+from typing import Awaitable, Callable, Mapping
 
 from telethon import events
 from telethon.errors import AuthKeyError, UnauthorizedError
@@ -55,6 +55,81 @@ from chatter.telethon_login import (
 SESSION_LOST_ERRORS = (UnauthorizedError, AuthKeyError)
 
 log = logging.getLogger("chatter.telethon_run")
+
+# --------------------------------------------------------------------------
+# Онбординг-дырка №4: рантайм-файлы выводятся из slug клиента.
+#
+# Раньше --session/--db имели ОДИН дефолт на всех, поэтому второй клиент,
+# запущенный без флагов, молча садился на сессию и БД первого. Отказ был не
+# на первом клиенте, а ровно в момент масштабирования — худший момент.
+# Теперь путь выводится из первичного slug'а: забыть флаг НЕЛЬЗЯ, потому
+# что флага больше не нужно.
+# --------------------------------------------------------------------------
+SECRETS_DIR = Path(".secrets")
+LEGACY_SESSION_NAME = "chatter_telethon.session"
+LEGACY_DB_NAME = "chatter_telethon.db"
+# Первичный slug боевого деплоя, который УЖЕ живёт на общем дефолте: только
+# его файлы имеет право забрать миграция (иначе новый клиент подхватил бы
+# чужую сессию — ту самую аварию, от которой мы и уходим).
+LEGACY_OWNER_SLUG = "demo"
+
+
+def derive_session_path(primary_slug: str, secrets_dir: Path | None = None) -> str:
+    return str((secrets_dir or SECRETS_DIR) / f"{primary_slug}.session")
+
+
+def derive_db_path(primary_slug: str, secrets_dir: Path | None = None) -> str:
+    return str((secrets_dir or SECRETS_DIR) / f"{primary_slug}.db")
+
+
+def resolve_runtime_paths(
+    *, primary_slug: str, session_arg: str | None = None, db_arg: str | None = None,
+    env: Mapping[str, str] | None = None, secrets_dir: Path | None = None,
+) -> tuple[str, str]:
+    """(session, db). Приоритет: явный флаг > env > вывод из slug'а.
+
+    Дефолта «общий на всех» больше нет — отсутствие флага даёт РАЗНЫЕ пути
+    для разных клиентов, а не одинаковые."""
+    env = {} if env is None else env
+    session = session_arg or env.get("TELETHON_SESSION") or derive_session_path(
+        primary_slug, secrets_dir)
+    db = db_arg or env.get("CHATTER_DB") or derive_db_path(primary_slug, secrets_dir)
+    return session, db
+
+
+def migrate_legacy_runtime_files(
+    *, session_path: str, db_path: str, secrets_dir: Path | None = None,
+    legacy_owner_slug: str = LEGACY_OWNER_SLUG,
+) -> list[str]:
+    """Одноразовый перенос боевых файлов со старого общего дефолта на новый
+    per-slug путь. Без него смена дефолта = РАЗЛОГИН живой Ани (сессия лежит
+    в .secrets/chatter_telethon.session и правится каждый рестарт).
+
+    Переносим, только если цель ещё не существует (чужое не затираем) и только
+    в путь первичного legacy-деплоя (`legacy_owner_slug`), иначе второй клиент
+    забрал бы сессию первого. Возвращает список выполненных переносов."""
+    root = secrets_dir or SECRETS_DIR
+    moved: list[str] = []
+    pairs = (
+        (root / LEGACY_SESSION_NAME, Path(session_path), f"{legacy_owner_slug}.session"),
+        (root / LEGACY_DB_NAME, Path(db_path), f"{legacy_owner_slug}.db"),
+    )
+    for legacy, target, expected_name in pairs:
+        if target.name != expected_name:
+            continue                       # не путь legacy-владельца — не трогаем
+        if not legacy.exists() or target.exists():
+            continue
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(legacy, target)
+        except OSError:
+            # DEV-18: не молча. Не мигрировали — не фатально (Telethon создаст
+            # новую сессию и попросит логин), но оператор обязан это увидеть.
+            log.exception("миграция %s -> %s не удалась", legacy, target)
+            continue
+        log.warning("онбординг-№4: перенёс %s -> %s (одноразовая миграция)", legacy, target)
+        moved.append(str(target))
+    return moved
 
 # Catch-up age cap: on start, don't answer anything older than this. A message
 # from last week doesn't need a live reply -- answering ancient backlog reads as
@@ -1517,8 +1592,12 @@ def main(argv: list[str] | None = None) -> int:
                     help="comma-separated persona slugs; the FIRST is primary "
                          "(supplies the allowlist) and the default for new senders")
     p.add_argument("--clients-dir", default=str(Path(__file__).resolve().parent / "clients"))
-    p.add_argument("--session", default=str(Path(".secrets") / "chatter_telethon.session"))
-    p.add_argument("--db", default=str(Path(".secrets") / "chatter_telethon.db"))
+    # Дефолта нет: путь выводится из ПЕРВИЧНОГО slug'а (онбординг-дырка №4),
+    # поэтому забыть флаг и молча сесть на файлы другого клиента невозможно.
+    p.add_argument("--session", default=None,
+                    help="по умолчанию .secrets/<первичный-slug>.session")
+    p.add_argument("--db", default=None,
+                    help="по умолчанию .secrets/<первичный-slug>.db")
     p.add_argument("--llm", choices=["auto", "real", "fake"], default="auto")
     args = p.parse_args(argv)
 
@@ -1539,9 +1618,20 @@ def main(argv: list[str] | None = None) -> int:
 
     from telethon import TelegramClient  # deferred: only main() ever constructs a real client
 
-    session_path = os.environ.get("TELETHON_SESSION", args.session)
+    slugs = [s.strip() for s in args.personas.split(",") if s.strip()]
+    if not slugs:
+        print("[telethon_run] --personas пуст", file=sys.stderr)
+        return 1
+
+    # Пути ВЫВОДЯТСЯ из первичного slug'а, а не из общего дефолта (дырка №4).
+    session_path, db_path = resolve_runtime_paths(
+        primary_slug=slugs[0], session_arg=args.session, db_arg=args.db, env=os.environ)
     Path(session_path).parent.mkdir(parents=True, exist_ok=True)
-    Path(args.db).parent.mkdir(parents=True, exist_ok=True)
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    # Боевой деплой уже живёт на старом общем дефолте — переносим один раз,
+    # иначе смена дефолта разлогинила бы живую Аню.
+    migrate_legacy_runtime_files(session_path=session_path, db_path=db_path)
+    log.info("рантайм-файлы клиента %s: session=%s db=%s", slugs[0], session_path, db_path)
 
     # Own event loop, set as current: (a) works on Python 3.12+/3.14 where
     # asyncio.get_event_loop() raises at top level, and (b) is the SAME loop
@@ -1552,8 +1642,7 @@ def main(argv: list[str] | None = None) -> int:
     asyncio.set_event_loop(loop)
     client = TelegramClient(session_path, int(api_id), api_hash)
 
-    slugs = [s.strip() for s in args.personas.split(",") if s.strip()]
-    store = Store(args.db)
+    store = Store(db_path)
     runner = build_runner(
         client=client, clients_dir=Path(args.clients_dir), persona_slugs=slugs,
         store=store, loop=loop, llm_mode=args.llm,
