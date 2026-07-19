@@ -85,7 +85,7 @@ work_hours: {{start: 9, end: 22}}
 # Добавляй сюда только то, что реально хочешь изменить.
 
 telegram:
-  allowlist: []                  # id, которым отвечаем ВСЕГДА (свой тестовый — сюда)
+  allowlist: {allowlist}         # id, которым отвечаем ВСЕГДА (свой тестовый — сюда)
   # denylist: []                 # id, которым не отвечаем никогда
   # funnel_gate включается КОМАНДОЙ пульта: /funnel_gate on
   # (правкой файла — не надо: команда объяснит риск и попросит подтверждение)
@@ -101,6 +101,7 @@ def render_client(
     *, slug: str, persona_name: str, owner_id: str, language: str = "ru",
     age: int = 26, role: str = "менеджер студии", currency: str = "грн",
     owner_ref: str | None = None, forbidden: list[str] | None = None,
+    allowlist: list[int] | None = None,
 ) -> dict[str, str]:
     """Содержимое 4 файлов. Чистая функция — ни диска, ни сети."""
     owner_ref = owner_ref or "владельцем"
@@ -110,6 +111,7 @@ def render_client(
                language=language, age=age, role=role, currency=currency,
                owner_ref=owner_ref,
                forbidden="[" + ", ".join(f'"{t}"' for t in forbidden) + "]",
+               allowlist="[" + ", ".join(str(int(i)) for i in (allowlist or [])) + "]",
                pairing=f"{slug}-onboard-01")
     return {
         "persona.md": _PERSONA.format(**ctx),
@@ -156,6 +158,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--age", type=int, default=26)
     p.add_argument("--role", default="менеджер студии")
     p.add_argument("--currency", default="грн")
+    p.add_argument("--allowlist", default="",
+                    help="id через запятую, которым Аня отвечает ВСЕГДА (свой тестовый)")
     p.add_argument("--owner-ref", default=None,
                     help="как Аня называет владельца в ответе лиду (в падеже)")
     p.add_argument("--clients-dir", default=str(Path(__file__).resolve().parent / "clients"))
@@ -165,7 +169,8 @@ def main(argv: list[str] | None = None) -> int:
         path = create_client(
             args.clients_dir, slug=args.slug, persona_name=args.persona_name,
             owner_id=args.owner_id, language=args.language, age=args.age,
-            role=args.role, currency=args.currency, owner_ref=args.owner_ref)
+            role=args.role, currency=args.currency, owner_ref=args.owner_ref,
+            allowlist=[int(x) for x in args.allowlist.split(",") if x.strip()])
     except (ValueError, FileExistsError) as e:
         print(f"[create_client] {e}", file=sys.stderr)
         return 1
@@ -174,12 +179,12 @@ def main(argv: list[str] | None = None) -> int:
     for f in FILES:
         print(f"  - {f}")
     print("\nДальше:")
-    print(f"  1) заполни ЗАПОЛНИТЬ в knowledge.md (или командой /knowledge)")
-    print(f"  2) впиши свой тестовый id в telegram.allowlist")
+    print("  1) заполни ЗАПОЛНИТЬ в knowledge.md (или потом командой /knowledge)")
+    print("  2) добавь slug в clients/active.yaml — тогда гардиан подхватит клиента")
     print(f"  3) логин: TELETHON_SESSION=.secrets/{args.slug}.session "
           f"python -m chatter.telethon_login")
     print(f"  4) запуск: python -m chatter.telethon_run --personas {args.slug}")
-    print(f"  5) гейт воронки — КОМАНДОЙ: /funnel_gate on")
+    print("  5) гейт воронки — КОМАНДОЙ пульта: /funnel_gate on")
     return 0
 
 

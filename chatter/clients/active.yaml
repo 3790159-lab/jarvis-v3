@@ -1,0 +1,15 @@
+# Активные клиенты chatter: кого обслуживает раннер.
+#
+# ПЕРВЫЙ в списке — первичный: он даёт allowlist, определяет язык пульта и
+# пути рантайм-файлов (.secrets/<slug>.session, .secrets/<slug>.db).
+#
+# Подключить нового клиента = добавить строку сюда и перезапустить раннер.
+# Править PowerShell-скрипт гардиана БОЛЬШЕ НЕ НУЖНО — он не передаёт
+# --personas, а раннер читает этот файл.
+#
+# Разовое переопределение (не трогая файл):
+#   python -m chatter.telethon_run --personas acme
+#   CHATTER_PERSONAS=acme python -m chatter.telethon_run
+clients:
+  - demo
+  - demo2

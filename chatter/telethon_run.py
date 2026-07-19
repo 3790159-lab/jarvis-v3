@@ -13,6 +13,7 @@ from typing import Awaitable, Callable, Mapping
 from telethon import events
 from telethon.errors import AuthKeyError, UnauthorizedError
 
+from chatter.config.active import ActiveClientsError, resolve_personas
 from chatter.config.loader import Config, ConfigError, ControlConfig, load_config
 from chatter.config.yaml_edit import YamlEditError, set_funnel_gate
 from chatter.core import humanizer as H
@@ -1627,9 +1628,13 @@ def main(argv: list[str] | None = None) -> int:
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
     p = argparse.ArgumentParser(prog="chatter.telethon_run")
-    p.add_argument("--personas", default="demo,demo2",
+    # Дефолт живёт в chatter/clients/active.yaml (онбординг-дырка №3), а не
+    # здесь и не в скрипте гардиана: подключение клиента — правка конфига,
+    # а не деплой.
+    p.add_argument("--personas", default=None,
                     help="comma-separated persona slugs; the FIRST is primary "
-                         "(supplies the allowlist) and the default for new senders")
+                         "(supplies the allowlist) and the default for new senders. "
+                         "По умолчанию — список из clients/active.yaml")
     p.add_argument("--clients-dir", default=str(Path(__file__).resolve().parent / "clients"))
     # Дефолта нет: путь выводится из ПЕРВИЧНОГО slug'а (онбординг-дырка №4),
     # поэтому забыть флаг и молча сесть на файлы другого клиента невозможно.
@@ -1657,9 +1662,11 @@ def main(argv: list[str] | None = None) -> int:
 
     from telethon import TelegramClient  # deferred: only main() ever constructs a real client
 
-    slugs = [s.strip() for s in args.personas.split(",") if s.strip()]
-    if not slugs:
-        print("[telethon_run] --personas пуст", file=sys.stderr)
+    try:
+        slugs = resolve_personas(
+            arg=args.personas, clients_dir=Path(args.clients_dir), env=os.environ)
+    except ActiveClientsError as e:
+        print(f"[telethon_run] {e}", file=sys.stderr)
         return 1
 
     # Пути ВЫВОДЯТСЯ из первичного slug'а, а не из общего дефолта (дырка №4).

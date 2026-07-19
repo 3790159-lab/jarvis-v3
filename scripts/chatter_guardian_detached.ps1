@@ -152,6 +152,10 @@ function Start-Runner {
         Write-G "Start-Runner: old runner still alive - aborting launch (never start on top of a live session)"
         return $false
     }
+    # Состав клиентов НЕ задаётся здесь намеренно (онбординг-дырка №3):
+    # раннер читает chatter/clients/active.yaml. Подключение нового клиента =
+    # строка в том файле + рестарт, а НЕ правка этого скрипта (то был бы
+    # деплой вместо онбординга). Разовое переопределение — CHATTER_PERSONAS.
     $runnerArgs = @('-u', '-m', 'chatter.telethon_run', '--llm', 'real')
     $p = $null
     try {

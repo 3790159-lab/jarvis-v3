@@ -142,3 +142,18 @@ def test_settings_yaml_keeps_explanatory_comments(tmp_path):
     text = (clients / "acme" / "settings.yaml").read_text(encoding="utf-8")
     assert "#" in text
     assert yaml.safe_load(text)                    # и при этом валидный YAML
+
+
+def test_allowlist_can_be_set_at_creation(tmp_path):
+    """Иначе первый же шаг после генерации — снова ручная правка файла."""
+    clients = tmp_path / "clients"
+    create_client(clients, slug="acme", persona_name="Аня", owner_id="Дмитрий",
+                  allowlist=[237616472])
+    cfg = load_config(clients, "acme")
+    assert cfg.settings.telegram.allowlist == (237616472,)
+
+
+def test_allowlist_defaults_to_empty(tmp_path):
+    clients = tmp_path / "clients"
+    create_client(clients, slug="acme", persona_name="Аня", owner_id="Дмитрий")
+    assert load_config(clients, "acme").settings.telegram.allowlist == ()
