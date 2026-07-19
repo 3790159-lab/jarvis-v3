@@ -15,6 +15,9 @@ function Write-Ok($text)    { Write-Host "  [ok]   $text" -ForegroundColor Green
 function Write-Miss($text)  { Write-Host "  [miss] $text" -ForegroundColor Yellow }
 function Write-Warn($text)  { Write-Host "  [warn] $text" -ForegroundColor Yellow }
 function Write-Bad($text)   { Write-Host "  [bad]  $text" -ForegroundColor Red }
+# [info] exists so that facts which are NOT evidence of health (e.g. "service
+# is Running") stop being printed in green. See DEV-23.
+function Write-Info($text)  { Write-Host "  [info] $text" -ForegroundColor Gray }
 
 # --- OpenSSH Server ---
 Write-Header "OpenSSH Server (sshd)"
@@ -97,34 +100,65 @@ $tailscaleSvc = Get-Service -Name Tailscale -ErrorAction SilentlyContinue
 if (-not $tailscaleSvc) {
     Write-Miss "Tailscale service not installed. See docs/REMOTE_ACCESS_SECOND_CHANNEL.md, or run scripts/remote/setup_tailscale_channel.ps1 -Status for detail."
 } else {
-    if ($tailscaleSvc.Status -eq "Running" -and $tailscaleSvc.StartType -eq "Automatic") {
-        Write-Ok "Tailscale service Running (StartType=Automatic)"
-    } elseif ($tailscaleSvc.Status -eq "Running") {
+    # NOTE (DEV-23): service state is INFO, never [ok]. "Running" is fully
+    # compatible with "Logged out" - i.e. a channel nobody can enter. Printing
+    # it green was the false-green that made a dead channel look healthy.
+    if ($tailscaleSvc.Status -eq "Running" -and $tailscaleSvc.StartType -ne "Automatic") {
         Write-Warn "Tailscale service Running but StartType=$($tailscaleSvc.StartType) (not Automatic - won't survive reboot)"
-    } else {
+    } elseif ($tailscaleSvc.Status -ne "Running") {
         Write-Bad "Tailscale service installed but Status=$($tailscaleSvc.Status)"
-    }
-    $tailscaleExe = Get-Command tailscale -ErrorAction SilentlyContinue
-    if ($tailscaleExe) {
-        $tsStatus = & tailscale status 2>&1 | Select-Object -First 1
-        if ($tsStatus -match "Logged out" -or $tsStatus -match "NeedsLogin") {
-            Write-Miss "tailscale status: not logged in - run 'tailscale up'"
-        } else {
-            Write-Ok "tailscale status: $tsStatus"
-        }
+    } else {
+        Write-Info "Tailscale service Running (StartType=Automatic) - says nothing about login"
     }
 }
 
+# DEV-23: verdict about USABILITY of the channel, not about service state.
+# Logic lives in Python so it is unit-tested (same pattern as
+# chatter_watch_check.py); this is only the call. Russian text comes from the
+# Python side on purpose: PS 5.1 reads .ps1 as ANSI without a BOM and mangles
+# Cyrillic literals, so this file stays ASCII.
+$secondChannelOk = $false
+$secondChannelSummary = "second channel: check could not be run"
+$checker = Join-Path $PSScriptRoot "second_channel_check.py"
+if (Test-Path $checker) {
+    $secondChannelSummary = (& python $checker 2>&1 | Select-Object -Last 1)
+    $secondChannelOk = ($LASTEXITCODE -eq 0)
+    if ($secondChannelOk) { Write-Ok $secondChannelSummary } else { Write-Bad $secondChannelSummary }
+} else {
+    Write-Bad "$checker not found - no verdict about the second channel"
+}
+
 # --- listening sockets ---
-Write-Header "Listening sockets (22, 3389, 8010)"
+# WARNING: this proves LOCAL listening only, never remote reachability.
+# 127.0.0.1:22 answers happily while the machine is unreachable from the
+# internet (tunnel down). Conflating the two was part of the false-green
+# picture: "ports are listening" got read as "I can still get in".
+Write-Header "Local listeners (22, 3389, 8010) - does NOT prove remote access"
 foreach ($port in 22, 3389, 8010) {
     $ok = Test-NetConnection -ComputerName 127.0.0.1 -Port $port -InformationLevel Quiet -WarningAction SilentlyContinue
-    if ($ok) { Write-Ok "127.0.0.1:$port reachable" } else { Write-Miss "127.0.0.1:$port not reachable" }
+    if ($ok) { Write-Info "127.0.0.1:$port listening (locally)" } else { Write-Miss "127.0.0.1:$port not listening" }
 }
 
 # --- identity ---
 Write-Header "Identity"
 Write-Host "  USERNAME    : $env:USERNAME"
 Write-Host "  COMPUTERNAME: $env:COMPUTERNAME"
+
+# --- VERDICT (DEV-15 / DEV-23) ---
+# One question, one answer. The script used to end in a wall of coloured lines
+# with no conclusion and always returned 0 - so it could not gate anything.
+Write-Header "VERDICT"
+if ($secondChannelOk) {
+    Write-Host "  [ok]   $secondChannelSummary" -ForegroundColor Green
+    Write-Host "  cloudflared / tunnel / DNS work is ALLOWED: there is a way back in." -ForegroundColor Green
+} else {
+    Write-Host "  [bad]  $secondChannelSummary" -ForegroundColor Red
+    Write-Host "  Precedent: self-lockout 2026-07-15 (SEV-1)" -ForegroundColor Red
+    Write-Host "  docs/postmortems/2026-07-15-tunnel-self-lockout.md" -ForegroundColor Red
+}
 Write-Host ""
-Write-Host "When ready, follow: docs/REMOTE_ACCESS.md" -ForegroundColor Cyan
+Write-Host "Details: docs/REMOTE_ACCESS.md, docs/REMOTE_ACCESS_SECOND_CHANNEL.md" -ForegroundColor Cyan
+
+# Non-zero = the second channel is not usable. Lets this run as a GATE before a
+# network operation instead of being read by eye.
+if ($secondChannelOk) { exit 0 } else { exit 1 }
