@@ -54,6 +54,20 @@ CREATE TABLE IF NOT EXISTS status_index (
     contact_id TEXT NOT NULL,
     issued_ts REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS follow_ups (
+    contact_id TEXT PRIMARY KEY,
+    topic TEXT,
+    promised_ts REAL,
+    lead_last_ts REAL,
+    card_ref TEXT,
+    state TEXT NOT NULL DEFAULT 'pending_owner',
+    mode TEXT NOT NULL DEFAULT 'verbatim',
+    owner_answer TEXT,
+    owner_answer_ts REAL,
+    holding_sent INTEGER NOT NULL DEFAULT 0,
+    created_ts REAL,
+    updated_ts REAL
+);
 """
 
 # Источники паузы уровня КОНТАКТА. Глобальный kill switch живёт в
@@ -354,6 +368,57 @@ class Store:
             row = self._conn.execute(
                 "SELECT ts FROM runtime_flags WHERE key=?", (key,)).fetchone()
         return float(row["ts"]) if row else None
+
+    _FOLLOW_UP_SETTABLE = frozenset({
+        "topic", "lead_last_ts", "card_ref", "state", "mode",
+        "owner_answer", "owner_answer_ts", "holding_sent",
+    })
+
+    def register_follow_up(self, contact_id: str, *, topic: str, lead_last_ts: float,
+                            card_ref: str, now: float) -> None:
+        """Завести/освежить pending follow-up (одно на контакт). Новое обещание
+        ПОЛНОСТЬЮ вытесняет прежнее (сброс state/mode/owner_answer/holding)."""
+        with self._lock:
+            self._conn.execute(
+                """INSERT INTO follow_ups
+                   (contact_id, topic, promised_ts, lead_last_ts, card_ref,
+                    state, mode, owner_answer, owner_answer_ts, holding_sent,
+                    created_ts, updated_ts)
+                   VALUES (?,?,?,?,?, 'pending_owner','verbatim', NULL, NULL, 0, ?, ?)
+                   ON CONFLICT(contact_id) DO UPDATE SET
+                     topic=excluded.topic, promised_ts=excluded.promised_ts,
+                     lead_last_ts=excluded.lead_last_ts, card_ref=excluded.card_ref,
+                     state='pending_owner', mode='verbatim',
+                     owner_answer=NULL, owner_answer_ts=NULL, holding_sent=0,
+                     updated_ts=excluded.updated_ts""",
+                (contact_id, topic, now, lead_last_ts, card_ref, now, now))
+            self._conn.commit()
+
+    def get_follow_up(self, contact_id: str) -> dict | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM follow_ups WHERE contact_id=?", (contact_id,)).fetchone()
+        return dict(row) if row else None
+
+    def set_follow_up(self, contact_id: str, **fields) -> None:
+        bad = set(fields) - self._FOLLOW_UP_SETTABLE
+        if bad:
+            raise ValueError(f"нельзя менять поля follow-up: {sorted(bad)}")
+        if not fields:
+            return
+        cols = ", ".join(f"{k}=?" for k in fields)
+        vals = list(fields.values())
+        with self._lock:
+            self._conn.execute(
+                f"UPDATE follow_ups SET {cols}, updated_ts=? WHERE contact_id=?",
+                (*vals, 0.0, contact_id))
+            self._conn.commit()
+
+    def follow_ups_by_state(self, state: str) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM follow_ups WHERE state=? ORDER BY updated_ts", (state,)).fetchall()
+        return [dict(r) for r in rows]
 
     def add_event(self, kind: str, *, contact_id: str | None = None,
                   detail: str | None = None, ts: float) -> None:
