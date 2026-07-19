@@ -107,6 +107,63 @@ def evaluate(prev_state: dict, probes: dict, debounce: int = DEBOUNCE):
     return alerts, new_state
 
 
+# ── DEV-24: алерт «машина перезагрузилась» ────────────────────────────────
+# Инцидент 2026-07-15: Windows Update ребутнул прод дважды за три минуты
+# (Event 1074 в 03:14:09 и 03:16:48), погибла аудит-задача, узнали утром.
+# Остальные проверки этого не ловят по построению: они спрашивают «сервис
+# отвечает?», а после ребута сервисы поднимаются гардианами — и всё выглядит
+# нормой. Простой и потеря работы проходят бесследно.
+#
+# Сигнал по СМЕНЕ ЗАГРУЗКИ, а не по порогу аптайма: порог пропустил бы ребут,
+# если watchdog стартовал с задержкой, и слил бы двойной ребут в один алерт.
+BOOT_KEY = "_boot"          # служебный ключ в том же файле состояния, НЕ проверка
+
+
+def detect_reboot(prev_state: dict, boot_time: float) -> tuple[bool, dict]:
+    """(нужен_ли_алерт, новое_состояние). Чистая функция.
+
+    Первый запуск не алертит — предыдущей загрузки мы не видели, это база.
+    Дальше алертим на КАЖДУЮ смену идентификатора загрузки, поэтому два
+    ребута подряд честно дают два алерта."""
+    boot_id = int(boot_time)
+    new_state = {k: (dict(v) if isinstance(v, dict) else v)
+                 for k, v in prev_state.items()}
+    new_state[BOOT_KEY] = {"boot_id": boot_id}
+
+    entry = prev_state.get(BOOT_KEY)
+    prev_boot = entry.get("boot_id") if isinstance(entry, dict) else None
+    try:
+        # JSON мог сохранить число строкой; кривой стейт не должен ни падать,
+        # ни давать ложный 🔄 (DEV-18: не молча — но и не умирая).
+        prev_boot = int(prev_boot) if prev_boot is not None else None
+    except (TypeError, ValueError):
+        prev_boot = None
+
+    if prev_boot is None:
+        return False, new_state
+    return prev_boot != boot_id, new_state
+
+
+def reboot_alert_text(boot_time: float, now: float, localtime=time.localtime) -> str:
+    hhmm = time.strftime("%H:%M", localtime(boot_time))
+    ago = max(0, int(now - boot_time))
+    return ("🔄 Машина перезагрузилась в %s (аптайм %s с). "
+            "Гардианы поднимают сервисы — проверь, не погибла ли долгая задача." % (hhmm, ago))
+
+
+def _boot_time() -> float | None:
+    """Момент загрузки по psutil. None — если получить не удалось: тогда
+    ребут-детект молча пропускается, но остальные проверки обязаны идти."""
+    try:
+        import psutil
+        return float(psutil.boot_time())
+    except Exception:
+        log_exc = getattr(sys, "stderr", None)
+        if log_exc:
+            print("[ops_watchdog] не смог определить время загрузки", file=sys.stderr)
+        return None
+
+
 def parse_token(env_text: str) -> str:
     m = re.search(
         r'^\s*(?:TELEGRAM_BOT_TOKEN|BOT_TOKEN)\s*=\s*"?([^"\r\n]+)"?',
@@ -199,11 +256,26 @@ def _write_state(state: dict) -> None:
 
 
 def main() -> int:
+    state = _read_state()
+
+    # DEV-24: ребут проверяем ПЕРВЫМ и шлём отдельным сообщением. Он не
+    # зависит от здоровья сервисов — наоборот, чаще всего они уже здоровы
+    # (гардианы подняли), и именно поэтому раньше ребут проходил незаметно.
+    reboot_text = None
+    boot_time = _boot_time()
+    if boot_time is not None:
+        fired, state = detect_reboot(state, boot_time)
+        if fired:
+            reboot_text = reboot_alert_text(boot_time, time.time())
+
     probes = probe_all(_http_get, _disk_usage)
-    alerts, new_state = evaluate(_read_state(), probes)
+    alerts, state = evaluate(state, probes)
+
+    if reboot_text:
+        _send_tg(reboot_text)
     for text in alerts:
         _send_tg(text)
-    _write_state(new_state)
+    _write_state(state)
     return 0
 
 
