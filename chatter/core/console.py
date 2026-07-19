@@ -185,6 +185,7 @@ CONSOLE_STRINGS: dict[str, dict[str, str]] = {
         "card_silent": "{persona} молчит в этом диалоге.",
         "card_resume_reply_hint": "Ответьте /resume на это сообщение",
         "card_resume_status_hint": "или: /status → /resume <номер>",
+        "card_followup_hint": "↩️ Ответь на эту карточку — я передам ответ лиду.",
         # Арка 3B — кнопки, карточка эскалации, feedback на тап, алерт деградации.
         "btn_resume": "▶️ Вернуть Аню",
         "btn_snooze": "⏸ Ещё 1ч",
@@ -258,6 +259,7 @@ CONSOLE_STRINGS: dict[str, dict[str, str]] = {
         "card_silent": "{persona} is silent in this chat.",
         "card_resume_reply_hint": "Reply /resume to this message",
         "card_resume_status_hint": "or: /status → /resume <number>",
+        "card_followup_hint": "↩️ Reply to this card — I'll pass the answer to the lead.",
         "btn_resume": "▶️ Bring Anya back",
         "btn_snooze": "⏸ +1h",
         "btn_open": "💬 Open chat",
@@ -329,6 +331,7 @@ CONSOLE_STRINGS: dict[str, dict[str, str]] = {
         "card_silent": "{persona} мовчить у цьому діалозі.",
         "card_resume_reply_hint": "Відповідайте /resume на це повідомлення",
         "card_resume_status_hint": "або: /status → /resume <номер>",
+        "card_followup_hint": "↩️ Відповідай на цю картку — я передам відповідь ліду.",
         "btn_resume": "▶️ Повернути Аню",
         "btn_snooze": "⏸ Ще 1год",
         "btn_open": "💬 Відкрити діалог",

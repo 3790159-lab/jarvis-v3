@@ -437,3 +437,15 @@ def test_help_text_explains_all_three_resume_paths(language):
     assert "/status" in out
     # Путь 3: явный адресат (username/ссылка/id) -- fallback без карточки.
     assert "@" in out
+
+
+# ---------------------------------------------------------------------------
+# Задача 1.4 арки follow-up: подсказка на карточке эскалации, что реплаем
+# на неё владелец передаёт ответ лиду (задача 1.5 добавит её в саму карточку).
+# ---------------------------------------------------------------------------
+
+def test_card_followup_hint_present_ru():
+    from chatter.core.console import console_text
+    hint = console_text("card_followup_hint", "ru")
+    assert "ответ" in hint.casefold()      # «ответь… передам лиду»
+    assert hint                             # непусто
