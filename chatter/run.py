@@ -58,11 +58,68 @@ class Deps:
     control: ControlConfig | None = None
 
 
+# Онбординг-дырка №0. Эта строка уходит В ОТВЕТ ЛИДУ на «ты бот?» дословно
+# (см. honest_disclosure), поэтому markdown-разметка из persona.md — не
+# косметика, а порча главного инварианта продукта: клиент, начавший файл с
+# «# Аня», получал «# Аня — честно говоря, я — виртуальный ассистент».
+# Демо-персона начинается с прозы, поэтому дефект был невидим тестам.
+_MD_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+")
+_MD_BULLET_RE = re.compile(r"^\s{0,3}[-*+]\s+")
+_MD_ORDERED_RE = re.compile(r"^\s{0,3}\d+[.)]\s+")
+_MD_QUOTE_RE = re.compile(r"^\s{0,3}>\s*")
+# Горизонтальная линейка / разделитель front-matter: содержательного текста нет.
+_MD_RULE_RE = re.compile(r"^\s{0,3}(?:-{3,}|\*{3,}|_{3,})\s*$")
+
+
+def _strip_markdown_prefix(line: str) -> str:
+    """Снять ведущую markdown-разметку. Возвращает («чистый текст», был_ли_маркер)."""
+    for rx in (_MD_HEADING_RE, _MD_BULLET_RE, _MD_ORDERED_RE, _MD_QUOTE_RE):
+        m = rx.match(line)
+        if m:
+            return line[m.end():].strip()
+    return line.strip()
+
+
+def _is_structural(line: str) -> bool:
+    return any(rx.match(line) for rx in
+               (_MD_HEADING_RE, _MD_BULLET_RE, _MD_ORDERED_RE, _MD_QUOTE_RE))
+
+
 def _persona_first_line(persona: str) -> str:
-    for line in persona.splitlines():
-        if line.strip():
-            return line.strip()
-    return ""
+    """Первая СОДЕРЖАТЕЛЬНАЯ строка persona.md, очищенная от markdown.
+
+    Предпочитаем прозу («Меня зовут Аня, мне 26…») заголовку («# Аня»): именно
+    проза задаёт тон честного ответа. Если прозы нет вовсе — отдаём очищенный
+    заголовок (лучше, чем пустота), но БЕЗ решётки. YAML front-matter в начале
+    файла пропускаем целиком, иначе его первая пара `title: …` сойдёт за прозу."""
+    lines = persona.splitlines()
+
+    # front-matter: '---' первой непустой строкой → всё до закрывающего '---'.
+    start = 0
+    for i, line in enumerate(lines):
+        if not line.strip():
+            continue
+        if _MD_RULE_RE.match(line):
+            for j in range(i + 1, len(lines)):
+                if _MD_RULE_RE.match(lines[j]):
+                    start = j + 1
+                    break
+            else:                      # незакрытый front-matter — не съедаем файл
+                start = i + 1
+        break
+
+    fallback = ""
+    for line in lines[start:]:
+        if not line.strip() or _MD_RULE_RE.match(line):
+            continue
+        cleaned = _strip_markdown_prefix(line)
+        if not cleaned:
+            continue
+        if not _is_structural(line):
+            return cleaned             # проза — то, что нужно
+        if not fallback:
+            fallback = cleaned         # заголовок/буллет — запасной вариант
+    return fallback
 
 
 # A message that sat unanswered longer than this is one a real person would

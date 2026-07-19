@@ -196,3 +196,59 @@ def test_honest_disclosure_ukrainian():
 def test_honest_disclosure_unknown_language_falls_back_to_ru():
     reply = honest_disclosure(owner_id="Аня", persona_line="", language="fr")
     assert HONESTY_MARKER in reply
+
+
+# ---------------------------------------------------------------------------
+# Онбординг-дырка №0: первая строка persona.md уходит в честный ответ ДОСЛОВНО.
+# Клиент, пишущий persona.md как нормальный markdown ("# Аня"), ломал главный
+# инвариант продукта: лид получал "# Аня — честно говоря, я — виртуальный
+# ассистент". Демо-персона начинается с прозы, поэтому 615 тестов молчали.
+# ---------------------------------------------------------------------------
+import pytest
+
+from chatter.run import _persona_first_line
+
+_MARKDOWN_FIRST_LINES = [
+    ("# Аня", "Аня"),
+    ("## Персона: Аня, 26 лет", "Персона: Аня, 26 лет"),
+    ("### Кто я", "Кто я"),
+    ("- Менеджер студии ACME", "Менеджер студии ACME"),
+    ("* Менеджер студии ACME", "Менеджер студии ACME"),
+    ("+ Менеджер студии ACME", "Менеджер студии ACME"),
+    ("> Я Аня, консультант", "Я Аня, консультант"),
+    ("1. Я Аня, консультант", "Я Аня, консультант"),
+]
+
+
+@pytest.mark.parametrize("raw,expected", _MARKDOWN_FIRST_LINES)
+def test_persona_first_line_strips_markdown_syntax(raw, expected):
+    assert _persona_first_line(raw) == expected
+
+
+def test_persona_first_line_skips_front_matter_and_headings():
+    """Клиент вполне может начать файл с front-matter и заголовка. Берём
+    первую СОДЕРЖАТЕЛЬНУЮ строку, а не первую непустую."""
+    persona = "---\ntitle: persona\n---\n\n# Аня\n\nМеня зовут Аня, мне 26. Я консультант.\n"
+    assert _persona_first_line(persona) == "Меня зовут Аня, мне 26. Я консультант."
+
+
+def test_persona_first_line_falls_back_to_heading_when_no_prose():
+    """Если содержательной прозы нет вовсе — заголовок лучше пустоты, но
+    ОЧИЩЕННЫЙ от разметки."""
+    assert _persona_first_line("# Аня\n") == "Аня"
+
+
+def test_persona_first_line_keeps_prose_untouched():
+    """Регрессия: демо-персона (проза) не должна измениться."""
+    line = "Меня зовут Аня, мне 29. Я фотограф и консультант по личному бренду."
+    assert _persona_first_line(line) == line
+
+
+@pytest.mark.parametrize("raw,_expected", _MARKDOWN_FIRST_LINES)
+def test_disclosure_never_leaks_markdown_syntax(raw, _expected):
+    """Главный инвариант: что бы клиент ни написал первой строкой, честный
+    ответ лиду не начинается с markdown-мусора."""
+    reply = honest_disclosure(
+        owner_id="Дмитрий", persona_line=_persona_first_line(raw), language="ru")
+    assert HONESTY_MARKER in reply
+    assert not reply.lstrip().startswith(("#", "-", "*", "+", ">", "1.", "---"))
