@@ -1,10 +1,27 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
+import logging
 import re
 from pathlib import Path
 import yaml
 
+log = logging.getLogger(__name__)
+
 LANGUAGES = {"ru", "en", "uk"}
+
+# honesty_mode: как Аня отвечает на прямой вопрос «ты бот?».
+#
+#   honest               — раскалывается честно и предлагает владельца (ДЕФОЛТ).
+#   free_owner_liability — гарантия честности снята, ответ идёт через brain.
+#
+# Свободное значение НАМЕРЕННО длинное и самоописывающее. Короткое `free`
+# отклоняется: выключение честности — самое опасное действие в продукте
+# (в ряде юрисдикций ещё и регулируемое), и оно не должно случиться от
+# опечатки или копипасты чужого конфига. Владелец, печатающий
+# `free_owner_liability`, читает, на ком ответственность.
+HONESTY_HONEST = "honest"
+HONESTY_FREE = "free_owner_liability"
+HONESTY_MODES = (HONESTY_HONEST, HONESTY_FREE)
 
 class ConfigError(Exception):
     pass
@@ -82,6 +99,16 @@ class Settings:
     # Чем ЗАМЕНИТЬ подавленный ответ про оплату: подавление ≠ тишина. Лид должен
     # получить КОРРЕКТНЫЙ ответ (названы верные способы), без запрещённого слова.
     safe_payment_reply: str | None = None
+    # --- Два per-client тумблера (осознанное решение владельца) -------------
+    # strict_knowledge: Аня говорит ТОЛЬКО из knowledge. True (дефолт) =
+    # необеспеченное обещание (скидка/гарантия/«перезвоню») ПОДАВЛЯЕТСЯ и
+    # эскалируется. False = свободный режим: обещание доезжает до лида, но
+    # карточка владельцу всё равно уходит. Ослабляется РОВНО этот слой:
+    # выдуманные ЦИФРЫ (unbacked_claim) и brand-safety (forbidden_reply)
+    # подавляются в ОБОИХ режимах — свободный ≠ право врать про цены и оплату.
+    strict_knowledge: bool = True
+    # honesty_mode: см. HONESTY_MODES выше. Дефолт — честный.
+    honesty_mode: str = HONESTY_HONEST
     telegram: TelegramConfig | None = None
     control: ControlConfig = field(default_factory=ControlConfig)
 
@@ -198,6 +225,30 @@ def load_config(clients_dir: Path, slug: str) -> Config:
     _reject_unknown(l, _LIMIT_FIELDS, "settings.yaml.limits")
     limits = Limits(**{f: int(l.get(f, getattr(DEFAULT_LIMITS, f))) for f in _LIMIT_FIELDS})
 
+    # Тумблеры клиента. strict_knowledge — обычный bool с безопасным дефолтом.
+    # honesty_mode — валидируется СТРОГО: неизвестное значение это ConfigError,
+    # а не тихий фолбэк в honest. Тихий фолбэк скрыл бы от владельца, что его
+    # настройка не применилась (DEV-18), а здесь цена ошибки — репутация и,
+    # в ряде юрисдикций, закон.
+    strict_knowledge = bool(raw.get("strict_knowledge", True))
+    honesty_mode = str(raw.get("honesty_mode", HONESTY_HONEST)).strip()
+    if honesty_mode not in HONESTY_MODES:
+        raise ConfigError(
+            f"settings.yaml: 'honesty_mode' must be one of {list(HONESTY_MODES)} "
+            f"(got '{honesty_mode}'). Выключение честности требует ПОЛНОГО "
+            f"значения '{HONESTY_FREE}' — короткое 'free' отклоняется намеренно, "
+            f"чтобы Аня не перестала признаваться в том, что она не человек, "
+            f"из-за опечатки.")
+    if honesty_mode == HONESTY_FREE:
+        # След в логе на каждой загрузке/перечитывании конфига. Смысл не в
+        # диагностике (код работает штатно), а в том, чтобы у решения был
+        # владелец: в логе видно, что обман включён ЯВНО настройкой клиента,
+        # а не приехал нашим дефолтом.
+        log.warning(
+            "client '%s': honesty_mode=%s — гарантия честности ВЫКЛЮЧЕНА владельцем; "
+            "на прямой вопрос «ты бот?» раскрытие не отправляется",
+            slug, HONESTY_FREE)
+
     telegram: TelegramConfig | None = None
     tg_raw = raw.get("telegram")
     if tg_raw is not None:
@@ -255,6 +306,7 @@ def load_config(clients_dir: Path, slug: str) -> Config:
                           currency=(str(raw["currency"]) if raw.get("currency") is not None else None),
                           forbidden_terms=tuple(str(x) for x in raw.get("forbidden_terms", []) or []),
                           safe_payment_reply=(str(raw["safe_payment_reply"]) if raw.get("safe_payment_reply") is not None else None),
+                          strict_knowledge=strict_knowledge, honesty_mode=honesty_mode,
                           work_hours=work_hours, timings=timings, limits=limits,
                           telegram=telegram, control=control),
     )
