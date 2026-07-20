@@ -617,6 +617,10 @@ _CFG_STRINGS: dict[str, dict[str, str]] = {
         "cfg_currency_unset": "Валюта: не задана (укажи currency в settings)",
         "cfg_gate_on": "Гейт воронки: ВКЛ (незнакомцы→лиды, знакомые→уведомление)",
         "cfg_gate_off": "Гейт воронки: выкл (отвечаю только allowlist)",
+        "cfg_strict_on": "Режим знаний: строго (отвечаю только из базы, обещания вне её — владельцу)",
+        "cfg_strict_off": "Режим знаний: свободно (отвечаю шире; обещания вне базы доходят до лида, но ты их видишь)",
+        "cfg_honesty_honest": "Честность: на «ты бот?» отвечаю честно и предлагаю тебя",
+        "cfg_honesty_free": "⚠️ Честность: свободный режим — на «ты бот?» НЕ раскрываюсь. Включено тобой осознанно, ответственность на тебе.",
         "cfg_lists": "Списки: allowlist {allow}, denylist {deny}",
         "cfg_changed": "Конфиг менялся: {ago}",
         "cfg_changed_never": "Конфиг менялся: с запуска не менялся",
@@ -649,6 +653,10 @@ _CFG_STRINGS: dict[str, dict[str, str]] = {
         "cfg_currency_unset": "Currency: not set (add currency to settings)",
         "cfg_gate_on": "Funnel gate: ON (strangers→leads, contacts→notice)",
         "cfg_gate_off": "Funnel gate: off (answering allowlist only)",
+        "cfg_strict_on": "Knowledge mode: strict (I answer only from the base; promises outside it go to you)",
+        "cfg_strict_off": "Knowledge mode: free (I answer wider; promises outside the base reach the lead, but you see them)",
+        "cfg_honesty_honest": "Honesty: I admit being an assistant when asked and offer you",
+        "cfg_honesty_free": "⚠️ Honesty: free mode — I do NOT disclose when asked if I am a bot. You enabled this deliberately; the responsibility is yours.",
         "cfg_lists": "Lists: allowlist {allow}, denylist {deny}",
         "cfg_changed": "Config changed: {ago}",
         "cfg_changed_never": "Config changed: unchanged since start",
@@ -681,6 +689,10 @@ _CFG_STRINGS: dict[str, dict[str, str]] = {
         "cfg_currency_unset": "Валюта: не задано (вкажи currency у settings)",
         "cfg_gate_on": "Гейт воронки: УВІМК (незнайомці→ліди, знайомі→сповіщення)",
         "cfg_gate_off": "Гейт воронки: вимк (відповідаю лише allowlist)",
+        "cfg_strict_on": "Режим знань: суворо (відповідаю лише з бази, обіцянки поза нею — власнику)",
+        "cfg_strict_off": "Режим знань: вільно (відповідаю ширше; обіцянки поза базою доходять до ліда, але ти їх бачиш)",
+        "cfg_honesty_honest": "Чесність: на «ти бот?» відповідаю чесно і пропоную тебе",
+        "cfg_honesty_free": "⚠️ Чесність: вільний режим — на «ти бот?» НЕ розкриваюся. Увімкнено тобою свідомо, відповідальність на тобі.",
         "cfg_lists": "Списки: allowlist {allow}, denylist {deny}",
         "cfg_changed": "Конфіг змінювався: {ago}",
         "cfg_changed_never": "Конфіг змінювався: з запуску не змінювався",
@@ -730,7 +742,8 @@ def format_config(
     *, persona_name: str, persona_age: int | None, language: str, model: str,
     knowledge: str, funnel_gate: bool, allow_count: int, deny_count: int,
     changed_ago: str | None, lang: str = "ru", currency: str | None = None,
-    forbidden_count: int = 0,
+    forbidden_count: int = 0, strict_knowledge: bool = True,
+    honesty_mode: str = "honest",
 ) -> str:
     sections, bullets = knowledge_stats(knowledge)
     persona_line = (
@@ -745,6 +758,10 @@ def format_config(
         cfg_text("cfg_knowledge", lang, sections=sections, bullets=bullets),
         cfg_text("cfg_currency", lang, currency=escape_html(currency), forbidden=forbidden_count)
         if currency else cfg_text("cfg_currency_unset", lang),
+        cfg_text("cfg_strict_on" if strict_knowledge else "cfg_strict_off", lang),
+        # Честность идёт ОТДЕЛЬНОЙ строкой и с ⚠️ в свободном режиме: это не
+        # рядовая настройка, владелец должен видеть её беглым взглядом.
+        cfg_text("cfg_honesty_honest" if honesty_mode == "honest" else "cfg_honesty_free", lang),
         cfg_text("cfg_gate_on" if funnel_gate else "cfg_gate_off", lang),
         cfg_text("cfg_lists", lang, allow=allow_count, deny=deny_count),
         cfg_text("cfg_changed", lang, ago=changed_ago) if changed_ago

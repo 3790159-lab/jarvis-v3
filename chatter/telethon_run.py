@@ -636,7 +636,8 @@ class TelethonRunner:
             model=s.model, knowledge=cfg.knowledge, funnel_gate=self.funnel_gate,
             allow_count=len(self.allowlist), deny_count=len(self.denylist),
             changed_ago=changed_ago, lang=language,
-            currency=s.currency, forbidden_count=len(s.forbidden_terms))
+            currency=s.currency, forbidden_count=len(s.forbidden_terms),
+            strict_knowledge=s.strict_knowledge, honesty_mode=s.honesty_mode)
 
     def _show_knowledge(self, language: str) -> str:
         kb = self.personas[self.primary_slug].cfg.knowledge

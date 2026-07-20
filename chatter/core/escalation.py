@@ -101,15 +101,26 @@ def mentions_owner_contact(reply: str, owner_id: str = "", owner_ref: str | None
 
 @dataclass(frozen=True)
 class EscalationReason:
-    """Почему диалог эскалирован — для строки «почему» в карточке (§3)."""
+    """Почему диалог эскалирован — для строки «почему» в карточке (§3).
+
+    `suppress` — надо ли ЗАМЕНИТЬ ответ Ани безопасным, или он едет лиду как
+    есть. Раньше это выводилось из `tag` списком в run.py; теперь решение
+    принимается ЗДЕСЬ, потому что оно зависит не только от тега, но и от
+    per-client тумблера strict_knowledge (одно и то же обещание подавляется в
+    строгом режиме и не подавляется в свободном). Держать полутон «эскалируем,
+    но не подавляем» в вызывающем коде значило бы разложить одно решение по
+    двум файлам.
+    """
     tag: str        # "keyword" | "bot_question" | "unbacked_claim" | "owner_handoff" | "classifier"
     detail: str     # человеческая однострочная причина
+    suppress: bool = False
 
 
 def deterministic_escalation(
     *, incoming_text: str, reply: str, knowledge: str, keywords: list[str],
     forbidden_terms=(), promise_terms=DEFAULT_PROMISE_TERMS,
     owner_id: str = "", owner_ref: str | None = None,
+    strict_knowledge: bool = True,
 ) -> EscalationReason | None:
     """Слой 1 (спека §4): бесплатные детерминированные триггеры. Работают, даже
     если классификатор/сеть лежат. Возвращает ПЕРВЫЙ сработавший триггер, иначе
@@ -128,11 +139,27 @@ def deterministic_escalation(
     hit = forbidden_mention(reply or "", forbidden_terms)
     if hit:
         return EscalationReason(
-            tag="forbidden_reply", detail=f"ответ упомянул запрещённое «{hit}»")
+            tag="forbidden_reply", detail=f"ответ упомянул запрещённое «{hit}»",
+            suppress=True)
     promise = unbacked_promise(reply or "", knowledge or "", promise_terms)
-    if promise:
+    # strict_knowledge=True (дефолт): обещание вне базы подавляется ЗДЕСЬ,
+    # раньше остальных — как и было.
+    if promise and strict_knowledge:
         return EscalationReason(
-            tag="unbacked_promise", detail=f"обещание вне базы знаний «{promise}»")
+            tag="unbacked_promise", detail=f"обещание вне базы знаний «{promise}»",
+            suppress=True)
+    # strict_knowledge=False: обещание больше не подавляется, но карточка
+    # владельцу остаётся. КРИТИЧНО — его нельзя вернуть здесь же с suppress=False:
+    # он проверяется РАНЬШЕ unbacked_claim и затенил бы его, а «сделаю скидку
+    # 700 грн» обязано подавиться выдуманной ЦИФРОЙ (цифры и brand-safety держим
+    # жёстко в обоих режимах). Поэтому неподавляющее обещание откладывается в
+    # хвост цепочки и возвращается, только если не сработал никто «сильнее».
+    soft_promise = (
+        EscalationReason(
+            tag="unbacked_promise",
+            detail=f"обещание вне базы знаний «{promise}» (свободный режим: не подавлено)",
+            suppress=False)
+        if promise else None)
     text = (incoming_text or "").casefold()
     for kw in keywords:
         if kw and kw in text:
@@ -145,7 +172,10 @@ def deterministic_escalation(
             tag="forbidden_incoming", detail=f"лид упомянул запрещённое «{in_hit}»")
     if contains_unbacked_claim(reply or "", knowledge or ""):
         return EscalationReason(
-            tag="unbacked_claim", detail="ответ обещал цену/срок вне базы знаний")
+            tag="unbacked_claim", detail="ответ обещал цену/срок вне базы знаний",
+            suppress=True)
+    if soft_promise is not None:
+        return soft_promise
     # owner_handoff — ПОСЛЕДНИЙ и НЕ suppress: ответ передаёт лида владельцу
     # («обсудить с владельцем», «Дмитрий свяжется», склонённое имя). Идёт после
     # всех suppress-триггеров (иначе выдуманная цена/скидка+«обсудим с владельцем»

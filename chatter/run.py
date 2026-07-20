@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from chatter.config.loader import Config, ControlConfig, load_config
+from chatter.config.loader import HONESTY_HONEST, Config, ControlConfig, load_config
 from chatter.core import humanizer as H
 from chatter.core.brain import Brain
 from chatter.core.brand_safety import forbidden_mention
@@ -202,6 +202,7 @@ def _muted_now(deps: Deps, contact_id: str) -> bool:
 
 def _escalation_pass(
     deps: "Deps", contact_id: str, *, incoming_text: str, reply: str, now: float,
+    disclosure_sent: bool = False,
 ) -> str:
     """Арка 3B: свести детерминированный слой и классификатор, оживить воронку,
     при эскалации отправить карточку владельцу. Возвращает (возможно
@@ -213,7 +214,8 @@ def _escalation_pass(
         incoming_text=incoming_text, reply=reply,
         knowledge=cfg.knowledge, keywords=deps.escalation_keywords,
         forbidden_terms=cfg.settings.forbidden_terms,
-        owner_id=cfg.settings.owner_id, owner_ref=cfg.settings.owner_ref)
+        owner_id=cfg.settings.owner_id, owner_ref=cfg.settings.owner_ref,
+        strict_knowledge=cfg.settings.strict_knowledge)
     cr = deps.classify(store.history(contact_id)) if deps.classify is not None else None
     decision = decide_escalation(det=det, classifier_result=cr)
 
@@ -223,7 +225,7 @@ def _escalation_pass(
 
     advance_funnel(store, contact_id, stage_signal=decision.stage_signal, escalated=decision.escalate)
 
-    if det is not None and det.tag in _SUPPRESS_TAGS:
+    if det is not None and det.suppress:
         # Гардрейл-подавление: НЕ отправляем ни выдуманную цену/срок (unbacked_claim),
         # ни запрещённый термин (forbidden_reply, рубли/росбанк), ни безцифровое
         # ОБЕЩАНИЕ вне базы (unbacked_promise: скидка/гарантия/рассрочка/«свяжется» —
@@ -263,7 +265,12 @@ def _escalation_pass(
     # честное раскрытие «я бот, подключу владельца» (tag=bot_question): там
     # упоминание владельца часть ЧЕСТНОСТИ (H3), не обещание за него, и трогать
     # его нельзя даже при неудачной доставке.
-    protected = det is not None and det.tag == "bot_question"
+    # Защищаем ФАКТ раскрытия, а не тег. Тег bot_question ставится по ВХОДЯЩЕМУ
+    # и срабатывает независимо от honesty_mode, поэтому при honesty_mode=
+    # free_owner_liability ответ пишет brain — и защита по тегу пропустила бы
+    # его недоставленное «свяжу с владельцем» мимо гейта H2. Защищать надо
+    # ровно тот текст, который мы САМИ сгенерировали как честное раскрытие.
+    protected = disclosure_sent
     implies_owner = mentions_owner_contact(
         reply, owner_id=cfg.settings.owner_id, owner_ref=cfg.settings.owner_ref)
     if not protected and not delivered and implies_owner:
@@ -278,8 +285,6 @@ def _escalation_pass(
         reply = _drop_trailing_question(reply)
     return reply
 
-
-_SUPPRESS_TAGS = ("unbacked_claim", "forbidden_reply", "unbacked_promise")
 
 # Разбивка на предложения по границе .!? + пробел (хвостовой вопрос режем с конца).
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?…])\s+")
@@ -434,12 +439,19 @@ def process_batch(
         print("  [rate limit] daily cap hit; skipping")
         return
 
-    if is_bot_question(text):
+    # honesty_mode (per-client, дефолт honest): захардкоженная гарантия честности
+    # стала ОСОЗНАННЫМ выбором владельца — но именно выбором, а не удалением
+    # механики. Детектор вопроса и текст раскрытия остаются на месте и под
+    # тестами; тумблер решает лишь, перехватывать ли ответ. Эскалация вопроса
+    # владельцу от режима НЕ зависит.
+    disclosure_sent = False
+    if is_bot_question(text) and deps.cfg.settings.honesty_mode == HONESTY_HONEST:
         reply = honest_disclosure(
             owner_id=deps.cfg.settings.owner_id,
             persona_line=_persona_first_line(deps.cfg.persona),
             language=deps.cfg.settings.language,
         )
+        disclosure_sent = True
     else:
         reply = deps.brain.reply(
             deps.store.history(contact_id),
@@ -450,7 +462,8 @@ def process_batch(
     # оживление воронки и — при эскалации — карточка владельцу. Здесь же
     # остаётся гардрейл-переписывание необеспеченного обещания (перенесено из
     # инлайна в _escalation_pass), чтобы Аня не отправила выдуманную цену.
-    reply = _escalation_pass(deps, contact_id, incoming_text=text, reply=reply, now=deps.clock())
+    reply = _escalation_pass(deps, contact_id, incoming_text=text, reply=reply,
+                             now=deps.clock(), disclosure_sent=disclosure_sent)
 
     now_hour = _dt.datetime.fromtimestamp(deps.clock()).hour
     actions = H.compose_reply(
