@@ -128,6 +128,25 @@ BOOT_KEY = "_boot"          # служебный ключ в том же фай�
 # одно не называло причину. 5 минут с запасом покрывают этот разброс.
 BOOT_GRACE_S = 300
 
+# Инцидент 2026-07-21/22: ложный «🔄 перезагрузилась в 07:00 (аптайм 74 ч)»
+# два дня подряд, 7-11 повторов, реального ребута не было. psutil.boot_time()
+# на Windows = time.time() - GetTickCount64()/1000; тик-каунтер не получает
+# NTP-коррекций, оценка дрейфует ~секунду в сутки. Раз в сутки дробь переползает
+# целочисленную границу, int() флипается → «смена загрузки»; пока дрейф в зоне
+# шума замера вокруг границы, каждый 30с-тик флипает туда-сюда → россыпь
+# повторов. Отсюда три предохранителя (все ниже, в detect_reboot):
+#   допуск дрейфа — сдвиг boot_id в его пределах не «смена загрузки». Реальный
+#   ребут двигает boot_time минимум на прежний аптайм (на порядки больше);
+#   допуск ОБЯЗАН быть меньше 159с — межребутного зазора инцидента 15.07,
+#   иначе второй ребут был бы съеден (тест держит);
+BOOT_JITTER_TOLERANCE_S = 60
+#   sanity-guard: не заявлять ребут при аптайме > 30 мин. Реальный ребут
+#   watchdog видит на первом же 30с-тике; «перезагрузилась в 07:00 при аптайме
+#   74 ч» — противоречие прямо в тексте алерта, каким инцидент и заметили.
+#   Цена: ребут, который watchdog проспал дольше 30 мин, алерта не даёт
+#   (осознанное решение владельца 2026-07-22); подавление не молчит (DEV-18).
+REBOOT_CLAIM_MAX_UPTIME_S = 30 * 60
+
 
 def within_boot_grace(boot_time: float, now: float, grace: float = BOOT_GRACE_S) -> bool:
     """Идёт ли ещё загрузочное окно. В нём 🚨 по сервисам подавляются в пользу
@@ -135,29 +154,60 @@ def within_boot_grace(boot_time: float, now: float, grace: float = BOOT_GRACE_S)
     return (now - boot_time) <= grace
 
 
-def detect_reboot(prev_state: dict, boot_time: float) -> tuple[bool, dict]:
+def _int_or_none(value):
+    """JSON мог сохранить число строкой; кривой стейт не должен ни падать,
+    ни давать ложный 🔄 (DEV-18: не молча — но и не умирая)."""
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def detect_reboot(prev_state: dict, boot_time: float, now: float,
+                  warn=None) -> tuple[bool, dict]:
     """(нужен_ли_алерт, новое_состояние). Чистая функция.
 
     Первый запуск не алертит — предыдущей загрузки мы не видели, это база.
-    Дальше алертим на КАЖДУЮ смену идентификатора загрузки, поэтому два
-    ребута подряд честно дают два алерта."""
+    Дальше алертим на смену идентификатора загрузки БОЛЬШЕ допуска дрейфа
+    (см. BOOT_JITTER_TOLERANCE_S), поэтому два ребута подряд честно дают два
+    алерта, а суточное дрожание psutil.boot_time() не даёт ни одного.
+    Сверху sanity-guard по аптайму (REBOOT_CLAIM_MAX_UPTIME_S, подавление
+    репортится в ``warn``) и дедуп once-per-boot-id (``alerted_boot_id`` в
+    стейте: об одной загрузке — один пуш)."""
     boot_id = int(boot_time)
     new_state = {k: (dict(v) if isinstance(v, dict) else v)
                  for k, v in prev_state.items()}
-    new_state[BOOT_KEY] = {"boot_id": boot_id}
 
     entry = prev_state.get(BOOT_KEY)
-    prev_boot = entry.get("boot_id") if isinstance(entry, dict) else None
-    try:
-        # JSON мог сохранить число строкой; кривой стейт не должен ни падать,
-        # ни давать ложный 🔄 (DEV-18: не молча — но и не умирая).
-        prev_boot = int(prev_boot) if prev_boot is not None else None
-    except (TypeError, ValueError):
-        prev_boot = None
+    entry = entry if isinstance(entry, dict) else {}
+    prev_boot = _int_or_none(entry.get("boot_id"))
+    alerted = _int_or_none(entry.get("alerted_boot_id"))
+
+    new_entry = {"boot_id": boot_id}
+    if alerted is not None:
+        new_entry["alerted_boot_id"] = alerted
+    new_state[BOOT_KEY] = new_entry
 
     if prev_boot is None:
+        return False, new_state                     # база, а не ложный алерт
+    if abs(boot_id - prev_boot) <= BOOT_JITTER_TOLERANCE_S:
+        return False, new_state                     # дрейф замера, не ребут
+
+    uptime = now - boot_time
+    if uptime > REBOOT_CLAIM_MAX_UPTIME_S:
+        # boot_time сдвинулся ощутимо (степ часов?), но машина давно работает —
+        # «перезагрузилась (аптайм 74 ч)» было бы ложью. Базу принимаем,
+        # молчим НЕ молча.
+        if warn:
+            warn("boot_time сместился на %dс при аптайме %s — считаю сдвигом "
+                 "часов, не ребутом; алерт подавлен"
+                 % (boot_id - prev_boot, humanize_uptime(uptime)))
         return False, new_state
-    return prev_boot != boot_id, new_state
+
+    if alerted is not None and abs(boot_id - alerted) <= BOOT_JITTER_TOLERANCE_S:
+        return False, new_state                     # об этой загрузке уже пушили
+    new_entry["alerted_boot_id"] = boot_id
+    return True, new_state
 
 
 def humanize_uptime(seconds: float) -> str:
@@ -296,7 +346,9 @@ def main() -> int:
     in_boot_grace = False
     boot_time = _boot_time()
     if boot_time is not None:
-        fired, state = detect_reboot(state, boot_time)
+        fired, state = detect_reboot(
+            state, boot_time, time.time(),
+            warn=lambda msg: print("[ops_watchdog] %s" % msg, file=sys.stderr))
         if fired:
             reboot_text = reboot_alert_text(boot_time, time.time())
         # Окно проверяем ОТДЕЛЬНО от факта детекта: 🚨 прилетали в 07:01-07:03,
