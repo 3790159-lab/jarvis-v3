@@ -178,8 +178,18 @@ ACL защитой **не считается** — на украденном н�
 
 ## 8. Проверка критерия приёмки (рев. 2 — проверяемые тесты)
 
-### 8.1 «Бут без интерактивного логона → гардиан поднял раннер и расшифровал секреты»
+### 8.1 ✅ ЗАКРЫТО 2026-07-23: «Бут без интерактивного логона → гардиан поднял раннер и расшифровал секреты»
 Согласованный ребут → **не трогать клавиатуру** → факт: heartbeat раннера идёт, лог без ошибок decrypt, секреты открыты из `.enc`. Machine-scope не зависит от user-логона, поэтому ARSO тест не мусорит (в отличие от теста №2 user-scope) — но для чистоты фиксируем в протоколе время бута и время первого успешного decrypt из лога.
+
+**Приёмочный ребут 2026-07-23 (второй, «чистый»; первый в 01:40 не был доказателен — консоль-логон в ту же минуту без секундных меток). Факты сняты 02:32, аптайм ~40 мин:**
+
+- **Бут 01:52:08** (`LastBootUpTime`), ребут инициирован из сессии, клавиатуру не трогали, ключ BitLocker не запрашивался.
+- **Probe-таск `JarvisSecretsBootProbe_TEMP`** (AtStartup/S4U/Highest, Run As User: Admin): Last Run Time **01:52:16**, Last Result **0**. Строка лога: `2026-07-23T01:52:34 | uptime=26s | user=Admin | OK | env+session расшифрованы верно` — machine-scope DPAPI + entropy расшифровали и `probe.env.enc`, и `probe.session.enc` в AtStartup-процессе.
+- **«Без участия владельца» доказано по Security-логу (4624):** первый интерактивный логон Admin — **01:52:19.642** (LogonType 2, инициатор `svchost.exe` PID 0x78c от SYSTEM), т.е. **probe-процесс стартовал (01:52:16) ДО появления консоль-сессии**. Сам логон — ARSO-автовосстановление, не ввод пароля: 11.5 с после kernel-boot, `AutoAdminLogon` пуст, `DefaultPassword` отсутствует, политика `DisableAutomaticRestartSignOn` не задана (= ARSO включён по дефолту Win11). Плюс архитектурно: machine-scope ключ DPAPI доступен SYSTEM с момента бута и от user-логона не зависит.
+- **Сопутствующее окружение (тот же бут):** 4 таска Running (Backend/Bot/ChatterGuardian + OpsWatchdog, подъём 01:52:39–01:53:41); раннер volska — один поллер, `honesty_mode: honest`, `funnel_gate: false`, «catch-up: 0 dialog(s)», 0 ERROR/WARNING; алертер 🔄 ровно один раз, `alerted_boot_id == boot_id == 1784760728` (= 01:52:08 точно, дрейф 0 с); BitLocker Protection On C:/D:/E:.
+- Исторические строки лога probe: FAIL 01:12 — свидетельство ACL-бага `(OI)(CI)` (фикс `0e36dc3`); OK 01:14/01:37 — из живой сессии (uptime большой, не приёмочные); OK 01:40:24 — первый ребут, не доказателен (см. выше).
+
+**Вердикт: критерий §8.1 выполнен целиком** — безлюдный старт при зашифрованном томе И расшифровка `.enc` в AtStartup-процессе без владельца. Оговорка из §8.4 снята. После фиксации probe-таск снят с регистрации, фикстуры `state\secrets_probe` удалены.
 
 ### 8.2 «Том зашифрован, украденный диск не даёт доступа»
 - `manage-bde -status`: все тома Protection On; C: — протектор TPM (+RecoveryPassword), clear-key протектора нет; D:/E: — auto-unlock + RecoveryPassword.
@@ -203,7 +213,7 @@ ACL защитой **не считается** — на украденном н�
 - **Раннер volska:** один логический поллер (chatter_guardian 2952 → python 5260 → child 4488; пара parent/child — норма). Лог (Get-Content): Telegram connected 00:29:53, «control-bot poller starting», «catch-up: 0 dialog(s) with missed messages», **0 ERROR/Traceback**. Живой `settings.yaml`: `honesty_mode: honest`, `funnel_gate: false`.
 - **Алертер:** 🔄 ровно один раз — `alerted_boot_id == boot_id == 1784755698` (= 00:28:18, once-per-boot-id dedup сработал); владелец подтвердил приход в TG через 31 с после подъёма; все чеки `fail=0, alerted=false` — ложных DOWN нет.
 
-Оговорка: закрыта BitLocker-половина критерия (безлюдный старт + зашифрованный том). Вторая половина §8.1 — «секреты открыты из `.enc`» — остаётся PENDING до слоя «процесс» (§2.1) и cutover (§6). Ротация recovery-ключей (засветились) — следующий шаг.
+Оговорка: закрыта BitLocker-половина критерия (безлюдный старт + зашифрованный том). Вторая половина §8.1 — «секреты открыты из `.enc`» — ✅ закрыта 2026-07-23 приёмочным ребутом (см. §8.1; механизм доказан на фикстурах под боевым ACL). Перевод ЖИВЫХ секретов на `.enc` — по cutover §6, отдельный ОК. Ротация recovery-ключей (засветились) — следующий шаг.
 
 ---
 
@@ -254,7 +264,7 @@ Machine-scope ключи **умирают вместе с машиной** (см
 - **§2.1 crypto**: machine-scope + entropy 32Б + ACL-хелпер ✅. Живой probe вскрыл баг ACL-каталога (гранты без `(OI)(CI)` при срезе наследования → дети с пустым DACL, Permission denied даже elevated Admin) — пофикшен по TDD, дети наследуют `(I)(F)` SYSTEM+Admins.
 - **§2.3 wiring**: `bootstrap_env` — единая стартовая точка (`telethon_run`/`telethon_login`): `.env.enc` → память; legacy plaintext → одноразовая авто-миграция §4.5; фолбэк только `JARVIS_ALLOW_PLAINTEXT_ENV=1` + TG-алерт на каждый старт. Тихие plaintext-чтения убраны (ANTHROPIC-блок, `_resolve_control_token`, `.env`-фолбэк `load_api_credentials` после `.enc`). Алертер `chatter_watch_check` умеет токен из `.env.enc` (иначе онемел бы после шреда).
 - **Мигратор** (cutover §6 п.4-6): `python -m chatter.security.migrate --root C:\jarvis` — entropy → `.env.enc` → сессия → ACL, верификация round-trip, идемпотентен, plaintext не удаляет. User-scope блобов на диске нет (проверено) — отдельный user→machine путь не нужен.
-- **Приёмка §8.1**: `scripts/secrets_boot_probe.py` + `register_secrets_boot_probe_TEMP.ps1` (AtStartup/S4U/Highest, одноразовые фикстуры в `state\secrets_probe` под боевым ACL — живые секреты не трогаются). Из сессии: FAIL→фикс→OK (лог `probe_result.log`). Ребут-прогон ⏳ ждёт ОК; после зелёного — `-Unregister`.
+- **Приёмка §8.1**: `scripts/secrets_boot_probe.py` + `register_secrets_boot_probe_TEMP.ps1` (AtStartup/S4U/Highest, одноразовые фикстуры в `state\secrets_probe` под боевым ACL — живые секреты не трогаются). Из сессии: FAIL→фикс→OK (лог `probe_result.log`). ✅ Ребут-прогон зелёный 2026-07-23 (факты в §8.1), таск снят `-Unregister`, фикстуры удалены.
 - ⚠️ Деплой этого кода в прод ДО `migrate`-setup уронит раннер явной ошибкой (нет entropy) — порядок cutover §6 обязателен.
 
 **Без ОК не делается:** включение BitLocker-протекторов (меняет боевую машину), шред plaintext, открытие гейта, cutover.
