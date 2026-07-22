@@ -10,9 +10,12 @@ Plaintext-секретов на диске нет: ни `.env`, ни `.session` 
 """
 from __future__ import annotations
 
+import json
 import logging
+import sys
+import urllib.request
 from pathlib import Path
-from typing import MutableMapping
+from typing import Callable, Mapping, MutableMapping
 
 from chatter.security.crypto import (
     CryptoError, decrypt_from_file, encrypt_to_file,
@@ -20,9 +23,53 @@ from chatter.security.crypto import (
 
 log = logging.getLogger("chatter.security.secret_loader")
 
+# Дефолтный получатель алертов — тот же, что у ops_watchdog.
+_ADMIN_CHAT_ID = "237616472"
+
 
 class SecretLoaderError(RuntimeError):
     """Секрет не загружен. Явная ошибка старта, не тихий фейл (DEV-18)."""
+
+
+def _urllib_post(url: str, payload: bytes) -> None:
+    req = urllib.request.Request(
+        url, data=payload, headers={"Content-Type": "application/json"})
+    urllib.request.urlopen(req, timeout=10).read()
+
+
+def _send_fallback_alert(
+    plaintext_path: Path,
+    enc_path: Path,
+    environ: Mapping[str, str],
+    transport: Callable[[str, bytes], None],
+) -> None:
+    """Фолбэк ДОЛЖЕН КРИЧАТЬ (требование Даниила 2026-07-22): тихий фолбэк
+    = «думаем, что зашифровано, а оно нет». Каждое фактическое использование
+    plaintext → алерт в Telegram. Сбой алерта не роняет старт, но громко
+    логируется (DEV-18) — блокировать загрузку секретов из-за сети = свой
+    собственный отказ в обслуживании."""
+    token = (environ.get("CHATTER_CONTROL_BOT_TOKEN")
+             or environ.get("TELEGRAM_BOT_TOKEN"))
+    if not token:
+        log.error(
+            "PLAINTEXT-ФОЛБЭК СЕКРЕТОВ БЕЗ АЛЕРТА: нет TELEGRAM_BOT_TOKEN/"
+            "CHATTER_CONTROL_BOT_TOKEN — некому кричать про %s",
+            plaintext_path)
+        return
+    chat_id = environ.get("JARVIS_ADMIN_CHAT_ID", _ADMIN_CHAT_ID)
+    text = (
+        "🔓⚠️ СЕКРЕТЫ ИЗ PLAINTEXT-ФОЛБЭКА\n"
+        f"Процесс: {Path(sys.argv[0]).name or 'python'}\n"
+        f"Нет: {enc_path}\n"
+        f"Загружено из plaintext: {plaintext_path}\n"
+        "Это ВРЕМЕННЫЙ режим миграции O1 — если видишь этот алерт после "
+        "конца Спринта 0, шифрование НЕ работает (P1P2_SPEC §6)."
+    )
+    payload = json.dumps({"chat_id": chat_id, "text": text}).encode("utf-8")
+    try:
+        transport(f"https://api.telegram.org/bot{token}/sendMessage", payload)
+    except Exception as exc:  # noqa: BLE001 - любой сбой алерта: лог, не крэш
+        log.error("алерт о plaintext-фолбэке не отправлен: %s", exc)
 
 
 def parse_env_text(text: str) -> dict[str, str]:
@@ -48,12 +95,14 @@ def load_env(
     *,
     environ: MutableMapping[str, str],
     fallback_plaintext: str | Path | None = None,
+    alert_transport: Callable[[str, bytes], None] = _urllib_post,
 ) -> dict[str, str]:
     """Грузит секреты в environ. Реальная переменная окружения всегда
     побеждает файл (прецедент load_api_credentials/env_bootstrap).
 
     Возвращает распарсенные значения файла (для диагностики/тестов)."""
     enc = Path(enc_path)
+    used_fallback: Path | None = None
     if enc.exists():
         try:
             text = decrypt_from_file(enc).decode("utf-8-sig")
@@ -61,12 +110,13 @@ def load_env(
             raise SecretLoaderError(f"{enc}: {exc}") from exc
         values = parse_env_text(text)
     elif fallback_plaintext is not None and Path(fallback_plaintext).exists():
-        # Временный фолбэк миграции O1 — шумим в лог, чтобы не прижился.
+        # Временный фолбэк миграции O1 — шумим в лог И кричим в Telegram
+        # (после применения values: токен для крика может лежать в них же).
+        used_fallback = Path(fallback_plaintext)
         log.warning(
             "plaintext-фолбэк секретов: %s (нет %s) — временно, до конца "
             "Спринта 0", fallback_plaintext, enc)
-        values = parse_env_text(
-            Path(fallback_plaintext).read_text(encoding="utf-8-sig"))
+        values = parse_env_text(used_fallback.read_text(encoding="utf-8-sig"))
     else:
         raise SecretLoaderError(
             f"нет зашифрованных секретов {enc} (и plaintext-фолбэк не "
@@ -74,6 +124,8 @@ def load_env(
             "docs/chatter/P1P2_SPEC.md §6")
     for key, val in values.items():
         environ.setdefault(key, val)
+    if used_fallback is not None:
+        _send_fallback_alert(used_fallback, enc, environ, alert_transport)
     return values
 
 

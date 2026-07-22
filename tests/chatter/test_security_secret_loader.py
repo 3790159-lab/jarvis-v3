@@ -97,6 +97,66 @@ def test_load_env_prefers_encrypted_over_fallback(tmp_path):
     assert environ["API_KEY"] == "encrypted"
 
 
+# --- фолбэк ДОЛЖЕН КРИЧАТЬ: TG-алерт на каждое фактическое использование ----
+# Требование Даниила 2026-07-22: тихий фолбэк = «думаем, что зашифровано,
+# а оно нет». Warning в лог — шёпот; алерт в Telegram — крик.
+
+def test_fallback_sends_telegram_alert(tmp_path):
+    plain = tmp_path / ".env"
+    plain.write_text("API_KEY=plain\nTELEGRAM_BOT_TOKEN=tok123\n",
+                     encoding="utf-8")
+    sent: list[tuple[str, bytes]] = []
+    load_env(tmp_path / ".env.enc", environ={},
+             fallback_plaintext=plain,
+             alert_transport=lambda url, payload: sent.append((url, payload)))
+    assert len(sent) == 1
+    url, payload = sent[0]
+    assert "tok123" in url                      # токен из только что
+    assert b"plaintext" in payload.lower()      # загруженных секретов
+    assert str(plain).encode() in payload or plain.name.encode() in payload
+
+
+def test_no_alert_when_encrypted_path_used(tmp_path):
+    enc = tmp_path / ".env.enc"
+    encrypt_to_file(enc, b"API_KEY=enc\nTELEGRAM_BOT_TOKEN=tok\n")
+    sent: list = []
+    load_env(enc, environ={},
+             fallback_plaintext=tmp_path / ".env",
+             alert_transport=lambda url, payload: sent.append(1))
+    assert sent == []
+
+
+def test_fallback_without_token_logs_error_but_loads(tmp_path, caplog):
+    """Нет токена → алерт послать нечем: громкая ошибка в лог (DEV-18),
+    но секреты загружены — старт не блокируем, блокировка = свой отказ."""
+    plain = tmp_path / ".env"
+    plain.write_text("API_KEY=plain\n", encoding="utf-8")
+    with caplog.at_level("ERROR"):
+        values = load_env(tmp_path / ".env.enc", environ={},
+                          fallback_plaintext=plain,
+                          alert_transport=lambda url, payload: None)
+    assert values == {"API_KEY": "plain"}
+    assert any("алерт" in r.message.lower() or "token" in r.message.lower()
+               for r in caplog.records)
+
+
+def test_fallback_alert_transport_failure_is_logged_not_raised(tmp_path, caplog):
+    """Упавший алерт не роняет старт, но и не глотается молча (DEV-18)."""
+    plain = tmp_path / ".env"
+    plain.write_text("API_KEY=plain\nTELEGRAM_BOT_TOKEN=tok\n",
+                     encoding="utf-8")
+
+    def broken(url, payload):
+        raise OSError("network down")
+
+    with caplog.at_level("ERROR"):
+        values = load_env(tmp_path / ".env.enc", environ={},
+                          fallback_plaintext=plain, alert_transport=broken)
+    assert values["API_KEY"] == "plain"
+    assert any("network down" in r.message or "алерт" in r.message.lower()
+               for r in caplog.records)
+
+
 # --- StringSession: plaintext-сессии на диске нет никогда (§2.2) ------------
 
 def test_string_session_round_trip(tmp_path):
