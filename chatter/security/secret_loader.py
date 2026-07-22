@@ -188,14 +188,20 @@ def derive_session_enc_path(session_path: str) -> str:
     return session_path + ".enc"
 
 
-def save_string_session(enc_path: str | Path, session: str) -> None:
+# entropy_path ниже: None = обычный резолв crypto (JARVIS_ENTROPY_FILE или
+# CWD-относительный дефолт); явный путь нужен инструментам, бегущим не из
+# repo-root (migrate CLI, boot-probe).
+
+def save_string_session(enc_path: str | Path, session: str, *,
+                        entropy_path: str | Path | None = None) -> None:
     """StringSession → DPAPI → .enc. Plaintext-сессии на диске нет никогда."""
     p = Path(enc_path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    encrypt_to_file(p, session.encode("utf-8"))
+    encrypt_to_file(p, session.encode("utf-8"), entropy_path=entropy_path)
 
 
-def load_string_session(enc_path: str | Path) -> str:
+def load_string_session(enc_path: str | Path, *,
+                        entropy_path: str | Path | None = None) -> str:
     p = Path(enc_path)
     if not p.exists():
         raise SecretLoaderError(
@@ -203,13 +209,14 @@ def load_string_session(enc_path: str | Path) -> str:
             "telethon_login (сохранит .enc) или мигрировать legacy-сессию "
             "(P1P2_SPEC §6 п.4)")
     try:
-        return decrypt_from_file(p).decode("utf-8")
+        return decrypt_from_file(p, entropy_path=entropy_path).decode("utf-8")
     except CryptoError as exc:
         raise SecretLoaderError(f"{p}: {exc}") from exc
 
 
 def migrate_plaintext_file(plaintext_path: str | Path,
-                           enc_path: str | Path) -> bool:
+                           enc_path: str | Path, *,
+                           entropy_path: str | Path | None = None) -> bool:
     """Одноразовая миграция legacy plaintext → .enc (спека §4.5).
 
     Plaintext НЕ удаляется — он бэкап отката до cutover п.8 (шред руками
@@ -221,5 +228,5 @@ def migrate_plaintext_file(plaintext_path: str | Path,
     if not plain.exists():
         raise SecretLoaderError(
             f"мигрировать нечего: нет ни {enc}, ни plaintext {plain}")
-    encrypt_to_file(enc, plain.read_bytes())
+    encrypt_to_file(enc, plain.read_bytes(), entropy_path=entropy_path)
     return True
