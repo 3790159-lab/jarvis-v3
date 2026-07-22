@@ -49,6 +49,23 @@ $hbFile    = Join-Path $stateDir 'chatter_heartbeat.txt'
 $gHbFile   = Join-Path $stateDir 'chatter_guardian_heartbeat.txt'
 $watchCheck = Join-Path $Root 'scripts\chatter_watch_check.py'
 
+# --- SEMIDEMO OVERRIDE (volska) ---------------------------------------------
+# While state\chatter_semidemo_volska.flag exists, the guardian keeps persona
+# `volska` on the EXISTING demo session (same pins as run_volska_semidemo.ps1:
+# without them CHATTER_PERSONAS=volska would derive a non-existent
+# volska.session and Telethon would ask for a login code). Runner output goes
+# to the volska log files so the prod log of the demo persona is not clobbered.
+# Back to prod roster (active.yaml = demo,demo2): remove the flag via
+# run_volska_semidemo.ps1 -Revert (or delete the file) and restart the task.
+$semidemoFlag = Join-Path $stateDir 'chatter_semidemo_volska.flag'
+if (Test-Path $semidemoFlag) {
+    $env:CHATTER_PERSONAS = 'volska'
+    $env:TELETHON_SESSION = '.secrets\demo.session'
+    $env:CHATTER_DB       = '.secrets\demo.db'
+    $rErr = Join-Path $logDir 'chatter_volska.log'
+    $rOut = Join-Path $logDir 'chatter_volska.stdout.log'
+}
+
 function Write-G([string]$msg) {
     # Add-Content + Write-Host (NOT Tee-Object): keep a side-effect-free return so
     # callers using `if (-not (Stop-OldRunner))` see a real boolean, not a log array.
