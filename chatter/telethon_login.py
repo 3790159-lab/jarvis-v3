@@ -37,17 +37,23 @@ def _parse_env_file(path: Path) -> dict[str, str]:
     return values
 
 
-def load_api_credentials(env: Mapping[str, str], env_file_path: Path) -> tuple[str, str]:
+def load_api_credentials(env: Mapping[str, str],
+                         env_file_path: Path | None) -> tuple[str, str]:
     """Resolves (TELEGRAM_API_ID, TELEGRAM_API_HASH). A real environment
     variable always wins over the .env fallback (matches
     app/env_bootstrap.py's precedence); each of the two keys is resolved
     independently, so a partially-exported environment still falls back to
     .env for whichever one is missing. Raises CredentialsError with a clear,
-    actionable message if either is still missing after both sources."""
+    actionable message if either is still missing after both sources.
+
+    env_file_path=None ОТКЛЮЧАЕТ файловый фолбэк: после успешного
+    bootstrap_env из .enc чтение лежащего рядом plaintext-бэкапа было бы
+    тихим plaintext-путём (P1P2, слой процесса) — неполный .enc обязан
+    давать явную ошибку, а не молча доукомплектовываться из .env."""
     api_id = env.get("TELEGRAM_API_ID")
     api_hash = env.get("TELEGRAM_API_HASH")
 
-    if not api_id or not api_hash:
+    if (not api_id or not api_hash) and env_file_path is not None:
         file_values = _parse_env_file(Path(env_file_path))
         api_id = api_id or file_values.get("TELEGRAM_API_ID")
         api_hash = api_hash or file_values.get("TELEGRAM_API_HASH")
@@ -57,9 +63,11 @@ def load_api_credentials(env: Mapping[str, str], env_file_path: Path) -> tuple[s
         if not val
     ]
     if missing:
+        source_hint = (f"in {env_file_path}" if env_file_path is not None
+                       else "in .env.enc (шифрованные секреты, P1P2)")
         raise CredentialsError(
-            f"missing {', '.join(missing)} -- set them in the environment or in "
-            f"{env_file_path} (get an API ID/hash for your account at "
+            f"missing {', '.join(missing)} -- set them in the environment or "
+            f"{source_hint} (get an API ID/hash for your account at "
             "https://my.telegram.org/apps)"
         )
     return api_id, api_hash
@@ -121,8 +129,21 @@ def main(argv: list[str] | None = None) -> int:
         if hasattr(_stream, "reconfigure"):
             _stream.reconfigure(encoding="utf-8")
 
+    # P1/P2 слой процесса (§2.1/§2.3): секреты с диска — через .enc в память.
+    # Битый секрет-слой (нет entropy, tamper) = явный отказ, не тихий plaintext.
+    from chatter.security.secret_loader import SecretLoaderError, bootstrap_env
     try:
-        api_id, api_hash = load_api_credentials(os.environ, DEFAULT_ENV_FILE)
+        loaded = bootstrap_env(DEFAULT_ENV_FILE, environ=os.environ)
+    except SecretLoaderError as e:
+        print(f"[telethon_login] {e}", file=sys.stderr)
+        return 1
+
+    try:
+        # Файловый .env-фолбэк остаётся ТОЛЬКО когда bootstrap ничего не
+        # загрузил (нет ни .enc, ни .env): тогда он всё равно читает пустоту,
+        # но даёт привычное actionable-сообщение об ошибке.
+        api_id, api_hash = load_api_credentials(
+            os.environ, None if loaded else DEFAULT_ENV_FILE)
     except CredentialsError as e:
         print(f"[telethon_login] {e}", file=sys.stderr)
         return 1
@@ -155,8 +176,9 @@ def main(argv: list[str] | None = None) -> int:
     persist_login_session(client.session, enc_path)
     print(
         f"[telethon_login] session saved ENCRYPTED to: {enc_path} -- DPAPI "
-        "user-scope: расшифровывается только этим Windows-пользователем на "
-        "этой машине. Plaintext .session не создавался. Дальше ОБЯЗАТЕЛЬНО: "
+        "machine-scope + entropy (рев. 2): расшифровывается только на этой "
+        "машине процессом с доступом к entropy-файлу (ACL SYSTEM+Admins). "
+        "Plaintext .session не создавался. Дальше ОБЯЗАТЕЛЬНО: "
         "экспорт бэкапа секретов (P1P2_SPEC §12 / ONBOARDING_MANUAL §1)."
     )
     client.disconnect()

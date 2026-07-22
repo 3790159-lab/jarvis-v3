@@ -129,6 +129,59 @@ def load_env(
     return values
 
 
+# Явный opt-in plaintext-режима (задача 5 слоя процесса): выставляется
+# оператором осознанно (сервис ещё не мигрирован, O1 этап 2). Каждый старт
+# в этом режиме кричит в Telegram; снимается в конце Спринта 0.
+PLAINTEXT_OPTIN_ENV = "JARVIS_ALLOW_PLAINTEXT_ENV"
+
+
+def bootstrap_env(
+    env_file: str | Path,
+    *,
+    environ: MutableMapping[str, str],
+    alert_transport: Callable[[str, bytes], None] = _urllib_post,
+) -> dict[str, str]:
+    """Стартовая точка процесса Jarvis (§2.1/§2.3): секреты с диска — в
+    память процесса, plaintext на диск не ложится.
+
+    Порядок (тихих plaintext-путей НЕТ):
+    1. `<env_file>.enc` есть → decrypt в environ. Ошибка decrypt/entropy —
+       явная ошибка старта.
+    2. Только plaintext → авто-миграция §4.5 (зашифровать в .enc, plaintext
+       оставить бэкапом до cutover п.9) и грузиться уже из .enc. Нет
+       entropy → явная ошибка с ремедиацией, НЕ тихий plaintext.
+       Исключение: явный opt-in `JARVIS_ALLOW_PLAINTEXT_ENV=1` → plaintext
+       в память + громкий TG-алерт на каждый старт (сервисы O1 этапа 2).
+    3. Нет ни того ни другого → no-op: ключи могут жить в реальном environ
+       (прецедент load_api_credentials: missing .env = нет фолбэка).
+    """
+    plain = Path(env_file)
+    enc = Path(str(env_file) + ".enc")
+    optin = environ.get(PLAINTEXT_OPTIN_ENV) == "1"
+    if not enc.exists() and plain.exists():
+        if optin:
+            # Осознанный plaintext-режим: НЕ шифруем сам (миграция — решение
+            # оператора), грузим plaintext через громкий путь load_env.
+            return load_env(enc, environ=environ, fallback_plaintext=plain,
+                            alert_transport=alert_transport)
+        try:
+            migrate_plaintext_file(plain, enc)
+        except CryptoError as exc:
+            raise SecretLoaderError(
+                f"авто-миграция {plain} -> {enc} не удалась: {exc}. "
+                "Setup-шаг cutover: chatter.security.crypto."
+                "generate_entropy() + ACL (P1P2_SPEC §6 п.4); аварийный "
+                f"plaintext-режим: {PLAINTEXT_OPTIN_ENV}=1 (кричит в TG)."
+            ) from exc
+        log.warning("P1/P2-миграция: %s -> %s (plaintext оставлен бэкапом "
+                    "до cutover п.9)", plain, enc)
+    if not enc.exists():
+        log.info("bootstrap_env: нет ни %s, ни %s — секреты ожидаются в "
+                 "реальном environ", enc, plain)
+        return {}
+    return load_env(enc, environ=environ, alert_transport=alert_transport)
+
+
 def derive_session_enc_path(session_path: str) -> str:
     """`.secrets/<slug>.session` → `.secrets/<slug>.session.enc`. Живёт здесь
     (не в telethon_run), чтобы telethon_login мог импортировать без цикла."""

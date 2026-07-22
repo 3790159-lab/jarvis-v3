@@ -44,11 +44,11 @@ from chatter.run import Deps, process_batch
 from chatter.storage.db import Store
 from chatter.transport.telethon_tg import SentRegistry, TelethonTransport, send_alert
 from chatter.security.secret_loader import (
-    SecretLoaderError, derive_session_enc_path, load_string_session,
-    save_string_session,
+    SecretLoaderError, bootstrap_env, derive_session_enc_path,
+    load_string_session, save_string_session,
 )
 from chatter.telethon_login import (
-    DEFAULT_ENV_FILE, CredentialsError, _parse_env_file, load_api_credentials,
+    DEFAULT_ENV_FILE, CredentialsError, load_api_credentials,
 )
 
 # Session-loss errors (spec S2/S8): the account got logged out / the saved
@@ -1494,19 +1494,13 @@ def load_personas(
 
 
 def _resolve_control_token(token_env: str | None) -> str | None:
-    """Токен контрол-бота по ИМЕНИ env-переменной: сначала os.environ, потом
-    .env (как ANTHROPIC_API_KEY) — гардиан-раннер может не унаследовать
-    shell-переменную, а .env читается всегда."""
+    """Токен контрол-бота по ИМЕНИ env-переменной — только из os.environ.
+    Файловые секреты уже загружены туда bootstrap_env'ом на старте main()
+    (P1P2 слой процесса); прежнее прямое чтение plaintext .env отсюда было
+    тихим plaintext-путём и убрано."""
     if not token_env:
         return None
-    token = os.environ.get(token_env)
-    if token:
-        return token
-    try:
-        return _parse_env_file(DEFAULT_ENV_FILE).get(token_env)
-    except Exception:
-        log.warning("не смог прочитать %s из .env для токена контрол-бота", DEFAULT_ENV_FILE, exc_info=True)
-        return None
+    return os.environ.get(token_env) or None
 
 
 def _build_notifier_and_poller(
@@ -1779,20 +1773,27 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--llm", choices=["auto", "real", "fake"], default="auto")
     args = p.parse_args(argv)
 
+    # P1/P2 слой процесса (§2.1/§2.3): все файловые секреты (.env.enc, при
+    # первой встрече — авто-миграция plaintext .env → .enc) грузятся В ПАМЯТЬ
+    # процесса здесь, один раз. ANTHROPIC_API_KEY и токен контрол-бота дальше
+    # берутся из os.environ — отдельных чтений plaintext .env больше нет.
+    # Битый секрет-слой (нет entropy, tamper) = явный отказ старта (DEV-18).
     try:
-        # Same .env fallback as the login script, so a deploy-faithful `.venv`
-        # run doesn't require the operator to export TELEGRAM_API_ID/HASH.
-        api_id, api_hash = load_api_credentials(os.environ, DEFAULT_ENV_FILE)
-    except CredentialsError as e:
+        loaded = bootstrap_env(DEFAULT_ENV_FILE, environ=os.environ)
+    except SecretLoaderError as e:
         print(f"[telethon_run] {e}", file=sys.stderr)
         return 1
 
-    # For real Haiku replies, make ANTHROPIC_API_KEY available the same way --
-    # fall back to the repo .env so `--llm real` works without a manual export.
-    if args.llm in ("real", "auto") and not os.environ.get("ANTHROPIC_API_KEY"):
-        _key = _parse_env_file(DEFAULT_ENV_FILE).get("ANTHROPIC_API_KEY")
-        if _key:
-            os.environ["ANTHROPIC_API_KEY"] = _key
+    try:
+        # Файловый .env-фолбэк только когда bootstrap ничего не загрузил
+        # (нет ни .enc, ни .env — ключи обязаны жить в реальном environ);
+        # после успешного .enc он ВЫКЛЮЧЕН: неполный .enc = явная ошибка,
+        # а не тихое дочитывание из plaintext-бэкапа.
+        api_id, api_hash = load_api_credentials(
+            os.environ, None if loaded else DEFAULT_ENV_FILE)
+    except CredentialsError as e:
+        print(f"[telethon_run] {e}", file=sys.stderr)
+        return 1
 
     from telethon import TelegramClient  # deferred: only main() ever constructs a real client
 
