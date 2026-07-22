@@ -191,3 +191,31 @@ def test_restrict_acl_strips_inheritance_and_leaves_system_admins(tmp_path):
             if ":(" in ln and "Successfully" not in ln]
     assert len(aces) == 2, out
     assert not any("(I)" in a for a in aces), out
+
+
+def test_restrict_acl_on_directory_keeps_children_readable(tmp_path):
+    """Живой прогон probe вскрыл: гранты без (OI)(CI) на КАТАЛОГЕ при срезе
+    наследования оставляют детей с ПУСТЫМ DACL (D:AI) — Permission denied
+    даже для elevated Admin. Дети обязаны остаться читаемыми (наследуют
+    SYSTEM+Admins), новые дети — защищены автоматически."""
+    import subprocess
+
+    d = tmp_path / "secrets"
+    d.mkdir()
+    existing = d / "probe.env.enc"
+    existing.write_bytes(b"blob-bytes")
+
+    restrict_to_system_admins(d)
+
+    # существующий ребёнок читаем (мы — member of Administrators, elevated)
+    assert existing.read_bytes() == b"blob-bytes"
+    # новый ребёнок наследует защиту: ровно два ACE, оба inherited
+    new_child = d / "later.enc"
+    new_child.write_bytes(b"x")
+    out = subprocess.run(
+        ["icacls", str(new_child)], capture_output=True, text=True,
+        check=True).stdout
+    aces = [ln.strip() for ln in out.splitlines()
+            if ":(" in ln and "Successfully" not in ln]
+    assert len(aces) == 2, out
+    assert all("(I)" in a for a in aces), out

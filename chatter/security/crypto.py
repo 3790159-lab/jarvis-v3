@@ -106,11 +106,17 @@ def load_entropy(path: str | Path | None = None) -> bytes:
 def restrict_to_system_admins(path: str | Path) -> None:
     """ACL: только SYSTEM + Administrators (Full), наследование срезано
     (спека §0.3). SID-формы — независимо от локали. Отказ icacls = явная
-    ошибка (DEV-18), не тихо-открытый файл."""
+    ошибка (DEV-18), не тихо-открытый файл.
+
+    На КАТАЛОГЕ гранты обязаны быть наследуемыми (OI)(CI): срез
+    наследования выкидывает у детей унаследованные ACE, и без (OI)(CI)
+    дети остаются с ПУСТЫМ DACL — Permission denied для всех, включая
+    elevated Admin (вскрыто живым прогоном boot-probe)."""
     p = Path(path)
+    perm = "(OI)(CI)(F)" if p.is_dir() else "(F)"
     res = subprocess.run(
         ["icacls", str(p), "/inheritance:r",
-         "/grant:r", f"{_SID_SYSTEM}:(F)", f"{_SID_ADMINISTRATORS}:(F)"],
+         "/grant:r", f"{_SID_SYSTEM}:{perm}", f"{_SID_ADMINISTRATORS}:{perm}"],
         capture_output=True, text=True)
     if res.returncode != 0:
         raise CryptoError(
