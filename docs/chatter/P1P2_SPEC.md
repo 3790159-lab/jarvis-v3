@@ -189,6 +189,22 @@ ACL защитой **не считается** — на украденном н�
 ### 8.3 Слой «процесс»
 Копия `demo.session.enc` + `entropy.bin` на другую машину → DPAPI отказывает (machine-ключ другой). На этой машине из-под не-админского пользователя → entropy не читается (ACL), decrypt невозможен. Гоняем на копиях, не на живом.
 
+### 8.4 ✅ ЗАКРЫТО 2026-07-23: «бут без участия владельца → раннер поднялся при зашифрованном томе»
+
+Ребут-верификация «блэкаут» (ребут инициирован из сессии ~00:2x сразу после включения защиты, клавиатуру не трогали). Факты сняты 2026-07-23 00:32, аптайм ~4 мин:
+
+- **Бут 00:28:18 без запроса ключа** — машина поднялась сама, владелец не участвовал.
+- **BitLocker:** C:/D:/E: FullyEncrypted 100%, Protection **On**, Unlocked. Протекторы:
+  C: = Tpm `{E59928DE-0835-4645-B615-4FA59A4DB62E}` (PCR 7,11) + RecoveryPassword `{D0C72A16-2CEA-4995-9230-034ADEC41AE4}`;
+  D: = ExternalKey `{5D286BB5-9774-4B01-BE17-EDD698930144}` + RecoveryPassword `{327E2783-CD9B-4971-9755-F12FE0B622BA}`;
+  E: = ExternalKey `{0FC7CF0E-0F77-4528-BB29-D2D14DC42824}` + RecoveryPassword `{3412B5BC-EB80-4936-8EEB-101B52A396D4}`.
+  Clear-key отсутствует (Protection On, в списке протекторов только перечисленные типы). D:/E: `AutoUnlockEnabled=True`, разблокированы автоматически.
+- **Таски:** JarvisBackendGuardian / JarvisBotGuardian / JarvisChatterGuardian / JarvisOpsWatchdog = Running с 00:28:30–00:28:39; Sniper и IgTokenRefresh = Ready (event-driven/по расписанию — норма).
+- **Раннер volska:** один логический поллер (chatter_guardian 2952 → python 5260 → child 4488; пара parent/child — норма). Лог (Get-Content): Telegram connected 00:29:53, «control-bot poller starting», «catch-up: 0 dialog(s) with missed messages», **0 ERROR/Traceback**. Живой `settings.yaml`: `honesty_mode: honest`, `funnel_gate: false`.
+- **Алертер:** 🔄 ровно один раз — `alerted_boot_id == boot_id == 1784755698` (= 00:28:18, once-per-boot-id dedup сработал); владелец подтвердил приход в TG через 31 с после подъёма; все чеки `fail=0, alerted=false` — ложных DOWN нет.
+
+Оговорка: закрыта BitLocker-половина критерия (безлюдный старт + зашифрованный том). Вторая половина §8.1 — «секреты открыты из `.enc`» — остаётся PENDING до слоя «процесс» (§2.1) и cutover (§6). Ротация recovery-ключей (засветились) — следующий шаг.
+
 ---
 
 ## 9. Открытые вопросы — РЕШЕНЫ (§9-Р, ОК Даниила 2026-07-22)
