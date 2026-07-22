@@ -129,6 +129,12 @@ def load_env(
     return values
 
 
+def derive_session_enc_path(session_path: str) -> str:
+    """`.secrets/<slug>.session` → `.secrets/<slug>.session.enc`. Живёт здесь
+    (не в telethon_run), чтобы telethon_login мог импортировать без цикла."""
+    return session_path + ".enc"
+
+
 def save_string_session(enc_path: str | Path, session: str) -> None:
     """StringSession → DPAPI → .enc. Plaintext-сессии на диске нет никогда."""
     p = Path(enc_path)

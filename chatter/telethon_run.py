@@ -43,6 +43,10 @@ from chatter.notify.saved_messages import SavedMessagesNotifier
 from chatter.run import Deps, process_batch
 from chatter.storage.db import Store
 from chatter.transport.telethon_tg import SentRegistry, TelethonTransport, send_alert
+from chatter.security.secret_loader import (
+    SecretLoaderError, derive_session_enc_path, load_string_session,
+    save_string_session,
+)
 from chatter.telethon_login import (
     DEFAULT_ENV_FILE, CredentialsError, _parse_env_file, load_api_credentials,
 )
@@ -132,6 +136,58 @@ def migrate_legacy_runtime_files(
         log.warning("онбординг-№4: перенёс %s -> %s (одноразовая миграция)", legacy, target)
         moved.append(str(target))
     return moved
+
+
+# --------------------------------------------------------------------------
+# P1/P2 (Спринт 0 п.1): сессия живёт на диске ТОЛЬКО шифртекстом.
+# .enc → DPAPI-decrypt в память → StringSession → TelegramClient; plaintext
+# .session на диске не появляется никогда (P1P2_SPEC §2.2).
+# --------------------------------------------------------------------------
+
+def _sqlite_session_to_string(path: str) -> str:
+    """Legacy SQLite-сессия → StringSession-строка (офлайн, без сети)."""
+    from telethon.sessions import SQLiteSession, StringSession
+    return StringSession.save(SQLiteSession(path))
+
+
+def build_session(
+    session_path: str,
+    *,
+    string_session_cls=None,
+    session_to_string=None,
+):
+    """Объект сессии для TelegramClient. Приоритет (спека §4 п.3-5):
+    1. `.enc` есть → StringSession из расшифрованной строки (файловый путь
+       не используется вовсе).
+    2. Только legacy plaintext → одноразовая миграция: конвертировать,
+       зашифровать в `.enc`, plaintext ОСТАВИТЬ (бэкап отката до cutover
+       п.8 — шред руками после верификации).
+    3. Ничего → явная ошибка старта, не тихий фейл (DEV-18).
+
+    Инъекции string_session_cls/session_to_string — для тестов без
+    реального Telethon."""
+    enc = Path(derive_session_enc_path(session_path))
+    plain = Path(session_path)
+    if string_session_cls is None:
+        from telethon.sessions import StringSession as string_session_cls  # noqa: N806
+    if enc.exists():
+        return string_session_cls(load_string_session(enc))
+    if plain.exists():
+        string = (session_to_string or _sqlite_session_to_string)(str(plain))
+        if not string:
+            raise SecretLoaderError(
+                f"legacy-сессия {plain} без auth_key — это не залогиненная "
+                "сессия, мигрировать нечего; перелогиниться: "
+                "python -m chatter.telethon_login")
+        save_string_session(enc, string)
+        log.warning(
+            "P1/P2-миграция: %s -> %s (plaintext оставлен бэкапом до "
+            "cutover п.8)", plain, enc)
+        return string_session_cls(string)
+    raise SecretLoaderError(
+        f"нет ни зашифрованной сессии {enc}, ни legacy {plain} — "
+        "залогиниться: python -m chatter.telethon_login")
+
 
 # Catch-up age cap: on start, don't answer anything older than this. A message
 # from last week doesn't need a live reply -- answering ancient backlog reads as
@@ -1764,7 +1820,13 @@ def main(argv: list[str] | None = None) -> int:
     # actually running (otherwise sends would never execute).
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    client = TelegramClient(session_path, int(api_id), api_hash)
+    # P1/P2: сессия из .enc (StringSession в памяти), не из файла.
+    try:
+        session = build_session(session_path)
+    except SecretLoaderError as e:
+        print(f"[telethon_run] {e}", file=sys.stderr)
+        return 1
+    client = TelegramClient(session, int(api_id), api_hash)
 
     store = Store(db_path)
     runner = build_runner(

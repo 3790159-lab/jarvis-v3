@@ -72,6 +72,29 @@ def resolve_session_path(env: Mapping[str, str]) -> str:
     return env.get("TELETHON_SESSION", DEFAULT_SESSION_PATH)
 
 
+def _live_session_to_string(session) -> str:
+    from telethon.sessions import StringSession
+    return StringSession.save(session)
+
+
+def persist_login_session(client_session, enc_path: str,
+                          *, session_to_string=None) -> str:
+    """После интерактивного логина: сессия из памяти → StringSession-строка
+    → DPAPI `.enc`. Plaintext `.session` на диск не пишется никогда
+    (P1P2_SPEC §2.2). Пустая строка = логин не дал auth_key → явная ошибка,
+    а не тихий пустой .enc."""
+    from chatter.security.secret_loader import (
+        SecretLoaderError, save_string_session,
+    )
+    string = (session_to_string or _live_session_to_string)(client_session)
+    if not string:
+        raise SecretLoaderError(
+            "логин не дал auth_key — сессия пустая, сохранять нечего "
+            "(логин прерван до кода/2FA?)")
+    save_string_session(enc_path, string)
+    return str(enc_path)
+
+
 def make_client(session_path: str, api_id: str, api_hash: str, client_cls=None):
     """Constructs the Telethon client. `client_cls` is injectable so tests
     can assert (session_path, api_id, api_hash) were passed through correctly
@@ -107,9 +130,14 @@ def main(argv: list[str] | None = None) -> int:
     session_path = resolve_session_path(os.environ)
     Path(session_path).parent.mkdir(parents=True, exist_ok=True)
 
-    client = make_client(session_path, api_id, api_hash)
+    # P1/P2: логин идёт в StringSession В ПАМЯТИ — plaintext .session на
+    # диске не появляется даже на время логина (P1P2_SPEC §2.2).
+    from telethon.sessions import StringSession
+    from chatter.security.secret_loader import derive_session_enc_path
+    enc_path = derive_session_enc_path(session_path)
+    client = make_client(StringSession(), api_id, api_hash)
 
-    print(f"[telethon_login] session file: {session_path}")
+    print(f"[telethon_login] encrypted session target: {enc_path}")
     print(
         "[telethon_login] Telethon will now ask for your phone number, then the "
         "login code sent to Telegram, then your 2FA password if you have one set. "
@@ -124,10 +152,12 @@ def main(argv: list[str] | None = None) -> int:
     username = getattr(me, "username", None)
     user_id = getattr(me, "id", "?")
     print(f"[telethon_login] logged in as: {display_name} (@{username}) id={user_id}")
+    persist_login_session(client.session, enc_path)
     print(
-        f"[telethon_login] session saved to: {session_path} -- keep this file secret, "
-        "it grants FULL access to this Telegram account. It is already gitignored "
-        "(see /.secrets/ in the repo-root .gitignore) -- never commit it."
+        f"[telethon_login] session saved ENCRYPTED to: {enc_path} -- DPAPI "
+        "user-scope: расшифровывается только этим Windows-пользователем на "
+        "этой машине. Plaintext .session не создавался. Дальше ОБЯЗАТЕЛЬНО: "
+        "экспорт бэкапа секретов (P1P2_SPEC §12 / ONBOARDING_MANUAL §1)."
     )
     client.disconnect()
     return 0
