@@ -3,18 +3,30 @@
 DPAPI привязан к учётке+машине → смерть диска/профиля без экспорта = потеря
 всех сессий. Экспорт НАМЕРЕННО не через DPAPI (циркулярность): пароль
 владельца → scrypt → AES-GCM, формат с версией. Хранение вне машины.
+
+Живой слой (§12 п.1/п.3): collect_secrets (сбор материала с root в
+machine-независимом виде), restore_secrets (чистый root → machine-scope
+.enc локальным DPAPI, plaintext на диск не ложится), CLI export/restore
+(пароль только через getpass, не argv), приёмка «чистый профиль →
+восстановили → раннер поднялся» (bootstrap_env + сессия читаются).
 """
 from __future__ import annotations
+
+import sys
+from pathlib import Path
 
 import pytest
 
 from chatter.security.recovery import (
     BUNDLE_MAGIC,
     RecoveryError,
+    collect_secrets,
     export_bundle,
     export_bundle_to_file,
     import_bundle,
     import_bundle_from_file,
+    main as recovery_main,
+    restore_secrets,
 )
 
 SECRETS = {
@@ -84,3 +96,235 @@ def test_file_round_trip(tmp_path):
 def test_import_missing_file_raises_with_path(tmp_path):
     with pytest.raises(RecoveryError, match="nope.jrvbak"):
         import_bundle_from_file(tmp_path / "nope.jrvbak", "pw")
+
+
+# ---------------------------------------------------------------------------
+# Живой слой §12: сбор с root / restore на чистый root / CLI / приёмка.
+# DPAPI есть только на Windows — как в test_security_migrate.
+# ---------------------------------------------------------------------------
+
+win_only = pytest.mark.skipif(
+    sys.platform != "win32", reason="DPAPI есть только на Windows")
+
+
+def _fake_converter(path: str) -> str:
+    return "string-session-from-" + Path(path).name
+
+
+def _plaintext_root(tmp_path: Path, name: str = "repo") -> Path:
+    """Root ДО cutover: plaintext .env + legacy SQLite-сессия."""
+    root = tmp_path / name
+    (root / ".secrets").mkdir(parents=True)
+    (root / ".env").write_text("API_KEY=s3cret\nTELEGRAM_API_ID=1\n",
+                               encoding="utf-8")
+    (root / ".secrets" / "demo.session").write_bytes(b"sqlite-bytes")
+    return root
+
+
+@win_only
+def test_collect_from_plaintext_root(tmp_path, monkeypatch):
+    monkeypatch.delenv("JARVIS_ENTROPY_FILE", raising=False)
+    root = _plaintext_root(tmp_path)
+    secrets = collect_secrets(root, slug="demo",
+                              session_to_string=_fake_converter)
+    assert secrets[".env"] == (root / ".env").read_bytes()
+    assert secrets["demo.session"] == \
+        b"string-session-from-demo.session"
+    assert "entropy.bin" not in secrets  # entropy ещё нет — нечего включать
+
+
+@win_only
+def test_collect_prefers_enc_and_includes_entropy(tmp_path, monkeypatch):
+    """Post-cutover root: правда живёт в .enc (plaintext мог устареть или
+    быть шреднут), entropy.bin включается в экспорт (спека §6 п.4)."""
+    monkeypatch.delenv("JARVIS_ENTROPY_FILE", raising=False)
+    from chatter.security.crypto import encrypt_to_file, generate_entropy
+    from chatter.security.secret_loader import save_string_session
+    root = _plaintext_root(tmp_path)
+    entropy = root / ".secrets" / "entropy.bin"
+    generate_entropy(entropy)
+    encrypt_to_file(root / ".env.enc", b"API_KEY=fresh\n",
+                    entropy_path=entropy)
+    save_string_session(root / ".secrets" / "demo.session.enc",
+                        "fresh-string-session", entropy_path=entropy)
+    (root / ".env").write_text("API_KEY=stale\n", encoding="utf-8")
+
+    secrets = collect_secrets(root, slug="demo",
+                              session_to_string=_fake_converter)
+
+    assert secrets[".env"] == b"API_KEY=fresh\n"
+    assert secrets["demo.session"] == b"fresh-string-session"
+    assert secrets["entropy.bin"] == entropy.read_bytes()
+
+
+@win_only
+def test_collect_empty_root_is_explicit_error(tmp_path, monkeypatch):
+    """Экспорт «ничего» — это потерянный бэкап, не тихий успех (DEV-18)."""
+    monkeypatch.delenv("JARVIS_ENTROPY_FILE", raising=False)
+    root = tmp_path / "empty"
+    root.mkdir()
+    with pytest.raises(RecoveryError, match="нечего|нет"):
+        collect_secrets(root, slug="demo",
+                        session_to_string=_fake_converter)
+
+
+@win_only
+def test_restore_on_clean_root(tmp_path, monkeypatch):
+    """Чистый root: entropy из бандла, .env.enc/.session.enc создаются
+    локальным machine-scope DPAPI с round-trip-верификацией, plaintext
+    на диск НЕ ложится, ACL на весь материал, отчёт без значений."""
+    monkeypatch.delenv("JARVIS_ENTROPY_FILE", raising=False)
+    from chatter.security.crypto import decrypt_from_file
+    from chatter.security.secret_loader import load_string_session
+    bundle = {
+        ".env": b"API_KEY=s3cret\n",
+        "demo.session": b"restored-string-session",
+        "entropy.bin": b"e" * 32,
+    }
+    root = tmp_path / "clean"
+    acl_calls: list[str] = []
+
+    report = restore_secrets(bundle, root, slug="demo",
+                             acl=lambda p: acl_calls.append(str(Path(p))))
+
+    entropy = root / ".secrets" / "entropy.bin"
+    assert entropy.read_bytes() == b"e" * 32
+    assert decrypt_from_file(root / ".env.enc", entropy_path=entropy) == \
+        b"API_KEY=s3cret\n"
+    assert load_string_session(root / ".secrets" / "demo.session.enc",
+                               entropy_path=entropy) == \
+        "restored-string-session"
+    assert not (root / ".env").exists()  # plaintext на диск не ложится
+    assert not (root / ".secrets" / "demo.session").exists()
+    for target in (root / ".secrets", entropy, root / ".env.enc",
+                   root / ".secrets" / "demo.session.enc"):
+        assert str(target) in acl_calls, f"нет ACL на {target}"
+    joined = "\n".join(report)
+    assert "s3cret" not in joined and "restored-string-session" not in joined
+
+
+@win_only
+def test_restore_refuses_non_clean_root(tmp_path, monkeypatch):
+    """Restore поверх живых секретов = случайное затирание прода — явный
+    отказ, а не перезапись."""
+    monkeypatch.delenv("JARVIS_ENTROPY_FILE", raising=False)
+    from chatter.security.crypto import generate_entropy
+    bundle = {".env": b"API_KEY=x\n"}
+    root = tmp_path / "occupied"
+    (root / ".secrets").mkdir(parents=True)
+    generate_entropy(root / ".secrets" / "entropy.bin")
+    with pytest.raises(RecoveryError, match="чист|существ|занят"):
+        restore_secrets(bundle, root, slug="demo", acl=lambda p: None)
+
+
+@win_only
+def test_restore_without_entropy_in_bundle_generates_fresh(
+        tmp_path, monkeypatch):
+    """Старый бандл без entropy: на новой машине machine-ключ всё равно
+    другой — свежие 32Б, восстановление не блокируется."""
+    monkeypatch.delenv("JARVIS_ENTROPY_FILE", raising=False)
+    from chatter.security.crypto import decrypt_from_file
+    bundle = {".env": b"API_KEY=x\n"}
+    root = tmp_path / "clean"
+    restore_secrets(bundle, root, slug="demo", acl=lambda p: None)
+    entropy = root / ".secrets" / "entropy.bin"
+    assert entropy.exists() and entropy.stat().st_size == 32
+    assert decrypt_from_file(root / ".env.enc", entropy_path=entropy) == \
+        b"API_KEY=x\n"
+
+
+@win_only
+def test_acceptance_clean_profile_runner_rises(tmp_path, monkeypatch):
+    """§12 п.3 приёмка: старый root → export → ЧИСТЫЙ root → restore →
+    «раннер поднялся» = bootstrap_env кладёт секреты в environ и
+    StringSession читается (тот же путь, которым telethon_run стартует)."""
+    monkeypatch.delenv("JARVIS_ENTROPY_FILE", raising=False)
+    from chatter.security.secret_loader import (
+        bootstrap_env, load_string_session,
+    )
+    old = _plaintext_root(tmp_path, "old-machine")
+    bundle_file = tmp_path / "backup.jrvbak"
+    export_bundle_to_file(
+        bundle_file,
+        collect_secrets(old, slug="demo", session_to_string=_fake_converter),
+        "owner-password")
+
+    clean = tmp_path / "clean-profile"
+    restore_secrets(import_bundle_from_file(bundle_file, "owner-password"),
+                    clean, slug="demo", acl=lambda p: None)
+
+    entropy = clean / ".secrets" / "entropy.bin"
+    monkeypatch.setenv("JARVIS_ENTROPY_FILE", str(entropy))
+    environ: dict[str, str] = {"JARVIS_ENTROPY_FILE": str(entropy)}
+    values = bootstrap_env(clean / ".env", environ=environ)
+    assert environ["API_KEY"] == "s3cret"
+    assert values["TELEGRAM_API_ID"] == "1"
+    assert load_string_session(clean / ".secrets" / "demo.session.enc",
+                               entropy_path=entropy) == \
+        "string-session-from-demo.session"
+
+
+@win_only
+def test_cli_export_password_prompted_twice_and_mismatch_fails(
+        tmp_path, capsys, monkeypatch):
+    """Пароль ТОЛЬКО через getpass (argv светится в process list/истории);
+    export спрашивает дважды, расхождение = явный отказ без файла."""
+    monkeypatch.delenv("JARVIS_ENTROPY_FILE", raising=False)
+    root = _plaintext_root(tmp_path)
+    out = tmp_path / "b.jrvbak"
+    answers = iter(["pw-one", "pw-two"])
+    rc = recovery_main(
+        ["export", "--root", str(root), "--slug", "demo",
+         "--out", str(out)],
+        ask_password=lambda prompt: next(answers),
+        session_to_string=_fake_converter)
+    assert rc == 1
+    assert not out.exists()
+    assert "совпад" in capsys.readouterr().err
+
+
+@win_only
+def test_cli_export_then_restore_round_trip(tmp_path, capsys, monkeypatch):
+    monkeypatch.delenv("JARVIS_ENTROPY_FILE", raising=False)
+    root = _plaintext_root(tmp_path)
+    out = tmp_path / "b.jrvbak"
+    rc = recovery_main(
+        ["export", "--root", str(root), "--slug", "demo",
+         "--out", str(out)],
+        ask_password=lambda prompt: "owner-password",
+        session_to_string=_fake_converter)
+    assert rc == 0 and out.exists()
+
+    clean = tmp_path / "clean"
+    rc = recovery_main(
+        ["restore", "--root", str(clean), "--slug", "demo",
+         "--bundle", str(out)],
+        ask_password=lambda prompt: "owner-password",
+        acl=lambda p: None)
+    assert rc == 0
+    assert (clean / ".env.enc").exists()
+    assert (clean / ".secrets" / "demo.session.enc").exists()
+    captured = capsys.readouterr()
+    assert "s3cret" not in captured.out  # отчёт без значений секретов
+    assert "owner-password" not in captured.out
+
+
+@win_only
+def test_cli_restore_wrong_password_fails_clean(tmp_path, capsys, monkeypatch):
+    monkeypatch.delenv("JARVIS_ENTROPY_FILE", raising=False)
+    root = _plaintext_root(tmp_path)
+    out = tmp_path / "b.jrvbak"
+    recovery_main(
+        ["export", "--root", str(root), "--slug", "demo",
+         "--out", str(out)],
+        ask_password=lambda prompt: "owner-password",
+        session_to_string=_fake_converter)
+    clean = tmp_path / "clean"
+    rc = recovery_main(
+        ["restore", "--root", str(clean), "--slug", "demo",
+         "--bundle", str(out)],
+        ask_password=lambda prompt: "wrong",
+        acl=lambda p: None)
+    assert rc == 1
+    assert not (clean / ".env.enc").exists()
+    assert "парол" in capsys.readouterr().err
