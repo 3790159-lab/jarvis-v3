@@ -2,7 +2,7 @@
 
 **Дата:** 2026-07-22 (обновлён под решения §11) · Дополняет `ARCHITECTURE.md`. Черновик — сигнатуры и формы, не финал. Все ручки под auth (session-cookie + 2FA), за ENFORCE-middleware, **публичных ручек нет**. Каждая ручка проверяет скоуп (ресурс принадлежит клиенту вызывающего). Ошибки — единый формат `{ "error": { "code", "message" } }`. Session-файлы/ключи/`.env` наружу не отдаются никогда; ключи маскированы, повторно не показываются.
 
-**Модель ресурсов** (§4/§8): `client → N accounts`. Операционные ручки (конфиг, тумблеры, лента, статус, usage) — на уровне **account**. Биллинг/юнит-экономика — роллап на уровень **client**.
+**Модель ресурсов** (§4/§8): `client → N accounts`. Операционные ручки (конфиг, тумблеры, лента, статус, usage) — на уровне **account**. Биллинг/юнит-экономика — роллап на уровень **client**. Вкладки экрана аккаунта: Агент (§4b) · Знання/Playbook (§4) · Приклади (§4c) · Тумблери (§5) · Канали (§2–3) · Інтеграції (§9) · Аналітика (§8).
 
 Базовый префикс: `/api/v1`.
 
@@ -80,12 +80,40 @@
 
 | Метод | Путь | Назначение |
 |---|---|---|
-| GET | `/api/v1/accounts/{aid}/config` | `{persona_md, knowledge_md, playbook_md, settings_yaml}` (settings — без секретов). |
-| PUT | `/api/v1/accounts/{aid}/config/{file}` | `file` ∈ persona\|knowledge\|playbook\|settings. `{content}`. Прогон через `loader.py`-валидацию; ошибка → тот же текст, что у раннера. Успех → снапшот `.versions/` + `/reload`. |
+| GET | `/api/v1/accounts/{aid}/config` | `{persona_md, knowledge_md, playbook_md, settings_yaml, examples_yaml}` (settings — без секретов). |
+| PUT | `/api/v1/accounts/{aid}/config/{file}` | `file` ∈ persona\|knowledge\|playbook\|settings\|examples. `{content}`. Прогон через `loader.py`-валидацию; ошибка → тот же текст, что у раннера. Успех → снапшот `.versions/` + `/reload`. |
 | GET | `/api/v1/accounts/{aid}/versions` | `[{ts, changed_files}]`. |
 | POST | `/api/v1/accounts/{aid}/versions/{ts}/restore` | Восстановить снимок + reload. |
 
 ---
+
+## 4b. Агент (М7) — редактор персоны + красные линии
+
+| Метод | Путь | Назначение |
+|---|---|---|
+| GET | `/api/v1/accounts/{aid}/agent` | `{persona_md, style_rules:[...], red_lines:{strict_knowledge, safe_payment, deadline_guard}}` (red_lines — из `settings.yaml`). |
+| PUT | `/api/v1/accounts/{aid}/agent/persona` | `{persona_md, style_rules?}` → валидация (`loader.py`) → `persona.md` + снапшот `.versions/` + reload. |
+| PUT | `/api/v1/accounts/{aid}/agent/red_lines` | `{strict_knowledge?, safe_payment?, deadline_guard?}` — **переключатели**, пишут `settings.yaml` (не трогая прозу). |
+| GET | `/api/v1/accounts/{aid}/agent/preview` | Read-only сборка итогового системного промпта (`build_system_prompt` серверно) — что реально уйдёт в модель. → `{system_prompt, token_estimate}`. |
+
+> Откат — через общие `/versions` (§4). Красные линии отдельными флагами, чтобы клиент не снёс их случайным редактированием текста.
+
+## 4c. Приклади діалогів (М8) — few-shot
+
+| Метод | Путь | Назначение |
+|---|---|---|
+| GET | `/api/v1/accounts/{aid}/examples` | `{examples:[{id, tag, priority, enabled, turns:[{role, text}]}], selected_preview:{block, token_count, budget}}`. |
+| PUT | `/api/v1/accounts/{aid}/examples` | Полный набор → валидация → `examples.yaml` + снапшот `.versions/` + reload. |
+| POST | `/api/v1/accounts/{aid}/examples/item` | `{tag, priority, enabled, turns}` → добавить один пример. |
+| PATCH | `/api/v1/accounts/{aid}/examples/{ex_id}` | Правка пары/тега/приоритета/enabled. |
+| DELETE | `/api/v1/accounts/{aid}/examples/{ex_id}` | Удалить пример. |
+| GET | `/api/v1/accounts/{aid}/examples/selection` | Что реально попадёт в промпт: статический отбор (enabled + покрытие тегов + priority, срез по бюджету ~1200–1500 ток). → `{selected:[ex_id...], token_count, dropped_by_budget:[...]}`. |
+
+**Импорт истории Telegram (v1.5):**
+| POST | `/api/v1/accounts/{aid}/examples/import/start` | multipart: экспорт Telegram (JSON). → авто-нарезка на пары + **анонимизация** (имена/телефоны/@-хендлы/ссылки → плейсхолдеры) → `{import_id, candidates:[{idx, turns, suggested_tag}]}`. |
+| POST | `/api/v1/accounts/{aid}/examples/import/{import_id}/commit` | `{keep:[{idx, tag, priority}]}` (экран «оставить/выкинуть») → добавляет выбранные в `examples.yaml`. Аудит-лог (P8: импорт ПДн третьих лиц). |
+
+> Приватность: анонимизация — ДО показа candidates и ДО записи. Импорт — только по явному действию, аудируется. Связь с P1/P2 (примеры в незашифрованном конфиге).
 
 ## 5. Тумблеры (М4) — поверх `yaml_edit.py`
 
