@@ -33,29 +33,33 @@ class ClassifierResult:
     reason: str
     stage_signal: str | None
     degraded: bool = False
+    # Класс сбоя при degraded=True (пусто, когда всё хорошо). Инцидент volska
+    # 2026-07-22: деградация без причины не диагностируется — теперь несём её.
+    detail: str = ""
 
 
-def _degraded() -> ClassifierResult:
-    return ClassifierResult(escalate=False, reason="", stage_signal=None, degraded=True)
+def _degraded(detail: str = "") -> ClassifierResult:
+    return ClassifierResult(
+        escalate=False, reason="", stage_signal=None, degraded=True, detail=detail)
 
 
 def parse_classifier_reply(raw: str) -> ClassifierResult:
     """Терпимый парсер ответа классификатора. Снимает ```-ограждения, находит
-    первый {...}, json.loads. На ЛЮБОМ сбое → деградация (не эскалируем).
-    Неизвестный stage_signal приводится к None, но escalate/reason всё равно
-    честно читаются."""
+    первый {...}, json.loads. На ЛЮБОМ сбое → деградация (не эскалируем) С
+    УКАЗАНИЕМ КЛАССА сбоя в detail. Неизвестный stage_signal приводится к None,
+    но escalate/reason всё равно честно читаются."""
     text = (raw or "").strip()
     if not text:
-        return _degraded()
+        return _degraded("пустой ответ классификатора")
     m = _JSON_OBJECT_RE.search(text)
     if not m:
-        return _degraded()
+        return _degraded(f"нет JSON-объекта в ответе: {text[:80]!r}")
     try:
         data = json.loads(m.group(0))
-    except (json.JSONDecodeError, ValueError):
-        return _degraded()
+    except (json.JSONDecodeError, ValueError) as e:
+        return _degraded(f"невалидный JSON ({e}): {m.group(0)[:80]!r}")
     if not isinstance(data, dict):
-        return _degraded()
+        return _degraded(f"JSON не объект, а {type(data).__name__}")
     signal = data.get("stage_signal")
     if signal not in STAGE_SIGNALS:
         signal = None
@@ -94,17 +98,27 @@ def classify(llm, *, playbook: str, language: str, history: list[dict]) -> Class
             classifier_system_prompt(playbook, language),
             build_classifier_messages(history),
             max_tokens=_CLASSIFIER_MAX_TOKENS,
+            # Без этого sonnet-5 (thinking по умолчанию) сжигает весь бюджет
+            # на невидимое мышление -> пустой JSON -> деградация (2026-07-22).
+            no_thinking=True,
         )
-    except Exception:
+    except Exception as e:
         log.exception("classifier LLM call failed — деградация, не эскалирую")
-        return _degraded()
-    return parse_classifier_reply(raw)
+        return _degraded(f"вызов LLM упал: {type(e).__name__}: {e}")
+    result = parse_classifier_reply(raw)
+    # Парс-деградация НЕ логируется внутри parse_classifier_reply — она бы ушла
+    # в тишину (инцидент volska 2026-07-22 03:21: classifier_error без следа в
+    # логе). Делаем её видимой ЗДЕСЬ: класс сбоя + сырой ответ.
+    if result.degraded:
+        log.warning("classifier degraded: %s | raw=%r", result.detail, (raw or "")[:120])
+    return result
 
 
 # --- деградация: счётчик + решение об алерте (спека §6, DEV-18) --------------
-def note_classifier_error(store, *, now: float) -> None:
-    """Считаем каждую деградацию как control-event. Не глотаем в пустоту."""
-    store.add_event("classifier_error", ts=now)
+def note_classifier_error(store, *, now: float, detail: str = "") -> None:
+    """Считаем каждую деградацию как control-event С КЛАССОМ сбоя. Не глотаем в
+    пустоту: пустой detail (старый вызов без причины) писать не будем как ''."""
+    store.add_event("classifier_error", detail=detail or None, ts=now)
 
 
 def classifier_degraded(store, *, now: float, window_seconds: float, threshold: int) -> bool:

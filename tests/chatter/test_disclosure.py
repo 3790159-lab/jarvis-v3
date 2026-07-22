@@ -112,6 +112,136 @@ def test_ignores_uk_messages_not_addressing_the_assistant(q):
     assert is_bot_question(q) is False
 
 
+# Офлайн-замер volska 2026-07-21 (40 диалогов, --llm real): из ПЯТИ живых
+# формулировок identity-вопроса регулярка ловила ОДНУ («ви бот?»). Остальные
+# четыре проваливались в LLM, где честность держится только на мягкой строке
+# промпта — и на «ви Ольга особисто?» honest-режим ответил «Так, мене звати
+# Ольга, я менеджерка агенції», то есть выдал себя за человека. Гарантия §6
+# заявлена как «без тумблера», но фактически была шириной в одну регулярку.
+#
+# Эти же фразы — вход для H2-защиты раскрытия (run.py): honest-фоллбек при
+# недоставленной карточке опирается на is_bot_question, поэтому промах здесь
+# означает промах и там.
+UK_IDENTITY_QUESTIONS = [
+    "ви бот?",               # ловилась и раньше — держим покрытой
+    "ви жива?",
+    "ви живий?",
+    "це справжня людина?",
+    "ви Ольга особисто?",
+    "ви особисто відповідаєте?",
+    "з ким спілкуюсь",
+    "з ким я спілкуюся?",
+    "з ким розмовляю?",
+]
+
+# Ложные срабатывания дороже обычного: лид получает шаблон раскрытия вместо
+# ответа на свой вопрос. «живете» — не «жива», «особисто» без «ти/ви» — про
+# встречу, а не про личность собеседника.
+UK_NOT_IDENTITY_QUESTIONS = [
+    "ви живете в Києві?",
+    "хочу зустрітись особисто",
+    "з ким можна обговорити ціну?",
+    "у вас справжні відгуки?",
+]
+
+RU_IDENTITY_QUESTIONS = [
+    "ты живая?",
+    "вы живой?",
+    "это настоящий человек?",
+    "вы Ольга лично?",
+    "с кем общаюсь?",
+    "с кем я разговариваю?",
+]
+
+RU_NOT_IDENTITY_QUESTIONS = [
+    "вы живете в Киеве?",
+    "с кем можно обсудить бюджет?",
+    "хочу встретиться лично",
+]
+
+EN_IDENTITY_QUESTIONS = [
+    "who am I talking to?",
+    "who am i speaking with?",
+]
+
+# Второй заход по хвосту: формы, оставшиеся мимо ПОСЛЕ первого расширения
+# (проверено прогоном 2026-07-21). «ти людина?» — самая частая формулировка
+# вообще, и она не ловилась ничем. Полнота детектора здесь — для качества
+# ответа; сама гарантия честности на него больше НЕ опирается (H2-фоллбек в
+# honest-режиме несёт честный факт независимо от распознавания).
+UK_IDENTITY_QUESTIONS_TAIL = [
+    "ти людина?",
+    "ви людина?",
+    "ти реальна?",
+    "ви програма?",
+    "а хто це пише?",
+    "це автоматична відповідь?",
+    "ти справді існуєш?",
+]
+
+UK_NOT_IDENTITY_TAIL = [
+    "хто пише тексти для постів?",      # услуга, а не собеседник
+    "у вас автоматична оплата?",
+]
+
+RU_IDENTITY_QUESTIONS_TAIL = [
+    "ты человек?",
+    "вы программа?",
+    "кто это пишет?",
+    "это автоматический ответ?",
+]
+
+RU_NOT_IDENTITY_TAIL = [
+    "кто пишет тексты для постов?",
+    "у вас автоматическая оплата?",
+]
+
+
+@pytest.mark.parametrize("q", UK_IDENTITY_QUESTIONS_TAIL)
+def test_detects_uk_identity_question_tail(q):
+    assert is_bot_question(q) is True
+
+
+@pytest.mark.parametrize("q", UK_NOT_IDENTITY_TAIL)
+def test_ignores_uk_tail_lookalikes(q):
+    assert is_bot_question(q) is False
+
+
+@pytest.mark.parametrize("q", RU_IDENTITY_QUESTIONS_TAIL)
+def test_detects_ru_identity_question_tail(q):
+    assert is_bot_question(q) is True
+
+
+@pytest.mark.parametrize("q", RU_NOT_IDENTITY_TAIL)
+def test_ignores_ru_tail_lookalikes(q):
+    assert is_bot_question(q) is False
+
+
+@pytest.mark.parametrize("q", UK_IDENTITY_QUESTIONS)
+def test_detects_uk_identity_question(q):
+    assert is_bot_question(q) is True
+
+
+@pytest.mark.parametrize("q", UK_NOT_IDENTITY_QUESTIONS)
+def test_ignores_uk_lookalikes_that_are_not_about_identity(q):
+    assert is_bot_question(q) is False
+
+
+@pytest.mark.parametrize("q", RU_IDENTITY_QUESTIONS)
+def test_detects_ru_identity_question(q):
+    assert is_bot_question(q) is True
+
+
+@pytest.mark.parametrize("q", RU_NOT_IDENTITY_QUESTIONS)
+def test_ignores_ru_lookalikes_that_are_not_about_identity(q):
+    assert is_bot_question(q) is False
+
+
+@pytest.mark.parametrize("q", EN_IDENTITY_QUESTIONS)
+def test_detects_en_identity_question(q):
+    assert is_bot_question(q) is True
+
+
 @pytest.mark.parametrize("q", UK_BOT_QUESTIONS)
 def test_uk_bot_question_gets_honest_uk_disclosure(q):
     # Detection must lead to the honest UK disclosure (the whole point of H3):
@@ -252,3 +382,42 @@ def test_disclosure_never_leaks_markdown_syntax(raw, _expected):
         owner_id="Дмитрий", persona_line=_persona_first_line(raw), language="ru")
     assert HONESTY_MARKER in reply
     assert not reply.lstrip().startswith(("#", "-", "*", "+", ">", "1.", "---"))
+
+
+# «ВИ»-форма. H3 (2026-07-18) закрыл «ти», но вежливую форму пропустил: шаблоны
+# адъяцентности ключились только на "ти", а форма с 1-3 словами между требует
+# слов МЕЖДУ — «Ви бот?» вплотную не ловилось ничем. Для volska/Ольги это самая
+# вероятная формулировка: персона говорит на «ви», лид зеркалит обращение.
+# Живой прогон 2026-07-21: «Ви бот?» прошло мимо гарантии, честно ответила сама
+# модель — то есть §6 держался на удаче, а не на коде.
+UK_VY_BOT_QUESTIONS = [
+    "Ви бот?",
+    "ви бот",
+    "Ви робот?",
+    "це робот?",
+    "ви справжня людина?",
+    "ви жива людина?",
+    "Ви часом не бот?",
+    "а ви взагалі бот?",
+    "ви людина чи бот?",
+    "ви що, бот?",
+]
+
+# Ловушки именно «ви»-формы: «робота» — это РАБОТА, а не робот.
+UK_VY_NOT_BOT_QUESTIONS = [
+    "ви роботу шукаєте?",
+    "ви робите логотипи?",
+    "у вас є бот для розсилки?",
+    "ви вільні завтра?",
+    "ми шукаємо ботів у телеграмі",
+]
+
+
+@pytest.mark.parametrize("q", UK_VY_BOT_QUESTIONS)
+def test_detects_uk_polite_vy_bot_question(q):
+    assert is_bot_question(q) is True
+
+
+@pytest.mark.parametrize("q", UK_VY_NOT_BOT_QUESTIONS)
+def test_ignores_uk_vy_messages_not_addressing_the_assistant(q):
+    assert is_bot_question(q) is False

@@ -15,7 +15,7 @@ from telethon.errors import AuthKeyError, UnauthorizedError
 
 from chatter.config.active import ActiveClientsError, resolve_personas
 from chatter.config.loader import Config, ConfigError, ControlConfig, load_config
-from chatter.config.yaml_edit import YamlEditError, set_funnel_gate
+from chatter.config.yaml_edit import YamlEditError, set_funnel_gate, set_honesty_mode
 from chatter.core import humanizer as H
 from chatter.core.admission import admission_decision
 from chatter.core.brain import Brain
@@ -423,18 +423,28 @@ class ChatDebouncer:
 
     async def _run(self) -> None:
         while True:
-            now = self._clock()
-            if H.debounce_ready(
-                first_received_at=self._first_at, last_received_at=self._last_at,
-                now=now, window=self._window, max_window=self._max_window,
-            ):
-                break
-            remaining_quiet = self._window - (now - self._last_at)
-            remaining_ceiling = self._max_window - (now - self._first_at)
-            wait = max(0.0, min(remaining_quiet, remaining_ceiling))
-            await self._async_sleep(wait)
-        batch, self._buffer = self._buffer, []
-        await self._on_ready(batch)
+            while True:
+                now = self._clock()
+                if H.debounce_ready(
+                    first_received_at=self._first_at, last_received_at=self._last_at,
+                    now=now, window=self._window, max_window=self._max_window,
+                ):
+                    break
+                remaining_quiet = self._window - (now - self._last_at)
+                remaining_ceiling = self._max_window - (now - self._first_at)
+                wait = max(0.0, min(remaining_quiet, remaining_ceiling))
+                await self._async_sleep(wait)
+            batch, self._buffer = self._buffer, []
+            await self._on_ready(batch)
+            # Сообщения, пришедшие ПОКА шла доставка, надо слить ЭТИМ же таском.
+            # `add()` их только накопил: таск всё это время не done (on_ready
+            # ждёт доставку с паузами хуманайзера — десятки секунд), поэтому
+            # новый _run не планировался. А handle_event на следующем входящем
+            # увидел бы task.done() и завёл НОВЫЙ дебаунсер, выбросив старый
+            # вместе с буфером — лид дописал вопрос «пока она печатает» и он
+            # исчезал молча, без ответа и без записи в БД.
+            if not self._buffer:
+                return
 
 
 # --- 4/5/7. runner: never-writes-first, allowlist, /switch -----------------
@@ -584,7 +594,69 @@ class TelethonRunner:
             return self._rollback_config(language)
         if name == "funnel_gate":
             return self._set_funnel_gate(arg, language)
+        if name == "honesty":
+            return self._set_honesty(arg, language)
         return cfg_text("cfg_unknown", language)
+
+    def _set_honesty(self, arg: str, language: str) -> str:
+        """Тумблер честности командой пульта — но ТОЛЬКО через confirm.
+
+        Владелец 2026-07-20 отверг команды для этого тумблера: «выключить
+        честность одним тапом с телефона» противоречит смыслу осознанного
+        opt-in. 2026-07-21 решение пересмотрено с митигацией — кнопка видимая,
+        но ВЫКЛЮЧЕНИЕ требует явного `/honesty free confirm`. Тап по кнопке
+        только показывает предупреждение; переключает лишь набранный confirm.
+
+        Направление несимметрично, как у /funnel_gate: возврат к честному
+        дефолту исполняется сразу (безопасное направление — аварию чинят
+        быстро, а не через второй экран).
+
+        `off` НЕ синоним `free`: выключение честности не должно набираться
+        мимоходом привычным словом — ровно та же причина, по которой loader
+        отвергает короткое `free` в самом yaml.
+        """
+        tokens = arg.strip().casefold().split()
+        action = tokens[0] if tokens else ""
+        confirmed = len(tokens) > 1 and tokens[1] in ("confirm", "да", "yes", "так")
+        current_honest = self.personas[self.primary_slug].cfg.settings.honesty_mode == "honest"
+
+        if not action:
+            return cfg_text(
+                "cfg_honesty_status_honest" if current_honest
+                else "cfg_honesty_status_free", language, client=self.primary_slug)
+        if action not in ("on", "free"):
+            return cfg_text("cfg_honesty_usage", language)
+        if action == "free" and not confirmed:
+            return cfg_text("cfg_honesty_confirm", language)
+
+        honest = action == "on"
+        path = self._primary_dir() / "settings.yaml"
+        old = path.read_text(encoding="utf-8")
+        try:
+            path.write_text(set_honesty_mode(old, honest=honest), encoding="utf-8")
+        except (YamlEditError, OSError) as e:
+            log.warning("honesty: правка settings.yaml не удалась", exc_info=True)
+            return cfg_text("cfg_honesty_fail", language, reason=str(e))
+
+        ok, err = self.reload_configs()
+        if not ok:
+            path.write_text(old, encoding="utf-8")   # вернуть заведомо рабочий файл
+            self.reload_configs()
+            return cfg_text("cfg_honesty_fail", language, reason=err)
+        if not honest:
+            # След в логе обязателен: выключение честности — событие с названной
+            # ответственностью, а не настройка. Дублирует WARNING загрузки
+            # конфига НАМЕРЕННО: тот скажет «клиент такой-то в свободном режиме»,
+            # этот — «его выключили вот сейчас, командой пульта».
+            log.warning(
+                "ЧЕСТНОСТЬ ВЫКЛЮЧЕНА командой пульта для клиента %s "
+                "(honesty_mode=free_owner_liability, ответственность на владельце)",
+                self.primary_slug)
+        # Имя клиента в подтверждении обязательно: на volska-раннере безымянное
+        # «Чесність ВИМКНЕНА» рядом с хардкодом «Залишено Ані» убедило владельца,
+        # что тумблер лёг в ЧУЖОЙ конфиг (дрил 2026-07-22).
+        return cfg_text("cfg_honesty_on_done" if honest else "cfg_honesty_free_done",
+                        language, client=self.primary_slug)
 
     def _set_funnel_gate(self, arg: str, language: str) -> str:
         """Онбординг-дырка №2: переключатель гейта — команда, а не правка yaml.
@@ -1383,6 +1455,7 @@ def _resolve_control_token(token_env: str | None) -> str | None:
 
 def _build_notifier_and_poller(
     *, client, loop, store: Store, control: ControlConfig, language: str, config_handler=None,
+    persona_name_for=None,
 ) -> tuple[Notifier, "ControlBotPoller | None"]:
     """Контрол-бот, если его токен есть в окружении (по ИМЕНИ из settings.yaml);
     иначе — Saved Messages (инвариант арки: без токена = поведение 3A).
@@ -1404,7 +1477,7 @@ def _build_notifier_and_poller(
     poller = ControlBotPoller(
         token, store=store, language=language, snooze_seconds=control.snooze_seconds,
         owner_chat_id=control.owner_chat_id, pairing_code=control.pairing_code,
-        config_handler=config_handler)
+        config_handler=config_handler, persona_name_for=persona_name_for)
     return notifier, poller
 
 
@@ -1471,7 +1544,11 @@ def build_runner(
     primary_language = personas[primary_slug].cfg.settings.language
     runner.notifier, runner.poller = _build_notifier_and_poller(
         client=client, loop=loop, store=store, control=control, language=primary_language,
-        config_handler=runner.handle_config_command)
+        config_handler=runner.handle_config_command,
+        # Фидбек кнопок называет персону ИМЕННО этого диалога (slug из
+        # contact_id) — не хардкод и не primary (дрил 2026-07-22: «Залишено Ані»
+        # на volska-раннере).
+        persona_name_for=lambda cid: runner._persona_settings(cid).persona_name)
     for bundle in personas.values():
         bundle.deps.notifier = runner.notifier
         bundle.deps.escalation_card = runner.build_escalation_card

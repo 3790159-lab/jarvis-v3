@@ -82,3 +82,32 @@ def test_owner_action_clears_active_escalation_card():
     s.set_runtime_flag(esc_active_key("42:demo"), "bot:1:5", ts=0.0)
     route_callback("resume:42:demo", store=s, now=200.0, language="ru", snooze_seconds=3600)
     assert not s.get_runtime_flag(esc_active_key("42:demo"))   # очищен
+
+
+# --- инцидент 2026-07-22: фидбек кнопок хардкодил имя «Аня» ------------------
+
+def test_feedback_names_the_persona_of_the_contact():
+    """На volska-раннере тап «Залишити боту» отвечал «✅ Залишено Ані» —
+    имя персоны было зашито в строки. Фидбек обязан называть персону
+    ИМЕННО ЭТОГО контакта (slug из contact_id)."""
+    s = _store(contact="42:volska")
+    resolver = {"42:volska": "Ольга"}.get
+    r = route_callback("keep:42:volska", store=s, now=5.0, language="uk",
+                       snooze_seconds=3600, persona_name_for=resolver)
+    assert "Ольга" in r.feedback_html
+    assert "Ані" not in r.feedback_html
+
+    r = route_callback("resume:42:volska", store=s, now=6.0, language="uk",
+                       snooze_seconds=3600, persona_name_for=resolver)
+    assert "Ольга" in r.feedback_html
+
+    r = route_callback("stop:42:volska", store=s, now=7.0, language="uk",
+                       snooze_seconds=3600, persona_name_for=resolver)
+    assert "Ольга" in r.feedback_html
+
+
+def test_feedback_without_resolver_stays_generic_not_anya():
+    # Фолбэк без резолвера — нейтральное слово, а не имя чужой персоны.
+    s = _store()
+    r = route_callback("keep:42:demo", store=s, now=5.0, language="ru", snooze_seconds=3600)
+    assert "Ан" not in r.feedback_html    # ни «Аня», ни «Ане»

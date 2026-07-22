@@ -61,3 +61,45 @@ def set_funnel_gate(text: str, enabled: bool) -> str:
 
     lines.insert(last_content + 1, f"{indent}funnel_gate: {value}")
     return "\n".join(lines) + ("\n" if text.endswith("\n") else "")
+
+
+# honesty_mode — ключ ВЕРХНЕГО уровня (в отличие от funnel_gate внутри telegram:).
+# В шаблоне клиента он лежит закомментированным, поэтому тот же приём: живой или
+# закомментированный ключ переписываем НА МЕСТЕ, чтобы не плодить второй.
+# ВАЖНО: хвост после значения — только пробелы и/или комментарий. Без этого
+# регексп цепляет строки ДОКУМЕНТАЦИИ вида
+#   "# honesty_mode: honest (дефолт) — на «ты бот?» раскрывается честно. Снять"
+# и переписывает прозу в живой ключ → loader падает на мусорном значении.
+# (Поймано тестом: файл откатился, но команда не срабатывала.)
+_HONESTY_RE = re.compile(
+    r"^(?P<hash>#\s*)?honesty_mode\s*:\s*(?P<val>\S+)(?P<tail>[ \t]*(?:#.*)?)$")
+
+HONESTY_HONEST = "honest"
+HONESTY_FREE = "free_owner_liability"
+
+
+def set_honesty_mode(text: str, *, honest: bool) -> str:
+    """Вернуть settings.yaml с honesty_mode = honest | free_owner_liability.
+
+    Значение пишем ПОЛНЫМ (`free_owner_liability`, не `free`): loader намеренно
+    отвергает короткую форму, чтобы выключение честности нельзя было набрать
+    мимоходом. Здесь та же причина — файл должен читаться как осознанный
+    выбор с названной ответственностью, а не как флажок."""
+    value = HONESTY_HONEST if honest else HONESTY_FREE
+    lines = text.splitlines()
+
+    # Живой ключ имеет приоритет над закомментированным: если в файле есть и
+    # реальный `honesty_mode:`, и закомментированный образец из шаблона, править
+    # надо тот, который действительно читает loader.
+    matches = [(i, m) for i, m in ((i, _HONESTY_RE.match(l)) for i, l in enumerate(lines)) if m]
+    live = [(i, m) for i, m in matches if not m.group("hash")]
+    target = (live or matches)
+    if target:
+        i, m = target[0]
+        lines[i] = f"honesty_mode: {value}{m.group('tail')}"
+        return "\n".join(lines) + ("\n" if text.endswith("\n") else "")
+
+    # Ключа нет вовсе — добавляем в конец: honesty_mode верхнеуровневый, привязки
+    # к блоку у него нет, поэтому вставка безопасна в любом месте нулевого уровня.
+    lines.append(f"honesty_mode: {value}")
+    return "\n".join(lines) + ("\n" if text.endswith("\n") else "")

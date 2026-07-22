@@ -3,8 +3,14 @@ from abc import ABC, abstractmethod
 
 
 class LLMClient(ABC):
+    # no_thinking: явно заглушить расширенное мышление модели. Нужен служебным
+    # вызовам с маленьким max_tokens (классификатор): у sonnet-5 thinking включён
+    # ПО УМОЛЧАНИЮ при опущенном параметре и молча съедает весь бюджет токенов —
+    # инцидент volska 2026-07-22 (пустой ответ классификатора на каждом
+    # сообщении). Ответы персоне дефолт модели не трогают.
     @abstractmethod
-    def complete(self, system: str, messages: list[dict], *, max_tokens: int) -> str:
+    def complete(self, system: str, messages: list[dict], *,
+                 max_tokens: int, no_thinking: bool = False) -> str:
         ...
 
 
@@ -16,8 +22,10 @@ class FakeLLM(LLMClient):
         self._i = 0
         self.calls: list[dict] = []
 
-    def complete(self, system: str, messages: list[dict], *, max_tokens: int) -> str:
-        self.calls.append({"system": system, "messages": messages, "max_tokens": max_tokens})
+    def complete(self, system: str, messages: list[dict], *,
+                 max_tokens: int, no_thinking: bool = False) -> str:
+        self.calls.append({"system": system, "messages": messages,
+                           "max_tokens": max_tokens, "no_thinking": no_thinking})
         if self._i < len(self._scripted):
             out = self._scripted[self._i]
             self._i += 1
@@ -37,8 +45,16 @@ class AnthropicLLM(LLMClient):
         self._client = anthropic.Anthropic()
         self._model = model
 
-    def complete(self, system: str, messages: list[dict], *, max_tokens: int) -> str:
+    def complete(self, system: str, messages: list[dict], *,
+                 max_tokens: int, no_thinking: bool = False) -> str:
+        kwargs = {}
+        if no_thinking:
+            # sonnet-5 и haiku-4-5 оба принимают disabled (проверено живьём
+            # 2026-07-22). НЕ слать thinking по умолчанию: адаптивный дефолт
+            # модели для ответов персоны — осознанный выбор.
+            kwargs["thinking"] = {"type": "disabled"}
         resp = self._client.messages.create(
-            model=self._model, max_tokens=max_tokens, system=system, messages=messages,
+            model=self._model, max_tokens=max_tokens, system=system,
+            messages=messages, **kwargs,
         )
         return "".join(b.text for b in resp.content if getattr(b, "type", None) == "text").strip()

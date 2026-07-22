@@ -19,7 +19,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 
-from chatter.core.console import console_text, contact_link, parse_config_command
+from chatter.core.console import cfg_text, console_text, contact_link, parse_config_command
 from chatter.core.escalation import esc_active_key
 from chatter.notify.base import Action, Card, CardHandle, Notifier
 
@@ -33,16 +33,27 @@ _BUTTONS_PER_ROW = 2
 class CallbackResult:
     feedback_html: str      # новый текст карточки после тапа (мгновенная обратная связь)
     answer: str             # короткий тост answerCallbackQuery
+    # Б3(а): editMessageText БЕЗ reply_markup удаляет инлайн-клавиатуру (Bot
+    # API), поэтому любой тап делал карточку неуправляемой. Для НЕмутирующих
+    # действий (навигация) кнопки надо вернуть — иначе промах по кнопке нечем
+    # переиграть, а откатывать при этом нечего: Store не тронут.
+    keep_buttons: bool = False
 
 
 def _peer_of(contact_id: str) -> str:
     return contact_id.split(":", 1)[0]
 
 
-def route_callback(data: str, *, store, now: float, language: str, snooze_seconds: float) -> CallbackResult:
+def route_callback(data: str, *, store, now: float, language: str, snooze_seconds: float,
+                   persona_name_for=None) -> CallbackResult:
     """Тап кнопки → действие над Store + текст обратной связи. ЧИСТАЯ: трогает
     только store. callback_data = "<action>:<contact_id>", где contact_id сам
     содержит двоеточие ("<peer>:<slug>"), поэтому режем ПО ПЕРВОМУ двоеточию.
+
+    persona_name_for: contact_id -> имя персоны ЭТОГО диалога для текста
+    фидбека. Имя было захардкожено «Аня» — на volska-раннере тап отвечал
+    «✅ Залишено Ані», и владелец решил, что действие ушло чужому клиенту
+    (дрил 2026-07-22). Без резолвера — нейтральное «бот», не чужое имя.
 
     Битый/неизвестный тап → без мутаций (DEV-18: не притворяемся, что сделали)."""
     action_raw, sep, contact_id = (data or "").partition(":")
@@ -58,10 +69,12 @@ def route_callback(data: str, *, store, now: float, language: str, snooze_second
             feedback_html=console_text("fb_unknown", language),
             answer=console_text("fb_unknown", language))
 
+    persona = persona_name_for(contact_id) if persona_name_for else None
+    persona = persona or "бот"
     if action is Action.RESUME:
         store.unmute(contact_id)
         store.add_event("resume", contact_id=contact_id, ts=now)
-        fb = console_text("fb_resumed", language)
+        fb = console_text("fb_resumed", language, persona=persona)
     elif action is Action.SNOOZE:
         store.get_or_create_contact(contact_id)
         store.mute(contact_id, source="command", until=now + snooze_seconds, now=now)
@@ -69,10 +82,10 @@ def route_callback(data: str, *, store, now: float, language: str, snooze_second
     elif action is Action.STOP:
         store.set_runtime_flag("kill_switch", "1", ts=now)
         store.add_event("kill_on", ts=now)
-        fb = console_text("fb_stopped", language)
+        fb = console_text("fb_stopped", language, persona=persona)
     elif action is Action.KEEP:
         store.add_event("escalation_kept", contact_id=contact_id, ts=now)
-        fb = console_text("fb_kept", language)
+        fb = console_text("fb_kept", language, persona=persona)
     elif action is Action.OPEN:
         link = contact_link(user_id=_peer_of(contact_id))
         fb = console_text("fb_open", language, link=link)
@@ -84,7 +97,8 @@ def route_callback(data: str, *, store, now: float, language: str, snooze_second
     # закрытую. OPEN — навигация (просто ссылка), карточку не закрывает.
     if action is not Action.OPEN:
         store.set_runtime_flag(esc_active_key(contact_id), "", ts=now)
-    return CallbackResult(feedback_html=fb, answer=fb)
+    return CallbackResult(
+        feedback_html=fb, answer=fb, keep_buttons=action is Action.OPEN)
 
 
 def _default_http_post(token: str):
@@ -197,6 +211,10 @@ class ControlBotNotifier(Notifier):
 # --- ControlBotPoller: изолированный long-poll цикл (async IO-оболочка) ------
 _OWNER_FLAG = "control_owner_chat_id"   # runtime_flag с chat_id владельца (TOFU-bind)
 _LONG_POLL_TIMEOUT = 25
+# callback_data кнопки «выключить честность». Намеренно БЕЗ двоеточия: так она
+# не попадает в contact-scoped формат route_callback и не может быть принята за
+# действие над диалогом.
+_HONESTY_WARN = "honesty_warn"
 _POLL_ERROR_BACKOFF = 3.0
 
 
@@ -230,9 +248,12 @@ class ControlBotPoller:
         owner_chat_id: int | None = None, pairing_code: str | None = None, notifier=None,
         http_get=None, http_post=None, clock=None, async_sleep=None,
         on_bind=None, config_handler=None, long_poll_timeout: int = _LONG_POLL_TIMEOUT,
+        persona_name_for=None,
     ):
         self._store = store
         self._language = language
+        # contact_id -> имя персоны диалога (для фидбека кнопок); см. route_callback
+        self._persona_name_for = persona_name_for
         # config-арка: async (name, arg, language) -> текст-ответ (runner.handle_config_command)
         self._config_handler = config_handler
         self._snooze = snooze_seconds
@@ -282,17 +303,40 @@ class ControlBotPoller:
                 "text": console_text("fb_not_owner", self._language),
             })
             return
+        # Тумблер честности НЕ идёт через route_callback: тот contact-scoped
+        # ("<action>:<contact_id>"), а режим честности глобальный — впихивать
+        # его в Action означало бы сломать контракт маршрутизатора.
+        #
+        # И главное: тап НИЧЕГО не переключает, он только показывает
+        # предупреждение. Владелец 2026-07-20 отверг команды пульта для этого
+        # тумблера именно из-за «выключить честность одним тапом с телефона»;
+        # кнопку вернули лишь потому, что она ведёт к НАБРАННОМУ
+        # `/honesty free confirm`. Мутация живёт только там.
+        if (cq.get("data") or "") == _HONESTY_WARN:
+            await self._post("sendMessage", {
+                "chat_id": cq.get("message", {}).get("chat", {}).get("id"),
+                "text": cfg_text("cfg_honesty_confirm", self._language)})
+            await self._post("answerCallbackQuery", {"callback_query_id": cq.get("id")})
+            return
         result = route_callback(
             cq.get("data", ""), store=self._store, now=self._clock(),
-            language=self._language, snooze_seconds=self._snooze)
+            language=self._language, snooze_seconds=self._snooze,
+            persona_name_for=self._persona_name_for)
         msg = cq.get("message", {})
-        await self._post("editMessageText", {
+        edit = {
             "chat_id": msg.get("chat", {}).get("id"),
             "message_id": msg.get("message_id"),
             "text": result.feedback_html,
             "parse_mode": "HTML",
             "disable_web_page_preview": True,
-        })
+        }
+        # Б3(а): вернуть клавиатуру на место для немутирующего тапа. Опускать
+        # reply_markup — значит стереть кнопки, и владелец теряет управление
+        # карточкой из-за промаха по чисто навигационной кнопке.
+        markup = msg.get("reply_markup") if result.keep_buttons else None
+        if markup:
+            edit["reply_markup"] = markup
+        await self._post("editMessageText", edit)
         await self._post("answerCallbackQuery", {
             "callback_query_id": cq.get("id"), "text": result.answer})
 
@@ -332,10 +376,19 @@ class ControlBotPoller:
             # остаться без пульта в тишине. Раньше молчали → пульт «оглох».
             log.exception("config-команда %s упала", name)
             reply = console_text("config_command_failed", self._language)
+        payload = {
+            "chat_id": chat_id, "text": reply, "parse_mode": "HTML",
+            "disable_web_page_preview": True}
+        # Кнопку вешаем только на СТАТУС честности (/honesty без аргумента).
+        # Логика осталась здесь, а не в handle_config_command, чтобы не менять
+        # его контракт (str) — им пользуется ещё и путь Saved Messages, где
+        # инлайн-кнопок нет в принципе.
+        if name == "honesty" and not arg.strip():
+            payload["reply_markup"] = {"inline_keyboard": [[{
+                "text": cfg_text("btn_honesty_off", self._language),
+                "callback_data": _HONESTY_WARN}]]}
         try:
-            await self._post("sendMessage", {
-                "chat_id": chat_id, "text": reply, "parse_mode": "HTML",
-                "disable_web_page_preview": True})
+            await self._post("sendMessage", payload)
         except Exception:
             # Даже отправка ответа не должна ронять цикл (её ловит и _handle_update,
             # но подстрахуемся здесь ради ясности лога).

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from chatter.core.escalation import (
     EscalationReason,
     deterministic_escalation,
@@ -203,6 +205,69 @@ def test_mentions_owner_contact_predicate():
     # НЕ ловит нейтральное:
     assert not mentions_owner_contact("Спасибо, чем ещё помочь?", owner_id="Дмитрий")
     assert not mentions_owner_contact("Цена фиксированная.", owner_id="Дмитрий")
+
+
+def test_mentions_owner_contact_ukrainian_role_stems():
+    """Украиноязычный клиент (persona volska/Ольга): роль владельца — «керівниця».
+
+    Ловиться должно БЕЗ owner_id. У volska owner_id == "Керівниця", и ветка
+    матча по стему ИМЕНИ закрывала это совпадением; смена owner_id на реальное
+    имя молча вернула бы дыру — «передам керівниці» не создало бы карточку,
+    и владелец потерял бы горячий лид. Поэтому фиксируем роль отдельно от имени.
+    """
+    assert mentions_owner_contact("передам керівниці ваше питання")
+    assert mentions_owner_contact("це вирішує керівниця особисто")
+    assert mentions_owner_contact("узгодьте це з керівницею")
+    assert mentions_owner_contact("керівник підтвердить терміни")
+    # НЕ ловит нейтральное украинское:
+    assert not mentions_owner_contact("Ціна фіксована.")
+    assert not mentions_owner_contact("Дякую, чим ще можу допомогти?")
+
+
+# --- Б2: заглушка подавления локализована по settings.language ---------------
+from chatter.core.escalation import (  # noqa: E402
+    self_action_fallback,
+    suppressed_fallback,
+)
+
+
+def test_suppressed_fallback_ru_unchanged():
+    # Регрессия: русский текст менять НЕЛЬЗЯ — на него завязан H2-гейт и
+    # test_escalation_wiring (assert "владельцем" in ...).
+    assert suppressed_fallback() == (
+        "Хороший вопрос — уточню детали и вернусь. "
+        "Если удобно, свяжу вас с владельцем."
+    )
+    assert self_action_fallback() == "Хороший вопрос — уточню детали и вернусь к вам."
+
+
+def test_suppressed_fallback_uk_is_ukrainian_and_uses_owner_ref():
+    # Баг живого теста volska: лид-украинец получал аварийную фразу ПО-РУССКИ
+    # с «владельцем». Заглушка обязана говорить на языке клиента.
+    text = suppressed_fallback(language="uk", owner_ref="керівницею")
+    assert "керівницею" in text
+    assert "владельц" not in text
+    assert "Хороший вопрос" not in text
+    assert self_action_fallback(language="uk") != self_action_fallback(language="ru")
+
+
+def test_suppressed_fallback_unknown_language_falls_back_to_ru():
+    assert suppressed_fallback(language="zz") == suppressed_fallback(language="ru")
+
+
+@pytest.mark.parametrize("language,owner_ref", [
+    ("uk", None), ("uk", "керівницею"), ("en", None), ("ru", None),
+])
+def test_suppressed_fallback_is_always_seen_as_owner_contact(language, owner_ref):
+    """H2-гейт обязан ВИДЕТЬ обещание контакта в заглушке на любом языке.
+
+    Иначе недоставленная карточка + украинская заглушка = обещание контакта
+    владельца уехало лиду без карточки — ровно тот класс бага, что чинили
+    украинскими ролевыми корнями. Проверяем БЕЗ подсказки owner_ref: детекция
+    должна держаться на глаголе/роли, а не на совпадении со строкой конфига.
+    """
+    text = suppressed_fallback(language=language, owner_ref=owner_ref)
+    assert mentions_owner_contact(text) is True
 
 
 # --- decide_escalation: combine deterministic + classifier (спека §4) --------

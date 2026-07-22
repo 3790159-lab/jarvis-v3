@@ -582,3 +582,56 @@ def test_owner_ref_config_customizes_reference():
     joined = " ".join(t.sent).casefold()
     assert "менеджером" in joined
     assert "свяж" in joined                           # H2-детекция по глаголу сохраняется
+
+
+# --- H2 × честность: раскрытие переживает недоставленную карточку -----------
+# Офлайн-замер volska 2026-07-21 (40 диалогов, --llm real) вскрыл: honest-режим
+# выдал лиду «Так, мене звати Ольга, я менеджерка агенції» — то есть ВЫДАЛ СЕБЯ
+# ЗА ЧЕЛОВЕКА при включённой гарантии. Механика: раскрытие сочинила модель
+# (регулярка промахнулась по формулировке), оно упоминало владельца, карточка не
+# дошла → H2-гейт заменил весь ответ отпиской «уточню детали и вернусь».
+#
+# Гарантия НЕ может опираться на регулярку по входящему: после расширения мимо
+# по-прежнему летит «ти людина?» — самая частая форма вообще. Поэтому условие
+# «спросили про личность» здесь отсутствует НАМЕРЕННО: в honest-режиме честный
+# факт несёт САМ фоллбек, независимо от того, о чём был вопрос и что распознал
+# детектор. Держит режим, а не текст.
+
+def _honest_marker(deps):
+    from chatter.core.disclosure import HONESTY_MARKERS
+    return HONESTY_MARKERS[deps.cfg.settings.language]
+
+
+def test_honest_mode_undelivered_card_keeps_honest_fact_in_fallback():
+    # notifier=None → карточка заведомо не доставлена → H2-гейт переписывает ответ.
+    deps = _deps(notifier=None, keywords=[], brain_reply="Свяжусь с владельцем и вернусь к вам.")
+    t = RecordingTransport()
+    deps.store.get_or_create_contact("42:demo")
+    process_batch("42:demo", ["а сколько стоит?"], t, deps)
+    joined = " ".join(t.sent)
+    assert _honest_marker(deps) in joined
+
+
+def test_honest_fallback_still_drops_the_owner_promise():
+    # Честность добавляется, но исходная задача H2 сохраняется: контакт владельца
+    # не обещаем, раз карточка до него не дошла.
+    deps = _deps(notifier=None, keywords=[], brain_reply="Свяжусь с владельцем и вернусь к вам.")
+    t = RecordingTransport()
+    deps.store.get_or_create_contact("42:demo")
+    process_batch("42:demo", ["а сколько стоит?"], t, deps)
+    joined = " ".join(t.sent).casefold()
+    assert "владельц" not in joined and "свяжу вас" not in joined
+
+
+def test_free_mode_fallback_unchanged_no_honesty_added():
+    # Свободный режим не трогаем: honest-фоллбек не должен протекать туда и
+    # возвращать честность, которую владелец осознанно выключил.
+    deps = _deps(notifier=None, keywords=[], brain_reply="Свяжусь с владельцем и вернусь к вам.")
+    deps.cfg = dataclasses.replace(
+        deps.cfg,
+        settings=dataclasses.replace(deps.cfg.settings, honesty_mode="free_owner_liability"))
+    t = RecordingTransport()
+    deps.store.get_or_create_contact("42:demo")
+    process_batch("42:demo", ["а сколько стоит?"], t, deps)
+    joined = " ".join(t.sent)
+    assert _honest_marker(deps) not in joined

@@ -3,6 +3,49 @@ import random
 import re
 from dataclasses import dataclass
 from chatter.config.loader import Timings, WorkHours
+from chatter.core.disclosure import HONESTY_MARKERS
+
+
+# Em-dash в мессенджере — машинный тэлл: живой человек его почти не набирает
+# вручную. Чистим ТОЛЬКО текст, уходящий ЛИДУ (шов — compose_reply, последнее
+# преобразование перед Say, уже после _escalation_pass: подмена символов не
+# может расклеить матчинг forbidden/unbacked). Строки пульта (core/console.py)
+# сюда не попадают by construction — они для владельца, не для лида.
+#
+# En-dash (–) НЕ трогаем: это диапазоны «300–400 $», «5–10 днів», а не тэлл.
+_EM_DASH = "—"
+_PROTECT = "\x00{}\x00"
+
+
+def humanize_typography(text: str) -> str:
+    """Снимает типографские тэллы с ответа лиду.
+
+    ⚠️ Маркер честности защищён от переписывания. HONESTY_MARKER содержит
+    em-dash ВНУТРИ константы, которая сверяется дословно и является
+    формулировкой гарантии честности (спека §6: у неё нет тумблера). Слепой
+    фильтр переписал бы раскрытие — поэтому маркер вырезается плейсхолдером,
+    чистится всё вокруг, затем маркер возвращается байт-в-байт. Защищаем
+    МАРКЕР, а не сообщение целиком: остальной текст раскрытия тоже живой.
+    """
+    if not text:
+        return text
+    protected: list[str] = []
+    out = text
+    # Длинные маркеры первыми — короткий не должен съесть кусок длинного.
+    for marker in sorted(set(HONESTY_MARKERS.values()), key=len, reverse=True):
+        if marker in out:
+            out = out.replace(marker, _PROTECT.format(len(protected)))
+            protected.append(marker)
+    out = out.replace(f" {_EM_DASH} ", " - ").replace(_EM_DASH, "-")
+    # Восклицательный — тэлл, сносим ВЕЗДЕ, включая приветствие (решение
+    # владельца 2026-07-21: «Доброї ночі!» — ровно тот случай, что выдал бота).
+    # Смешанные «?!»/«!?» остаются ВОПРОСОМ, иначе получилось бы «Справді?.».
+    # Терминатор на терминатор — сплит на бабблы (_SENTENCE) не меняется.
+    out = re.sub(r"!+\?|\?!+", "?", out)
+    out = re.sub(r"!+", ".", out)
+    for i, marker in enumerate(protected):
+        out = out.replace(_PROTECT.format(i), marker)
+    return out
 
 
 def is_night(hour: int, work_hours: WorkHours) -> bool:
@@ -151,7 +194,9 @@ def compose_reply(
     actions.append(ReadAck())
     actions.append(Typing(on=True))
 
-    parts = split_message(reply_text, t)
+    # Типографику снимаем ДО сплита: тогда и разбивка, и расчёт времени печати
+    # идут по тому самому тексту, который увидит лид.
+    parts = split_message(humanize_typography(reply_text), t)
     for i, part in enumerate(parts):
         actions.append(Pause(typing_duration(part, rng, t)))
         actions.append(Say(part))

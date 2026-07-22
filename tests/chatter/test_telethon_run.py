@@ -639,3 +639,53 @@ def test_select_missed_funnel_gate_denylist_skipped():
                            max_age_seconds=CATCHUP_MAX_AGE_SECONDS,
                            denylist=frozenset({999}), funnel_gate=True)
     assert missed == []
+
+
+def test_message_arriving_during_processing_is_not_lost():
+    """Баг живого теста volska 2026-07-21: лид дописал вопрос, пока Ольга
+    «печатала», и вопрос ИСЧЕЗ — без ответа и без записи в БД.
+
+    `_run` держит таск не-done всё время `on_ready` (доставка с паузами
+    хуманайзера — это десятки секунд). `add()` в это время только копит буфер:
+    таск жив, новый `_run` не планируется, а буфер уже слит. Дальше
+    handle_event видит task.done() и заводит НОВЫЙ дебаунсер, выбрасывая старый
+    вместе с накопленным — потеря окончательная.
+    """
+    async def scenario():
+        clock = {"t": 0.0}
+        received: list[list[str]] = []
+        in_flight = asyncio.Event()
+
+        async def on_ready(batch):
+            received.append(list(batch))
+            if len(received) == 1:
+                await in_flight.wait()   # долгая доставка первого ответа
+
+        sleeper = ManualSleeper()
+        deb = ChatDebouncer(
+            window=3.0, max_window=15.0, clock=lambda: clock["t"],
+            async_sleep=sleeper.sleep, on_ready=on_ready,
+        )
+        deb.add("хочу замовити логотип")
+        await _pump()
+        clock["t"] = 3.5
+        sleeper.release()
+        await _pump()
+        assert received == [["хочу замовити логотип"]]   # первый батч в полёте
+
+        # лид дописывает, пока идёт доставка
+        clock["t"] = 10.0
+        deb.add("а від чого залежить ціна?")
+        await _pump()
+
+        clock["t"] = 20.0          # тихий промежуток заведомо больше окна
+        in_flight.set()            # доставка завершилась
+        await _pump(10)
+        await deb.task
+
+        assert received == [
+            ["хочу замовити логотип"],
+            ["а від чого залежить ціна?"],
+        ], "сообщение, пришедшее во время обработки, потеряно"
+
+    asyncio.run(scenario())

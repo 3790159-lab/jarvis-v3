@@ -69,7 +69,7 @@ def test_classify_happy_path():
 
 def test_classify_llm_raises_is_degraded_never_raises():
     class BoomLLM:
-        def complete(self, system, messages, *, max_tokens):
+        def complete(self, system, messages, *, max_tokens, no_thinking=False):
             raise RuntimeError("network down")
     r = classify(BoomLLM(), playbook="p", language="ru", history=HISTORY)
     assert r.degraded is True
@@ -110,3 +110,93 @@ def test_old_errors_outside_window_dont_count():
         note_classifier_error(s, now=1000.0)          # старые
     note_classifier_error(s, now=100000.0)            # одна свежая
     assert classifier_degraded(s, now=100000.0, window_seconds=3600, threshold=5) is False
+
+
+# --- видимая деградация: класс сбоя фиксируется, тихого фолбэка нет -----------
+# Инцидент volska 2026-07-22 03:21:08: classifier_error БЕЗ строки в логе и с
+# ПУСТЫМ control_events.detail — то есть это была парс-деградация (не exception:
+# путь exception логируется). Причину нельзя было восстановить. Деградация
+# ОБЯЗАНА нести класс сбоя (detail) и оставлять след в логе — бэкстоп страховка,
+# а не замена: если классификатор лёг, мы должны это ЗНАТЬ.
+import logging  # noqa: E402
+
+
+def test_degraded_carries_failure_class_in_detail():
+    assert parse_classifier_reply("").detail != ""                    # пустой ответ
+    assert parse_classifier_reply("извините, не могу").detail != ""   # нет JSON
+    assert parse_classifier_reply('{"escalate": true,').detail != ""  # обрезанный JSON
+    # валидный ответ — detail пуст (сбоя нет)
+    assert parse_classifier_reply(
+        '{"escalate": false, "reason": "", "stage_signal": null}').detail == ""
+
+
+def test_parse_degradation_is_logged_not_silent(caplog):
+    llm = FakeLLM(scripted=["это проза, а не JSON"])
+    with caplog.at_level(logging.WARNING, logger="chatter.core.classifier"):
+        r = classify(llm, playbook="p", language="ru", history=HISTORY)
+    assert r.degraded is True
+    assert any(rec.levelno >= logging.WARNING and "classifier" in rec.name
+               for rec in caplog.records), "парс-деградация ушла в тишину — нет WARNING"
+
+
+def test_classify_exception_carries_detail():
+    class BoomLLM:
+        def complete(self, system, messages, *, max_tokens, no_thinking=False):
+            raise RuntimeError("network down")
+    r = classify(BoomLLM(), playbook="p", language="ru", history=HISTORY)
+    assert r.degraded is True
+    assert "network down" in r.detail or "RuntimeError" in r.detail
+
+
+def test_note_classifier_error_persists_detail():
+    s = Store(":memory:")
+    note_classifier_error(s, now=1000.0, detail="нет JSON-объекта в ответе")
+    rows = list(s._conn.execute(
+        "SELECT detail FROM control_events WHERE kind='classifier_error'"))
+    assert rows and rows[0][0] == "нет JSON-объекта в ответе"
+
+
+# --- инцидент 2026-07-22: sonnet-5 душил классификатор невидимым thinking ----
+
+def test_classify_disables_thinking_for_the_llm_call():
+    """volska на sonnet-5: у модели thinking включён ПО УМОЛЧАНИЮ при опущенном
+    параметре, и весь max_tokens=200 сгорал на невидимый thinking-блок ->
+    пустой/обрезанный JSON -> деградация на КАЖДОМ сообщении (эскалации тянул
+    keyword-бэкстоп). Классификатор обязан явно глушить thinking."""
+    from chatter.core.classifier import classify
+    from chatter.core.llm import FakeLLM as _F
+    llm = _F(scripted=['{"escalate": false, "reason": "", "stage_signal": null}'])
+    classify(llm, playbook="p", language="uk",
+             history=[{"role": "user", "text": "привіт"}])
+    assert llm.calls[0]["no_thinking"] is True
+
+
+def test_anthropic_llm_sends_thinking_disabled_to_the_sdk():
+    """Проверка на уровне провода: no_thinking=True обязан дойти до
+    messages.create как thinking={"type": "disabled"} (обе прод-модели --
+    sonnet-5 и haiku-4-5 -- принимают его, проверено живьём 22.07)."""
+    from chatter.core.llm import AnthropicLLM
+
+    calls = {}
+
+    class _Resp:
+        content = []
+
+    class _Messages:
+        def create(self, **kw):
+            calls.clear()
+            calls.update(kw)
+            return _Resp()
+
+    class _Client:
+        messages = _Messages()
+
+    llm = AnthropicLLM.__new__(AnthropicLLM)
+    llm._client = _Client()
+    llm._model = "m"
+
+    llm.complete("s", [], max_tokens=10, no_thinking=True)
+    assert calls["thinking"] == {"type": "disabled"}
+
+    llm.complete("s", [], max_tokens=10)
+    assert "thinking" not in calls   # дефолт модели не трогаем

@@ -26,6 +26,8 @@ from chatter.core.disclosure import honest_disclosure, is_bot_question
 from chatter.core.escalation import (
     advance_funnel, decide_escalation, deterministic_escalation, esc_active_key,
     mentions_owner_contact,
+    honest_self_action_fallback, self_action_fallback,
+    suppressed_fallback,
 )
 from chatter.core.guardrails import (
     within_daily_cap, within_hourly_limit,
@@ -220,7 +222,10 @@ def _escalation_pass(
     decision = decide_escalation(det=det, classifier_result=cr)
 
     if decision.degraded:
-        note_classifier_error(store, now=now)
+        # detail несёт КЛАСС сбоя (парс/exception) — иначе control_events.detail
+        # пуст и деградацию не диагностировать (инцидент volska 2026-07-22).
+        note_classifier_error(
+            store, now=now, detail=(cr.detail if cr is not None else ""))
         _maybe_degraded_alert(deps, now=now)
 
     advance_funnel(store, contact_id, stage_signal=decision.stage_signal, escalated=decision.escalate)
@@ -242,13 +247,12 @@ def _escalation_pass(
             if det.tag == "forbidden_reply" and safe:
                 log.warning("safe_payment_reply сам содержит запрещённый термин — не использую")
             # Падеж-безопасно (owner_id не склоняем: «позову Дмитрий» → криво):
-            # глагол «свяж» держит H2-детекцию, а как назвать владельца задаёт
-            # owner_ref (уже в нужном падеже; пусто → «владельцем»).
-            owner_ref = cfg.settings.owner_ref or "владельцем"
-            reply = (
-                f"Хороший вопрос — уточню детали и вернусь. "
-                f"Если удобно, свяжу вас с {owner_ref}."
-            )
+            # глагол «свяж»/«зв'яж» держит H2-детекцию, а как назвать владельца
+            # задаёт owner_ref (уже в нужном падеже; пусто → per-language дефолт).
+            # Б2: текст локализован по settings.language — украиноязычный лид не
+            # должен получать русскую аварийную фразу.
+            reply = suppressed_fallback(
+                language=cfg.settings.language, owner_ref=cfg.settings.owner_ref)
 
     delivered = False
     if decision.escalate and deps.notifier is not None:
@@ -274,7 +278,17 @@ def _escalation_pass(
     implies_owner = mentions_owner_contact(
         reply, owner_id=cfg.settings.owner_id, owner_ref=cfg.settings.owner_ref)
     if not protected and not delivered and implies_owner:
-        reply = "Хороший вопрос — уточню детали и вернусь к вам."
+        # В honest-режиме аварийная подмена обязана НЕСТИ честный факт сама.
+        # Раньше здесь стоял голый self_action_fallback, и он затирал раскрытие,
+        # сочинённое моделью на формулировке, которую не поймал is_bot_question
+        # (замер volska 2026-07-21: лид на «ви Ольга особисто?» получал ответ,
+        # из которого следовало, что перед ним человек). Условия «спрашивали ли
+        # про личность» тут нет специально — оно совпадает с `disclosure_sent`
+        # выше, то есть с уже защищённым множеством, и дыру не закрывает.
+        reply = (
+            honest_self_action_fallback(language=cfg.settings.language)
+            if cfg.settings.honesty_mode == HONESTY_HONEST
+            else self_action_fallback(language=cfg.settings.language))
         implies_owner = False   # заменили на само-действие — контакта больше нет
     # Q2 (дрил 07-19): обещание контакта/эскалация не тянет встречный вопрос —
     # лида ПЕРЕДАЛИ, а бот бы продолжал продавать в том же сообщении и сбивал его.

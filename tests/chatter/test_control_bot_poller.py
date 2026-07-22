@@ -346,3 +346,107 @@ def test_non_owner_config_command_rejected():
     asyncio.run(poller.poll_once())
 
     assert "hit" not in called   # чужому config-команды недоступны
+
+
+# --- Б3(а): навигационный тап не должен разрушать карточку -------------------
+
+_KB = {"inline_keyboard": [
+    [{"text": "▶️ Вернуть Аню", "callback_data": "resume:42:demo"},
+     {"text": "⏸ Ещё 1ч", "callback_data": "snooze:42:demo"}],
+    [{"text": "🔗 Открыть диалог", "callback_data": "open:42:demo"}],
+]}
+
+
+def _callback_update_with_kb(uid, *, data, from_id=237616472):
+    u = _callback_update(uid, data=data, from_id=from_id)
+    u["callback_query"]["message"]["reply_markup"] = _KB
+    return u
+
+
+def test_open_tap_keeps_card_buttons_alive():
+    """Баг живого теста volska 2026-07-21: владелец промахнулся по кнопке и
+    потерял управление карточкой.
+
+    editMessageText БЕЗ reply_markup удаляет инлайн-клавиатуру (Bot API), так
+    что ЛЮБОЙ тап стирал все кнопки. Для `open` это особенно скверно: действие
+    чисто навигационное — не мутирует Store, не пишет событие, не закрывает
+    esc_active — а карточка после него становится неуправляемой, и «переиграть»
+    промах уже нечем.
+    """
+    store = Store(":memory:")
+    store.get_or_create_contact("42:demo")
+    api = FakeApi([[_callback_update_with_kb(10, data="open:42:demo")]])
+
+    asyncio.run(_poller(api, store=store).poll_once())
+
+    edit = api.payload_for("editMessageText")
+    assert edit.get("reply_markup") == _KB, "навигационный тап убил кнопки карточки"
+
+
+def test_open_tap_mutates_nothing():
+    # Стоп-гард к фиксу выше: open остаётся чистой навигацией.
+    store = Store(":memory:")
+    store.get_or_create_contact("42:demo")
+    store.set_runtime_flag("esc_active:42:demo", "bot:1:25", ts=1.0)
+    api = FakeApi([[_callback_update_with_kb(11, data="open:42:demo")]])
+
+    asyncio.run(_poller(api, store=store).poll_once())
+
+    assert store.get_or_create_contact("42:demo")["paused"] == 0
+    assert store.get_runtime_flag("esc_active:42:demo") == "bot:1:25"
+
+
+# --- /honesty: видимая кнопка, но переключение ТОЛЬКО по набранному confirm ---
+
+def test_honesty_status_reply_carries_the_button():
+    store = Store(":memory:")
+
+    async def config_handler(name, arg, *, language):
+        return "Чесність: УВІМК"
+
+    api = FakeApi([[{
+        "update_id": 40,
+        "message": {"message_id": 1, "text": "/honesty", "chat": {"id": OWNER}},
+    }]])
+    poller = ControlBotPoller(
+        "T", store=store, language="uk", snooze_seconds=3600, owner_chat_id=OWNER,
+        http_get=api.get, http_post=api.post, clock=lambda: 0.0,
+        config_handler=config_handler)
+    asyncio.run(poller.poll_once())
+
+    sent = api.payload_for("sendMessage")
+    kb = sent.get("reply_markup", {}).get("inline_keyboard")
+    assert kb, "у /honesty нет кнопки"
+    assert kb[0][0]["callback_data"] == "honesty_warn"
+
+
+def test_honesty_button_tap_only_warns_and_never_switches():
+    """Ядро задачи: тап — это ПРЕДУПРЕЖДЕНИЕ, а не переключение.
+
+    Владелец отверг «выключить честность одним тапом»; кнопку вернули только
+    потому, что тап ведёт к набранному /honesty free confirm. Если тап начнёт
+    что-то переключать сам — защита исчезла."""
+    store = Store(":memory:")
+    calls = []
+
+    async def config_handler(name, arg, *, language):
+        calls.append((name, arg))
+        return "не должно вызываться на тапе"
+
+    api = FakeApi([[{
+        "update_id": 41,
+        "callback_query": {
+            "id": "cb", "data": "honesty_warn", "from": {"id": OWNER},
+            "message": {"message_id": 9, "chat": {"id": OWNER}},
+        },
+    }]])
+    poller = ControlBotPoller(
+        "T", store=store, language="uk", snooze_seconds=3600, owner_chat_id=OWNER,
+        http_get=api.get, http_post=api.post, clock=lambda: 0.0,
+        config_handler=config_handler)
+    asyncio.run(poller.poll_once())
+
+    assert calls == [], "тап дёрнул config-хендлер — переключение возможно тапом"
+    sent = api.payload_for("sendMessage")
+    assert "confirm" in sent["text"].casefold()
+    assert "editMessageText" not in api.methods()   # карточку не трогаем

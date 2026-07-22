@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 from chatter.core.brand_safety import forbidden_mention
 from chatter.core.conversation import next_state
-from chatter.core.disclosure import is_bot_question
+from chatter.core.disclosure import honest_prefix, is_bot_question
 from chatter.core.guardrails import contains_unbacked_claim
 from chatter.core.obligations import DEFAULT_PROMISE_TERMS, unbacked_promise
 
@@ -72,8 +72,73 @@ def esc_active_key(contact_id: str) -> str:
 # run.py), потому что их использует и триггер owner_handoff, и H2-детектор в
 # run.py — один источник правды, иначе разъедутся (как разъехались keyword-слой
 # и H2 на дриле 07-19).
-_OWNER_CONTACT_VERBS = ("свяж", "перезвон", "передзвон", "созвон", "подключ")
-_OWNER_ROLE_STEMS = ("владел", "хозяин")   # владелец/владельцем/владельца/…
+# uk «зв'яжу» — в двух вариантах апострофа: мы пишем U+0027, но модель нередко
+# отдаёт типографский U+2019, и один вариант молча пропускал бы обещание.
+_OWNER_CONTACT_VERBS = (
+    "свяж", "перезвон", "передзвон", "созвон", "подключ",
+    "зв'яж", "зв’яж", "connect you with",
+)
+# ru: владелец/владельцем/владельца/…; uk: керівниця/керівниці/керівницею и
+# керівник/керівника/керівником. Украинские корни держим ОТДЕЛЬНО от owner_id:
+# у volska owner_id == "Керівниця", и ветка матча по стему ИМЕНИ закрывала роль
+# совпадением — смена owner_id на реальное имя молча вернула бы дыру, и
+# «передам керівниці» уехало бы лиду БЕЗ карточки владельцу.
+_OWNER_ROLE_STEMS = ("владел", "хозяин", "керівниц", "керівник", "власни", "owner")
+
+
+# Заглушки, которые получает ЛИД вместо подавленного ответа. Локализованы по
+# settings.language ровно как honest_disclosure: аварийная фраза на чужом языке
+# — это тот же провал доверия, что и честность на чужом языке (баг живого теста
+# volska 2026-07-21: украиноязычный лид получил русское «уточню детали ... с
+# владельцем»). Дефолт роли владельца тоже per-language, иначе украинский текст
+# заканчивался бы русским словом.
+_FALLBACK_OWNER_REF = {"ru": "владельцем", "en": "the owner", "uk": "власником"}
+_FALLBACK_WITH_OWNER = {
+    "ru": "Хороший вопрос — уточню детали и вернусь. Если удобно, свяжу вас с {ref}.",
+    "en": ("Good question — let me check the details and come back to you. "
+           "If you'd like, I can connect you with {ref}."),
+    "uk": "Гарне питання — уточню деталі та повернуся. Якщо зручно, зв'яжу вас з {ref}.",
+}
+_FALLBACK_SELF = {
+    "ru": "Хороший вопрос — уточню детали и вернусь к вам.",
+    "en": "Good question — let me check the details and come back to you.",
+    "uk": "Гарне питання — уточню деталі та повернуся до вас.",
+}
+
+
+def suppressed_fallback(*, language: str = "ru", owner_ref: str | None = None) -> str:
+    """Что получает ЛИД вместо подавленного ответа: нейтральное «уточню и
+    вернусь» + предложение вывести на владельца. Неизвестный язык → ru (тот же
+    фолбэк, что console_text/honest_disclosure — лид всегда получает понятный
+    текст, а не KeyError).
+
+    ВАЖНО: результат обязан распознаваться mentions_owner_contact БЕЗ подсказки
+    owner_ref — иначе недоставленная карточка пропустит обещание контакта
+    владельца мимо H2-гейта. Держится глаголом («свяж»/«зв'яж»/«connect») и
+    ролевым корнем дефолта; тест это фиксирует."""
+    ref = owner_ref or _FALLBACK_OWNER_REF.get(language, _FALLBACK_OWNER_REF["ru"])
+    template = _FALLBACK_WITH_OWNER.get(language, _FALLBACK_WITH_OWNER["ru"])
+    return template.format(ref=ref)
+
+
+def self_action_fallback(*, language: str = "ru") -> str:
+    """Заглушка БЕЗ обещания контакта владельца — говорим только то, что персона
+    сделает сама. Ставится, когда карточка владельцу не доставлена (H2)."""
+    return _FALLBACK_SELF.get(language, _FALLBACK_SELF["ru"])
+
+
+def honest_self_action_fallback(*, language: str = "ru") -> str:
+    """То же самое, но с честным фактом впереди — версия для honest-режима.
+
+    Условия «а лид точно спрашивал про личность?» здесь НЕТ намеренно. Замер
+    volska 2026-07-21 показал, что детектор вопроса (`is_bot_question`) мимо
+    даже после расширения: «ти людина?» — самая частая формулировка — не
+    ловится, и хвост таких форм бесконечен. Поэтому гарантию держит РЕЖИМ, а не
+    распознавание текста: в honest-режиме любая аварийная подмена ответа несёт
+    честный факт. Цена — лид, спросивший про цену и попавший на недоставленную
+    карточку, увидит лишнюю строку про ассистента; это дёшево по сравнению с
+    ответом, из которого следует, что он говорит с человеком."""
+    return f"{honest_prefix(language)} {self_action_fallback(language=language)}"
 
 
 def mentions_owner_contact(reply: str, owner_id: str = "", owner_ref: str | None = None) -> bool:

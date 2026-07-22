@@ -51,6 +51,16 @@ _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 # «срочные» при разборе knowledge (M1: контекстное подтверждение).
 _ANY_TIME_UNIT = re.compile(_TIME_UNIT, re.IGNORECASE)
 
+# Б1: число (или диапазон «5–10»), стоящее ПРИ единице времени, — это СРОК, а не
+# цена. Допускаем до двух слов между числом и единицей («5–10 РОБОЧИХ ДНІВ»,
+# «7 дней», «1.5–2 часа»). Валюта отсекается сама: `\s+\w+` не матчит « $»/« грн»
+# через неслововые символы, поэтому «300 $ за 5 днів» не пометит 300 срочным.
+_NUM_IN_TIME_CONTEXT = re.compile(
+    rf"(\d[\d\s.,]*\d|\d)(?:\s*[–—-]\s*(\d[\d\s.,]*\d|\d))?"
+    rf"(?:\s+\w+){{0,2}}\s*{_TIME_UNIT}",
+    re.IGNORECASE,
+)
+
 
 def _numbers(text: str) -> set[str]:
     return {re.sub(r"\s", "", m.group()) for m in _NUMBER.finditer(text or "")}
@@ -77,6 +87,18 @@ def _context_numbers(knowledge: str) -> tuple[set[str], set[str]]:
         if _ANY_TIME_UNIT.search(frag):
             deadline |= nums
     return price, deadline
+
+
+def _time_context_numbers(text: str) -> set[str]:
+    """Числа фрагмента, стоящие в СРОЧНОМ контексте («5–10 робочих днів», «7
+    дней», «1.5–2 часа»). Нужны, чтобы в предложении, где есть И цена И срок,
+    срочное число сверялось со срочным множеством knowledge, а не с ценовым."""
+    out: set[str] = set()
+    for m in _NUM_IN_TIME_CONTEXT.finditer(text or ""):
+        for g in m.groups():
+            if g:
+                out.add(re.sub(r"\s", "", g))
+    return out
 
 
 def _split_sentences(text: str) -> list[str]:
@@ -128,9 +150,17 @@ def contains_unbacked_claim(reply: str, knowledge: str) -> bool:
 
     for sentence in _split_sentences(text):
         if _PRICE_CONTEXT.search(sentence):
+            time_nums = _time_context_numbers(sentence)
             for num in _numbers(sentence):
                 # M1: цена обеспечена только числом из ЦЕНОВОГО контекста knowledge.
-                if num not in price_numbers:
+                # Б1: НО число при единице времени — срок, а не цена, и проверять
+                # его надо против СРОЧНОГО множества. Иначе обеспеченный ответ
+                # «логотип 300–400 $, термін 5–10 робочих днів» душился, потому
+                # что 5/10 ценами не являются — и лид вместо прайса получал
+                # «уточню детали». Защита не слабеет: выдуманный срок в ценовом
+                # предложении по-прежнему ловится, просто нужным множеством.
+                expected = deadline_numbers if num in time_nums else price_numbers
+                if num not in expected:
                     return True
 
     for num in _numbers(text):
