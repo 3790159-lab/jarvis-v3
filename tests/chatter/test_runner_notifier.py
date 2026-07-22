@@ -121,12 +121,11 @@ def test_post_pause_card_goes_through_notifier():
     assert card.buttons and card.reply_hints
 
 
-def test_control_token_loaded_from_env_file_when_not_in_environ(tmp_path, monkeypatch):
-    # Гардиан может не пробросить shell-переменную в дочерний раннер — токен
-    # обязан подхватываться и из .env (как ANTHROPIC_API_KEY).
-    import chatter.telethon_run as tr
-    monkeypatch.delenv("TEST_CTRL_TOKEN", raising=False)
-    monkeypatch.setattr(tr, "_parse_env_file", lambda path: {"TEST_CTRL_TOKEN": "999:FROMENV"})
+def test_control_token_loaded_from_environ(tmp_path, monkeypatch):
+    # P1P2 слой процесса: файловые секреты кладёт в os.environ bootstrap_env
+    # на старте main() — рантайм-чтения plaintext .env больше нет (тихий
+    # plaintext-путь), токен берётся ТОЛЬКО из environ.
+    monkeypatch.setenv("TEST_CTRL_TOKEN", "999:FROMENV")
     clients = _clients_with_control(tmp_path, "TEST_CTRL_TOKEN")
     runner = build_runner(
         client=_client(), clients_dir=clients, persona_slugs=["demo", "demo2"],

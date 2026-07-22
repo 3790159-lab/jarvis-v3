@@ -96,16 +96,19 @@ def load_env(
     environ: MutableMapping[str, str],
     fallback_plaintext: str | Path | None = None,
     alert_transport: Callable[[str, bytes], None] = _urllib_post,
+    entropy_path: str | Path | None = None,
 ) -> dict[str, str]:
     """Грузит секреты в environ. Реальная переменная окружения всегда
     побеждает файл (прецедент load_api_credentials/env_bootstrap).
+    entropy_path — для инструментов не из repo-root (boot-probe).
 
     Возвращает распарсенные значения файла (для диагностики/тестов)."""
     enc = Path(enc_path)
     used_fallback: Path | None = None
     if enc.exists():
         try:
-            text = decrypt_from_file(enc).decode("utf-8-sig")
+            text = decrypt_from_file(
+                enc, entropy_path=entropy_path).decode("utf-8-sig")
         except CryptoError as exc:
             raise SecretLoaderError(f"{enc}: {exc}") from exc
         values = parse_env_text(text)
