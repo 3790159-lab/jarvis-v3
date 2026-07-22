@@ -249,4 +249,12 @@ Machine-scope ключи **умирают вместе с машиной** (см
 3. §12 п.3 — тест восстановления на чистом профиле (всё ещё блокер приёмки).
 4. Отчёт → **повторный ОК** → cutover по §6 (п.0 — слой «диск» отдельным окном).
 
+### 10.1 Статус слоя процесса — код ГОТОВ 2026-07-23 (ветка, не прод)
+
+- **§2.1 crypto**: machine-scope + entropy 32Б + ACL-хелпер ✅. Живой probe вскрыл баг ACL-каталога (гранты без `(OI)(CI)` при срезе наследования → дети с пустым DACL, Permission denied даже elevated Admin) — пофикшен по TDD, дети наследуют `(I)(F)` SYSTEM+Admins.
+- **§2.3 wiring**: `bootstrap_env` — единая стартовая точка (`telethon_run`/`telethon_login`): `.env.enc` → память; legacy plaintext → одноразовая авто-миграция §4.5; фолбэк только `JARVIS_ALLOW_PLAINTEXT_ENV=1` + TG-алерт на каждый старт. Тихие plaintext-чтения убраны (ANTHROPIC-блок, `_resolve_control_token`, `.env`-фолбэк `load_api_credentials` после `.enc`). Алертер `chatter_watch_check` умеет токен из `.env.enc` (иначе онемел бы после шреда).
+- **Мигратор** (cutover §6 п.4-6): `python -m chatter.security.migrate --root C:\jarvis` — entropy → `.env.enc` → сессия → ACL, верификация round-trip, идемпотентен, plaintext не удаляет. User-scope блобов на диске нет (проверено) — отдельный user→machine путь не нужен.
+- **Приёмка §8.1**: `scripts/secrets_boot_probe.py` + `register_secrets_boot_probe_TEMP.ps1` (AtStartup/S4U/Highest, одноразовые фикстуры в `state\secrets_probe` под боевым ACL — живые секреты не трогаются). Из сессии: FAIL→фикс→OK (лог `probe_result.log`). Ребут-прогон ⏳ ждёт ОК; после зелёного — `-Unregister`.
+- ⚠️ Деплой этого кода в прод ДО `migrate`-setup уронит раннер явной ошибкой (нет entropy) — порядок cutover §6 обязателен.
+
 **Без ОК не делается:** включение BitLocker-протекторов (меняет боевую машину), шред plaintext, открытие гейта, cutover.
