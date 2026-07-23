@@ -101,7 +101,7 @@ def parse_registry(text: str) -> tuple[ClientEntry, ...]:
 
 def validate(
     entries: Iterable[ClientEntry], *, root: str,
-    session_exists: Callable[[str], bool],
+    session_available: Callable[[str], bool],
     client_dir_exists: Callable[[str], bool],
 ) -> tuple[tuple[ClientEntry, ...], tuple[ClientIssue, ...]]:
     """(runnable, issues). Выключенные клиенты не валидируются вовсе —
@@ -140,11 +140,17 @@ def validate(
                 e.slug, f"registry: client dir for {e.slug!r} not found"))
             bad.add(e.slug)
             continue
-        if not session_exists(e.session):
-            # Явная ошибка, а не тихий цикл рестартов: без session-файла
-            # Telethon уходит в интерактивный запрос кода и висит вечно.
-            issues.append(ClientIssue(
-                e.slug, f"registry: session file {e.session!r} not found"))
+        if not session_available(e.session):
+            # «Доступна» = build_session сможет её открыть: .enc ИЛИ legacy
+            # plaintext. Проверять только plaintext-файл нельзя — после
+            # cutover P1/P2 его на диске нет вовсе, и живой клиент был бы
+            # помечен invalid (см. chatter/registry_cli.session_available).
+            #
+            # Явная ошибка, а не тихий цикл рестартов: без сессии Telethon
+            # уходит в интерактивный запрос кода и висит вечно.
+            issues.append(ClientIssue(e.slug, (
+                f"registry: session {e.session!r} not available "
+                f"(ни {e.session}.enc, ни plaintext)")))
             bad.add(e.slug)
 
     runnable = tuple(e for e in enabled if e.slug not in bad)

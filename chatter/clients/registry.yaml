@@ -1,0 +1,28 @@
+# Реестр клиентов chatter: КТО ДОЛЖЕН ЖИТЬ под гардианом (desired state).
+#
+# Одна запись = один процесс раннера со своими сессией, БД, логом и heartbeat.
+# Внутри записи может быть несколько персон (personas: [demo, demo2]) — это
+# сегодняшнее поведение одного раннера с несколькими персонами.
+#
+# Подключить клиента = добавить запись сюда. Правка PowerShell-скрипта гардиана
+# НЕ требуется. Минимальная запись — две строки: пути выводятся из slug'а
+# (.secrets/<slug>.session, .secrets/<slug>.db).
+#
+# ⚠️ ДВА ВКЛЮЧЁННЫХ КЛИЕНТА НЕ МОГУТ ДЕЛИТЬ session ИЛИ db — валидация
+# отклонит обоих. Два процесса на одной Telethon-сессии = гонка за запись
+# .session вплоть до разлогина аккаунта.
+#
+# Наблюдаемое состояние (кто живёт на самом деле) — state/chatter_clients.json.
+# Старт/стоп клиента: scripts\chatter_client.ps1 -Slug <s> -Action start|stop
+clients:
+  volska:
+    enabled: true
+    personas: [volska]
+    session: .secrets/demo.session   # пин: volska живёт на сессии demo-аккаунта
+    db: .secrets/demo.db
+
+  demo:
+    enabled: false                   # взаимоисключим с volska: тот же аккаунт
+    personas: [demo, demo2]
+    session: .secrets/demo.session
+    db: .secrets/demo.db

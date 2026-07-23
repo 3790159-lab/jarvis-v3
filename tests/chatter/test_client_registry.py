@@ -10,8 +10,8 @@ from chatter.core.client_registry import (
 ROOT = r"C:\jarvis"
 
 
-def _val(entries, *, session_exists=lambda p: True, client_dir_exists=lambda s: True):
-    return validate(entries, root=ROOT, session_exists=session_exists,
+def _val(entries, *, session_available=lambda p: True, client_dir_exists=lambda s: True):
+    return validate(entries, root=ROOT, session_available=session_available,
                     client_dir_exists=client_dir_exists)
 
 
@@ -103,10 +103,10 @@ def test_three_way_conflict_names_both_others():
 def test_missing_session_file_is_explicit_error_not_silent():
     """Иначе Telethon уйдёт в интерактивный запрос кода и повиснет навсегда."""
     entries = (ClientEntry("acme", True, ("acme",), ".secrets/acme.session", ".secrets/acme.db"),)
-    runnable, issues = _val(entries, session_exists=lambda p: False)
+    runnable, issues = _val(entries, session_available=lambda p: False)
     assert runnable == ()
     assert len(issues) == 1
-    assert "session" in issues[0].error and "not found" in issues[0].error
+    assert "session" in issues[0].error and "not available" in issues[0].error
 
 
 def test_unknown_client_dir_is_error():
@@ -126,7 +126,7 @@ def test_empty_personas_is_error():
 def test_disabled_client_is_never_validated():
     """Выключенный клиент с несуществующей сессией — не ошибка, а просто выключенный."""
     entries = (ClientEntry("old", False, (), "", ""),)
-    runnable, issues = _val(entries, session_exists=lambda p: False,
+    runnable, issues = _val(entries, session_available=lambda p: False,
                             client_dir_exists=lambda s: False)
     assert runnable == ()
     assert issues == ()
