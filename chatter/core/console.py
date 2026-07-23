@@ -218,6 +218,11 @@ CONSOLE_STRINGS: dict[str, dict[str, str]] = {
             "повтором). Эскалации могут идти только по ключевым словам, "
             "а профиль лида — отставать."
         ),
+        "stale_card_notice": (
+            "⚠️ {name} дописал сразу после карточки — она могла устареть "
+            "(мог передумать или спросить другое). Загляните в диалог перед "
+            "тем, как отвечать: {link}"
+        ),
         "profile_stale_alert": (
             "🧠 Память лида замёрзла: {count} хода подряд профиль {name} не "
             "обновился (классификатор сбоил). Аня отвечает по устаревшему "
@@ -296,6 +301,11 @@ CONSOLE_STRINGS: dict[str, dict[str, str]] = {
             "turns saved by a retry). Escalations may fire on keywords only, "
             "and the lead profile may lag behind."
         ),
+        "stale_card_notice": (
+            "⚠️ {name} wrote again right after the card — it may already be "
+            "stale (they may have changed their mind or asked something else). "
+            "Check the chat before replying: {link}"
+        ),
         "profile_stale_alert": (
             "🧠 Lead memory is frozen: the profile of {name} has not been "
             "updated for {count} turns in a row (classifier failures). Replies "
@@ -372,6 +382,11 @@ CONSOLE_STRINGS: dict[str, dict[str, str]] = {
             "⚠️ Класифікатор збоїть: {count} раз(ів) за {hours}год (разом із "
             "врятованими повтором). Ескалації можуть іти лише за ключовими "
             "словами, а профіль ліда — відставати."
+        ),
+        "stale_card_notice": (
+            "⚠️ {name} дописав одразу після картки — вона могла застаріти "
+            "(міг передумати або спитати інше). Загляньте в діалог, перш ніж "
+            "відповідати: {link}"
         ),
         "profile_stale_alert": (
             "🧠 Пам'ять ліда замерзла: {count} ходи поспіль профіль {name} не "

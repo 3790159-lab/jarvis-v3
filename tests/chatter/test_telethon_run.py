@@ -299,7 +299,9 @@ def test_next_message_after_switch_is_processed_under_the_new_persona(monkeypatc
         runner, client = _runner()
         calls = []
 
-        def fake_process_batch(contact_id, batch, transport, deps):
+        # **kw: живой путь несёт ещё и Б4-чек fresh_incoming (см.
+        # test_stale_reply_cancel), здесь он не важен
+        def fake_process_batch(contact_id, batch, transport, deps, **kw):
             calls.append((contact_id, deps.cfg.slug))
 
         monkeypatch.setattr(tr, "process_batch", fake_process_batch)
@@ -331,7 +333,7 @@ def test_coalesced_batch_invokes_process_batch_with_right_contact_and_cfg(monkey
         runner, client = _runner()
         calls = []
 
-        def fake_process_batch(contact_id, batch, transport, deps):
+        def fake_process_batch(contact_id, batch, transport, deps, **kw):
             calls.append((contact_id, batch, deps.cfg.slug, isinstance(transport, TelethonTransport)))
 
         monkeypatch.setattr(tr, "process_batch", fake_process_batch)

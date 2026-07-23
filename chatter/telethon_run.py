@@ -467,6 +467,12 @@ class ChatDebouncer:
         self._first_at = 0.0
         self._last_at = 0.0
         self.task: "asyncio.Task | None" = None
+        # Б4: счётчик поколений входящих. Растёт на КАЖДОМ add() (loop-поток),
+        # читается из worker-потока во время доставки (fresh_incoming). int
+        # инкремент/чтение атомарны под GIL — локов не надо.
+        self._arrived: int = 0
+        # Эпоха, снятая на флаше батча: всё, что пришло ПОСЛЕ неё, — свежее.
+        self._epoch: int = 0
 
     def add(self, text: str) -> None:
         now = self._clock()
@@ -474,8 +480,18 @@ class ChatDebouncer:
             self._first_at = now
         self._buffer.append(text)
         self._last_at = now
+        self._arrived += 1
         if self.task is None or self.task.done():
             self.task = asyncio.ensure_future(self._run())
+
+    def fresh_incoming(self) -> bool:
+        """Пришло ли новое входящее ПОСЛЕ того, как был снят текущий батч.
+
+        Единственный источник правды здесь — этот счётчик, а не таблица
+        `messages`: входящее попадает в store только в process_batch
+        СЛЕДУЮЩЕГО батча, то есть пока сообщение сидит в буфере дебаунсера,
+        БД его не видит вовсе."""
+        return self._arrived > self._epoch
 
     async def _run(self) -> None:
         while True:
@@ -490,7 +506,11 @@ class ChatDebouncer:
                 remaining_ceiling = self._max_window - (now - self._first_at)
                 wait = max(0.0, min(remaining_quiet, remaining_ceiling))
                 await self._async_sleep(wait)
+            # Снимок эпохи РОВНО в момент флаша: сообщения самого батча
+            # свежими не считаются, иначе залп из двух реплик отменял бы
+            # собственный ответ.
             batch, self._buffer = self._buffer, []
+            self._epoch = self._arrived
             await self._on_ready(batch)
             # Сообщения, пришедшие ПОКА шла доставка, надо слить ЭТИМ же таском.
             # `add()` их только накопил: таск всё это время не done (on_ready
@@ -1284,14 +1304,22 @@ class TelethonRunner:
             bundle.deps.store.get_or_create_contact(contact_id)  # process_batch assumes the row exists
             log.info("process START %s batch=%r", contact_id, batch)
             try:
-                await asyncio.to_thread(process_batch, contact_id, batch, transport, bundle.deps)
+                # Б4: чек «лид дописал, пока мы доставляем». Замыкание живёт на
+                # дебаунсере (у него per-chat идентичность и точка add()), в
+                # Deps не кладём — транспорт-агностика Deps сохраняется.
+                # `deb` присваивается ниже, до первого вызова _on_ready.
+                await asyncio.to_thread(
+                    process_batch, contact_id, batch, transport, bundle.deps,
+                    fresh_incoming=deb.fresh_incoming)
                 log.info("process END %s", contact_id)
             except Exception:
                 # A fire-and-forget debouncer task swallows exceptions otherwise;
                 # surface them loudly (this is what a silent no-reply looked like).
                 log.exception("process_batch FAILED for %s", contact_id)
 
-        return ChatDebouncer(window=t.debounce_window, max_window=t.debounce_max, on_ready=_on_ready)
+        deb = ChatDebouncer(window=t.debounce_window, max_window=t.debounce_max,
+                            on_ready=_on_ready)
+        return deb
 
     # --- catch-up on start --------------------------------------------------
     async def _collect_dialogs(self, *, per_dialog_scan: int = 50) -> list[dict]:

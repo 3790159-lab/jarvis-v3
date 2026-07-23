@@ -209,11 +209,13 @@ def _muted_now(deps: Deps, contact_id: str) -> bool:
 def _escalation_pass(
     deps: "Deps", contact_id: str, *, incoming_text: str, reply: str, now: float,
     disclosure_sent: bool = False,
-) -> str:
+) -> tuple[str, bool]:
     """Арка 3B: свести детерминированный слой и классификатор, оживить воронку,
     при эскалации отправить карточку владельцу. Возвращает (возможно
-    переписанный) reply. Всё аддитивно: без keywords/classify/notifier это
-    просто гардрейл-переписывание, как в арке 3A."""
+    переписанный) reply и факт «карточка ушла владельцу на ЭТОМ ходу» (нужен
+    Б4: если ответ потом отменят, владельца надо предупредить, что карточка
+    могла устареть). Всё аддитивно: без keywords/classify/notifier это просто
+    гардрейл-переписывание, как в арке 3A."""
     store = deps.store
     cfg = deps.cfg
     det = deterministic_escalation(
@@ -342,7 +344,7 @@ def _escalation_pass(
     # содержит → там no-op).
     if implies_owner and not protected:
         reply = _drop_trailing_question(reply)
-    return reply
+    return reply, delivered
 
 
 # Разбивка на предложения по границе .!? + пробел (хвостовой вопрос режем с конца).
@@ -452,7 +454,6 @@ def _maybe_degraded_alert(deps: "Deps", *, now: float) -> None:
     last = deps.store.get_runtime_flag("classifier_degraded_alerted_ts")
     if last and (now - float(last)) < window:
         return
-    deps.store.set_runtime_flag("classifier_degraded_alerted_ts", str(now), ts=now)
     if deps.notifier is None:
         return
     count = classifier_failure_count(deps.store, now=now, window_seconds=window)
@@ -460,11 +461,20 @@ def _maybe_degraded_alert(deps: "Deps", *, now: float) -> None:
         "degraded_alert", deps.cfg.settings.language,
         count=count, hours=control.status_window_hours)
     try:
-        deps.notifier.notify(Card(
+        handle = deps.notifier.notify(Card(
             kind="alert", contact_id="", text_html=escape_html(text),
             buttons=[], reply_hints=[]))
     except Exception:
         log.exception("degraded-classifier alert FAILED to send")
+        return
+    # AUDIT D4: кулдаун ставим ТОЛЬКО по факту доставки. Раньше флаг писался
+    # до notify — упавшая или проглоченная доставка сжигала окно на сутки, и
+    # владелец оставался глух, не получив ни одного алерта. Ровно как в
+    # _post_escalation_card: флаг = подтверждённый успех, а не намерение.
+    if handle is None:
+        log.warning("degraded-classifier alert NOT delivered (notifier вернул None)")
+        return
+    deps.store.set_runtime_flag("classifier_degraded_alerted_ts", str(now), ts=now)
 
 
 def _note_profile_miss(deps: "Deps", contact_id: str, *, now: float, why: str) -> None:
@@ -484,7 +494,6 @@ def _note_profile_miss(deps: "Deps", contact_id: str, *, now: float, why: str) -
     alerted_key = f"profile_miss_alerted:{contact_id}"
     if (store.get_runtime_flag(alerted_key) or "0") != "0":
         return
-    store.set_runtime_flag(alerted_key, str(streak), ts=now)
     if deps.notifier is None:
         return
     peer = contact_id.split(":", 1)[0]
@@ -493,16 +502,54 @@ def _note_profile_miss(deps: "Deps", contact_id: str, *, now: float, why: str) -
         count=streak, name=display_name(user_id=peer),
         link=contact_link(user_id=peer))
     try:
-        deps.notifier.notify(Card(
+        handle = deps.notifier.notify(Card(
             kind="alert", contact_id=contact_id, text_html=text,
             buttons=[], reply_hints=[], link=contact_link(user_id=peer)))
     except Exception:
         log.exception("stale-profile alert FAILED to send for %s", contact_id)
+        return
+    # AUDIT D4, тот же класс бага: «уже алертили» ставим по факту доставки,
+    # иначе одна упавшая отправка глушит серию до первого здорового хода.
+    if handle is None:
+        log.warning("stale-profile alert NOT delivered for %s", contact_id)
+        return
+    store.set_runtime_flag(alerted_key, str(streak), ts=now)
+
+
+def _maybe_stale_card_notice(deps: "Deps", contact_id: str, *, now: float,
+                             card_posted: bool) -> None:
+    """Б4 + вопрос Даниила: что делать с карточкой, если ответ отменён.
+
+    Карточку НЕ откатываем — факт («лид просит точную смету») реален
+    независимо от того, ушли ли бабблы; откат означал бы, что владелец теряет
+    живой сигнал из-за задержки доставки. Но карточка, отправленная за секунду
+    до того, как лид дописал «ой, поки не треба», — ровно та спурьёзная
+    карточка керівниці, которая хуже отменённого ответа: владелец звонит лиду
+    с предложением, от которого тот уже отказался.
+
+    Поэтому: карточка живёт, а владельцу уходит ОТДЕЛЬНОЕ сообщение «лид
+    дописал, карточка могла устареть». Именно отдельное, а не тихая правка
+    существующей: editMessageText не шлёт пуш, и владелец её не увидит
+    (дрил 07-18). Шлём ТОЛЬКО если карточка ушла на этом же ходу — иначе
+    предупреждать не о чем, а лишний пуш обесценивает карточки."""
+    if not card_posted or deps.notifier is None:
+        return
+    peer = contact_id.split(":", 1)[0]
+    text = console_text(
+        "stale_card_notice", deps.cfg.settings.language,
+        name=display_name(user_id=peer), link=contact_link(user_id=peer))
+    try:
+        deps.notifier.notify(Card(
+            kind="alert", contact_id=contact_id, text_html=text,
+            buttons=[], reply_hints=[], link=contact_link(user_id=peer)))
+    except Exception:
+        log.exception("stale-card notice FAILED to send for %s", contact_id)
 
 
 def process_batch(
     contact_id: str, incoming: list[str], transport: Transport, deps: Deps,
     *, missed_age_seconds: float | None = None,
+    fresh_incoming: Callable[[], bool] | None = None,
 ) -> None:
     """Coalesce the batch, guard on rate limits, decide a reply
     (disclosure > guardrails > brain), then deliver it via the humanizer's
@@ -511,7 +558,12 @@ def process_batch(
     `missed_age_seconds`: when this batch is a message that arrived while the
     bot was OFFLINE (catch-up), how long the oldest message waited. It drives
     the "sorry for the pause" acknowledgement on the brain path. None (default)
-    = a live message, no apology."""
+    = a live message, no apology.
+
+    `fresh_incoming`: Б4 — «лид дописал ПОКА мы доставляем». Замыкание
+    дебаунсера, читается перед КАЖДЫМ бабблом; True = наш ответ устарел, и
+    остаток не отправляется. None (консоль, catch-up, старые тесты) =
+    поведение ровно прежнее."""
     text = H.coalesce(incoming)
     if not text:
         return
@@ -567,13 +619,16 @@ def process_batch(
     # оживление воронки и — при эскалации — карточка владельцу. Здесь же
     # остаётся гардрейл-переписывание необеспеченного обещания (перенесено из
     # инлайна в _escalation_pass), чтобы Аня не отправила выдуманную цену.
-    reply = _escalation_pass(deps, contact_id, incoming_text=text, reply=reply,
-                             now=deps.clock(), disclosure_sent=disclosure_sent)
+    reply, card_posted = _escalation_pass(
+        deps, contact_id, incoming_text=text, reply=reply,
+        now=deps.clock(), disclosure_sent=disclosure_sent)
 
     now_hour = _dt.datetime.fromtimestamp(deps.clock()).hour
     actions = H.compose_reply(
         reply, deps.rng, deps.cfg.settings.timings, deps.cfg.settings.work_hours, now_hour,
     )
+    total_bubbles = sum(1 for a in actions if isinstance(a, H.Say))
+    said = 0
     for action in actions:
         if isinstance(action, H.Pause):
             deps.sleep(action.seconds)
@@ -591,7 +646,27 @@ def process_batch(
                 # начале, иначе она договорит поверх него.
                 print(f"  [muted mid-reply] {contact_id}: отменяю остаток ответа")
                 return
+            if fresh_incoming is not None and fresh_incoming():
+                # Б4: лид дописал, пока мы «печатали» — наш ответ устарел.
+                # Молча досылать остаток нельзя: он уйдёт ПОСЛЕ его новой
+                # реплики, и это самый видимый провал «неотличима от человека».
+                # Регенерацию тут НЕ делаем: буфер дебаунсера не пуст, та же
+                # итерация запустит новый process_batch с историей
+                # «отправленная часть + новая реплика», и модель сама решит,
+                # что из недосказанного повторить. Неотправленного в истории
+                # нет (persist только на send) — повторить его она вправе.
+                transport.send_typing(False)      # не висеть «печатає»
+                detail = f"не відправлено {total_bubbles - said} з {total_bubbles} бабблів"
+                deps.store.add_event("stale_reply_cancelled", contact_id=contact_id,
+                                     detail=detail, ts=deps.clock())
+                log.info("stale reply cancelled for %s: %s", contact_id, detail)
+                print(f"  [stale mid-reply] {contact_id}: {detail}")
+                _maybe_stale_card_notice(
+                    deps, contact_id, now=deps.clock(),
+                    card_posted=card_posted)
+                return
             transport.send(action.text)
+            said += 1
             deps.store.add_message(contact_id, "assistant", action.text, ts=deps.clock())
 
 

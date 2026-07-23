@@ -727,3 +727,48 @@ def test_healthy_turn_without_new_facts_breaks_the_streak():
     for i in range(5):
         _process(deps, "42:demo", f"сообщение {i}")
     assert _stale_profile_alerts(n, "42:demo") == [], "здоровый ход не оборвал серию пропусков"
+
+
+# --- D4 (AUDIT): кулдаун алерта не должен сгорать на неудачной доставке -----
+def test_degraded_alert_cooldown_is_not_burned_by_a_failed_delivery():
+    """Флаг «уже проинформировали» ставился ДО доставки. Если notify упал или
+    вернул None, окно 24ч считалось потраченным — и владелец сутки не узнавал
+    о деградации, не получив НИ ОДНОГО алерта. Ставим кулдаун только по факту
+    доставки, как это давно делает _post_escalation_card."""
+    class BrokenNotifier(FakeNotifier):
+        def __init__(self):
+            super().__init__()
+            self.fail = True
+
+        def notify(self, card):
+            if self.fail and card.kind == "alert":
+                raise RuntimeError("telegram down")
+            return super().notify(card)
+
+    n = BrokenNotifier()
+    deps = _deps(notifier=n, keywords=[],
+                 classify=lambda history, profile=None: _degraded_cr())
+    # глобальный алерт о деградации несёт пустой contact_id; адресный алерт
+    # про застывший профиль — свой. Их нельзя мешать в одном фильтре.
+    def _global_alerts():
+        return [c for c in n.cards if c.kind == "alert" and c.contact_id == ""]
+
+    _process(deps, "42:demo", "первое")
+    _process(deps, "42:demo", "второе")          # порог взят, доставка упала
+    assert _global_alerts() == []
+
+    n.fail = False
+    _process(deps, "42:demo", "третье")          # следующий сбой обязан добить
+    assert _global_alerts(), (
+        "кулдаун сгорел на неудачной доставке — владелец глух на сутки")
+
+
+def test_degraded_alert_cooldown_holds_after_a_successful_delivery():
+    """Обратная сторона: доставленный алерт держит окно и не штормит."""
+    n = FakeNotifier()
+    deps = _deps(notifier=n, keywords=[],
+                 classify=lambda history, profile=None: _degraded_cr())
+    for i in range(4):
+        _process(deps, "42:demo", f"сообщение {i}")
+    globals_alerts = [c for c in n.cards if c.kind == "alert" and c.contact_id == ""]
+    assert len(globals_alerts) == 1
