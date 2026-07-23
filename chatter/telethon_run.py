@@ -41,7 +41,7 @@ from chatter.notify.base import Card, Notifier
 from chatter.notify.control_bot import ControlBotNotifier, ControlBotPoller
 from chatter.notify.saved_messages import SavedMessagesNotifier
 from chatter.run import Deps, process_batch
-from chatter.storage.db import Store
+from chatter.storage.db import Store, usage_sink_for
 from chatter.transport.telethon_tg import SentRegistry, TelethonTransport, send_alert
 from chatter.security.secret_loader import (
     SecretLoaderError, bootstrap_env, derive_session_enc_path,
@@ -1457,9 +1457,9 @@ async def autoresume_loop(
 
 
 # --- runner assembly / CLI --------------------------------------------------
-def _build_llm(cfg: Config, mode: str) -> LLMClient:
+def _build_llm(cfg: Config, mode: str, usage_sink=None) -> LLMClient:
     if mode == "real" or (mode == "auto" and os.environ.get("ANTHROPIC_API_KEY")):
-        return AnthropicLLM(cfg.settings.model)
+        return AnthropicLLM(cfg.settings.model, usage_sink=usage_sink)
     return FakeLLM()
 
 
@@ -1477,7 +1477,7 @@ def load_personas(
     personas: dict[str, PersonaBundle] = {}
     for slug in slugs:
         cfg = load_config(clients_dir, slug)
-        llm = _build_llm(cfg, llm_mode)
+        llm = _build_llm(cfg, llm_mode, usage_sink=usage_sink_for(store))
         deps = Deps(
             cfg=cfg, store=store, brain=Brain(llm, cfg),
             rng=random.Random(), clock=time.time, sleep=time.sleep,

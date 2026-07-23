@@ -69,7 +69,8 @@ def test_classify_happy_path():
 
 def test_classify_llm_raises_is_degraded_never_raises():
     class BoomLLM:
-        def complete(self, system, messages, *, max_tokens, no_thinking=False):
+        def complete(self, system, messages, *, max_tokens, no_thinking=False,
+                     uncached_suffix=None, tag=""):
             raise RuntimeError("network down")
     r = classify(BoomLLM(), playbook="p", language="ru", history=HISTORY)
     assert r.degraded is True
@@ -141,7 +142,8 @@ def test_parse_degradation_is_logged_not_silent(caplog):
 
 def test_classify_exception_carries_detail():
     class BoomLLM:
-        def complete(self, system, messages, *, max_tokens, no_thinking=False):
+        def complete(self, system, messages, *, max_tokens, no_thinking=False,
+                     uncached_suffix=None, tag=""):
             raise RuntimeError("network down")
     r = classify(BoomLLM(), playbook="p", language="ru", history=HISTORY)
     assert r.degraded is True
@@ -194,6 +196,7 @@ def test_anthropic_llm_sends_thinking_disabled_to_the_sdk():
     llm = AnthropicLLM.__new__(AnthropicLLM)
     llm._client = _Client()
     llm._model = "m"
+    llm._usage_sink = None
 
     llm.complete("s", [], max_tokens=10, no_thinking=True)
     assert calls["thinking"] == {"type": "disabled"}

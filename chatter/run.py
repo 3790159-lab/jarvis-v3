@@ -35,7 +35,7 @@ from chatter.core.guardrails import (
 from chatter.core.llm import AnthropicLLM, FakeLLM
 from chatter.core.pause import is_attributed, is_muted
 from chatter.notify.base import Card, CardHandle, Notifier
-from chatter.storage.db import Store
+from chatter.storage.db import Store, usage_sink_for
 from chatter.transport.base import Transport
 from chatter.transport.fake import FakeConsoleTransport
 
@@ -513,9 +513,9 @@ def process_batch(
             deps.store.add_message(contact_id, "assistant", action.text, ts=deps.clock())
 
 
-def _build_llm(cfg: Config, mode: str):
+def _build_llm(cfg: Config, mode: str, usage_sink=None):
     if mode == "real" or (mode == "auto" and os.environ.get("ANTHROPIC_API_KEY")):
-        return AnthropicLLM(cfg.settings.model)
+        return AnthropicLLM(cfg.settings.model, usage_sink=usage_sink)
     return FakeLLM()
 
 
@@ -541,9 +541,10 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
 
     cfg = load_config(Path(args.clients_dir), args.client)  # raises ConfigError loudly at startup
-    llm = _build_llm(cfg, args.llm)
+    store = Store(args.db)
+    llm = _build_llm(cfg, args.llm, usage_sink=usage_sink_for(store))
     deps = Deps(
-        cfg=cfg, store=Store(args.db), brain=Brain(llm, cfg),
+        cfg=cfg, store=store, brain=Brain(llm, cfg),
         rng=random.Random(), clock=time.time, sleep=time.sleep,
     )
     transport = FakeConsoleTransport()

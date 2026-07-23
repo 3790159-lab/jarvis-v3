@@ -54,6 +54,16 @@ CREATE TABLE IF NOT EXISTS status_index (
     contact_id TEXT NOT NULL,
     issued_ts REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS llm_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL,
+    tag TEXT NOT NULL,
+    model TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    cache_read_input_tokens INTEGER NOT NULL,
+    cache_creation_input_tokens INTEGER NOT NULL
+);
 """
 
 # Источники паузы уровня КОНТАКТА. Глобальный kill switch живёт в
@@ -363,6 +373,38 @@ class Store:
                 (kind, contact_id, detail, ts))
             self._conn.commit()
 
+    # --- llm_usage: prompt-caching / расход токенов (спека 2026-07-23) -------
+    def add_llm_usage(self, *, tag: str, model: str, input_tokens: int,
+                      output_tokens: int, cache_read_input_tokens: int,
+                      cache_creation_input_tokens: int,
+                      ts: float | None = None) -> None:
+        """Одна строка на каждый LLM-вызов. ts — момент вызова (дефолт: сейчас);
+        по нему же считаются интервалы диалога для решения о TTL кэша."""
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO llm_usage(ts, tag, model, input_tokens, "
+                "output_tokens, cache_read_input_tokens, "
+                "cache_creation_input_tokens) VALUES (?,?,?,?,?,?,?)",
+                (time.time() if ts is None else ts, tag, model, input_tokens,
+                 output_tokens, cache_read_input_tokens,
+                 cache_creation_input_tokens))
+            self._conn.commit()
+
+    def llm_usage_totals(self) -> dict[str, dict[str, int]]:
+        """Агрегаты по tag для замера экономии и будущего дайджеста расходов."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT tag, COUNT(*) AS calls, SUM(input_tokens) AS input_tokens, "
+                "SUM(output_tokens) AS output_tokens, "
+                "SUM(cache_read_input_tokens) AS cache_read_input_tokens, "
+                "SUM(cache_creation_input_tokens) AS cache_creation_input_tokens "
+                "FROM llm_usage GROUP BY tag").fetchall()
+        return {r["tag"]: {k: r[k] for k in
+                           ("calls", "input_tokens", "output_tokens",
+                            "cache_read_input_tokens",
+                            "cache_creation_input_tokens")}
+                for r in rows}
+
     def count_events(self, kind: str, *, since_ts: float) -> int:
         with self._lock:
             return self._conn.execute(
@@ -437,3 +479,11 @@ class Store:
             snapshot = {r["contact_id"] for r in self._conn.execute(
                 "SELECT contact_id FROM status_index")}
         return snapshot == set(muted_contact_ids)
+
+
+def usage_sink_for(store: Store):
+    """Sink для AnthropicLLM(usage_sink=...): пишет запись вызова в llm_usage.
+    Сбой записи ловит сам AnthropicLLM (log.warning, ответ не роняется)."""
+    def _sink(rec: dict) -> None:
+        store.add_llm_usage(**rec)
+    return _sink

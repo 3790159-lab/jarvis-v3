@@ -101,6 +101,7 @@ def classify(llm, *, playbook: str, language: str, history: list[dict]) -> Class
             # Без этого sonnet-5 (thinking по умолчанию) сжигает весь бюджет
             # на невидимое мышление -> пустой JSON -> деградация (2026-07-22).
             no_thinking=True,
+            tag="classifier",
         )
     except Exception as e:
         log.exception("classifier LLM call failed — деградация, не эскалирую")

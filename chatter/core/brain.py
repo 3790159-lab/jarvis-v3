@@ -82,14 +82,17 @@ class Brain:
         words"). It rides in the system prompt for this single call but is NOT
         part of the persona -- absent by default, so existing behaviour is
         unchanged."""
-        system = self._system
-        if context_note:
-            system = (
-                f"{self._system}\n\n"
-                f"=== КОНТЕКСТ ОТВЕТА (разовая заметка, не часть персоны) ===\n{context_note}"
-            )
+        # Разовая заметка уходит uncached_suffix-ом: стабильная система
+        # кэшируется (cache_control в AnthropicLLM), заметка — отдельным
+        # блоком ПОСЛЕ breakpoint'а, кэш не инвалидируется.
+        suffix = (
+            f"=== КОНТЕКСТ ОТВЕТА (разовая заметка, не часть персоны) ===\n{context_note}"
+            if context_note else None
+        )
         return self._llm.complete(
-            system,
+            self._system,
             build_messages(history),
             max_tokens=self._cfg.settings.limits.max_reply_tokens,
+            uncached_suffix=suffix,
+            tag="brain",
         )
