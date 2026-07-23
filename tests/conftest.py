@@ -31,6 +31,23 @@ def _router_disabled_by_default(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_cost_file(monkeypatch, tmp_path):
+    """Точит леджер расходов в per-test tmp, чтобы ни один тест не мог писать
+    в боевой ``state/cost_tracking.json``.
+
+    Раньше изоляция была «по файлам» — каждый тест-модуль выставлял
+    ``JARVIS_COST_FILE`` сам. Кто забывал, тот писал в прод: в боевом леджере
+    осели uid ``42`` ($58.80) и ``7`` ($33.60) без username. Это не косметика —
+    владелец смотрит на эти суммы, решая, сколько тратит.
+
+    Вторая линия — ``cost_tracker._state_file()`` падает под pytest, если
+    переменная не выставлена: соглашение защищает тех, кто его соблюдает, гард
+    защищает от всех остальных.
+    """
+    monkeypatch.setenv("JARVIS_COST_FILE", str(tmp_path / "cost_tracking.json"))
+
+
+@pytest.fixture(autouse=True)
 def _isolate_users_file(monkeypatch, tmp_path):
     """Point the multi-user store at a per-test tmp file so no test can write
     to the live ``state/users.json``.

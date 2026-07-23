@@ -54,7 +54,25 @@ _LOCK = threading.RLock()
 
 def _state_file() -> Path:
     raw = os.getenv("JARVIS_COST_FILE", "").strip()
-    return Path(raw) if raw else _DEFAULT_STATE_FILE
+    if raw:
+        return Path(raw)
+    # ФИЗИЧЕСКИЙ ГАРД: под pytest падать, а не писать в боевой леджер.
+    #
+    # Дефолт здесь ОТНОСИТЕЛЬНЫЙ (state/cost_tracking.json), поэтому тест,
+    # забывший выставить JARVIS_COST_FILE, писал прямо в прод — и записал:
+    # uid 42 ($58.80) и uid 7 ($33.60) без username завышают итоги владельца,
+    # который смотрит на них, решая, сколько тратит.
+    #
+    # Соглашения (autouse-фикстура в tests/conftest.py) недостаточно: она
+    # защищает только тех, кто её унаследовал. Гард делает загрязнение
+    # невозможным, а не маловероятным.
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        raise RuntimeError(
+            "cost_tracker: попытка обратиться к БОЕВОМУ леджеру из теста. "
+            "Выставь JARVIS_COST_FILE на tmp-путь (autouse-фикстура "
+            "_isolate_cost_file в tests/conftest.py делает это по умолчанию)."
+        )
+    return _DEFAULT_STATE_FILE
 
 
 def _now() -> datetime:
