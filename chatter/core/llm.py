@@ -59,7 +59,9 @@ class AnthropicLLM(LLMClient):
     this module (and using FakeLLM) never requires the SDK or a network/key.
 
     Prompt-caching: стабильная система уходит system-блоком с
-    `cache_control: ephemeral` (TTL 5 мин, write ×1.25 / read ×0.1).
+    `cache_control: ephemeral, ttl 1h` (write ×2 / read ×0.1; решение
+    Даниила 2026-07-23 по замеру: 23% интервалов лида в окне 5мин–1ч,
+    break-even 0.65 возврата/диалог).
     Порог включения кэша зависит от модели (haiku-4-5: 4096 токенов) —
     короткий промпт молча не кэшируется, факт виден по
     usage.cache_creation_input_tokens == 0.
@@ -86,7 +88,7 @@ class AnthropicLLM(LLMClient):
             # messages-tier, system-tier живёт.
             kwargs["thinking"] = {"type": "disabled"}
         system_blocks = [{"type": "text", "text": system,
-                          "cache_control": {"type": "ephemeral"}}]
+                          "cache_control": {"type": "ephemeral", "ttl": "1h"}}]
         if uncached_suffix:
             system_blocks.append({"type": "text", "text": uncached_suffix})
         resp = self._client.messages.create(

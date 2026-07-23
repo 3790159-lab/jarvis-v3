@@ -80,7 +80,7 @@ def test_system_sent_as_single_block_with_cache_control(fake_sdk):
     sent = _FakeAnthropicClient.last.messages.calls[0]
     assert sent["system"] == [{
         "type": "text", "text": "SYS",
-        "cache_control": {"type": "ephemeral"},
+        "cache_control": {"type": "ephemeral", "ttl": "1h"},
     }]
 
 
@@ -89,7 +89,7 @@ def test_uncached_suffix_is_second_block_without_cache_control(fake_sdk):
     _call(llm, uncached_suffix="РАЗОВАЯ ЗАМЕТКА")
     sent = _FakeAnthropicClient.last.messages.calls[0]
     assert len(sent["system"]) == 2
-    assert sent["system"][0]["cache_control"] == {"type": "ephemeral"}
+    assert sent["system"][0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
     assert sent["system"][1] == {"type": "text", "text": "РАЗОВАЯ ЗАМЕТКА"}
 
 
