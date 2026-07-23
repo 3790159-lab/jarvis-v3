@@ -14,6 +14,8 @@ import logging
 import re
 from dataclasses import dataclass
 
+from chatter.core.window import _CHARS_PER_TOKEN
+
 log = logging.getLogger("chatter.core.classifier")
 
 # Допустимый словарь сигналов воронки — РОВНО те, что понимает
@@ -28,6 +30,11 @@ _JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
 # ток ответа С профилем (все JSON-ok) — старые 200 были впритык. 500 = запас
 # ×2.5; обрезка при этом лимите = аномалия и ЯВНАЯ деградация (см. classify).
 _CLASSIFIER_MAX_TOKENS = 500
+
+# Условие 4: потолок профиля. Дефолт = DEFAULT_LIMITS.profile_budget_tokens
+# (прод всегда передаёт значение из settings.limits клиента через
+# _bind_classifier; дефолт здесь — для прямых вызовов и тестов).
+_PROFILE_BUDGET_TOKENS = 250
 
 
 @dataclass(frozen=True)
@@ -81,8 +88,13 @@ def parse_classifier_reply(raw: str) -> ClassifierResult:
 
 
 def classifier_system_prompt(playbook: str, language: str,
-                             profile: str | None = None) -> str:
+                             profile: str | None = None,
+                             profile_budget_tokens: int = _PROFILE_BUDGET_TOKENS) -> str:
     signals = ", ".join(sorted(STAGE_SIGNALS))
+    # Просим ⅔ от жёсткого потолка: модель не считает символы точно, запас
+    # между просьбой и рубежом (run.py не применяет профиль сверх потолка)
+    # держит нормальную работу вне зоны отсечения.
+    profile_chars = profile_budget_tokens * _CHARS_PER_TOKEN * 2 // 3
     return (
         "Ты — тихий классификатор диалога воронки продаж. Тебя НЕ видит клиент. "
         "По переписке реши: (1) нужно ли ПРЯМО СЕЙЧАС передать диалог живому "
@@ -94,8 +106,13 @@ def classifier_system_prompt(playbook: str, language: str,
         f"{profile or '(порожній)'}\n\n"
         "ПРОФИЛЬ: если из переписки узнал НОВЫЕ факты (кто клиент, сфера, "
         "проект, какие вилки цен уже названы, договорённости, возражения, "
-        "даты) — верни в поле profile ПОЛНЫЙ обновлённый профиль (компактно, "
-        "до 500 символов). Если клиент ПЕРЕДУМАЛ (бюджет, сроки, объём) — "
+        "даты) — верни в поле profile ПОЛНЫЙ обновлённый профиль. Профиль "
+        f"переписывается КОМПАКТНО, не длиннее {profile_chars} символов: "
+        "ужимай, а не накапливай. Если не влезает, выбрасывай В ПЕРВУЮ "
+        "ОЧЕРЕДЬ: устаревшие пометки «(раніше X — передумав)» (оставь только "
+        "актуальное значение) и закрытые вопросы. НИКОГДА не выбрасывай: кто "
+        "клиент и его проект, названные вилки цен, договорённости, статус "
+        "воронки. Если клиент ПЕРЕДУМАЛ (бюджет, сроки, объём) — "
         "актуальное значение с пометкой «(раніше X — передумав)»; старое НЕ "
         "держи как равнозначное. Если нового ничего нет и профиль актуален — "
         "profile: null.\n\n"
@@ -113,11 +130,13 @@ def build_classifier_messages(history: list[dict]) -> list[dict]:
 
 
 def classify(llm, *, playbook: str, language: str, history: list[dict],
-             profile: str | None = None) -> ClassifierResult:
+             profile: str | None = None,
+             profile_budget_tokens: int = _PROFILE_BUDGET_TOKENS) -> ClassifierResult:
     """Один дешёвый вызов. НИКОГДА не бросает: сбой вызова → деградация (§6)."""
     try:
         raw = llm.complete(
-            classifier_system_prompt(playbook, language, profile=profile),
+            classifier_system_prompt(playbook, language, profile=profile,
+                                     profile_budget_tokens=profile_budget_tokens),
             build_classifier_messages(history),
             max_tokens=_CLASSIFIER_MAX_TOKENS,
             # Без этого sonnet-5 (thinking по умолчанию) сжигает весь бюджет

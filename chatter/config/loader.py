@@ -50,6 +50,12 @@ class Limits:
     # диалога в промпт + страховочный лимит по количеству сообщений.
     history_budget_tokens: int = 1700
     history_max_messages: int = 40
+    # Потолок профиля лида (условие 4): профиль НЕ кэшируется и платится
+    # полностью на каждом вызове (brain + classifier) → его рост = прямой
+    # рост стоимости. Сверх потолка профиль НЕ применяется (явная деградация).
+    # Промпт просит ⅔ от потолка (~500 симв при 250 ток) — запас между
+    # просьбой и рубежом.
+    profile_budget_tokens: int = 250
 
 @dataclass(frozen=True)
 class WorkHours:
@@ -133,7 +139,8 @@ _TIMING_FIELDS = [
     "split_max_len", "night_multiplier", "debounce_window", "debounce_max",
 ]
 _LIMIT_FIELDS = ["max_reply_tokens", "per_contact_hourly", "daily_cap",
-                 "history_budget_tokens", "history_max_messages"]
+                 "history_budget_tokens", "history_max_messages",
+                 "profile_budget_tokens"]
 
 # Дефолты = боевые значения demo-клиента: они обкатаны в проде, поэтому
 # клиент, не указавший блок вовсе, получает заведомо рабочее поведение.
@@ -143,7 +150,8 @@ DEFAULT_TIMINGS = Timings(
     split_max_len=160, night_multiplier=2.5, debounce_window=3.0, debounce_max=15.0,
 )
 DEFAULT_LIMITS = Limits(max_reply_tokens=20000, per_contact_hourly=20, daily_cap=500,
-                        history_budget_tokens=1700, history_max_messages=40)
+                        history_budget_tokens=1700, history_max_messages=40,
+                        profile_budget_tokens=250)
 DEFAULT_WORK_HOURS = WorkHours(start=9, end=22)
 
 

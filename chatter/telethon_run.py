@@ -1470,7 +1470,8 @@ def _bind_classifier(llm: LLMClient, cfg: Config):
     def _run(history: list[dict], profile: str | None = None) -> ClassifierResult:
         return _classify(
             llm, playbook=cfg.playbook, language=cfg.settings.language,
-            history=history, profile=profile)
+            history=history, profile=profile,
+            profile_budget_tokens=cfg.settings.limits.profile_budget_tokens)
     return _run
 
 

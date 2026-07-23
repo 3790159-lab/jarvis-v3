@@ -14,7 +14,7 @@ from typing import Callable
 from chatter.config.loader import HONESTY_HONEST, Config, ControlConfig, load_config
 from chatter.core import humanizer as H
 from chatter.core.brain import Brain
-from chatter.core.window import select_window
+from chatter.core.window import estimate_tokens, select_window
 from chatter.core.brand_safety import forbidden_mention
 from chatter.core.classifier import (
     ClassifierResult, classifier_degraded, note_classifier_error,
@@ -232,7 +232,20 @@ def _escalation_pass(
         # Профиль применяем ТОЛЬКО на здоровом ответе (обрезка/мусор →
         # degraded → профиль не трогаем, следующий ход догонит).
         if cr is not None and not cr.degraded and cr.profile:
-            store.set_profile(contact_id, cr.profile, ts=now)
+            p_tokens = estimate_tokens(cr.profile)
+            if p_tokens > lim.profile_budget_tokens:
+                # Условие 4: профиль не кэшируется и платится на КАЖДОМ
+                # вызове — сверх потолка НЕ применяем (старый жив), и это
+                # ЯВНАЯ деградация (событие + лог), не тихая обрезка.
+                detail = (f"профиль превысил бюджет: ~{p_tokens} ток > "
+                          f"{lim.profile_budget_tokens} — не применён, "
+                          f"старый сохранён")
+                log.warning("classifier profile over budget (%s): %s",
+                            contact_id, detail)
+                note_classifier_error(store, now=now, detail=detail)
+                _maybe_degraded_alert(deps, now=now)
+            else:
+                store.set_profile(contact_id, cr.profile, ts=now)
     decision = decide_escalation(det=det, classifier_result=cr)
 
     if decision.degraded:

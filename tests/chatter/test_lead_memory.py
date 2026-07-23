@@ -262,3 +262,140 @@ def test_profile_not_written_on_degraded_classifier():
     store.get_or_create_contact("lead1")
     process_batch("lead1", ["привіт"], _T(), deps)
     assert store.get_profile("lead1") == "Клієнт: пекарня"  # не тронут
+
+
+# --- условие 4 (перед мержем): потолок профиля --------------------------------
+# Профиль не кэшируется и платится ПОЛНОСТЬЮ на каждом вызове (brain +
+# classifier) → его рост = прямой рост стоимости, тот же D1 этажом выше.
+class _Transport:
+    def __init__(self):
+        self.sent = []
+
+    def send(self, text):
+        self.sent.append(text)
+
+    def send_typing(self, on):
+        pass
+
+    def set_online(self, on):
+        pass
+
+    def read_acknowledge(self):
+        pass
+
+
+def _make_deps(store, clf_llm, brain_replies=("ок",)):
+    import random
+    from pathlib import Path
+
+    from chatter.config.loader import load_config
+    from chatter.core.brain import Brain
+    from chatter.core.classifier import classify as real_classify
+    from chatter.run import Deps
+
+    clients = Path(__file__).resolve().parents[2] / "chatter" / "clients"
+    cfg = load_config(clients, "demo")
+    deps = Deps(cfg=cfg, store=store, brain=Brain(FakeLLM(scripted=list(brain_replies)), cfg),
+                rng=random.Random(0), clock=lambda: 1000.0, sleep=lambda s: None)
+    deps.classify = lambda h, profile=None: real_classify(
+        clf_llm, playbook=cfg.playbook, language=cfg.settings.language,
+        history=h, profile=profile,
+        profile_budget_tokens=cfg.settings.limits.profile_budget_tokens)
+    return deps
+
+
+def test_limits_profile_budget_is_per_client_field():
+    """Жёсткий бюджет профиля в токенах живёт в settings.limits (per-client),
+    как history_budget_tokens."""
+    from chatter.config.loader import _LIMIT_FIELDS, DEFAULT_LIMITS
+    assert "profile_budget_tokens" in _LIMIT_FIELDS
+    assert DEFAULT_LIMITS.profile_budget_tokens == 250
+
+
+def test_classifier_prompt_budget_compaction_and_eviction():
+    """Инструкция классификатору: профиль переписывается КОМПАКТНО (ужимает,
+    а не накапливает), правило вытеснения явное — что выбрасываем первым
+    (устаревшие «передумав», закрытые вопросы), что не выбрасываем никогда
+    (проект, вилки, договорённости, статус воронки). Симв-лимит в промпте
+    ДИНАМИЧЕСКИЙ от бюджета: ⅔ потолка (просим меньше, чем рубим)."""
+    sp = classifier_system_prompt("плейбук", "uk", profile="x",
+                                  profile_budget_tokens=200)
+    assert "400" in sp  # 200 ток × 3 симв/ток × 2/3
+    low = sp.casefold()
+    assert "ужимай" in low and "накаплива" in low
+    assert "первую очередь" in low
+    assert "вилк" in low and "договорённост" in low and "воронк" in low
+
+
+def test_classify_passes_profile_budget_into_prompt():
+    llm = FakeLLM(scripted=['{"escalate": false, "reason": "", "stage_signal": null}'])
+    classify(llm, playbook="p", language="uk", history=HISTORY,
+             profile_budget_tokens=200)
+    assert "400" in llm.calls[0]["system"]
+
+
+def test_bind_classifier_passes_client_profile_budget():
+    """Прод-шов: _bind_classifier несёт бюджет ИЗ КОНФИГА клиента в classify.
+    Бюджет НЕдефолтный (200 ток → «400 символов»), чтобы тест не проходил
+    вакуумно на захардкоженной цифре в промпте."""
+    from dataclasses import replace
+    from pathlib import Path
+
+    from chatter.config.loader import load_config
+    from chatter.telethon_run import _bind_classifier
+
+    clients = Path(__file__).resolve().parents[2] / "chatter" / "clients"
+    cfg = load_config(clients, "demo")
+    cfg = replace(cfg, settings=replace(
+        cfg.settings, limits=replace(cfg.settings.limits, profile_budget_tokens=200)))
+    llm = FakeLLM(scripted=['{"escalate": false, "reason": "", "stage_signal": null}'])
+    _bind_classifier(llm, cfg)(HISTORY)
+    assert "400" in llm.calls[0]["system"]
+
+
+def test_oversized_profile_not_applied_explicit_degradation():
+    """Профиль сверх бюджета: НЕ применяется (старый жив), событие
+    classifier_error с классом «бюджет» — явная деградация, НЕ тихая обрезка
+    и НЕ тихое применение."""
+    from chatter.run import process_batch
+
+    store = Store(":memory:")
+    store.set_profile("lead1", "Клієнт: пекарня", ts=1.0)
+    huge = "Клієнт: кав'ярня; " + "деталі проекту і зайвий текст " * 60  # >> 250 ток
+    clf_llm = FakeLLM(scripted=[
+        '{"escalate": false, "reason": "", "profile": "' + huge + '", '
+        '"stage_signal": null}'])
+    deps = _make_deps(store, clf_llm)
+    store.get_or_create_contact("lead1")
+    process_batch("lead1", ["привіт"], _Transport(), deps)
+
+    assert store.get_profile("lead1") == "Клієнт: пекарня"  # старый жив
+    rows = store._conn.execute(
+        "SELECT detail FROM control_events WHERE kind='classifier_error'"
+    ).fetchall()
+    assert rows and any("бюджет" in (r[0] or "") for r in rows)
+
+
+def test_long_history_compact_profile_within_budget_keeps_key_facts():
+    """Длинная история с множеством фактов → профиль в бюджете применяется и
+    несёт ключевое (проект, вилка, договорённость). Живую КОМПАКЦИЮ прозы
+    проверяет дрил Даниила — здесь контракт плумбинга: компактный профиль
+    проходит, оверсайз (тест выше) рубится."""
+    from chatter.run import process_batch
+
+    store = Store(":memory:")
+    compact = ("Клієнт: кав'ярня, айдентика; вилка 700–900 $ названа; "
+               "домовились: скине бриф; стадія: interested")
+    clf_llm = FakeLLM(scripted=[
+        '{"escalate": false, "reason": "", "profile": "' + compact + '", '
+        '"stage_signal": "interested"}'])
+    deps = _make_deps(store, clf_llm)
+    store.get_or_create_contact("lead1")
+    batch = [f"факт номер {i}: подробиці проєкту, бюджети, терміни" for i in range(30)]
+    process_batch("lead1", batch, _Transport(), deps)
+
+    prof = store.get_profile("lead1")
+    assert prof == compact
+    assert estimate_tokens(prof) <= 250
+    for key in ("кав'ярня", "700–900", "бриф"):
+        assert key in prof
