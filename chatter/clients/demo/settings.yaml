@@ -69,6 +69,8 @@ control:
   owner_chat_id: 237616472        # demo: жёсткий id-гейт (мой chat_id)
   # pairing_code: onboard-demo-01 # альтернатива для онбординга клиента (deep-link)
   classifier_enabled: true        # дешёвый LLM-классификатор эскалации (только на реальном LLM)
+  # УГОВОР 2026-07-23: три дня подряд с алертом = чиним КОРЕНЬ классификатора,
+  # а НЕ поднимаем порог (спека 2026-07-23-chatter-classifier-reliability.md §5).
   classifier_error_threshold: 2   # столько сбоев/окно (считая спасённые ретраем) → алерт
   profile_stale_threshold: 3      # столько ПОДРЯД пропусков профиля по одному лиду → алерт
   snooze_seconds: 3600            # кнопка «⏸ Ещё 1ч»

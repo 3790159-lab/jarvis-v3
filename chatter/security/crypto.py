@@ -103,6 +103,38 @@ def load_entropy(path: str | Path | None = None) -> bytes:
     return data
 
 
+def _console_text(raw: bytes | str | None) -> str:
+    """Декодировать вывод консольной утилиты (icacls) НЕ теряя его.
+
+    icacls пишет в OEM-кодировке консоли (cp866 на локализованной Windows), а
+    `subprocess(text=True)` декодирует ambient-локалью. Под PYTHONUTF8=1 —
+    ровно тот режим, в котором гардиан запускает раннер (иначе Start-Process
+    крашится на эмодзи) — декодер падает UnicodeDecodeError ВНУТРИ потока-
+    читателя. Исключение оттуда не всплывает: subprocess просто отдаёт
+    `stdout=None`. Дальше `(res.stderr or res.stdout).strip()` давал
+    AttributeError вместо CryptoError — то есть на пути ОТКАЗА ACL-защиты
+    оператор получал не причину, а мусорный трейсбек (DEV-18).
+
+    Поэтому: читаем байты и декодируем сами, с errors='replace'. Нечитаемый
+    символ в имени учётной записи не должен стоить нам сообщения об ошибке."""
+    if raw is None:
+        return ""
+    if isinstance(raw, str):
+        return raw
+    encodings = []
+    try:                                   # OEM-CP этой машины
+        encodings.append(f"cp{ctypes.windll.kernel32.GetOEMCP()}")
+    except Exception:                      # не Windows / нет ctypes-биндинга
+        pass
+    encodings += ["cp866", "utf-8"]
+    for enc in encodings:
+        try:
+            return raw.decode(enc)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return raw.decode("utf-8", errors="replace")
+
+
 def restrict_to_system_admins(path: str | Path) -> None:
     """ACL: только SYSTEM + Administrators (Full), наследование срезано
     (спека §0.3). SID-формы — независимо от локали. Отказ icacls = явная
@@ -114,14 +146,16 @@ def restrict_to_system_admins(path: str | Path) -> None:
     elevated Admin (вскрыто живым прогоном boot-probe)."""
     p = Path(path)
     perm = "(OI)(CI)(F)" if p.is_dir() else "(F)"
+    # Байты, а НЕ text=True: см. _console_text — под PYTHONUTF8=1 (режим
+    # прод-раннера) декодер subprocess'а падает и .stdout молча становится None.
     res = subprocess.run(
         ["icacls", str(p), "/inheritance:r",
          "/grant:r", f"{_SID_SYSTEM}:{perm}", f"{_SID_ADMINISTRATORS}:{perm}"],
-        capture_output=True, text=True)
+        capture_output=True)
     if res.returncode != 0:
-        raise CryptoError(
-            f"icacls не смог закрыть ACL на {p}: "
-            f"{(res.stderr or res.stdout).strip()}")
+        detail = (_console_text(res.stderr) or _console_text(res.stdout)
+                  or f"код возврата {res.returncode}, вывод пуст")
+        raise CryptoError(f"icacls не смог закрыть ACL на {p}: {detail.strip()}")
 
 
 def _dpapi(data: bytes, protect: bool, entropy: bytes) -> bytes:

@@ -394,3 +394,38 @@ def test_healthy_turn_resets_the_streak():
     note_profile_miss(s, "42:volska", now=2.0)
     reset_profile_miss(s, "42:volska")
     assert profile_miss_streak(s, "42:volska") == 0
+
+
+# =============================================================================
+# УГОВОР ДАНИИЛА 2026-07-23 (порог 2/сутки принят С УСЛОВИЕМ):
+#   «если алерт сработает три дня подряд, мы чиним КОРЕНЬ классификатора,
+#    а НЕ поднимаем порог».
+# Тест — машинный сторож этого уговора. Порог легко «затюнить в тишину»:
+# поднял 2 → 10, алерты пропали, проблема осталась, и следующая сессия видит
+# зелёный дашборд вместо замёрзшей памяти лидов. Этот тест не даст сделать
+# так молча: поднять порог можно только вместе с удалением сторожа, а это
+# уже осознанное решение с чужими глазами на ревью.
+# =============================================================================
+def test_shipped_thresholds_are_not_quietly_tuned_up():
+    from pathlib import Path
+
+    from chatter.config.loader import load_config
+
+    clients = Path(__file__).resolve().parents[2] / "chatter" / "clients"
+    for slug in ("demo", "demo2", "volska"):
+        control = load_config(clients, slug).settings.control
+        assert control.classifier_error_threshold <= 2, (
+            f"{slug}: порог сбоев классификатора поднят выше 2. Уговор "
+            f"2026-07-23: три дня подряд с алертом = чиним корень (промпт, "
+            f"модель, формат), а НЕ глушим сигнал порогом.")
+        assert control.profile_stale_threshold <= 3, (
+            f"{slug}: порог застывшего профиля поднят выше 3. Замёрзшая "
+            f"память лида должна оставаться видимой.")
+
+
+def test_default_thresholds_are_not_quietly_tuned_up():
+    """Дефолты ControlConfig — то, что получит НОВЫЙ клиент без блока control."""
+    from chatter.config.loader import ControlConfig
+
+    assert ControlConfig().classifier_error_threshold <= 2
+    assert ControlConfig().profile_stale_threshold <= 3

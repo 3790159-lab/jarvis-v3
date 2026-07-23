@@ -175,18 +175,29 @@ def test_flags_include_local_machine_scope():
     assert crypto._PROTECT_FLAGS & crypto._CRYPTPROTECT_LOCAL_MACHINE
 
 
+def _icacls(path) -> str:
+    """Вывод icacls, декодированный ТЕМ ЖЕ способом, что и в проде.
+
+    Раньше тут стоял text=True, и оба ACL-теста падали под PYTHONUTF8=1 —
+    то есть в окружении прод-раннера. Падение выглядело как «шум окружения»
+    и год бы копилось фоном; на деле оно указывало на реальный дефект
+    боевого пути (см. _console_text в crypto.py)."""
+    import subprocess
+
+    from chatter.security.crypto import _console_text
+
+    res = subprocess.run(["icacls", str(path)], capture_output=True, check=True)
+    return _console_text(res.stdout)
+
+
 def test_restrict_acl_strips_inheritance_and_leaves_system_admins(tmp_path):
     """Спека §0.3: ACL на entropy = SYSTEM + Administrators, наследование
     срезано. Проверяем фактическим icacls-выводом: ни одного (I)-ACE и
     ровно два ACE."""
-    import subprocess
-
     p = tmp_path / "e.bin"
     generate_entropy(p)
     restrict_to_system_admins(p)
-    out = subprocess.run(
-        ["icacls", str(p)], capture_output=True, text=True, check=True,
-    ).stdout
+    out = _icacls(p)
     aces = [ln.strip() for ln in out.splitlines()
             if ":(" in ln and "Successfully" not in ln]
     assert len(aces) == 2, out
@@ -198,8 +209,6 @@ def test_restrict_acl_on_directory_keeps_children_readable(tmp_path):
     наследования оставляют детей с ПУСТЫМ DACL (D:AI) — Permission denied
     даже для elevated Admin. Дети обязаны остаться читаемыми (наследуют
     SYSTEM+Admins), новые дети — защищены автоматически."""
-    import subprocess
-
     d = tmp_path / "secrets"
     d.mkdir()
     existing = d / "probe.env.enc"
@@ -212,10 +221,82 @@ def test_restrict_acl_on_directory_keeps_children_readable(tmp_path):
     # новый ребёнок наследует защиту: ровно два ACE, оба inherited
     new_child = d / "later.enc"
     new_child.write_bytes(b"x")
-    out = subprocess.run(
-        ["icacls", str(new_child)], capture_output=True, text=True,
-        check=True).stdout
+    out = _icacls(new_child)
     aces = [ln.strip() for ln in out.splitlines()
             if ":(" in ln and "Successfully" not in ln]
     assert len(aces) == 2, out
     assert all("(I)" in a for a in aces), out
+
+
+# --- вывод icacls в OEM-кодировке, а раннер живёт под PYTHONUTF8=1 ----------
+# Найдено 2026-07-23: два ACL-теста падали ТОЛЬКО под PYTHONUTF8=1 — то есть в
+# том самом режиме, в котором работает прод-раннер (JarvisBotGuardian ставит
+# PYTHONUTF8=1, иначе Start-Process крашится на эмодзи). icacls пишет в OEM-CP
+# консоли, subprocess(text=True) декодирует ambient-локалью, и в UTF-8-режиме
+# поток-читатель падает UnicodeDecodeError. Исключение НЕ всплывает: .stdout
+# молча становится None. На пути отказа icacls это даёт AttributeError вместо
+# CryptoError — диагностика теряется ровно там, где она нужна (DEV-18).
+
+def test_icacls_failure_raises_cryptoerror_even_if_output_undecodable(monkeypatch, tmp_path):
+    """Поток-читатель subprocess упал на декодировании → stdout/stderr = None.
+    Отказ icacls обязан остаться ЧИТАЕМОЙ CryptoError, а не AttributeError."""
+    import subprocess
+
+    from chatter.security import crypto
+
+    def fake_run(*a, **kw):
+        return subprocess.CompletedProcess(args=a, returncode=5,
+                                           stdout=None, stderr=None)
+
+    monkeypatch.setattr(crypto.subprocess, "run", fake_run)
+    p = tmp_path / "e.bin"
+    p.write_bytes(b"x")
+    with pytest.raises(CryptoError) as e:
+        restrict_to_system_admins(p)
+    assert "icacls" in str(e.value)
+
+
+def test_icacls_error_text_survives_oem_bytes(monkeypatch, tmp_path):
+    """Байты OEM-вывода не должны ни ронять код, ни съедать текст ошибки:
+    ASCII-часть сообщения обязана дойти до оператора."""
+    import subprocess
+
+    from chatter.security import crypto
+
+    def fake_run(*a, **kw):
+        # 0xAE — символ из cp866, на котором и падал UTF-8-декодер
+        return subprocess.CompletedProcess(
+            args=a, returncode=5, stdout=b"",
+            stderr=b"\xae Access is denied. code=5")
+
+    monkeypatch.setattr(crypto.subprocess, "run", fake_run)
+    p = tmp_path / "e.bin"
+    p.write_bytes(b"x")
+    with pytest.raises(CryptoError) as e:
+        restrict_to_system_admins(p)
+    assert "Access is denied" in str(e.value)
+    assert "code=5" in str(e.value)
+
+
+def test_restrict_acl_survives_utf8_mode_end_to_end(tmp_path):
+    """Живой icacls в отдельном процессе, ЯВНО поднятом с PYTHONUTF8=1 —
+    ровно окружение прод-раннера. Раньше это был единственный режим, в
+    котором ACL-тесты падали, и падение выглядело как «шум окружения»."""
+    import os
+    import subprocess
+    import sys
+
+    p = tmp_path / "e.bin"
+    p.write_bytes(b"x" * 32)
+    env = dict(os.environ, PYTHONUTF8="1")
+    code = (
+        "from chatter.security.crypto import restrict_to_system_admins;"
+        f"restrict_to_system_admins(r'{p}');"
+        "print('OK')"
+    )
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[2]
+    res = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                         env=env, cwd=str(root))
+    assert res.returncode == 0, res.stderr.decode("utf-8", errors="replace")
+    assert b"OK" in res.stdout
