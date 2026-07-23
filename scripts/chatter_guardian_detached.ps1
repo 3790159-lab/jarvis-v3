@@ -117,15 +117,59 @@ function Invoke-WatchCheck {
     }
 }
 
-function Get-RunnerProcesses {
-    # INSTANCE-SCOPED to $Root: the runner is always launched as "$py -m
-    # chatter.telethon_run" with the venv under $Root, so its cmdline contains
-    # both $Root and the module. -like (not -match) so backslashes stay literal.
-    # NOTE: on Windows the venv Scripts\python.exe re-execs the base interpreter,
-    # so a healthy runner shows as TWO matching processes (launcher + worker) —
-    # that is expected and fine; we only need >=1 alive plus a fresh heartbeat.
+function Get-ChatterProcesses {
+    # Все раннеры ЭТОГО инстанса, без различения клиента. -like (не -match):
+    # в $Root бэкслеши, в regex они были бы escape-последовательностями.
+    #
+    # РАЗДЕЛИТЕЛЬ В КОНЦЕ ОБЯЗАТЕЛЕН. Прежний шаблон "*$Root*" матчил любой
+    # путь, где $Root просто подстрока: при -Root C:\jarvis под него попадал
+    # C:\jarvis_worktrees\... — прод-гардиан считал своими раннеры из
+    # worktree-веток и убивал бы их. "*$rootPrefix*" ('C:\jarvis\') такой
+    # путь уже не ловит.
+    #
+    # NOTE: венвовый Scripts\python.exe на Windows ре-экзекает базовый
+    # интерпретатор, поэтому здоровый раннер — ДВА процесса (launcher + worker);
+    # это норма, нам нужен >=1 живой плюс свежий heartbeat.
+    $rootPrefix = $Root.TrimEnd('\') + '\'
     Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -like "*$Root*chatter.telethon_run*" }
+        Where-Object { $_.CommandLine -like "*$rootPrefix*chatter.telethon_run*" }
+}
+
+function Get-RunnerProcesses {
+    # INSTANCE-SCOPED по $Root И CLIENT-SCOPED по -Slug.
+    #
+    # Два оператора намеренно:
+    #   -like  для $Root/модуля — бэкслеши пути должны остаться литеральными;
+    #   -match для --client <slug> — нужна ГРАНИЦА ТОКЕНА. Шаблон
+    #          '*--client volska*' через -like поймал бы и '--client volska2',
+    #          то есть подъём volska2 убил бы volska.
+    #
+    # Скоуп по клиенту — причина существования этой функции: раньше матч шёл
+    # только по имени модуля, и Stop-OldRunner бил ВСЕХ раннеров сразу, из-за
+    # чего запуск второго клиента гасил первого.
+    param([Parameter(Mandatory)][string]$Slug)
+    $token = '--client\s+' + [regex]::Escape($Slug) + '(\s|$)'
+    Get-ChatterProcesses | Where-Object { $_.CommandLine -match $token }
+}
+
+function Stop-LegacyRunners {
+    # МИНА ДЕПЛОЯ (спека §9.1). Раннер, поднятый ПРЕЖНИМ скриптом, не имеет
+    # --client в командной строке, поэтому Get-RunnerProcesses -Slug его не
+    # видит. Без этой зачистки новый супервизор решит, что клиент упал, и
+    # поднимет ВТОРОЙ процесс на ту же Telethon-сессию — ровно та катастрофа,
+    # ради предотвращения которой написана валидация реестра, только
+    # протащенная через дверь, которую та не сторожит (она про конфигурацию,
+    # а не про то, что уже крутится в памяти).
+    #
+    # Зовётся ОДИН раз перед первой конвергенцией. После миграции легаси-формы
+    # не возникает никогда (супервизор всегда передаёт --client), поэтому
+    # зачистка самоустраняется и повторного вреда не несёт.
+    $legacy = @(Get-ChatterProcesses | Where-Object { $_.CommandLine -notmatch '--client(\s|$)' })
+    foreach ($p in $legacy) {
+        & taskkill.exe /PID $p.ProcessId /T /F *> $null
+        Write-G "legacy-раннер без --client зачищен (PID $($p.ProcessId)) - миграция §9.1"
+    }
+    if ($legacy.Count -gt 0) { Start-Sleep -Milliseconds 700 }
 }
 
 function Test-Runner {
@@ -143,21 +187,24 @@ function Test-Runner {
 }
 
 function Stop-OldRunner {
-    # Kill every matching runner process as a full tree (taskkill /T), then POLL
-    # for confirmed death. Returns $false if anything survives, so Start-Runner
-    # refuses to launch a second userbot on top of a live session.
-    param([int]$MaxWaitSec = 10)
+    # Убить раннер ОДНОГО клиента целым деревом (taskkill /T), затем ДОЖДАТЬСЯ
+    # подтверждённой смерти. $false, если кто-то выжил — тогда Start-Runner
+    # откажется поднимать второй юзербот поверх живой сессии.
+    #
+    # -Slug обязателен: без него это была бы прежняя «убить всех», из-за
+    # которой подъём второго клиента гасил первого.
+    param([Parameter(Mandatory)][string]$Slug, [int]$MaxWaitSec = 10)
 
-    Get-RunnerProcesses | ForEach-Object {
+    Get-RunnerProcesses -Slug $Slug | ForEach-Object {
         & taskkill.exe /PID $_.ProcessId /T /F *> $null
-        Write-G "taskkill sent to runner proc $($_.ProcessId) (cmdline, +tree)"
+        Write-G "[$Slug] taskkill sent to runner proc $($_.ProcessId) (cmdline, +tree)"
     }
     $deadline = (Get-Date).AddSeconds($MaxWaitSec)
-    while ((Get-RunnerProcesses) -and (Get-Date) -lt $deadline) {
+    while ((Get-RunnerProcesses -Slug $Slug) -and (Get-Date) -lt $deadline) {
         Start-Sleep -Milliseconds 300
     }
-    if (Get-RunnerProcesses) {
-        Write-G "Stop-OldRunner: runner still alive after ${MaxWaitSec}s - NOT starting new (retry next cycle)"
+    if (Get-RunnerProcesses -Slug $Slug) {
+        Write-G "[$Slug] Stop-OldRunner: раннер жив после ${MaxWaitSec}s - НЕ стартую новый (повтор в следующем цикле)"
         return $false
     }
     Start-Sleep -Milliseconds 700
