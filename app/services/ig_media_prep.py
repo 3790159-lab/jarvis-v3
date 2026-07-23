@@ -180,8 +180,17 @@ def is_media_url_alive(url: str, *, timeout: float = MEDIA_URL_CHECK_TIMEOUT) ->
     response, or a network/timeout error, is treated as dead — fail-closed,
     never assume a URL is still good.
     """
+    # NB: send a browser User-Agent. R2's public ``*.r2.dev`` host sits behind
+    # Cloudflare, which 403-bot-blocks the default ``Python-urllib/x`` UA — so a
+    # bare HEAD would report every (perfectly live) R2 URL as dead and fail-close
+    # the publish. Same UA-ban class as the Replicate/Cloudflare issue. curl's
+    # own UA and browsers pass; only ``Python-urllib`` is blocked.
     try:
-        req = urllib.request.Request(url, method="HEAD")
+        req = urllib.request.Request(
+            url,
+            method="HEAD",
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+        )
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.status < 400
     except Exception:  # noqa: BLE001 — HTTPError/URLError/timeout/DNS all mean "dead"

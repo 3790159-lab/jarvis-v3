@@ -350,3 +350,21 @@ def test_is_media_url_alive_false_on_timeout(monkeypatch):
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
     assert is_media_url_alive("https://pub-abc.r2.dev/media/x.jpg") is False
+
+
+def test_is_media_url_alive_sends_browser_user_agent(monkeypatch):
+    # R2's public *.r2.dev host sits behind Cloudflare, which 403-blocks the
+    # default "Python-urllib/x" UA. Without a browser UA every live R2 URL reads
+    # as dead and fail-close kills the publish. Same UA-ban class as Replicate.
+    seen = {}
+
+    def fake_urlopen(req, timeout=None):
+        seen["ua"] = req.get_header("User-agent")
+        return _FakeResp(200)
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    assert is_media_url_alive("https://pub-abc.r2.dev/media/x.jpg") is True
+    assert seen["ua"], "HEAD-проба ушла без User-Agent — Cloudflare её забанит"
+    assert "Python-urllib" not in seen["ua"]
+    assert "Mozilla/5.0" in seen["ua"]
