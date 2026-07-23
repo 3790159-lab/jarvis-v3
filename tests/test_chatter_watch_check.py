@@ -128,3 +128,46 @@ def test_marker_roundtrip_preserves_alerted_flag(tmp_path, monkeypatch):
     assert cw._read_marker() == {"last_alert_ts": 1234.0, "alerted": True}
     cw._write_marker(1234.0, alerted=False)
     assert cw._read_marker()["alerted"] is False
+
+
+# ── мультиклиентность: алерт обязан называть КОГО чинить ───────────────────
+#
+# С одним клиентом «chatter-раннер лёг» было исчерпывающе. С N клиентами такой
+# текст бесполезен: владелец не знает, кто именно упал. Маркеры тоже per-client
+# — общий маркер означал бы, что авария одного клиента глушит алерт о другом
+# на час кулдауна.
+
+def test_paths_for_client_are_per_slug():
+    assert cw.heartbeat_path_for("volska").name == "chatter_heartbeat_volska.txt"
+    assert cw.marker_path_for("volska").name == "chatter_watch_alert_volska.json"
+
+
+def test_paths_without_client_stay_legacy():
+    """Ручной запуск без --client ведёт себя как раньше."""
+    assert cw.heartbeat_path_for(None) == cw.HEARTBEAT_PATH
+    assert cw.marker_path_for(None) == cw.MARKER_PATH
+
+
+def test_alert_text_names_the_client():
+    down = cw.alert_text("volska")
+    up = cw.recovery_text("volska")
+    assert "volska" in down, "владелец не поймёт, какого клиента чинить"
+    assert "volska" in up
+    assert "🔴" in down and "✅" in up
+
+
+def test_alert_text_names_the_per_client_log():
+    """Отсылка к logs/chatter_telethon.log увела бы владельца не в тот файл:
+    у каждого клиента свой лог."""
+    assert "chatter_volska.log" in cw.alert_text("volska")
+    assert "chatter_volska.log" in cw.recovery_text("volska")
+
+
+def test_alert_text_without_client_is_still_valid():
+    assert "🔴" in cw.alert_text(None)
+    assert "✅" in cw.recovery_text(None)
+
+
+def test_markers_of_two_clients_do_not_collide():
+    """Общий маркер = авария одного клиента глушит алерт о другом на кулдаун."""
+    assert cw.marker_path_for("volska") != cw.marker_path_for("acme")

@@ -91,37 +91,65 @@ def should_notify_recovery(*, is_down: bool, alerted: bool) -> bool:
     return (not is_down) and bool(alerted)
 
 
-def alert_text() -> str:
+def heartbeat_path_for(client):
+    """Per-client отметка живости. Без --client — легаси-путь.
+
+    Зеркалит telethon_run.heartbeat_path_for. Дублируется намеренно: этот
+    скрипт stdlib-only и обязан работать при сломанном пакете chatter —
+    импорт оттуда убил бы ровно то свойство, ради которого он standalone."""
+    if not client:
+        return HEARTBEAT_PATH
+    return ROOT / "state" / f"chatter_heartbeat_{client}.txt"
+
+
+def marker_path_for(client):
+    """Маркер алерта на клиента. Общий маркер означал бы, что авария одного
+    клиента глушит алерт о другом на час кулдауна."""
+    if not client:
+        return MARKER_PATH
+    return ROOT / "state" / f"chatter_watch_alert_{client}.json"
+
+
+def _who(client) -> str:
+    return f"chatter/{client}" if client else "chatter-раннер"
+
+
+def _log_name(client) -> str:
+    return f"logs/chatter_{client}.log" if client else "logs/chatter_telethon.log"
+
+
+def alert_text(client=None) -> str:
     return (
-        "🔴 chatter-раннер (Telethon-юзербот) НЕ отвечает: heartbeat устарел "
+        f"🔴 {_who(client)} (Telethon-юзербот) НЕ отвечает: heartbeat устарел "
         "(процесс мёртв или завис). JarvisChatterGuardian пытается перезапустить. "
-        "Если не поднимется — проверь logs/chatter_telethon.log и "
+        f"Если не поднимется — проверь {_log_name(client)} и "
         "`schtasks /Run /TN JarvisChatterGuardian`. Пока раннер лежит, входящие "
         "в личку копятся непрочитанными (catch-up подхватит их за 24ч после старта)."
     )
 
 
-def recovery_text() -> str:
+def recovery_text(client=None) -> str:
     return (
-        "✅ chatter-раннер (Telethon-юзербот) снова живой: heartbeat свежий, "
+        f"✅ {_who(client)} (Telethon-юзербот) снова живой: heartbeat свежий, "
         "MTProto подключён. Пропущенное за время простоя catch-up подхватил "
-        "(лог: logs/chatter_telethon.log, строка `catch-up: N dialog(s)`). "
+        f"(лог: {_log_name(client)}, строка `catch-up: N dialog(s)`). "
         "Можно расслабиться."
     )
 
 
 # ── stdlib-only IO (exercised live, not unit-tested) ───────────────────────
-def _read_marker() -> dict:
+def _read_marker(path=None) -> dict:
     try:
-        return json.loads(MARKER_PATH.read_text(encoding="utf-8"))
+        return json.loads((path or MARKER_PATH).read_text(encoding="utf-8"))
     except Exception:
         return {}
 
 
-def _write_marker(now: float, *, alerted: bool) -> None:
+def _write_marker(now: float, *, alerted: bool, path=None) -> None:
     try:
-        MARKER_PATH.parent.mkdir(parents=True, exist_ok=True)
-        MARKER_PATH.write_text(
+        path = path or MARKER_PATH
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
             json.dumps({"last_alert_ts": now, "alerted": alerted}), encoding="utf-8")
     except Exception:
         pass
@@ -188,25 +216,34 @@ def main(argv=None) -> int:
         i = argv.index("--state")
         if i + 1 < len(argv) and argv[i + 1] in ("down", "up"):
             state_arg = argv[i + 1]
+    # --client: чей раннер проверяем. Без него — легаси-поведение (один
+    # безымянный раннер), чтобы ручной запуск и откат работали как раньше.
+    client = None
+    if "--client" in argv:
+        i = argv.index("--client")
+        if i + 1 < len(argv):
+            client = argv[i + 1]
+    hb_path = heartbeat_path_for(client)
+    marker_path = marker_path_for(client)
 
     now = time.time()
     try:
-        hb_text = HEARTBEAT_PATH.read_text(encoding="ascii")
+        hb_text = hb_path.read_text(encoding="ascii")
     except Exception:
         hb_text = None
     is_down = resolve_is_down(state_arg, hb_text, now=now, max_age=HEARTBEAT_MAX_AGE_S)
-    marker = _read_marker()
+    marker = _read_marker(marker_path)
     last = marker.get("last_alert_ts")
     # Legacy markers (pre-recovery-pairing) have no `alerted` key -> False: we do
     # not retro-fire a ✅ for an outage that predates the feature.
     alerted = bool(marker.get("alerted", False))
 
     if should_notify_recovery(is_down=is_down, alerted=alerted):
-        if _send_tg(recovery_text()):
+        if _send_tg(recovery_text(client)):
             # Keep last_alert_ts: it still guards the DOWN cooldown, so a FLAPPING
             # runner cannot spam 🔴/✅ pairs. Only the pairing flag is cleared.
-            _write_marker(last if last is not None else now, alerted=False)
-            print("[chatter_watch_check] RECOVERY alert sent to admin")
+            _write_marker(last if last is not None else now, alerted=False, path=marker_path)
+            print(f"[chatter_watch_check] RECOVERY alert sent to admin ({client or 'legacy'})")
         else:
             # DEV-18: do not clear the flag on a failed send -- retry next cycle
             # rather than silently swallowing the operator's ✅.
@@ -214,10 +251,10 @@ def main(argv=None) -> int:
         return 0
 
     if should_alert(is_down=is_down, last_alert_ts=last, now=now, cooldown=ALERT_COOLDOWN_S):
-        if _send_tg(alert_text()):
+        if _send_tg(alert_text(client)):
             # alerted=True is what obliges us to send the paired ✅ later.
-            _write_marker(now, alerted=True)
-            print("[chatter_watch_check] DOWN alert sent to admin")
+            _write_marker(now, alerted=True, path=marker_path)
+            print(f"[chatter_watch_check] DOWN alert sent to admin ({client or 'legacy'})")
         else:
             print("[chatter_watch_check] DOWN but TG alert failed (no token / network)")
     else:
