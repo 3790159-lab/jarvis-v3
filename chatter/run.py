@@ -17,7 +17,9 @@ from chatter.core.brain import Brain
 from chatter.core.window import estimate_tokens, select_window
 from chatter.core.brand_safety import forbidden_mention
 from chatter.core.classifier import (
-    ClassifierResult, classifier_degraded, note_classifier_error,
+    ClassifierResult, classifier_degraded, classifier_failure_count,
+    note_classifier_error, note_classifier_recovered, note_profile_miss,
+    reset_profile_miss,
 )
 from chatter.core.console import (
     console_text, contact_link, display_name, escalation_buttons, escape_html,
@@ -231,9 +233,17 @@ def _escalation_pass(
             profile)
         # Профиль применяем ТОЛЬКО на здоровом ответе (обрезка/мусор →
         # degraded → профиль не трогаем, следующий ход догонит).
-        if cr is not None and not cr.degraded and cr.profile:
-            p_tokens = estimate_tokens(cr.profile)
-            if p_tokens > lim.profile_budget_tokens:
+        if cr is not None and not cr.degraded:
+            if cr.retried:
+                # Ход не потерян (ретрай спас), но модель спутала роль — для
+                # порога алерта это полноценный сбой, иначе включение ретрая
+                # обнулило бы статистику (инцидент 2026-07-23).
+                note_classifier_recovered(
+                    store, now=now, contact_id=contact_id,
+                    detail="первый ответ не был JSON — спасено повтором")
+                _maybe_degraded_alert(deps, now=now)
+            p_tokens = estimate_tokens(cr.profile) if cr.profile else 0
+            if cr.profile and p_tokens > lim.profile_budget_tokens:
                 # Условие 4: профиль не кэшируется и платится на КАЖДОМ
                 # вызове — сверх потолка НЕ применяем (старый жив), и это
                 # ЯВНАЯ деградация (событие + лог), не тихая обрезка.
@@ -242,18 +252,26 @@ def _escalation_pass(
                           f"старый сохранён")
                 log.warning("classifier profile over budget (%s): %s",
                             contact_id, detail)
-                note_classifier_error(store, now=now, detail=detail)
+                note_classifier_error(store, now=now, detail=detail,
+                                      contact_id=contact_id)
                 _maybe_degraded_alert(deps, now=now)
+                _note_profile_miss(deps, contact_id, now=now, why=detail)
             else:
-                store.set_profile(contact_id, cr.profile, ts=now)
+                if cr.profile:
+                    store.set_profile(contact_id, cr.profile, ts=now)
+                # profile=null — это «нового ничего нет», а НЕ пропуск:
+                # классификатор жив, отставать памяти нечем. Серия рвётся.
+                reset_profile_miss(store, contact_id, now=now)
     decision = decide_escalation(det=det, classifier_result=cr)
 
     if decision.degraded:
         # detail несёт КЛАСС сбоя (парс/exception) — иначе control_events.detail
         # пуст и деградацию не диагностировать (инцидент volska 2026-07-22).
-        note_classifier_error(
-            store, now=now, detail=(cr.detail if cr is not None else ""))
+        detail = cr.detail if cr is not None else ""
+        note_classifier_error(store, now=now, detail=detail, contact_id=contact_id)
         _maybe_degraded_alert(deps, now=now)
+        # Профиль на этом ходу применить было нечем — память отстала на ход.
+        _note_profile_miss(deps, contact_id, now=now, why=detail)
 
     advance_funnel(store, contact_id, stage_signal=decision.stage_signal, escalated=decision.escalate)
 
@@ -424,8 +442,8 @@ def _post_escalation_card(deps: "Deps", contact_id: str, *, det, cr, now: float)
 
 
 def _maybe_degraded_alert(deps: "Deps", *, now: float) -> None:
-    """Классификатор деградировал (§6): алертим владельца ОДИН раз за окно
-    (не штормим), только если ошибок за окно больше порога."""
+    """Классификатор сбоит (§6): алертим владельца ОДИН раз за окно
+    (не штормим), только если сбоев за окно набралось на порог."""
     control = deps.control or ControlConfig()
     window = control.status_window_hours * 3600.0
     if not classifier_degraded(
@@ -437,7 +455,7 @@ def _maybe_degraded_alert(deps: "Deps", *, now: float) -> None:
     deps.store.set_runtime_flag("classifier_degraded_alerted_ts", str(now), ts=now)
     if deps.notifier is None:
         return
-    count = deps.store.count_events("classifier_error", since_ts=now - window)
+    count = classifier_failure_count(deps.store, now=now, window_seconds=window)
     text = console_text(
         "degraded_alert", deps.cfg.settings.language,
         count=count, hours=control.status_window_hours)
@@ -447,6 +465,39 @@ def _maybe_degraded_alert(deps: "Deps", *, now: float) -> None:
             buttons=[], reply_hints=[]))
     except Exception:
         log.exception("degraded-classifier alert FAILED to send")
+
+
+def _note_profile_miss(deps: "Deps", contact_id: str, *, now: float, why: str) -> None:
+    """Профиль на этом ходу применить не удалось. Считаем серию ПО КОНТАКТУ и
+    при M подряд алертим отдельно от «сбоев за сутки»: два разных лида по
+    одному сбою — шум, три подряд по одному лиду — замёрзшая память в живом
+    диалоге (бот выглядит помнящим, а помнит позавчерашнее)."""
+    store = deps.store
+    streak = note_profile_miss(store, contact_id, now=now)
+    control = deps.control or ControlConfig()
+    threshold = control.profile_stale_threshold
+    log.warning("profile miss #%d for %s: %s", streak, contact_id, why)
+    if threshold <= 0 or streak < threshold:
+        return
+    # Один алерт на СЕРИЮ: флаг снимает reset_profile_miss на первом здоровом
+    # ходу. Иначе каждый следующий сбой в той же серии штормил бы владельца.
+    alerted_key = f"profile_miss_alerted:{contact_id}"
+    if (store.get_runtime_flag(alerted_key) or "0") != "0":
+        return
+    store.set_runtime_flag(alerted_key, str(streak), ts=now)
+    if deps.notifier is None:
+        return
+    peer = contact_id.split(":", 1)[0]
+    text = console_text(
+        "profile_stale_alert", deps.cfg.settings.language,
+        count=streak, name=display_name(user_id=peer),
+        link=contact_link(user_id=peer))
+    try:
+        deps.notifier.notify(Card(
+            kind="alert", contact_id=contact_id, text_html=text,
+            buttons=[], reply_hints=[], link=contact_link(user_id=peer)))
+    except Exception:
+        log.exception("stale-profile alert FAILED to send for %s", contact_id)
 
 
 def process_batch(

@@ -72,4 +72,9 @@ def test_escalation_card_caps_recent_lines():
 
 def test_degraded_alert_string_localized():
     s = console_text("degraded_alert", "ru", count=7, hours=24)
-    assert "7" in s and ("деград" in s.casefold())
+    assert "7" in s and ("сбо" in s.casefold())
+    # 2026-07-23: текст обязан признавать, что от классификатора зависит и
+    # ПАМЯТЬ лида, а не только эскалации — иначе владелец недооценит сбой.
+    assert "профиль" in s.casefold()
+    ua = console_text("profile_stale_alert", "uk", count=3, name="42", link="tg://user?id=42")
+    assert "3" in ua and "42" in ua

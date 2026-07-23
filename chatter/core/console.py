@@ -214,8 +214,14 @@ CONSOLE_STRINGS: dict[str, dict[str, str]] = {
         "inline_cmd_notice": "✅ Выполнил {cmd} из диалога. Совет: команды набирайте здесь, в пульте — в самом диалоге их видит лид.",
         "known_contact_notice": "👤 Знакомый {name} написал: «{snippet}». Аня знакомым не отвечает — ответь сам. (чтобы вести его как лида, добавь id {id} в allowlist настроек)",
         "degraded_alert": (
-            "⚠️ Классификатор деградировал: {count} ошибок за {hours}ч. "
-            "Эскалации сейчас идут только по ключевым словам."
+            "⚠️ Классификатор сбоит: {count} раз за {hours}ч (в т.ч. спасённые "
+            "повтором). Эскалации могут идти только по ключевым словам, "
+            "а профиль лида — отставать."
+        ),
+        "profile_stale_alert": (
+            "🧠 Память лида замёрзла: {count} хода подряд профиль {name} не "
+            "обновился (классификатор сбоил). Аня отвечает по устаревшему "
+            "профилю. Диалог: {link}"
         ),
         "help_text": (
             "📖 Пульт Ани — как это работает\n\n"
@@ -286,8 +292,14 @@ CONSOLE_STRINGS: dict[str, dict[str, str]] = {
         "inline_cmd_notice": "✅ Ran {cmd} from the chat. Tip: type commands here in the console — the lead sees them in the chat itself.",
         "known_contact_notice": "👤 A known contact {name} wrote: «{snippet}». Anya does not answer contacts — reply yourself. (to treat them as a lead, add id {id} to the settings allowlist)",
         "degraded_alert": (
-            "⚠️ Classifier degraded: {count} errors in {hours}h. "
-            "Escalations currently fire on keywords only."
+            "⚠️ Classifier is failing: {count} times in {hours}h (including "
+            "turns saved by a retry). Escalations may fire on keywords only, "
+            "and the lead profile may lag behind."
+        ),
+        "profile_stale_alert": (
+            "🧠 Lead memory is frozen: the profile of {name} has not been "
+            "updated for {count} turns in a row (classifier failures). Replies "
+            "are based on a stale profile. Chat: {link}"
         ),
         "help_text": (
             "📖 Anya's console — how this works\n\n"
@@ -357,8 +369,14 @@ CONSOLE_STRINGS: dict[str, dict[str, str]] = {
         "inline_cmd_notice": "✅ Виконав {cmd} з діалогу. Порада: команди набирайте тут, у пульті — у самому діалозі їх бачить лід.",
         "known_contact_notice": "👤 Знайомий {name} написав: «{snippet}». Аня знайомим не відповідає — відповідай сам. (щоб вести його як ліда, додай id {id} у allowlist налаштувань)",
         "degraded_alert": (
-            "⚠️ Класифікатор деградував: {count} помилок за {hours}год. "
-            "Ескалації зараз лише за ключовими словами."
+            "⚠️ Класифікатор збоїть: {count} раз(ів) за {hours}год (разом із "
+            "врятованими повтором). Ескалації можуть іти лише за ключовими "
+            "словами, а профіль ліда — відставати."
+        ),
+        "profile_stale_alert": (
+            "🧠 Пам'ять ліда замерзла: {count} ходи поспіль профіль {name} не "
+            "оновився (класифікатор збоїв). Оля відповідає за застарілим "
+            "профілем. Діалог: {link}"
         ),
         "help_text": (
             "📖 Пульт Ані — як це працює\n\n"

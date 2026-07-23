@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from chatter.core.window import _CHARS_PER_TOKEN
 
@@ -49,11 +49,30 @@ class ClassifierResult:
     # Класс сбоя при degraded=True (пусто, когда всё хорошо). Инцидент volska
     # 2026-07-22: деградация без причины не диагностируется — теперь несём её.
     detail: str = ""
+    # Первый ответ был невалиден и мы его перезапросили (инцидент 2026-07-23).
+    # True и при спасённом ходе, и при провалившемся ретрае: вызывающая сторона
+    # считает ЛЮБОЙ такой ход как сбой модели — иначе «спасённые» отказы
+    # исчезают из статистики и порог алерта никогда не срабатывает.
+    retried: bool = False
 
 
 def _degraded(detail: str = "") -> ClassifierResult:
     return ClassifierResult(
         escalate=False, reason="", stage_signal=None, degraded=True, detail=detail)
+
+
+# Корректирующая заметка для ЕДИНСТВЕННОГО повтора (инцидент 2026-07-23).
+# Уходит `uncached_suffix`ом — отдельным system-блоком ПОСЛЕ cache_control-
+# брейкпоинта: кэш-префикс (плейбук + профиль) остаётся валидным, поэтому
+# повтор стоит примерно как cache-read, а не как новый вызов. Сообщением в
+# `messages` её слать НЕЛЬЗЯ: лишняя реплика в диалоге усиливает ровно ту
+# путаницу ролей, которую мы чиним.
+_RETRY_NUDGE = (
+    "ПОВТОР. Твой прошлый ответ не был JSON-объектом — похоже, ты начал писать "
+    "реплику клиенту. Это не твоя роль. Ответь ЗАНОВО одним JSON-объектом "
+    "{\"escalate\": …, \"reason\": …, \"profile\": …, \"stage_signal\": …} "
+    "и больше ничем: ни приветствия, ни пояснений, ни текста реплики."
+)
 
 
 def parse_classifier_reply(raw: str) -> ClassifierResult:
@@ -97,6 +116,12 @@ def classifier_system_prompt(playbook: str, language: str,
     profile_chars = profile_budget_tokens * _CHARS_PER_TOKEN * 2 // 3
     return (
         "Ты — тихий классификатор диалога воронки продаж. Тебя НЕ видит клиент. "
+        # Ролевая граница (инцидент volska 2026-07-23 17:03 и 18:28: модель
+        # вернула текст реплики продавца вместо JSON — спутала себя с Ольгой).
+        # Переписка в messages — это УЛИКА, а не разговор с тобой.
+        "Ты НЕ участник диалога и ты НЕ отвечаешь клиенту: реплики пишет другая "
+        "модель, а твой ответ читает ПРОГРАММА и разбирает его как JSON. "
+        "Переписка ниже — материал для разбора, а не обращение к тебе. "
         "По переписке реши: (1) нужно ли ПРЯМО СЕЙЧАС передать диалог живому "
         "владельцу (горячий лид, готов платить/бронировать, жалоба, нестандартный "
         "запрос вне плейбука); (2) на какой стадии воронки диалог; (3) обнови "
@@ -121,7 +146,18 @@ def classifier_system_prompt(playbook: str, language: str,
         '{"escalate": true|false, "reason": "<=120 символов, что хочет лид / '
         'почему эскалация>", "profile": "<полный обновлённый профиль|null>", '
         '"stage_signal": "<' + signals + '|null>"}\n'
-        f"reason и profile пиши на языке диалога ({language})."
+        f"reason и profile пиши на языке диалога ({language}).\n\n"
+        # Анти-образец: описания правильного формата оказалось мало — модель
+        # дважды за сутки вернула живую реплику. Показываем сам провал.
+        "НЕПРАВИЛЬНО (так отвечать НЕЛЬЗЯ — это реплика клиенту, а не разбор):\n"
+        "Звучить дуже гармонійно для чайного бренду 🙂 Зелено-бежева палітра "
+        "добре працює на упаковці\n"
+        "ПРАВИЛЬНО:\n"
+        '{"escalate": false, "reason": "обговорює палітру для чайного бренду", '
+        '"profile": "чайний бренд, обрана зелено-бежева палітра", '
+        '"stage_signal": "engaged"}\n'
+        "Если тянет написать связный текст на языке диалога — это признак, что "
+        "ты перепутал роль. Первый символ твоего ответа — «{», последний — «}»."
     )
 
 
@@ -132,19 +168,29 @@ def build_classifier_messages(history: list[dict]) -> list[dict]:
 def classify(llm, *, playbook: str, language: str, history: list[dict],
              profile: str | None = None,
              profile_budget_tokens: int = _PROFILE_BUDGET_TOKENS) -> ClassifierResult:
-    """Один дешёвый вызов. НИКОГДА не бросает: сбой вызова → деградация (§6)."""
-    try:
-        raw = llm.complete(
-            classifier_system_prompt(playbook, language, profile=profile,
-                                     profile_budget_tokens=profile_budget_tokens),
-            build_classifier_messages(history),
+    """Один дешёвый вызов + ОДИН повтор при невалидном JSON.
+    НИКОГДА не бросает: сбой вызова → деградация (§6)."""
+    system = classifier_system_prompt(
+        playbook, language, profile=profile,
+        profile_budget_tokens=profile_budget_tokens)
+    messages = build_classifier_messages(history)
+
+    def _call(nudge: str | None) -> str:
+        return llm.complete(
+            system, messages,
             max_tokens=_CLASSIFIER_MAX_TOKENS,
             # Без этого sonnet-5 (thinking по умолчанию) сжигает весь бюджет
             # на невидимое мышление -> пустой JSON -> деградация (2026-07-22).
             no_thinking=True,
-            tag="classifier",
+            uncached_suffix=nudge,
+            tag="classifier" if nudge is None else "classifier_retry",
         )
+
+    try:
+        raw = _call(None)
     except Exception as e:
+        # Упавший ВЫЗОВ не ретраим: это сеть/ключ, а не путаница ролей —
+        # повтор чинит редко, а задержку хода удваивает гарантированно.
         log.exception("classifier LLM call failed — деградация, не эскалирую")
         return _degraded(f"вызов LLM упал: {type(e).__name__}: {e}")
     # Условие 1 арки «память»: ответ, упёршийся в max_tokens, — ЯВНАЯ
@@ -152,6 +198,7 @@ def classify(llm, *, playbook: str, language: str, history: list[dict],
     # Тихий битый JSON уже ловится парсером; тихий ВАЛИДНЫЙ огрызок — нет,
     # поэтому проверка ДО парса. Профиль при обрезке не применяется
     # (degraded=True — вызывающая сторона не пишет профиль).
+    # Ретрая здесь тоже нет: повтор упрётся в тот же лимит.
     if getattr(llm, "last_stop_reason", None) == "max_tokens":
         result = _degraded(
             f"ответ обрезан (stop_reason=max_tokens при лимите "
@@ -162,20 +209,101 @@ def classify(llm, *, playbook: str, language: str, history: list[dict],
     # Парс-деградация НЕ логируется внутри parse_classifier_reply — она бы ушла
     # в тишину (инцидент volska 2026-07-22 03:21: classifier_error без следа в
     # логе). Делаем её видимой ЗДЕСЬ: класс сбоя + сырой ответ.
-    if result.degraded:
-        log.warning("classifier degraded: %s | raw=%r", result.detail, (raw or "")[:120])
-    return result
+    if not result.degraded:
+        return result
+    log.warning("classifier degraded: %s | raw=%r — повторяю один раз",
+                result.detail, (raw or "")[:120])
+
+    # ЕДИНСТВЕННЫЙ повтор. Дешевле потерянного хода: кэш-префикс цел, платим
+    # ~cache-read + выход. Второй повтор не заводим — если модель спутала роль
+    # дважды подряд, это уже не флюк, и третья попытка только жжёт секунды,
+    # пока лид смотрит на «печатает».
+    try:
+        raw2 = _call(_RETRY_NUDGE)
+    except Exception as e:
+        log.exception("classifier retry call failed — деградация")
+        return replace(_degraded(f"ретрай упал: {type(e).__name__}: {e}"),
+                       retried=True)
+    if getattr(llm, "last_stop_reason", None) == "max_tokens":
+        return replace(_degraded(
+            f"ретрай обрезан (stop_reason=max_tokens при лимите "
+            f"{_CLASSIFIER_MAX_TOKENS})"), retried=True)
+    retry_result = parse_classifier_reply(raw2)
+    if retry_result.degraded:
+        log.warning("classifier degraded ПОСЛЕ ретрая: %s | raw=%r",
+                    retry_result.detail, (raw2 or "")[:120])
+    else:
+        log.info("classifier: ретрай спас ход (первый ответ был невалиден)")
+    return replace(retry_result, retried=True)
 
 
 # --- деградация: счётчик + решение об алерте (спека §6, DEV-18) --------------
-def note_classifier_error(store, *, now: float, detail: str = "") -> None:
-    """Считаем каждую деградацию как control-event С КЛАССОМ сбоя. Не глотаем в
-    пустоту: пустой detail (старый вызов без причины) писать не будем как ''."""
-    store.add_event("classifier_error", detail=detail or None, ts=now)
+def note_classifier_error(store, *, now: float, detail: str = "",
+                          contact_id: str | None = None) -> None:
+    """Считаем КОНЕЧНУЮ деградацию (ретрай не помог) как control-event С КЛАССОМ
+    сбоя и С КОНТАКТОМ. Не глотаем в пустоту: пустой detail (старый вызов без
+    причины) писать не будем как ''. contact_id нужен форензике: без него из БД
+    не видно, чья память замёрзла (сбои 2026-07-23 писались с NULL)."""
+    store.add_event("classifier_error", detail=detail or None,
+                    contact_id=contact_id, ts=now)
+
+
+def note_classifier_recovered(store, *, now: float, detail: str = "",
+                              contact_id: str | None = None) -> None:
+    """Ход, где первый ответ был невалиден, но ретрай спас. Пишем ОТДЕЛЬНЫМ
+    видом события: ход не потерян (это не classifier_error), но модель всё
+    равно спутала роль — для порога алерта это полноценный сбой."""
+    store.add_event("classifier_recovered", detail=detail or None,
+                    contact_id=contact_id, ts=now)
+
+
+def classifier_failure_count(store, *, now: float, window_seconds: float) -> int:
+    """Сколько раз за окно классификатор ответил не тем — считая ходы, которые
+    спас ретрай. Иначе включение ретрая обнулило бы статистику и порог алерта
+    перестал бы срабатывать вообще."""
+    since = now - window_seconds
+    return (store.count_events("classifier_error", since_ts=since)
+            + store.count_events("classifier_recovered", since_ts=since))
 
 
 def classifier_degraded(store, *, now: float, window_seconds: float, threshold: int) -> bool:
-    """True, если ошибок классификатора за окно СТРОГО больше порога — тогда
-    вызывающая сторона (дебаунсированно) алертит владельца «классификатор
-    деградировал, эскалации сейчас только по ключевым словам»."""
-    return store.count_events("classifier_error", since_ts=now - window_seconds) > threshold
+    """True, если сбоев классификатора за окно НАБРАЛОСЬ НА ПОРОГ — тогда
+    вызывающая сторона (дебаунсированно) алертит владельца.
+
+    Сравнение `>=`, а не `>` (было до 2026-07-23): со строгим `>` порог 5
+    требовал шестого сбоя, и реальные двухсбойные сутки не давали алерта
+    никогда — сбои просто копились в БД, которую никто не читает."""
+    return classifier_failure_count(
+        store, now=now, window_seconds=window_seconds) >= threshold
+
+
+# --- серия пропущенных обновлений профиля по одному контакту ----------------
+# Отдельный сигнал от «сбоев за сутки»: два разных лида по одному сбою — это
+# шум, а три подряд по ОДНОМУ лиду — это замёрзшая память в живом диалоге
+# (бот выглядит помнящим, но помнит позавчерашнее). Считаем в runtime_flags:
+# состояние на контакт, переживает рестарт, отдельной таблицы не заводим.
+def _miss_key(contact_id: str) -> str:
+    return f"profile_miss:{contact_id}"
+
+
+def profile_miss_streak(store, contact_id: str) -> int:
+    raw = store.get_runtime_flag(_miss_key(contact_id))
+    try:
+        return int(raw) if raw else 0
+    except ValueError:            # руками покорёженный флаг — не роняем ход
+        return 0
+
+
+def note_profile_miss(store, contact_id: str, *, now: float) -> int:
+    """Профиль на этом ходу применить НЕ удалось (деградация или перебор
+    бюджета). Возвращает новую длину серии."""
+    streak = profile_miss_streak(store, contact_id) + 1
+    store.set_runtime_flag(_miss_key(contact_id), str(streak), ts=now)
+    return streak
+
+
+def reset_profile_miss(store, contact_id: str, *, now: float = 0.0) -> None:
+    """Здоровый ход классификатора — серия обрывается. Даже если нового факта
+    не было (profile: null): память не отстаёт, отставать было нечему."""
+    store.set_runtime_flag(_miss_key(contact_id), "0", ts=now)
+    store.set_runtime_flag(f"profile_miss_alerted:{contact_id}", "0", ts=now)

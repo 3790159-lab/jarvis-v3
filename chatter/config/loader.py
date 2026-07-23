@@ -84,7 +84,15 @@ class ControlConfig:
     owner_chat_id: int | None = None          # личный чат владельца (жёсткий гейт /start)
     pairing_code: str | None = None           # одноразовый код онбординга: /start <код>, сгорает после привязки
     classifier_enabled: bool = True
-    classifier_error_threshold: int = 5       # > стольких ошибок за окно → алерт «деградировал»
+    # Столько сбоев классификатора за окно (СЧИТАЯ спасённые ретраем) → алерт.
+    # Было 5 со сравнением «строго больше» — при фактическом режиме 2 сбоя в
+    # сутки (07-23: 2 из 14 вызовов) алерт не срабатывал НИКОГДА, и сбои
+    # копились в БД, которую никто не читает. Теперь 2 и сравнение «>=».
+    classifier_error_threshold: int = 2
+    # Столько ПОДРЯД пропущенных обновлений профиля по ОДНОМУ контакту → алерт.
+    # Отдельный сигнал: два разных лида по одному сбою — шум, три подряд по
+    # одному лиду — замёрзшая память в живом диалоге.
+    profile_stale_threshold: int = 3
     snooze_seconds: float = 3600.0            # кнопка «⏸ Ещё 1ч»
     auto_reload: bool = False                 # config-арка §5: перечитывать по mtime без команды
 
@@ -338,6 +346,7 @@ def load_config(clients_dir: Path, slug: str) -> Config:
             pairing_code=None if pairing_raw is None else str(pairing_raw),
             classifier_enabled=bool(c_raw.get("classifier_enabled", default_control.classifier_enabled)),
             classifier_error_threshold=int(c_raw.get("classifier_error_threshold", default_control.classifier_error_threshold)),
+            profile_stale_threshold=int(c_raw.get("profile_stale_threshold", default_control.profile_stale_threshold)),
             snooze_seconds=float(c_raw.get("snooze_seconds", default_control.snooze_seconds)),
             auto_reload=bool(c_raw.get("auto_reload", default_control.auto_reload)),
         )

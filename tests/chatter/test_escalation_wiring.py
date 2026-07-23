@@ -635,3 +635,95 @@ def test_free_mode_fallback_unchanged_no_honesty_added():
     process_batch("42:demo", ["а сколько стоит?"], t, deps)
     joined = " ".join(t.sent)
     assert _honest_marker(deps) not in joined
+
+
+# =============================================================================
+# ВИДИМОСТЬ сбоев классификатора (2026-07-23). Раньше сбой писался в
+# control_events БЕЗ контакта и с порогом «> 5 за 24ч» — при фактических 2
+# сбоях в сутки владелец не узнавал ничего. Теперь: (1) событие несёт контакт,
+# (2) спасённый ретраем ход тоже считается, (3) отдельный алерт на серию
+# пропущенных обновлений профиля ПО ОДНОМУ контакту.
+# =============================================================================
+def _stale_profile_alerts(notifier, contact_id):
+    return [c for c in notifier.cards
+            if c.kind == "alert" and c.contact_id == contact_id]
+
+
+def _degraded_cr():
+    return ClassifierResult(escalate=False, reason="", stage_signal=None,
+                            degraded=True, detail="нет JSON-объекта в ответе")
+
+
+def _healthy_cr(profile=None, retried=False):
+    return ClassifierResult(escalate=False, reason="", stage_signal="engaged",
+                            degraded=False, profile=profile, retried=retried)
+
+
+def test_degraded_turn_records_contact_id():
+    deps = _deps(notifier=FakeNotifier(), keywords=[],
+                 classify=lambda history, profile=None: _degraded_cr())
+    _process(deps, "42:demo", "обычное сообщение")
+    rows = list(deps.store._conn.execute(
+        "SELECT contact_id, detail FROM control_events WHERE kind='classifier_error'"))
+    assert rows and rows[0][0] == "42:demo", "сбой записан без контакта — форензика слепа"
+    assert "нет JSON" in rows[0][1]
+
+
+def test_turn_saved_by_retry_is_recorded_as_recovered():
+    """Ретрай спас ход: эскалация/профиль отработали, потери нет — но модель
+    спутала роль, и это обязано быть видно в БД и в счётчике порога."""
+    deps = _deps(notifier=FakeNotifier(), keywords=[],
+                 classify=lambda history, profile=None: _healthy_cr(retried=True))
+    _process(deps, "42:demo", "обычное сообщение")
+    assert deps.store.count_events("classifier_error", since_ts=0.0) == 0
+    rows = list(deps.store._conn.execute(
+        "SELECT contact_id FROM control_events WHERE kind='classifier_recovered'"))
+    assert rows and rows[0][0] == "42:demo"
+
+
+def test_alert_lands_in_telegram_on_the_second_failure_of_the_day():
+    """Порог по умолчанию — 2 сбоя за сутки: ровно сегодняшний режим 07-23
+    (2 из 14 вызовов) обязан дозвониться до владельца."""
+    n = FakeNotifier()
+    deps = _deps(notifier=n, keywords=[],
+                 classify=lambda history, profile=None: _degraded_cr())
+    _process(deps, "42:demo", "первое")
+    assert [c for c in n.cards if c.kind == "alert"] == [], "алерт на первом сбое = шум"
+    _process(deps, "42:demo", "второе")
+    alerts = [c for c in n.cards if c.kind == "alert"]
+    assert len(alerts) == 1, "два сбоя за сутки прошли мимо владельца"
+
+
+def test_three_missed_profile_updates_on_one_contact_alert_separately():
+    """M=3 подряд по ОДНОМУ лиду: профиль замёрз в живом диалоге — бот
+    выглядит помнящим, а помнит позавчерашнее. Алерт называет контакт."""
+    n = FakeNotifier()
+    deps = _deps(notifier=n, keywords=[],
+                 classify=lambda history, profile=None: _degraded_cr())
+    for i in range(3):
+        _process(deps, "42:demo", f"сообщение {i}")
+    stale = [c for c in n.cards if c.kind == "alert" and "42" in c.text_html]
+    assert stale, "серия пропусков профиля по контакту не дошла до владельца"
+
+
+def test_profile_stale_alert_fires_once_per_streak():
+    n = FakeNotifier()
+    deps = _deps(notifier=n, keywords=[],
+                 classify=lambda history, profile=None: _degraded_cr())
+    for i in range(6):
+        _process(deps, "42:demo", f"сообщение {i}")
+    stale = _stale_profile_alerts(n, "42:demo")
+    assert len(stale) == 1, f"алерт про профиль штормит владельца: {len(stale)} раз"
+
+
+def test_healthy_turn_without_new_facts_breaks_the_streak():
+    """profile: null — это «нового ничего нет», а не пропуск. Классификатор
+    жив, память не отстаёт: серия обрывается и алерт не приходит."""
+    n = FakeNotifier()
+    results = [_degraded_cr(), _degraded_cr(), _healthy_cr(profile=None),
+               _degraded_cr(), _degraded_cr()]
+    deps = _deps(notifier=n, keywords=[],
+                 classify=lambda history, profile=None: results.pop(0))
+    for i in range(5):
+        _process(deps, "42:demo", f"сообщение {i}")
+    assert _stale_profile_alerts(n, "42:demo") == [], "здоровый ход не оборвал серию пропусков"

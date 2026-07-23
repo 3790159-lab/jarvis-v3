@@ -175,7 +175,10 @@ def test_control_bot_fields_default_off(tmp_path):
     assert c.owner_chat_id is None
     assert c.pairing_code is None
     assert c.classifier_enabled is True
-    assert c.classifier_error_threshold == 5
+    # 2026-07-23: порог снижен 5 -> 2 и сравнение стало «>=». Со старой парой
+    # (5, строго больше) реальные двухсбойные сутки не давали алерта никогда.
+    assert c.classifier_error_threshold == 2
+    assert c.profile_stale_threshold == 3
     assert c.snooze_seconds == 3600.0
 
 
