@@ -379,3 +379,94 @@ def test_real_cli_output_parses_in_powershell(tmp_path):
     assert out[0] == "2", f"ожидали 2 клиента в реестре, получили {out}"
     assert out[1] == "volska"
     assert out[2] == "Boolean", "runnable должен разбираться как bool, а не строка"
+
+
+# ── Task 7: chatter_client.ps1 — старт/стоп через реестр ───────────────────
+
+CLIENT_PS = REPO_ROOT / "scripts" / "chatter_client.ps1"
+
+REG_TEXT = """# комментарий-инструкция вверху файла
+clients:
+  aaa:
+    enabled: true
+    personas: [aaa]
+  bbb:
+    enabled: false                   # взаимоисключим с aaa: тот же аккаунт
+    personas: [bbb]
+"""
+
+
+def _write_registry(root: Path, text: str = REG_TEXT) -> Path:
+    d = root / "chatter" / "clients"
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / "registry.yaml"
+    p.write_text(text, encoding="utf-8")
+    return p
+
+
+def _client_ps(root: Path, slug: str, action: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+         "-File", str(CLIENT_PS), "-Root", str(root), "-Slug", slug, "-Action", action],
+        capture_output=True, text=True, timeout=60, encoding="utf-8", errors="replace")
+
+
+def test_stop_action_flips_registry_and_does_not_kill_directly(tmp_path, kill_after):
+    """Скрипт НЕ убивает процессы сам: иначе появилась бы вторая ручка
+    управления, конкурирующая с супервизором, и наблюдаемое состояние
+    разошлось бы с желаемым. Останавливает — супервизор, по реестру."""
+    reg = _write_registry(tmp_path)
+    p = _runner(tmp_path, "aaa")
+    kill_after.append(p)
+    time.sleep(1.0)
+
+    res = _client_ps(tmp_path, "aaa", "stop")
+    assert res.returncode == 0, res.stdout + res.stderr
+
+    text = reg.read_text(encoding="utf-8")
+    aaa_block = text.split("aaa:")[1].split("bbb:")[0]
+    assert "enabled: false" in aaa_block
+    assert p.poll() is None, "chatter_client.ps1 не должен убивать процесс сам"
+
+
+def test_start_action_flips_enabled_true(tmp_path):
+    reg = _write_registry(tmp_path)
+    res = _client_ps(tmp_path, "bbb", "start")
+    assert res.returncode == 0, res.stdout + res.stderr
+    bbb_block = reg.read_text(encoding="utf-8").split("bbb:")[1]
+    assert "enabled: true" in bbb_block
+
+
+def test_flip_preserves_comments_and_other_clients(tmp_path):
+    """Реестр — рабочий документ с инструкциями; правка одного поля не имеет
+    права снести комментарии (тот же принцип, что у /funnel_gate)."""
+    reg = _write_registry(tmp_path)
+    res = _client_ps(tmp_path, "bbb", "start")
+    assert res.returncode == 0, res.stdout + res.stderr
+    text = reg.read_text(encoding="utf-8")
+    # правка ДЕЙСТВИТЕЛЬНО произошла (иначе тест зелёный вакуумно)
+    assert "enabled: true" in text.split("bbb:")[1]
+    assert "# комментарий-инструкция вверху файла" in text
+    assert "# взаимоисключим с aaa: тот же аккаунт" in text
+    assert "enabled: true" in text.split("aaa:")[1].split("bbb:")[0], "клиент aaa не тронут"
+
+
+def test_unknown_slug_fails_loudly(tmp_path):
+    """DEV-18: молчаливый успех на опечатке в slug'е = владелец уверен, что
+    остановил клиента, а тот работает."""
+    _write_registry(tmp_path)
+    res = _client_ps(tmp_path, "ghost", "stop")
+    assert res.returncode != 0
+    assert "ghost" in (res.stdout + res.stderr)
+
+
+def test_status_reads_observed_state(tmp_path):
+    _write_registry(tmp_path)
+    (tmp_path / "state").mkdir(exist_ok=True)
+    (tmp_path / "state" / "chatter_clients.json").write_text(
+        '{"updated_ts":1,"fatal":null,"clients":{"aaa":{"desired":"enabled",'
+        '"state":"alive","pid":42,"heartbeat_ts":1,"last_transition_ts":1,'
+        '"consecutive_fail":0,"last_error":null}}}', encoding="utf-8")
+    res = _client_ps(tmp_path, "aaa", "status")
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "alive" in res.stdout
