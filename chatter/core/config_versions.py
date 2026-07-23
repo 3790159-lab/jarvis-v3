@@ -12,7 +12,8 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-CONFIG_FILES = ("persona.md", "knowledge.md", "playbook.md", "settings.yaml")
+CONFIG_FILES = ("persona.md", "knowledge.md", "playbook.md", "settings.yaml",
+                "examples.yaml")
 _VERSIONS_DIR = ".versions"
 _DEFAULT_KEEP = 20
 

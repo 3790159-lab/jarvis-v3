@@ -14,6 +14,10 @@ def _client(tmp_path, knowledge="цена 5000") -> Path:
     (d / "knowledge.md").write_text(knowledge, encoding="utf-8")
     (d / "playbook.md").write_text("воронка", encoding="utf-8")
     (d / "settings.yaml").write_text("model: x", encoding="utf-8")
+    # М8: examples.yaml опционален в проде, но фикстура держит его, чтобы
+    # test_snapshot_copies_all_config_files проверял полный состав CONFIG_FILES
+    (d / "examples.yaml").write_text(
+        '- client: "q"\n  olga: "a?"\n', encoding="utf-8")
     return d
 
 

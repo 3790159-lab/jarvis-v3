@@ -119,6 +119,9 @@ class Config:
     knowledge: str
     playbook: str
     settings: Settings
+    # М8: эталонные пары «клієнт → персона» из examples.yaml (опционально).
+    # Только для brain (голос), в классификатор не идут; факты — из knowledge.
+    examples: tuple[tuple[str, str], ...] = ()
 
 _TIMING_FIELDS = [
     "read_delay_min", "read_delay_max", "cps_min", "cps_max",
@@ -171,6 +174,33 @@ def _read_text(client_dir: Path, name: str) -> str:
         raise ConfigError(f"{name}: file is empty")
     return text
 
+def _load_examples(client_dir: Path) -> tuple[tuple[str, str], ...]:
+    """М8: examples.yaml — список пар {client, olga}. Файла нет → пусто.
+    Кривой файл → громкий ConfigError (DEV-18): молча выпавшие примеры =
+    тихо уехавший голос персоны."""
+    path = client_dir / "examples.yaml"
+    if not path.exists():
+        return ()
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise ConfigError(f"examples.yaml: invalid YAML ({exc})") from exc
+    if not isinstance(raw, list):
+        raise ConfigError("examples.yaml: top-level must be a list of pairs")
+    pairs: list[tuple[str, str]] = []
+    for i, item in enumerate(raw):
+        if not isinstance(item, dict) or set(item) != {"client", "olga"}:
+            raise ConfigError(
+                f"examples.yaml: пара #{i + 1} должна быть {{client, olga}}")
+        client, olga = item["client"], item["olga"]
+        if not (isinstance(client, str) and client.strip()
+                and isinstance(olga, str) and olga.strip()):
+            raise ConfigError(
+                f"examples.yaml: пара #{i + 1}: client/olga — непустые строки")
+        pairs.append((client.strip(), olga.strip()))
+    return tuple(pairs)
+
+
 def load_config(clients_dir: Path, slug: str) -> Config:
     client_dir = Path(clients_dir) / slug
     if not client_dir.is_dir():
@@ -179,6 +209,7 @@ def load_config(clients_dir: Path, slug: str) -> Config:
     persona = _read_text(client_dir, "persona.md")
     knowledge = _read_text(client_dir, "knowledge.md")
     playbook = _read_text(client_dir, "playbook.md")
+    examples = _load_examples(client_dir)
 
     raw_path = client_dir / "settings.yaml"
     if not raw_path.exists():
@@ -299,6 +330,7 @@ def load_config(clients_dir: Path, slug: str) -> Config:
 
     return Config(
         slug=slug, persona=persona, knowledge=knowledge, playbook=playbook,
+        examples=examples,
         settings=Settings(model=str(model), language=str(language), owner_id=str(owner_id),
                           persona_name=str(persona_name),
                           persona_age=(int(raw["persona_age"]) if raw.get("persona_age") is not None else None),

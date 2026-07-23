@@ -1,6 +1,15 @@
 from __future__ import annotations
+
+import logging
+
 from chatter.config.loader import HONESTY_HONEST, Config
 from chatter.core.llm import LLMClient
+
+log = logging.getLogger("chatter.core.brain")
+
+# М8: бюджет секции примеров в символах (~1.5k токенов при ~4 симв./токен).
+# Пары включаются по порядку, пока влезают; хвост отбрасывается С WARNING.
+EXAMPLES_CHAR_BUDGET = 6000
 
 _LANG_NAME = {"ru": "русском", "en": "английском", "uk": "украинском"}
 
@@ -55,6 +64,36 @@ def build_style(cfg: Config) -> str:
     return "".join(parts).strip()
 
 
+def _examples_section(cfg: Config) -> str:
+    """М8: эталонные пары голоса. Стабильны между /reload → живут внутри
+    кэшируемого префикса. Отбор с бюджетом: пары по порядку до
+    EXAMPLES_CHAR_BUDGET, хвост громко отбрасывается (не молча, DEV-18)."""
+    if not cfg.examples:
+        return ""
+    header = (
+        "\n\n=== ПРИКЛАДИ ДІАЛОГІВ (еталон голосу) ===\n"
+        "Наслідуй СТИЛЬ і СТРУКТУРУ цих відповідей (вилка + питання, наступний "
+        "крок у кожній репліці). Факти, ціни й терміни бери ТІЛЬКИ з розділу "
+        "ЗНАННЯ — приклади задають голос, не цифри.\n")
+    used = 0
+    parts: list[str] = []
+    dropped = 0
+    for client, olga in cfg.examples:
+        chunk = f"\nКлієнт: {client}\nТи: {olga}\n"
+        if used + len(chunk) > EXAMPLES_CHAR_BUDGET:
+            dropped += 1
+            continue
+        used += len(chunk)
+        parts.append(chunk)
+    if dropped:
+        log.warning(
+            "examples.yaml: %d пар(ы) не влезли в бюджет %d символов и "
+            "отброшены — сократите примеры", dropped, EXAMPLES_CHAR_BUDGET)
+    if not parts:
+        return ""
+    return header + "".join(parts)
+
+
 def build_system_prompt(cfg: Config) -> str:
     lang = _LANG_NAME.get(cfg.settings.language, "русском")
     return (
@@ -63,6 +102,7 @@ def build_system_prompt(cfg: Config) -> str:
         f"=== ЗНАНИЯ (товар, прайс, условия, FAQ) ===\n{cfg.knowledge}\n\n"
         f"=== ПЛЕЙБУК (воронка, цели, чего не обещать) ===\n{cfg.playbook}\n\n"
         f"=== ПРАВИЛА ===\n{build_style(cfg)}"
+        f"{_examples_section(cfg)}"
     )
 
 
