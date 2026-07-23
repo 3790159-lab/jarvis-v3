@@ -1,4 +1,4 @@
-# Keeps the chatter Telethon userbot (chatter.telethon_run) alive, fully detached
+﻿# Keeps the chatter Telethon userbot (chatter.telethon_run) alive, fully detached
 # from any interactive/SSH session. Invoked by the JarvisChatterGuardian scheduled
 # task (S4U / RunLevel Highest, like JarvisBotGuardian) so it survives logoff, SSH
 # drops, the starting session, and a reboot (AtStartup) WITHOUT an interactive logon.
@@ -43,27 +43,34 @@ $gOut      = Join-Path $logDir 'chatter_guardian.stdout.log'
 # Python logging (IN/OUT/catch-up/telethon) goes to STDERR, so $rErr is the
 # primary operational log (== the manual `2>&1` file); $rOut only gets the tiny
 # startup print.
-$rErr      = Join-Path $logDir 'chatter_telethon.log'
-$rOut      = Join-Path $logDir 'chatter_telethon.stdout.log'
-$hbFile    = Join-Path $stateDir 'chatter_heartbeat.txt'
 $gHbFile   = Join-Path $stateDir 'chatter_guardian_heartbeat.txt'
 $watchCheck = Join-Path $Root 'scripts\chatter_watch_check.py'
+$stateFile = Join-Path $stateDir 'chatter_clients.json'
 
-# --- SEMIDEMO OVERRIDE (volska) ---------------------------------------------
-# While state\chatter_semidemo_volska.flag exists, the guardian keeps persona
-# `volska` on the EXISTING demo session (same pins as run_volska_semidemo.ps1:
-# without them CHATTER_PERSONAS=volska would derive a non-existent
-# volska.session and Telethon would ask for a login code). Runner output goes
-# to the volska log files so the prod log of the demo persona is not clobbered.
-# Back to prod roster (active.yaml = demo,demo2): remove the flag via
-# run_volska_semidemo.ps1 -Revert (or delete the file) and restart the task.
-$semidemoFlag = Join-Path $stateDir 'chatter_semidemo_volska.flag'
-if (Test-Path $semidemoFlag) {
-    $env:CHATTER_PERSONAS = 'volska'
-    $env:TELETHON_SESSION = '.secrets\demo.session'
-    $env:CHATTER_DB       = '.secrets\demo.db'
-    $rErr = Join-Path $logDir 'chatter_volska.log'
-    $rOut = Join-Path $logDir 'chatter_volska.stdout.log'
+# --- SEMIDEMO OVERRIDE УДАЛЁН -----------------------------------------------
+# Здесь был блок, зашивавший ОДНОГО клиента (volska) в сам скрипт по наличию
+# state\chatter_semidemo_volska.flag. Источник правды теперь
+# chatter/clients/registry.yaml, а состав клиентов приходит планом из
+# chatter.registry_cli. Подключение клиента снова НЕ является правкой этого
+# скрипта — как и было задумано (онбординг-дырка №3).
+
+function Get-ClientPaths {
+    # Свои файлы на каждого клиента. Общий heartbeat сделал бы супервизор
+    # слепым (свежесть одного читалась бы как жизнь всех), общий лог —
+    # затирал бы историю соседа.
+    #
+    # stdout и stderr РАЗНЫЕ файлы: Start-Process с одинаковыми путями кидает
+    # "file name ... is the same" и запуск молча проваливается (грабля первого
+    # боевого холодного старта). Логи Python (IN/OUT/catch-up/telethon) идут в
+    # STDERR, поэтому .log — основной операционный файл, а .stdout.log ловит
+    # только маленький стартовый print.
+    param([Parameter(Mandatory)][string]$Slug)
+    [pscustomobject]@{
+        Err  = Join-Path $logDir   "chatter_$Slug.log"
+        Out  = Join-Path $logDir   "chatter_$Slug.stdout.log"
+        Hb   = Join-Path $stateDir "chatter_heartbeat_$Slug.txt"
+        Lock = Join-Path $lockDir  "chatter_runner_$Slug.pid"
+    }
 }
 
 function Write-G([string]$msg) {
@@ -110,10 +117,36 @@ function Invoke-WatchCheck {
     # It MUST also be called on the alive edge, not only on DOWN: a recovery can
     # only be observed from the healthy side. Calling it solely in the DOWN branch
     # (the original wiring) made the paired ✅ physically unreachable.
-    param([ValidateSet('down', 'up')][string]$State)
-    try { & $py $watchCheck --state $State 2>$null } catch {
+    #
+    # -Client: с N клиентами алерт обязан называть, КОГО чинить, и вести в его
+    # лог; маркеры тоже per-client, иначе авария одного глушила бы алерт о
+    # другом на час кулдауна.
+    param([ValidateSet('down', 'up')][string]$State,
+          [string]$Client)
+    try {
+        if ($Client) { & $py $watchCheck --state $State --client $Client 2>$null }
+        else         { & $py $watchCheck --state $State 2>$null }
+    } catch {
         # DEV-18: an alerter that dies silently is how you lose the next outage.
         Write-G "Invoke-WatchCheck FAILED: $($_.Exception.Message)"
+    }
+}
+
+function Get-RegistryPlan {
+    # Решение (парсинг + валидация реестра) принимает Python — там оно под
+    # pytest. Здесь только исполнение. PowerShell не умеет YAML, и держать
+    # валидацию конфликта сессий в .ps1 значило бы держать её непокрытой.
+    $raw = $null
+    try {
+        Push-Location $Root
+        try { $raw = & $py -m chatter.registry_cli --root $Root 2>$null }
+        finally { Pop-Location }
+        if (-not $raw) { throw 'registry_cli вернул пустой ответ' }
+        return ($raw | ConvertFrom-Json)
+    } catch {
+        # DEV-18: сломанный реестр обязан быть ВИДИМЫМ, а не уронить гардиан.
+        Write-G "Get-RegistryPlan FAILED: $($_.Exception.Message)"
+        return [pscustomobject]@{ fatal = $_.Exception.Message; clients = @() }
     }
 }
 
@@ -172,18 +205,26 @@ function Stop-LegacyRunners {
     if ($legacy.Count -gt 0) { Start-Sleep -Milliseconds 700 }
 }
 
-function Test-Runner {
-    # A runner process MUST exist AND its heartbeat must be fresh. The heartbeat
-    # file persists after death / across reboot, so freshness alone would falsely
-    # report alive — require the process first.
-    $proc = Get-RunnerProcesses
-    if (-not $proc) { return $false }
-    if (-not (Test-Path $hbFile)) { return $false }  # just launched, not ready yet
+function Get-HeartbeatAge {
+    # Возраст отметки живости клиента в секундах; $null — файла нет/битый.
+    param([Parameter(Mandatory)][string]$Slug)
+    $hb = (Get-ClientPaths -Slug $Slug).Hb
+    if (-not (Test-Path $hb)) { return $null }
     try {
-        $last = [int64]((Get-Content $hbFile -ErrorAction Stop | Select-Object -First 1).Trim())
-        $now  = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-        return (($now - $last) -le $HeartbeatMaxAgeSec)
-    } catch { return $false }
+        $last = [int64]((Get-Content $hb -ErrorAction Stop | Select-Object -First 1).Trim())
+        return ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - $last)
+    } catch { return $null }
+}
+
+function Test-Runner {
+    # Процесс клиента ДОЛЖЕН существовать И его heartbeat быть свежим.
+    # Файл heartbeat переживает смерть процесса и ребут, поэтому одна лишь
+    # свежесть соврала бы «жив»; процесс проверяется первым.
+    param([Parameter(Mandatory)][string]$Slug)
+    if (-not (Get-RunnerProcesses -Slug $Slug)) { return $false }
+    $age = Get-HeartbeatAge -Slug $Slug
+    if ($null -eq $age) { return $false }   # только что запущен, ещё не готов
+    return ($age -le $HeartbeatMaxAgeSec)
 }
 
 function Stop-OldRunner {
@@ -212,77 +253,180 @@ function Stop-OldRunner {
 }
 
 function Start-Runner {
-    if (-not (Stop-OldRunner)) {
-        Write-G "Start-Runner: old runner still alive - aborting launch (never start on top of a live session)"
+    # Состав персон, сессия и БД приходят ПЛАНОМ из реестра, а не зашиты здесь:
+    # подключение клиента остаётся правкой конфига, а не деплоем скрипта
+    # (онбординг-дырка №3). Пути передаём флагами раннера, а не через $env: —
+    # переменные окружения процесса гардиана общие для всех клиентов, и второй
+    # запуск затирал бы пины первого.
+    param(
+        [Parameter(Mandatory)][string]$Slug,
+        [string[]]$Personas,
+        [string]$Session,
+        [string]$Db
+    )
+    if (-not (Stop-OldRunner -Slug $Slug)) {
+        Write-G "[$Slug] Start-Runner: старый раннер жив - запуск отменён (никогда не стартуем поверх живой сессии)"
         return $false
     }
-    # Состав клиентов НЕ задаётся здесь намеренно (онбординг-дырка №3):
-    # раннер читает chatter/clients/active.yaml. Подключение нового клиента =
-    # строка в том файле + рестарт, а НЕ правка этого скрипта (то был бы
-    # деплой вместо онбординга). Разовое переопределение — CHATTER_PERSONAS.
+    $paths = Get-ClientPaths -Slug $Slug
     $runnerArgs = @('-u', '-m', 'chatter.telethon_run', '--llm', 'real')
+    if ($Personas -and $Personas.Count -gt 0) { $runnerArgs += @('--personas', ($Personas -join ',')) }
+    if ($Session) { $runnerArgs += @('--session', $Session) }
+    if ($Db)      { $runnerArgs += @('--db', $Db) }
+    $runnerArgs += @('--client', $Slug)
+
     $p = $null
     try {
         $p = Start-Process -FilePath $py -ArgumentList $runnerArgs -WorkingDirectory $Root `
-            -WindowStyle Hidden -RedirectStandardOutput $rOut -RedirectStandardError $rErr -PassThru -ErrorAction Stop
+            -WindowStyle Hidden -RedirectStandardOutput $paths.Out -RedirectStandardError $paths.Err -PassThru -ErrorAction Stop
     } catch {
-        Write-G "Start-Runner: Start-Process FAILED: $($_.Exception.Message)"
+        Write-G "[$Slug] Start-Runner: Start-Process FAILED: $($_.Exception.Message)"
         return $false
     }
-    # DEV-18: never claim success we didn't get. A null/empty PID means the
-    # launch didn't actually spawn a process (e.g. bad redirect) -- bail loudly.
+    # DEV-18: не заявляем успех, которого не получили. Пустой PID = процесс не
+    # родился (например, битый редирект) — сказать вслух.
     if (-not $p -or -not $p.Id) {
-        Write-G "Start-Runner: launch returned no process handle - treating as FAILED"
+        Write-G "[$Slug] Start-Runner: запуск не вернул хэндл процесса - считаю провалом"
         return $false
     }
-    Write-G "launched chatter runner (PID $($p.Id)) -> $rErr"
+    $p.Id | Out-File -FilePath $paths.Lock -Encoding ascii -Force
+    Write-G "[$Slug] launched chatter runner (PID $($p.Id)) -> $($paths.Err)"
     for ($i = 0; $i -lt 45; $i++) {
         Start-Sleep -Seconds 1
-        if (Test-Runner) { Write-G "runner heartbeat fresh after ~${i}s"; return $true }
+        if (Test-Runner -Slug $Slug) { Write-G "[$Slug] runner heartbeat fresh after ~${i}s"; return $true }
     }
-    Write-G "runner heartbeat NOT fresh after 45s - will retry next cycle"
+    Write-G "[$Slug] runner heartbeat NOT fresh after 45s - повтор в следующем цикле"
     return $false
 }
 
-if (-not $NoLoop) {
-    $lastState = ''
-    $consecutiveFail = 0
-    while ($true) {
-        Write-GuardianBeat
+# Состояние супервизора между циклами: дебаунс и рёбра — НА КЛИЕНТА.
+# Общие счётчики означали бы, что падение одного клиента сбрасывает дебаунс
+# другого и глушит его алерт.
+$script:Fail  = @{}
+$script:Last  = @{}
+$script:Since = @{}
 
-        if (Test-Runner) {
-            $consecutiveFail = 0
-            if ($lastState -ne 'alive') {
-                Write-G 'runner alive'
-                $lastState = 'alive'
-                # Alive EDGE (incl. the very first check after a guardian start):
-                # if a 🔴 is still open in the marker, this is what closes it with ✅.
-                # Firing on the first check matters — the guardian itself died and
-                # restarted mid-outage in prod (PID 8928 -> 12912), which resets
-                # $lastState; the marker, not this variable, is the durable memory.
-                Invoke-WatchCheck -State up
-            }
-        } else {
-            $consecutiveFail++
-            if ($consecutiveFail -lt $DebounceFailures) {
-                Write-G "runner check failed (${consecutiveFail}/${DebounceFailures}) - debouncing, not relaunching yet"
-            } else {
-                if ($lastState -ne 'dead') { Write-G 'runner DOWN - restarting'; $lastState = 'dead' }
-                # TG-alert the operator (stdlib-only, self-dedups via cooldown) BEFORE
-                # relaunch, so a crash is visible even if recovery also fails.
-                Invoke-WatchCheck -State down
-                $started = Start-Runner
-                if ($started -and (Test-Runner)) {
-                    $lastState = 'alive'
-                    $consecutiveFail = 0
-                    # THE main recovery path (down -> relaunch -> alive) resolves the
-                    # state right here, so the alive-branch edge above never sees it.
-                    # Without this call a successful self-heal — the common case —
-                    # would still leave the 🔴 unpaired.
-                    Invoke-WatchCheck -State up
+function Set-ClientState {
+    param([string]$Slug, [string]$State)
+    if ($script:Last[$Slug] -ne $State) { $script:Since[$Slug] = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() }
+    $script:Last[$Slug] = $State
+}
+
+function Invoke-Converge {
+    # Приводит живое к желаемому. -Plan для тестов и повторного использования
+    # в одном цикле; без него берём свежий план из реестра.
+    param($Plan)
+    if (-not $Plan) { $Plan = Get-RegistryPlan }
+    if ($Plan.fatal) {
+        Write-G "реестр сломан: $($Plan.fatal) - ничего не трогаю до починки"
+        return
+    }
+    foreach ($c in $Plan.clients) {
+        $slug = $c.slug
+        if (-not $script:Fail.ContainsKey($slug)) { $script:Fail[$slug] = 0 }
+
+        if ($c.runnable) {
+            if (Test-Runner -Slug $slug) {
+                $script:Fail[$slug] = 0
+                if ($script:Last[$slug] -ne 'alive') {
+                    Write-G "[$slug] runner alive"
+                    Set-ClientState -Slug $slug -State 'alive'
+                    Invoke-WatchCheck -State up -Client $slug
                 }
+                continue
+            }
+            $script:Fail[$slug]++
+            if ($script:Fail[$slug] -lt $DebounceFailures) {
+                Write-G "[$slug] проверка не прошла ($($script:Fail[$slug])/$DebounceFailures) - дебаунс, пока не перезапускаю"
+                Set-ClientState -Slug $slug -State 'starting'
+                continue
+            }
+            if ($script:Last[$slug] -ne 'down') { Write-G "[$slug] runner DOWN - перезапуск" }
+            Set-ClientState -Slug $slug -State 'down'
+            Invoke-WatchCheck -State down -Client $slug
+            $started = Start-Runner -Slug $slug -Personas $c.personas -Session $c.session -Db $c.db
+            if ($started -and (Test-Runner -Slug $slug)) {
+                $script:Fail[$slug] = 0
+                Set-ClientState -Slug $slug -State 'alive'
+                Invoke-WatchCheck -State up -Client $slug
             }
         }
+        elseif ($c.error) {
+            # СПЕКА §4 ПРАВИЛО 7: не запускаем, но живого НЕ УБИВАЕМ. Иначе
+            # опечатка в реестре роняла бы работающего клиента — валидация,
+            # написанная ради защиты прода, сама стала бы способом его уронить.
+            if ($script:Last[$slug] -ne 'invalid') { Write-G "[$slug] invalid: $($c.error)" }
+            Set-ClientState -Slug $slug -State 'invalid'
+        }
+        else {
+            # Выключен намеренно: остановить, если ещё жив.
+            if (Get-RunnerProcesses -Slug $slug) {
+                Write-G "[$slug] enabled=false - останавливаю"
+                Stop-OldRunner -Slug $slug | Out-Null
+            }
+            Set-ClientState -Slug $slug -State 'stopped'
+        }
+    }
+}
+
+function Write-ClientState {
+    # НАБЛЮДАЕМОЕ состояние: кто живёт на самом деле. Дашборд позже читает
+    # именно этот файл (а пишет — registry.yaml), поэтому форма фиксирована
+    # тестом. Запись атомарная: читатель не должен поймать половину файла.
+    param($Plan)
+    if (-not $Plan) { $Plan = Get-RegistryPlan }
+    $clients = @{}
+    foreach ($c in $Plan.clients) {
+        $slug = $c.slug
+        $procs = @(Get-RunnerProcesses -Slug $slug)
+        $age = Get-HeartbeatAge -Slug $slug
+        $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+
+        if ($c.error)            { $state = 'invalid' }
+        elseif (-not $c.runnable) { $state = 'stopped' }
+        elseif ($procs.Count -gt 0 -and $null -ne $age -and $age -le $HeartbeatMaxAgeSec) { $state = 'alive' }
+        elseif ($script:Last[$slug] -eq 'starting') { $state = 'starting' }
+        else                     { $state = 'down' }
+
+        $clients[$slug] = [ordered]@{
+            desired            = $c.desired
+            state              = $state
+            pid                = $(if ($procs.Count -gt 0) { $procs[0].ProcessId } else { $null })
+            heartbeat_ts       = $(if ($null -ne $age) { $now - $age } else { $null })
+            last_transition_ts = $(if ($script:Since.ContainsKey($slug)) { $script:Since[$slug] } else { $null })
+            consecutive_fail   = $(if ($script:Fail.ContainsKey($slug)) { $script:Fail[$slug] } else { 0 })
+            last_error         = $c.error
+        }
+    }
+    $payload = [ordered]@{
+        updated_ts = [int][DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        fatal      = $Plan.fatal
+        clients    = $clients
+    }
+    $tmp = "$stateFile.tmp"
+    try {
+        # UTF-8 БЕЗ BOM. Out-File -Encoding utf8 в PowerShell 5.1 ставит BOM, и
+        # json.loads на нём падает ("Unexpected UTF-8 BOM") — файл машинный,
+        # его читают Python и будущий дашборд, а не человек в блокноте.
+        $json = $payload | ConvertTo-Json -Depth 5
+        [System.IO.File]::WriteAllText($tmp, $json, (New-Object System.Text.UTF8Encoding $false))
+        Move-Item -LiteralPath $tmp -Destination $stateFile -Force
+    } catch {
+        Write-G "Write-ClientState FAILED: $($_.Exception.Message)"
+    }
+}
+
+if (-not $NoLoop) {
+    # Одноразовая зачистка легаси-раннеров (спека §9.1) ДО первой конвергенции:
+    # процесс, поднятый прежним скриптом, не имеет --client, точечный поиск его
+    # не видит, и супервизор поднял бы ВТОРОЙ процесс на ту же сессию.
+    Stop-LegacyRunners
+
+    while ($true) {
+        Write-GuardianBeat
+        $plan = Get-RegistryPlan
+        Invoke-Converge -Plan $plan
+        Write-ClientState -Plan $plan
         Start-Sleep -Seconds $IntervalSeconds
     }
 }

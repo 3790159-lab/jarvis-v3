@@ -253,3 +253,129 @@ def test_legacy_sweep_ignores_other_roots(tmp_path, kill_after):
     assert res.returncode == 0, res.stderr
     time.sleep(1.0)
     assert p.poll() is None, "чужой инстанс зачисткой не трогается"
+
+
+# ── Task 6: конвергенция и наблюдаемое состояние ───────────────────────────
+#
+# План передаём в функции ЯВНО (-Plan), а не подсовываем стаб: так проверяется
+# поведение супервизора, а не наша способность подделать питон в tmp-корне.
+# Сам контракт «Python отдал -> PowerShell разобрал» покрыт отдельным тестом
+# на РЕАЛЬНОМ CLI.
+
+def _plan_ps(json_text: str) -> str:
+    """PowerShell-выражение, дающее объект плана из JSON-литерала."""
+    escaped = json_text.replace("'", "''")
+    return f"$plan = '{escaped}' | ConvertFrom-Json"
+
+
+def _state(root: Path) -> dict:
+    import json
+    return json.loads((root / "state" / "chatter_clients.json").read_text("utf-8"))
+
+
+PLAN_DISABLED = """
+{"fatal": null, "clients": [
+  {"slug":"aaa","desired":"disabled","runnable":false,"error":null,
+   "personas":["aaa"],"session":".secrets/aaa.session","db":".secrets/aaa.db"}]}
+"""
+
+PLAN_CONFLICT = """
+{"fatal": null, "clients": [
+  {"slug":"aaa","desired":"enabled","runnable":false,
+   "error":"registry conflict: session '.secrets/shared.session' shared with enabled client(s) bbb",
+   "personas":["aaa"],"session":".secrets/shared.session","db":".secrets/aaa.db"},
+  {"slug":"bbb","desired":"enabled","runnable":false,
+   "error":"registry conflict: session '.secrets/shared.session' shared with enabled client(s) aaa",
+   "personas":["bbb"],"session":".secrets/shared.session","db":".secrets/bbb.db"}]}
+"""
+
+PLAN_MIXED = """
+{"fatal": null, "clients": [
+  {"slug":"off_one","desired":"disabled","runnable":false,"error":null,
+   "personas":["off_one"],"session":".secrets/off.session","db":".secrets/off.db"},
+  {"slug":"down_one","desired":"enabled","runnable":true,"error":null,
+   "personas":["down_one"],"session":".secrets/down.session","db":".secrets/down.db"}]}
+"""
+
+
+def test_disabled_client_is_stopped_and_marked_stopped(tmp_path, kill_after):
+    p = _runner(tmp_path, "aaa")
+    kill_after.append(p)
+    time.sleep(1.5)
+
+    res = _run_ps(_plan_ps(PLAN_DISABLED) +
+                  "\nInvoke-Converge -Plan $plan | Out-Null\nWrite-ClientState -Plan $plan", tmp_path)
+    assert res.returncode == 0, res.stderr
+    assert _wait_dead(p), "выключенный клиент должен быть остановлен"
+    assert _state(tmp_path)["clients"]["aaa"]["state"] == "stopped"
+
+
+def test_running_client_is_not_killed_by_a_validation_error(tmp_path, kill_after):
+    """Спека §4 правило 7. Опечатка в реестре не имеет права ронять ЖИВОГО
+    клиента: валидация, написанная ради защиты прода, не должна становиться
+    способом его уронить."""
+    a = _runner(tmp_path, "aaa")
+    kill_after.append(a)
+    time.sleep(1.5)
+
+    res = _run_ps(_plan_ps(PLAN_CONFLICT) +
+                  "\nInvoke-Converge -Plan $plan | Out-Null\nWrite-ClientState -Plan $plan", tmp_path)
+    assert res.returncode == 0, res.stderr
+    time.sleep(1.0)
+    assert a.poll() is None, "живой клиент убит из-за конфликта в реестре"
+
+    st = _state(tmp_path)["clients"]["aaa"]
+    assert st["state"] == "invalid"
+    assert "bbb" in st["last_error"], "ошибка обязана называть второго участника"
+
+
+def test_observed_state_distinguishes_stopped_from_down(tmp_path):
+    """«Выключен» и «упал» требуют противоположной реакции; слипшись в одно
+    состояние, они дают либо ложные алерты, либо пропущенные аварии."""
+    res = _run_ps(_plan_ps(PLAN_MIXED) + "\nWrite-ClientState -Plan $plan", tmp_path)
+    assert res.returncode == 0, res.stderr
+    clients = _state(tmp_path)["clients"]
+    assert clients["off_one"]["state"] == "stopped"
+    assert clients["down_one"]["state"] == "down"
+
+
+def test_client_state_json_has_full_shape(tmp_path):
+    """Поля фиксированы тестом: их читает дашборд, который ляжет сверху."""
+    res = _run_ps(_plan_ps(PLAN_MIXED) + "\nWrite-ClientState -Plan $plan", tmp_path)
+    assert res.returncode == 0, res.stderr
+    st = _state(tmp_path)
+    assert isinstance(st["updated_ts"], int)
+    entry = st["clients"]["down_one"]
+    for key in ("desired", "state", "pid", "heartbeat_ts",
+                "last_transition_ts", "consecutive_fail", "last_error"):
+        assert key in entry, f"нет поля {key} — его читает дашборд"
+
+
+def test_broken_registry_does_not_crash_the_supervisor(tmp_path):
+    """DEV-18: сломанный реестр обязан быть ВИДИМЫМ, а не уронить гардиан."""
+    plan = '{"fatal": "registry.yaml: нет ключа clients", "clients": []}'
+    res = _run_ps(_plan_ps(plan) +
+                  "\nInvoke-Converge -Plan $plan | Out-Null\nWrite-ClientState -Plan $plan", tmp_path)
+    assert res.returncode == 0, res.stderr
+    assert _state(tmp_path)["fatal"]
+
+
+def test_real_cli_output_parses_in_powershell(tmp_path):
+    """Сквозной контракт Python -> PowerShell на РЕАЛЬНОМ CLI: стабы выше
+    доказывают поведение, но не то, что стороны понимают друг друга."""
+    body = (
+        f"$raw = & '{sys.executable}' -m chatter.registry_cli --root '{REPO_ROOT}' ;"
+        "$p = $raw | ConvertFrom-Json ;"
+        "Write-Output ($p.clients.Count) ;"
+        "Write-Output ($p.clients[0].slug) ;"
+        "Write-Output ($p.clients[0].runnable.GetType().Name)"
+    )
+    res = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+         "-Command", f"Set-Location '{REPO_ROOT}'; {body}"],
+        capture_output=True, text=True, timeout=60, encoding="utf-8", errors="replace")
+    assert res.returncode == 0, res.stderr
+    out = [l.strip() for l in res.stdout.strip().splitlines() if l.strip()]
+    assert out[0] == "2", f"ожидали 2 клиента в реестре, получили {out}"
+    assert out[1] == "volska"
+    assert out[2] == "Boolean", "runnable должен разбираться как bool, а не строка"
