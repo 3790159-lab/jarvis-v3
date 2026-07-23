@@ -927,6 +927,60 @@ def test_get_runner_processes_ignores_other_roots(tmp_path):
     finally:
         if p.poll() is None:
             p.kill()
+
+
+def _legacy_runner(root: Path) -> subprocess.Popen:
+    """Раннер СТАРОЙ формы: без --client (так его запускал прежний скрипт)."""
+    venv = root / ".venv" / "Scripts"
+    venv.mkdir(parents=True, exist_ok=True)
+    py = venv / "python.exe"
+    if not py.exists():
+        py.write_bytes(Path(sys.executable).read_bytes())
+    script = root / "chatter.telethon_run"
+    script.write_text("import time\nwhile True: time.sleep(0.2)\n", encoding="utf-8")
+    return subprocess.Popen(
+        [str(py), "-u", str(script), "--llm", "real"],
+        cwd=str(root), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def test_legacy_runner_without_client_is_swept(tmp_path):
+    """🔴 МИНА ДЕПЛОЯ (спека §9.1). Живой раннер запущен СТАРЫМ скриптом, у него
+    нет --client. Новый супервизор ищет по токену --client, живого не находит,
+    считает клиента упавшим и поднимает ВТОРОЙ раннер — два процесса на одной
+    demo.session, ровно та катастрофа, ради которой написана валидация §4,
+    только протащенная через дверь, которую валидация не сторожит."""
+    legacy = _legacy_runner(tmp_path)
+    try:
+        time.sleep(1.5)
+        assert legacy.poll() is None
+        # Легаси НЕ виден точечному поиску — это и есть причина мины.
+        res = _run_ps("(Get-RunnerProcesses -Slug volska | Measure-Object).Count", tmp_path)
+        assert res.stdout.strip().splitlines()[-1] == "0"
+        # ...поэтому супервизор обязан зачистить его отдельно, до конвергенции.
+        res = _run_ps("Stop-LegacyRunners | Out-Null", tmp_path)
+        assert res.returncode == 0, res.stderr
+        deadline = time.time() + 15
+        while legacy.poll() is None and time.time() < deadline:
+            time.sleep(0.3)
+        assert legacy.poll() is not None, "легаси-раннер должен быть зачищен"
+    finally:
+        if legacy.poll() is None:
+            legacy.kill()
+
+
+def test_legacy_sweep_does_not_touch_managed_runners(tmp_path):
+    """Зачистка бьёт ТОЛЬКО процессы без --client: иначе она убила бы клиентов,
+    которых сама же и подняла, и супервизор зациклился бы на рестартах."""
+    managed = _fake_runner(tmp_path, "aaa")
+    try:
+        time.sleep(1.5)
+        res = _run_ps("Stop-LegacyRunners | Out-Null", tmp_path)
+        assert res.returncode == 0, res.stderr
+        time.sleep(1.0)
+        assert managed.poll() is None, "клиент с --client зачисткой не трогается"
+    finally:
+        if managed.poll() is None:
+            managed.kill()
 ```
 
 - [ ] **Step 2: Прогнать — упадёт**
@@ -957,6 +1011,27 @@ function Get-RunnerProcesses {
         }
 }
 
+function Stop-LegacyRunners {
+    # МИНА ДЕПЛОЯ (спека §9.1). Раннер, запущенный ПРЕЖНИМ скриптом, не имеет
+    # --client в командной строке, поэтому Get-RunnerProcesses -Slug его не
+    # видит. Без этой зачистки новый супервизор решит, что клиент упал, и
+    # поднимет второй процесс на ту же Telethon-сессию.
+    #
+    # Зовётся ОДИН раз перед первой конвергенцией. После миграции легаси-формы
+    # не возникает никогда (супервизор всегда передаёт --client), поэтому
+    # зачистка самоустраняется и повторного вреда не несёт.
+    $legacy = Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.CommandLine -like "*$Root*chatter.telethon_run*" -and
+            $_.CommandLine -notmatch '--client(\s|$)'
+        }
+    foreach ($p in $legacy) {
+        & taskkill.exe /PID $p.ProcessId /T /F *> $null
+        Write-G "legacy-раннер без --client зачищен (PID $($p.ProcessId)) - миграция §9.1"
+    }
+    if ($legacy) { Start-Sleep -Milliseconds 700 }
+}
+
 function Stop-OldRunner {
     param([Parameter(Mandatory)][string]$Slug, [int]$MaxWaitSec = 10)
 
@@ -980,7 +1055,7 @@ function Stop-OldRunner {
 - [ ] **Step 4: Прогнать — зелёное**
 
 Run: `./.venv/Scripts/python.exe -m pytest tests/test_chatter_guardian_multiclient.py -q`
-Expected: PASS (4 теста)
+Expected: PASS (6 тестов: 4 скоуп + 2 зачистка легаси)
 
 - [ ] **Step 5: Коммит**
 
@@ -1269,74 +1344,120 @@ git commit -F <msg-file>   # docs(chatter): онбординг через рее
 
 ## Task 9: 🔴 Миграция volska (ЖИВАЯ — только после утренних дрилов)
 
-**Предусловия:** утренние дрилы (память + Д-7) пройдены; владелец дал команду; Задачи 1–8 смержены в `phase-4.0`.
+**Предусловия:** утренние дрилы (память + Д-7) пройдены; владелец дал команду; Задачи 1–8 сделаны и зелёные в ветке арки.
 
-- [ ] **Step 1: Снять baseline фактом**
+⚠️ Мерж в `phase-4.0` НЕ единой операцией: шаг 2 вносит только `registry.yaml`,
+остальное — шагом 5. Порядок обоснован в спеке §9.2 (окно, где новый супервизор
+живой, а источника правды ещё нет).
+
+- [ ] **Step 1: Снять baseline фактом и ЗАПИСАТЬ PRE_MERGE_SHA**
 
 ```powershell
 Get-CimInstance Win32_Process -Filter "Name like '%python%'" |
   Where-Object { $_.CommandLine -match 'telethon_run' } |
-  Select-Object ProcessId, CreationDate
+  Select-Object ProcessId, CreationDate, CommandLine
 Get-Content C:\jarvis\state\chatter_heartbeat.txt
+git -C C:\jarvis rev-parse HEAD    # <PRE_MERGE_SHA> — выписать в отчёт СЕЙЧАС
 ```
 
-- [ ] **Step 2: Репетиция валидации на demo (живой тест правила конфликта)**
+`<PRE_MERGE_SHA>` записывается ДО любых изменений: искать нужный коммит в
+истории под давлением отката нельзя.
+
+- [ ] **Step 2: Положить registry.yaml в прод ОТДЕЛЬНЫМ коммитом (без правок скрипта)**
+
+Смержить в `phase-4.0` только `chatter/clients/registry.yaml`. Старый скрипт
+гардиана реестра не читает вовсе — поведение прода не меняется ни на йоту.
+
+- [ ] **Step 3: Проверить реестр CLI на РЕАЛЬНЫХ путях**
+
+Run: `python -m chatter.registry_cli --root C:\jarvis`
+Expected: `volska` → `"runnable": true`, `"error": null`; `demo` → `"desired": "disabled"`; `"fatal": null`
+
+🔴 Если `runnable=false` — СТОП. Откатывать нечего, миграция не начиналась.
+
+- [ ] **Step 4: Репетиция конфликта (живой тест правила §4)**
 
 ```powershell
 .\scripts\chatter_client.ps1 -Slug demo -Action start
-Start-Sleep -Seconds 40
-Get-Content C:\jarvis\state\chatter_clients.json
-```
-
-Expected: `demo.state = "invalid"`, `last_error` называет `volska`; **volska жива и не тронута** (тот же PID). Это живое подтверждение спеки §4 правил 3 и 7.
-
-- [ ] **Step 3: Вернуть demo выключенным**
-
-```powershell
+python -m chatter.registry_cli --root C:\jarvis
 .\scripts\chatter_client.ps1 -Slug demo -Action stop
 ```
 
-- [ ] **Step 4: Переключить гардиан на новый код**
+Expected: оба клиента `runnable=false`, `error` каждого называет второго; volska
+жива и не тронута (тот же PID) — CLI ничего не запускает.
 
-Мерж арочной ветки в `phase-4.0` → рабочее дерево `C:\jarvis` обновляется →
-перерегистрация и рестарт задачи:
+- [ ] **Step 5: Смержить остальную арку (скрипт + раннер + алертер)**
+
+После этого на диске новый скрипт, но в памяти задачи — ещё старый.
+⚠️ С этого момента срабатывание задачи гардиана поднимет НОВЫЙ супервизор
+(спека §9.3, второй шов) — это безопасно только потому, что реализован
+`Stop-LegacyRunners` (§9.1, Task 5).
+
+- [ ] **Step 6: Рестарт задачи гардиана**
 
 ```powershell
 schtasks /End /TN JarvisChatterGuardian
 schtasks /Run /TN JarvisChatterGuardian
 ```
 
-- [ ] **Step 5: Проверка фактом (Get-Content, не dir)**
+Ожидаемо в `logs/chatter_guardian.stdout.log`: строка про зачистку
+legacy-раннера без `--client`, затем старт volska.
+
+- [ ] **Step 7: Проверка фактом — пять критериев приёмки (спека §9.5)**
 
 ```powershell
-Get-Content C:\jarvis\logs\chatter_volska.log -Tail 20 -Encoding UTF8
-Get-Content C:\jarvis\state\chatter_clients.json
 Get-CimInstance Win32_Process -Filter "Name like '%python%'" |
   Where-Object { $_.CommandLine -match 'telethon_run' } |
-  Select-Object ProcessId, CommandLine
-```
-
-Expected: ровно один клиент `volska` в состоянии `alive`; в логе `catch-up`, ноль `ERROR|Traceback`; `honesty_mode: honest`, `funnel_gate: false`.
-⚠️ Размер живого лога через `dir`/GCI не смотреть — NTFS врёт при открытом write-хэндле.
-
-- [ ] **Step 6: Профиль контакта пережил рестарт**
-
-```powershell
+  Select-Object ProcessId, CreationDate, CommandLine
+Get-Content C:\jarvis\state\chatter_clients.json
+Get-Content C:\jarvis\logs\chatter_volska.log -Tail 30 -Encoding UTF8
+Get-Content C:\jarvis\logs\chatter_volska.log -Encoding UTF8 |
+  Select-String -Pattern 'ERROR|CRITICAL|Traceback'
 python -c "import sqlite3;c=sqlite3.connect(r'C:\jarvis\.secrets\demo.db');print(c.execute(\"SELECT version FROM contact_profile WHERE contact_id='237616472:volska' ORDER BY version DESC LIMIT 1\").fetchone())"
 ```
 
-Expected: `(5,)` или выше.
+Все пять критериев §9.5: один процесс volska с `--client` · `state=alive`,
+`last_error=null` · `catch-up` есть и ноль `ERROR|CRITICAL|Traceback` ·
+`honesty_mode: honest` + `funnel_gate: false` · профиль версии ≥ 5.
+⚠️ Размер живого лога через `dir`/GCI не смотреть — NTFS врёт при открытом
+write-хэндле.
 
-- [ ] **Step 7: Удалить семидемо-механизм**
+Любой красный критерий → откат Step 9.
 
-Удалить `state/chatter_semidemo_volska.flag` и `scripts/run_volska_semidemo.ps1`. Коммит.
+- [ ] **Step 8: Окно стабильности ≥ суток, ПОТОМ убрать семидемо**
 
-**Откат (если Step 5 красный):** вернуть `phase-4.0` на коммит до мержа арки (рабочее дерево = деплой, ~90с), восстановить флаг `state/chatter_semidemo_volska.flag`. Пины для ручного восстановления: `CHATTER_PERSONAS=volska`, `TELETHON_SESSION=.secrets\demo.session`, `CHATTER_DB=.secrets\demo.db`.
+Только после суток без инцидентов удалить `state/chatter_semidemo_volska.flag`
+и `scripts/run_volska_semidemo.ps1`. Отдельным коммитом.
+
+Раньше — нельзя: пока они на диске, откат стоит одну команду.
+
+- [ ] **Step 9: Откат (если Step 7 красный) — проверенный, а не предполагаемый**
+
+⚠️ `run_volska_semidemo.ps1 -Revert` для ЭТОГО отката НЕ подходит: его ветка
+`-Revert` поднимает **Аню** (`active.yaml` = demo,demo2), а не volska. Нужен
+запуск БЕЗ `-Revert` — он пересоздаёт флаг и перезапускает гардиан.
+
+```powershell
+git -C C:\jarvis reset --hard <PRE_MERGE_SHA>   # дерево = деплой, ~90с
+C:\jarvis\scripts
+un_volska_semidemo.ps1      # БЕЗ -Revert
+Get-Content C:\jarvis\logs\chatter_volska.log -Tail 10 -Encoding UTF8
+Get-CimInstance Win32_Process -Filter "Name like '%python%'" |
+  Where-Object { $_.CommandLine -match 'telethon_run' } | Select-Object ProcessId, CommandLine
+```
+
+Откат считается выполненным только после третьей команды: процесс с ожидаемой
+командной строкой и свежая запись в логе. «Скрипт отработал без ошибки» —
+не проверка.
+
+Пины для ручного восстановления, если скрипт недоступен: `CHATTER_PERSONAS=volska`,
+`TELETHON_SESSION=.secrets\demo.session`, `CHATTER_DB=.secrets\demo.db`,
+`state\chatter_semidemo_volska.flag` (пустой файл, само наличие = сигнал).
 
 ---
 
 ## Self-Review (выполнен)
 
-**Покрытие спеки:** §1.1 хардкод → Task 6 Step 3.1; §1.2 взаимное убийство → Task 5; §2 топология → Task 2+6; §3 реестр → Task 2; §3.1 сохранённое свойство → Task 8; §4 валидация (правила 1–6) → Task 1; §4 правило 7 → Task 6 (`test_running_client_is_not_killed_by_a_validation_error`); §5 изоляция файлов → Task 3 + Task 6 `Get-ClientPaths`; §6 observed state → Task 6; §7 алерты → Task 4; §8 старт/стоп → Task 7; §9 миграция → Task 9; §11 тесты → распределены по задачам.
+**Покрытие спеки:** §1.1 хардкод → Task 6 Step 3.1; §1.2 взаимное убийство → Task 5; §2 топология → Task 2+6; §3 реестр → Task 2; §3.1 сохранённое свойство → Task 8; §4 валидация (правила 1–6) → Task 1; §4 правило 7 → Task 6 (`test_running_client_is_not_killed_by_a_validation_error`); §9.1 мина легаси-раннера → Task 5 (`test_legacy_runner_without_client_is_swept`); §5 изоляция файлов → Task 3 + Task 6 `Get-ClientPaths`; §6 observed state → Task 6; §7 алерты → Task 4; §8 старт/стоп → Task 7; §9 миграция → Task 9; §11 тесты → распределены по задачам.
 
 **Пробелов не найдено.** Плейсхолдеров нет. Имена согласованы across задач: `heartbeat_path_for`, `build_arg_parser`, `--client`, `Get-RunnerProcesses -Slug`, `Stop-OldRunner -Slug`, `Invoke-Converge`, `Write-ClientState`, `Get-ClientPaths`, `Get-RegistryPlan`, `build_plan`, `parse_registry`, `validate`, `normalize_path`, `ClientEntry`, `ClientIssue`, `RegistryError`.
