@@ -201,6 +201,17 @@ CATCHUP_MAX_AGE_SECONDS = 24 * 3600
 HEARTBEAT_PATH = Path("state") / "chatter_heartbeat.txt"
 HEARTBEAT_INTERVAL_SECONDS = 30
 
+
+def heartbeat_path_for(client: str | None) -> Path:
+    """Per-client отметка живости. Без --client — легаси-путь (ручной запуск).
+
+    Общий файл на N раннеров сделал бы супервизор слепым: свежая отметка
+    ОДНОГО клиента читалась бы как признак жизни ВСЕХ, и упавший клиент
+    выглядел бы здоровым, пока жив хоть один сосед."""
+    if not client:
+        return HEARTBEAT_PATH
+    return Path("state") / f"chatter_heartbeat_{client}.txt"
+
 # Период авто-возврата (спека §8). Объявлена ЗДЕСЬ, на уровне модуля, ДО
 # любых def -- её использует и render_status() (Task 12, ниже) как дефолт
 # отображения, и autoresume_loop() (Task 13) КАК ЗНАЧЕНИЕ ПО УМОЛЧАНИЮ
@@ -1774,6 +1785,34 @@ def run_client(
         return 2
 
 
+def build_arg_parser() -> argparse.ArgumentParser:
+    """Парсер вынесен из main(), чтобы состав флагов проверялся тестом, а не
+    глазами: молча потерянный флаг при рефакторинге main() был бы незаметен."""
+    p = argparse.ArgumentParser(prog="chatter.telethon_run")
+    # Дефолт живёт в chatter/clients/active.yaml (онбординг-дырка №3), а не
+    # здесь и не в скрипте гардиана: подключение клиента — правка конфига,
+    # а не деплой. С приходом реестра состав передаёт супервизор явно.
+    p.add_argument("--personas", default=None,
+                   help="comma-separated persona slugs; the FIRST is primary "
+                        "(supplies the allowlist) and the default for new senders. "
+                        "По умолчанию — список из clients/active.yaml")
+    p.add_argument("--clients-dir", default=str(Path(__file__).resolve().parent / "clients"))
+    # Дефолта нет: путь выводится из ПЕРВИЧНОГО slug'а (онбординг-дырка №4),
+    # поэтому забыть флаг и молча сесть на файлы другого клиента невозможно.
+    p.add_argument("--session", default=None,
+                   help="по умолчанию .secrets/<первичный-slug>.session")
+    p.add_argument("--db", default=None,
+                   help="по умолчанию .secrets/<первичный-slug>.db")
+    p.add_argument("--llm", choices=["auto", "real", "fake"], default="auto")
+    # ПОСЛЕДНИМ намеренно: значение попадает в командную строку процесса, и по
+    # нему супервизор точечно находит и убивает раннер ИМЕННО этого клиента.
+    # Раньше матч шёл по имени модуля и бил всех раннеров сразу — из-за этого
+    # подъём второго клиента убивал первого.
+    p.add_argument("--client", default=None,
+                   help="slug клиента: идентичность процесса + путь heartbeat")
+    return p
+
+
 def main(argv: list[str] | None = None) -> int:
     # Same rationale as chatter/run.py's main(): Windows consoles default to a
     # legacy codepage that silently mangles Cyrillic instead of raising.
@@ -1787,23 +1826,7 @@ def main(argv: list[str] | None = None) -> int:
     # (4xx/5xx) по-прежнему видны.
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
-    p = argparse.ArgumentParser(prog="chatter.telethon_run")
-    # Дефолт живёт в chatter/clients/active.yaml (онбординг-дырка №3), а не
-    # здесь и не в скрипте гардиана: подключение клиента — правка конфига,
-    # а не деплой.
-    p.add_argument("--personas", default=None,
-                    help="comma-separated persona slugs; the FIRST is primary "
-                         "(supplies the allowlist) and the default for new senders. "
-                         "По умолчанию — список из clients/active.yaml")
-    p.add_argument("--clients-dir", default=str(Path(__file__).resolve().parent / "clients"))
-    # Дефолта нет: путь выводится из ПЕРВИЧНОГО slug'а (онбординг-дырка №4),
-    # поэтому забыть флаг и молча сесть на файлы другого клиента невозможно.
-    p.add_argument("--session", default=None,
-                    help="по умолчанию .secrets/<первичный-slug>.session")
-    p.add_argument("--db", default=None,
-                    help="по умолчанию .secrets/<первичный-slug>.db")
-    p.add_argument("--llm", choices=["auto", "real", "fake"], default="auto")
-    args = p.parse_args(argv)
+    args = build_arg_parser().parse_args(argv)
 
     # P1/P2 слой процесса (§2.1/§2.3): все файловые секреты (.env.enc, при
     # первой встрече — авто-миграция plaintext .env → .enc) грузятся В ПАМЯТЬ
@@ -1880,7 +1903,7 @@ def main(argv: list[str] | None = None) -> int:
         runner.me_id = (await client.get_me()).id
         # Own liveness stamp for the guardian, forever, alongside the one-shot
         # catch-up of anything that arrived while we were down.
-        loop.create_task(heartbeat_loop())
+        loop.create_task(heartbeat_loop(path=heartbeat_path_for(args.client)))
         # Периодический авто-возврат (спека §8) -- тоже вечный фоновый цикл,
         # запускается рядом с heartbeat_loop по той же причине: должен жить
         # весь срок процесса, а не один раз при старте.

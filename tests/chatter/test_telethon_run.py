@@ -691,3 +691,37 @@ def test_message_arriving_during_processing_is_not_lost():
         ], "сообщение, пришедшее во время обработки, потеряно"
 
     asyncio.run(scenario())
+
+
+# ── мультиклиентность: идентичность процесса и per-slug heartbeat ───────────
+#
+# N раннеров, пишущих в ОДИН heartbeat-файл, делают супервизор слепым: свежая
+# отметка одного клиента читается как признак жизни всех. А --client в
+# командной строке — то, по чему супервизор точечно находит и убивает раннер
+# ИМЕННО этого клиента (раньше матч шёл по имени модуля и бил всех сразу).
+
+def test_heartbeat_path_for_derives_per_client_file():
+    from chatter.telethon_run import heartbeat_path_for
+    assert heartbeat_path_for("volska") == Path("state") / "chatter_heartbeat_volska.txt"
+    assert heartbeat_path_for("acme") == Path("state") / "chatter_heartbeat_acme.txt"
+
+
+def test_heartbeat_path_for_without_client_keeps_legacy_path():
+    """Ручной запуск без --client ведёт себя как раньше."""
+    from chatter.telethon_run import HEARTBEAT_PATH, heartbeat_path_for
+    assert heartbeat_path_for(None) == HEARTBEAT_PATH
+    assert heartbeat_path_for("") == HEARTBEAT_PATH
+
+
+def test_client_arg_is_parsed_and_defaults_to_none():
+    from chatter.telethon_run import build_arg_parser
+    assert build_arg_parser().parse_args([]).client is None
+    assert build_arg_parser().parse_args(["--client", "volska"]).client == "volska"
+
+
+def test_build_arg_parser_keeps_existing_arguments():
+    """Вынос парсера в функцию не должен молча потерять существующие флаги."""
+    from chatter.telethon_run import build_arg_parser
+    ns = build_arg_parser().parse_args(
+        ["--personas", "a,b", "--session", "s", "--db", "d", "--llm", "fake"])
+    assert (ns.personas, ns.session, ns.db, ns.llm) == ("a,b", "s", "d", "fake")
