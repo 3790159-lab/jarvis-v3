@@ -24,12 +24,37 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.skipif(
-    sys.platform != "win32",
-    reason="гардиан Windows-only (PowerShell + taskkill + Win32_Process)")
+pytestmark = [
+    pytest.mark.skipif(
+        sys.platform != "win32",
+        reason="гардиан Windows-only (PowerShell + taskkill + Win32_Process)"),
+    pytest.mark.skipif(
+        not (Path(sys.base_prefix) / "python.exe").exists(),
+        reason="нет базового интерпретатора вне C:\\jarvis — фейки были бы "
+               "видимы прод-гардиану, тест опаснее пропуска"),
+]
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = REPO_ROOT / "scripts" / "chatter_guardian_detached.ps1"
+
+# 🔴 ИНТЕРПРЕТАТОР ФЕЙКОВ БЕРЁМ БАЗОВЫЙ, А НЕ sys.executable.
+#
+# Под pytest sys.executable == C:\jarvis\.venv\Scripts\python.exe, то есть путь
+# САМ содержит 'C:\jarvis'. Живой ПРОД-гардиан ищет раннеры шаблоном
+# "*$Root*chatter.telethon_run*" при $Root='C:\jarvis' — и принимал бы каждый
+# мой тестовый процесс за настоящего раннера.
+#
+# Опасно не то, что прод убьёт мой фейк (это терпимо), а обратное: в
+# Test-Runner проверка процесса идёт ПЕРЕД heartbeat. Если volska умрёт, пока
+# жив мой фейк, гардиан видит «процесс есть» и падает на второй гейт —
+# heartbeat, который считается свежим ещё 180с. Восстановление и 🔴-алерт
+# уезжают с ~90с до ~270с: Ольга лежит молча три минуты.
+#
+# Базовый интерпретатор лежит вне C:\jarvis, скрипт фейка — в pytest-tmp,
+# поэтому командная строка фейка не содержит 'C:\jarvis' вовсе.
+# Инвариант держится тестом test_fake_runners_are_invisible_to_prod_guardian.
+BASE_PY = Path(sys.base_prefix) / "python.exe"
+PROD_ROOT = r"C:\jarvis"
 
 
 def _run_ps(body: str, root: Path, timeout: int = 60) -> subprocess.CompletedProcess:
@@ -47,7 +72,7 @@ def _spawn(root: Path, *extra: str) -> subprocess.Popen:
     script = root / "chatter.telethon_run"
     script.write_text("import time\nwhile True: time.sleep(0.2)\n", encoding="utf-8")
     return subprocess.Popen(
-        [sys.executable, "-u", str(script), "--llm", "real", *extra],
+        [str(BASE_PY), "-u", str(script), "--llm", "real", *extra],
         cwd=str(root), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -80,6 +105,38 @@ def kill_after():
     for p in procs:
         if p.poll() is None:
             p.kill()
+
+
+# ── 🔴 сторож: фейки не должны быть видны ЖИВОМУ прод-гардиану ─────────────
+
+def test_fake_runners_are_invisible_to_prod_guardian(tmp_path, kill_after):
+    """Тестовые процессы обязаны быть невидимы гардиану, который прямо сейчас
+    стережёт Ольгу.
+
+    Опасность НЕ в том, что прод убьёт мой фейк (терпимо, максимум флейк), а в
+    обратном направлении: в Test-Runner проверка процесса идёт ПЕРЕД heartbeat,
+    поэтому живой посторонний матч заставляет гардиан считать мёртвого volska
+    живым, пока heartbeat не протухнет (180с). Восстановление и 🔴-алерт
+    уезжают с ~90с до ~270с — Ольга лежит молча три минуты.
+
+    Проверяем ФАКТОМ по реальной командной строке запущенного процесса, а не
+    по конструкции строки в тесте."""
+    p = _runner(tmp_path, "aaa")
+    kill_after.append(p)
+    time.sleep(1.5)
+
+    res = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+         "-Command",
+         f"(Get-CimInstance Win32_Process -Filter \"ProcessId={p.pid}\").CommandLine"],
+        capture_output=True, text=True, timeout=40, encoding="utf-8", errors="replace")
+    assert res.returncode == 0, res.stderr
+    cmdline = res.stdout.strip()
+    assert cmdline, "не удалось прочитать командную строку фейка"
+
+    assert PROD_ROOT.lower() not in cmdline.lower(), (
+        f"командная строка тестового процесса содержит {PROD_ROOT} и будет "
+        f"принята живым прод-гардианом за раннера volska: {cmdline!r}")
 
 
 # ── 🔴 главный регресс арки ────────────────────────────────────────────────
