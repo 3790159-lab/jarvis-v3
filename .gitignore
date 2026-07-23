@@ -82,3 +82,26 @@ data/block_m2_face_swap/
 
 # chatter config versions (created at runtime, never commit)
 chatter/clients/*/.versions/
+
+# --- Secrets blanket 2026-07-24: catch-all, не по одному файлу ---
+# Повод: .env.enc лежал untracked И не в .gitignore — один `git add .` и
+# зашифрованный конфиг уехал бы в историю навсегда.
+# Правило: всё семейство .env — под запретом, .example/.stage3 возвращаем явно.
+.env.*
+!.env.example
+!.env.runpod.example
+!.env.stage3
+
+# Ключевой материал и сессии — где бы ни лежали (не только в /.secrets/)
+entropy.bin
+*.session
+*.session-journal
+*.key
+*.pem
+
+# Резервные копии Jarvis (могут содержать .env целиком)
+*.jrvbak
+
+# Пробы секретов (state/ уже игнорируется, дублируем на случай переезда)
+secrets_probe
+secrets_probe.*
