@@ -72,3 +72,69 @@ def test_no_part_ends_mid_word():
     for p in parts[:-1]:
         stripped = p.rstrip()
         assert stripped and stripped[-1] in _SENTENCE_END
+
+
+# --- URL: не рвать ссылку (дрил 1, 2026-07-23: портфолио ушло ТРЕМЯ
+# сообщениями «https://www.» / «volska.» / «agency/uk/proekty/» — сплит по
+# точкам внутри домена + склейка предложений через пробел) -------------------
+_DRILL_URL = "https://www.volska.agency/uk/proekty/"
+_DRILL_TEXT = (
+    "Добре, тоді робимо новий логотип з нуля - 300–400 $, 5–10 робочих днів "
+    "разом із правками. Можу скинути приклади наших робіт у портфоліо, щоб ви "
+    f"подивились стиль виконання: {_DRILL_URL} А для старту було б добре, "
+    "якби ви накидали короткий бриф - сфера вже зрозуміла, стиль теж."
+)
+
+
+def test_url_whole_in_exactly_one_part():
+    """Ссылка ЦЕЛИКОМ в одном сообщении — живой кейс дрила байт-в-байт."""
+    parts = H.split_message(_DRILL_TEXT, TIMINGS)
+    assert sum(_DRILL_URL in p for p in parts) == 1
+    # ни одна часть не несёт ОГРЫЗОК ссылки (фрагмент без полного URL)
+    for p in parts:
+        if "volska" in p or "agency" in p:
+            assert _DRILL_URL in p, p
+
+
+def test_url_no_spaces_injected_inside_link():
+    """Сборка предложений склеивает через пробел — внутри URL пробелам не
+    место, даже когда ссылка осталась в одной части."""
+    parts = H.split_message(_DRILL_TEXT, TIMINGS)
+    blob = " ".join(parts)
+    assert "https://www. " not in blob and " volska. " not in blob
+
+
+def test_multiple_urls_with_text_around_stay_intact():
+    urls = ("https://www.volska.agency/uk/proekty/",
+            "https://example.com/case?id=1&x=2")
+    text = (
+        "Перше речення досить довге, щоб спрацював сплит на кілька частин. "
+        f"Ось наше портфоліо з роботами: {urls[0]} і ще один окремий кейс: "
+        f"{urls[1]}. Далі йде текст про бриф і наступні кроки, щоб довжина "
+        "повідомлення гарантовано перевищила поріг розбиття на частини."
+    )
+    parts = H.split_message(text, TIMINGS)
+    for u in urls:
+        assert sum(u in p for p in parts) == 1, u
+    # содержание сохранено (пробелы в стороне)
+    assert "".join(parts).replace(" ", "") == text.replace(" ", "")
+
+
+def test_url_trailing_sentence_dot_stays_outside_link():
+    """Точка-терминатор сразу после ссылки — часть предложения, не URL:
+    сплит по ней работать ДОЛЖЕН, ссылка при этом цела."""
+    text = ("Дивіться кейс тут: https://example.com/case?id=1&x=2. "
+            "Наступне речення досить довге і продовжує думку далі, щоб "
+            "сумарна довжина тексту гарантовано перевищила поріг сплита і "
+            "розбиття відбулося по межі речень як звичайно.")
+    parts = H.split_message(text, TIMINGS)
+    assert sum("https://example.com/case?id=1&x=2" in p for p in parts) == 1
+
+
+def test_typography_does_not_corrupt_urls():
+    """humanize_typography идёт ДО сплита: «!» → «.» внутри URL ломал бы
+    ссылку ещё до разбиения."""
+    text = "Дивіться: https://ex.com/a!b?x=1 і напишіть!"
+    out = H.humanize_typography(text)
+    assert "https://ex.com/a!b?x=1" in out
+    assert out.endswith(".")  # «!» вне ссылки по-прежнему снимается

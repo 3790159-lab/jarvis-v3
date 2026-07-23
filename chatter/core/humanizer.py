@@ -16,6 +16,40 @@ from chatter.core.disclosure import HONESTY_MARKERS
 _EM_DASH = "—"
 _PROTECT = "\x00{}\x00"
 
+# --- защита URL (дрил 1, 2026-07-23: «https://www.» / «volska.» /
+# «agency/uk/proekty/» тремя сообщениями). Ссылка не должна ни рваться по
+# точкам сентенс-сплитом, ни портиться типографикой («!» → «.»), ни получать
+# впрыснутые пробелы при склейке предложений. Техника та же, что у маркера
+# честности: вырезать плейсхолдером (без терминаторов и пробелов), обработать
+# всё вокруг, вернуть байт-в-байт. Префикс «u» отличает от маркерного
+# плейсхолдера — форматы не пересекаются.
+_URL_RE = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
+_URL_PROTECT = "\x00u{}\x00"
+# Хвостовая пунктуация сразу после ссылки — часть ПРЕДЛОЖЕНИЯ, не URL:
+# «...кейс: https://ex.com/x. Далі» должен сплититься по этой точке.
+_URL_TRAIL = ".,;:!?…)»\"'"
+
+
+def _protect_urls(text: str) -> tuple[str, list[str]]:
+    urls: list[str] = []
+
+    def _repl(m: re.Match) -> str:
+        u = m.group(0)
+        trail = ""
+        while u and u[-1] in _URL_TRAIL:
+            trail = u[-1] + trail
+            u = u[:-1]
+        urls.append(u)
+        return _URL_PROTECT.format(len(urls) - 1) + trail
+
+    return _URL_RE.sub(_repl, text), urls
+
+
+def _restore_urls(text: str, urls: list[str]) -> str:
+    for i, u in enumerate(urls):
+        text = text.replace(_URL_PROTECT.format(i), u)
+    return text
+
 
 def humanize_typography(text: str) -> str:
     """Снимает типографские тэллы с ответа лиду.
@@ -36,6 +70,8 @@ def humanize_typography(text: str) -> str:
         if marker in out:
             out = out.replace(marker, _PROTECT.format(len(protected)))
             protected.append(marker)
+    # URL под защитой: «!» → «.» внутри ссылки ломал бы её ещё до сплита.
+    out, urls = _protect_urls(out)
     out = out.replace(f" {_EM_DASH} ", " - ").replace(_EM_DASH, "-")
     # Восклицательный — тэлл, сносим ВЕЗДЕ, включая приветствие (решение
     # владельца 2026-07-21: «Доброї ночі!» — ровно тот случай, что выдал бота).
@@ -43,6 +79,7 @@ def humanize_typography(text: str) -> str:
     # Терминатор на терминатор — сплит на бабблы (_SENTENCE) не меняется.
     out = re.sub(r"!+\?|\?!+", "?", out)
     out = re.sub(r"!+", ".", out)
+    out = _restore_urls(out, urls)
     for i, marker in enumerate(protected):
         out = out.replace(_PROTECT.format(i), marker)
     return out
@@ -88,12 +125,17 @@ def split_message(text: str, t: Timings, *, max_parts: int = 3) -> list[str]:
     ends with sentence-ending punctuation (., !, ?, …); concatenation preserves
     content (ignoring whitespace).
     """
+    # Ссылки — плейсхолдерами БЕЗ терминаторов: сентенс-сплит не видит точек
+    # внутри домена, склейка через пробел не впрыскивает пробелы в URL.
+    # Побочно: длина плейсхолдера < длины ссылки, поэтому часть с длинным URL
+    # может превысить split_max_len — осознанно, ссылка целиком важнее лимита.
+    text, urls = _protect_urls(text)
     text = re.sub(r"\s+", " ", text).strip()
     if len(text) <= t.split_max_len:
-        return [text]
+        return [_restore_urls(text, urls)]
     sentences = [s.strip() for s in _SENTENCE.findall(text) if s.strip()]
     if len(sentences) <= 1:
-        return [text]
+        return [_restore_urls(text, urls)]
     target = max(t.split_max_len, (len(text) // max_parts) + 1)
     parts: list[str] = []
     cur = ""
@@ -106,7 +148,7 @@ def split_message(text: str, t: Timings, *, max_parts: int = 3) -> list[str]:
             cur = candidate
     if cur:
         parts.append(cur)
-    return parts[:max_parts]
+    return [_restore_urls(p, urls) for p in parts[:max_parts]]
 
 
 def coalesce(messages: list[str]) -> str:
