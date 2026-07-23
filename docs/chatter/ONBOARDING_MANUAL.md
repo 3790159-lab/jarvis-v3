@@ -33,7 +33,7 @@ python -m chatter.telethon_login
 
 - Проверка: скрипт печатает `session file: ...` и `? (@username) id=...` после успеха.
 - **Пароль/2FA клиента НЕ сохраняем** нигде — только разово в интерактиве.
-- ⚠️ **Аня и любой semidemo-аккаунт взаимоисключимы, если это ОДИН Telegram-аккаунт** (см. §4 ограничение).
+- ⚠️ **Клиенты на ОДНОМ Telegram-аккаунте взаимоисключимы** — валидация реестра отклонит двух включённых с общей `session`/`db` (см. §4).
 - 🔴 **ОБЯЗАТЕЛЬНО после логина КАЖДОГО нового клиента: экспорт бэкапа секретов** (P1P2_SPEC §12, `chatter/security/recovery.py`: пароль владельца → scrypt → AES-GCM, НЕ DPAPI). Файл `.jrvbak` — **вне машины** (телефон/облако Даниила). DPAPI привязан к учётке+машине: умер диск/профиль без бэкапа = потеряны сессии ВСЕХ клиентов, каждый логинится заново. Пропущенный экспорт = незакрытый онбординг.
 
 ---
@@ -83,36 +83,75 @@ python -c "import sys; sys.path.insert(0,'.'); from pathlib import Path; from ch
 
 **НЕ запускать раннер вручную через Start-Process** — урок 2026-07-22: ручной процесс тихо умирает вместе с породившей его сессией, сообщения теряются. Раннер должен жить под гардианом (heartbeat + авто-воскрешение).
 
-### ⚠️ Текущее ограничение (важно понимать)
-Сегодня `JarvisChatterGuardian` — **один таск на один Telegram-аккаунт**. Состав персон — из `active.yaml` (первый slug = первичный: даёт allowlist/язык пульта/пути session+db). Semidemo-механизм (`state\chatter_semidemo_volska.flag`) пинит окружение под **один** аккаунт (volska на сессии demo) и **захардкожен под volska** в `chatter_guardian_detached.ps1` (блок SEMIDEMO OVERRIDE).
+### Реестр клиентов
 
-**Отсюда два реальных пути:**
+`JarvisChatterGuardian` — один супервизор на N аккаунтов. Кто должен жить,
+описано в `chatter/clients/registry.yaml` (желаемое состояние); кто живёт на
+самом деле — в `state/chatter_clients.json` (наблюдаемое). Прежнее ограничение
+«один таск = один аккаунт» и semidemo-флаг сняты.
 
-**Путь A — клиент на СУЩЕСТВУЮЩЕМ гардиан-слоте** (первый платящий, если ок делить механизм demo-аккаунта):
-- Настроить slug в `active.yaml` (или под semidemo-флагом, если это отдельная сессия того же аккаунта).
-- Гардиан поднимет его как сейчас. Аня и этот slug взаимоисключимы (один аккаунт).
+Подключить клиента = добавить запись. Минимальная — две строки, пути выводятся
+из slug'а:
 
-**Путь B — НОВЫЙ отдельный аккаунт (второй одновременный клиент):**
-Требует **небольшой генерализации** гардиана: блок SEMIDEMO OVERRIDE читает не хардкод-volska, а **generic per-account флаг/реестр** (`CHATTER_PERSONAS`/`TELETHON_SESSION`/`CHATTER_DB` из флага) + **второй экземпляр гардиан-таска** на второй аккаунт. Это ~S-код и это **первый кирпич control-plane дашборда** (§ ARCHITECTURE §4). До него два реальных аккаунта одновременно вручную не поднять безопасно.
-
-> Итог: **первый** платящий клиент поднимается вручную сегодня (Путь A). **Второй одновременный** — упирается в генерализацию гардиана (сделать заодно с началом дашборда).
-
-### Запуск (Путь A, semidemo-подобный)
-Если это отдельная сессия/персона под тем же аккаунтом — по образцу `run_volska_semidemo.ps1`:
-```powershell
-# ставит флаг + включает гардиан в semidemo-режиме (~2 мин до живого раннера)
-.\scripts\run_volska_semidemo.ps1
-# откат на прод (Аня): .\scripts\run_volska_semidemo.ps1 -Revert
-```
-Для нового slug — аналог скрипта с пинами нового аккаунта (скопировать и заменить пины/флаг).
-
-**Проверка живости:**
-```powershell
-Get-Content C:\jarvis\state\chatter_heartbeat.txt   # unix-время, должно обновляться каждые ~30с
-Get-CimInstance Win32_Process -Filter "Name like '%python%'" | Where-Object { $_.CommandLine -like '*chatter.telethon_run*' } | Select-Object ProcessId
+```yaml
+clients:
+  acme:
+    enabled: true
 ```
 
----
+Полная форма, когда нужны пины (клиент живёт на чужой сессии) или несколько
+персон в одном процессе:
+
+```yaml
+  volska:
+    enabled: true
+    personas: [volska]
+    session: .secrets/demo.session
+    db: .secrets/demo.db
+```
+
+> 🔴 **Два ВКЛЮЧЁННЫХ клиента не могут делить `session` или `db`.** Валидация
+> отклонит обоих с явной ошибкой в `last_error` — два процесса на одной
+> Telethon-сессии дают гонку за запись `.session` вплоть до разлогина аккаунта.
+> Взаимоисключимые клиенты (тот же аккаунт) держим так: один `enabled: true`,
+> остальные `false`.
+
+Проверить реестр ДО запуска, не угадывая:
+
+```powershell
+python -m chatter.registry_cli --root C:\jarvis
+# runnable=true у тех, кого супервизор поднимет; error — причина отказа
+```
+
+### Старт, стоп, статус
+
+```powershell
+.\scripts\chatter_client.ps1 -Slug acme -Action start   # enabled: true
+.\scripts\chatter_client.ps1 -Slug acme -Action stop    # enabled: false
+.\scripts\chatter_client.ps1 -Slug acme -Action status
+.\scripts\chatter_client.ps1 -Action list
+```
+
+Скрипт правит только реестр; процессы приводит к желаемому супервизор за один
+цикл (~30с). Он намеренно НЕ убивает раннеры сам — вторая ручка в обход реестра
+рассинхронизировала бы желаемое с наблюдаемым.
+
+### Проверка живости
+
+```powershell
+Get-Content C:\jarvis\state\chatter_clients.json
+Get-CimInstance Win32_Process -Filter "Name like '%python%'" |
+  Where-Object { $_.CommandLine -like '*chatter.telethon_run*' } |
+  Select-Object ProcessId, CommandLine
+```
+
+Состояния: `alive` · `starting` · `down` (должен жить, но не живёт) · `stopped`
+(выключен намеренно) · `invalid` (не прошёл валидацию, см. `last_error`).
+У каждого клиента свои лог `logs/chatter_<slug>.log` и heartbeat
+`state/chatter_heartbeat_<slug>.txt`; алерты называют упавшего клиента.
+
+⚠️ Размер живого лога через `dir`/GCI не смотреть — NTFS врёт при открытом
+write-хэндле, читать только `Get-Content`.
 
 ## 5. Проверочные дрилы (перед открытием гейта)
 
@@ -146,11 +185,13 @@ Get-CimInstance Win32_Process -Filter "Name like '%python%'" | Where-Object { $_
 ## 7. Откат / отключение
 
 ```powershell
-.\scripts\run_volska_semidemo.ps1 -Revert   # вернуть прод (Аня), снять semidemo
+.\scripts\chatter_client.ps1 -Slug <slug> -Action stop   # супервизор остановит за ~30с
 ```
 - Конфиг-откат: `/rollback` (на предыдущий снимок `.versions/`).
 - Пауза без остановки: `/stop` (kill_switch, бот молчит везде) → `/start` вернуть.
-- Полностью убрать клиента: снять флаг/slug из active.yaml + `-Revert` гардиана.
+- Полностью убрать клиента: `-Action stop`, затем удалить запись из `registry.yaml`.
+- ⚠️ Остановка через реестр — единственный штатный путь. Убивать процессы руками
+  не нужно: супервизор поднимет клиента заново, пока стоит `enabled: true`.
 
 ---
 
@@ -224,7 +265,8 @@ round-trip проверен ПОСЛЕ неё: env == живой байт-в-б�
 - [ ] `create_client <slug>` → заполнить persona/knowledge/playbook/settings
 - [ ] Валидация конфига (`load_config`) — OK
 - [ ] Красные линии: strict_knowledge=true, honesty=honest, funnel_gate=false, allowlist=[свой id]
-- [ ] Поднять под гардианом (Путь A) — heartbeat идёт
+- [ ] Запись в `registry.yaml`, `registry_cli` показывает `runnable=true`
+- [ ] `chatter_client.ps1 -Action start` → в `chatter_clients.json` состояние `alive`
 - [ ] 7 дрилов зелёные при закрытом гейте
 - [ ] `/funnel_gate on confirm` — **только по команде Даниила**
 
