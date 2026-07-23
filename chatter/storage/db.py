@@ -54,6 +54,13 @@ CREATE TABLE IF NOT EXISTS status_index (
     contact_id TEXT NOT NULL,
     issued_ts REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS contact_profile (
+    contact_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    ts REAL NOT NULL,
+    PRIMARY KEY (contact_id, version)
+);
 CREATE TABLE IF NOT EXISTS llm_usage (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ts REAL NOT NULL,
@@ -371,6 +378,29 @@ class Store:
             self._conn.execute(
                 "INSERT INTO control_events(kind, contact_id, detail, ts) VALUES (?,?,?,?)",
                 (kind, contact_id, detail, ts))
+            self._conn.commit()
+
+    # --- профиль лида (арка «память+стоимость») ------------------------------
+    def get_profile(self, contact_id: str) -> str | None:
+        """Актуальный профиль = последняя версия. Append-only: прошлые версии
+        остаются в таблице для отладки «кто и когда поменял факт»."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT text FROM contact_profile WHERE contact_id=? "
+                "ORDER BY version DESC LIMIT 1", (contact_id,)).fetchone()
+        return row["text"] if row else None
+
+    def set_profile(self, contact_id: str, text: str, *, ts: float) -> None:
+        """Новая версия ЗАМЕНЯЕТ профиль целиком (условие 3: конфликт фактов
+        решён на уровне текста — актуальное значение с пометкой «раніше X»,
+        а не два равнозначных факта в разных записях)."""
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT COALESCE(MAX(version), 0) FROM contact_profile "
+                "WHERE contact_id=?", (contact_id,)).fetchone()[0]
+            self._conn.execute(
+                "INSERT INTO contact_profile(contact_id, version, text, ts) "
+                "VALUES (?,?,?,?)", (contact_id, cur + 1, text, ts))
             self._conn.commit()
 
     # --- llm_usage: prompt-caching / расход токенов (спека 2026-07-23) -------

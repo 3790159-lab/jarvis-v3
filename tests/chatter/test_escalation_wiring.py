@@ -88,7 +88,7 @@ def test_clean_conversation_no_card_but_funnel_advances():
     n = FakeNotifier()
     deps = _deps(
         notifier=n,
-        classify=lambda history: ClassifierResult(
+        classify=lambda history, profile=None: ClassifierResult(
             escalate=False, reason="", stage_signal="engaged"),
     )
     _process(deps, "42:demo", "привет, расскажите про съёмку")
@@ -101,7 +101,7 @@ def test_classifier_hot_lead_escalates():
     n = FakeNotifier()
     deps = _deps(
         notifier=n, keywords=[],
-        classify=lambda history: ClassifierResult(
+        classify=lambda history, profile=None: ClassifierResult(
             escalate=True, reason="готов внести предоплату", stage_signal="interested"),
     )
     _process(deps, "42:demo", "хочу забронировать на субботу")
@@ -114,7 +114,7 @@ def test_degraded_classifier_no_escalation_but_counted():
     n = FakeNotifier()
     deps = _deps(
         notifier=n, keywords=[],
-        classify=lambda history: ClassifierResult(
+        classify=lambda history, profile=None: ClassifierResult(
             escalate=False, reason="", stage_signal=None, degraded=True),
     )
     _process(deps, "42:demo", "обычное сообщение без триггеров")

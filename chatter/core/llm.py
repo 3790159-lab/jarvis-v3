@@ -34,6 +34,11 @@ class FakeLLM(LLMClient):
         self._scripted = list(scripted) if scripted else []
         self._i = 0
         self.calls: list[dict] = []
+        # Тесты обрезки: список stop_reason'ов по порядку вызовов
+        # (None/исчерпан = end_turn). Реальный клиент пишет last_stop_reason
+        # из ответа API.
+        self.scripted_stop_reasons: list[str] = []
+        self.last_stop_reason: str | None = None
 
     def complete(self, system: str, messages: list[dict], *,
                  max_tokens: int, no_thinking: bool = False,
@@ -45,6 +50,10 @@ class FakeLLM(LLMClient):
         self.calls.append({"system": recorded_system, "messages": messages,
                            "max_tokens": max_tokens, "no_thinking": no_thinking,
                            "uncached_suffix": uncached_suffix, "tag": tag})
+        call_idx = len(self.calls) - 1
+        self.last_stop_reason = (self.scripted_stop_reasons[call_idx]
+                                 if call_idx < len(self.scripted_stop_reasons)
+                                 else "end_turn")
         if self._i < len(self._scripted):
             out = self._scripted[self._i]
             self._i += 1
@@ -75,6 +84,10 @@ class AnthropicLLM(LLMClient):
         self._client = anthropic.Anthropic()
         self._model = model
         self._usage_sink = usage_sink
+        # stop_reason ПОСЛЕДНЕГО вызова: вызывающие, для которых обрезка =
+        # ошибка (классификатор), проверяют его после complete(). Атрибут,
+        # а не изменение сигнатуры: возврат complete() везде остаётся str.
+        self.last_stop_reason: str | None = None
 
     def complete(self, system: str, messages: list[dict], *,
                  max_tokens: int, no_thinking: bool = False,
@@ -95,6 +108,7 @@ class AnthropicLLM(LLMClient):
             model=self._model, max_tokens=max_tokens, system=system_blocks,
             messages=messages, **kwargs,
         )
+        self.last_stop_reason = getattr(resp, "stop_reason", None)
         self._record_usage(resp, tag)
         return "".join(b.text for b in resp.content if getattr(b, "type", None) == "text").strip()
 

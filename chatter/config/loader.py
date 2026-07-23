@@ -46,6 +46,10 @@ class Limits:
     max_reply_tokens: int
     per_contact_hourly: int
     daily_cap: int
+    # Окно истории ПО ТОКЕНАМ (арка «память», условие 2): бюджет хвоста
+    # диалога в промпт + страховочный лимит по количеству сообщений.
+    history_budget_tokens: int = 1700
+    history_max_messages: int = 40
 
 @dataclass(frozen=True)
 class WorkHours:
@@ -128,7 +132,8 @@ _TIMING_FIELDS = [
     "jitter_min", "jitter_max", "split_pause_min", "split_pause_max",
     "split_max_len", "night_multiplier", "debounce_window", "debounce_max",
 ]
-_LIMIT_FIELDS = ["max_reply_tokens", "per_contact_hourly", "daily_cap"]
+_LIMIT_FIELDS = ["max_reply_tokens", "per_contact_hourly", "daily_cap",
+                 "history_budget_tokens", "history_max_messages"]
 
 # Дефолты = боевые значения demo-клиента: они обкатаны в проде, поэтому
 # клиент, не указавший блок вовсе, получает заведомо рабочее поведение.
@@ -137,7 +142,8 @@ DEFAULT_TIMINGS = Timings(
     jitter_min=0.9, jitter_max=1.2, split_pause_min=0.6, split_pause_max=1.8,
     split_max_len=160, night_multiplier=2.5, debounce_window=3.0, debounce_max=15.0,
 )
-DEFAULT_LIMITS = Limits(max_reply_tokens=20000, per_contact_hourly=20, daily_cap=500)
+DEFAULT_LIMITS = Limits(max_reply_tokens=20000, per_contact_hourly=20, daily_cap=500,
+                        history_budget_tokens=1700, history_max_messages=40)
 DEFAULT_WORK_HOURS = WorkHours(start=9, end=22)
 
 

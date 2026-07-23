@@ -14,6 +14,7 @@ from typing import Callable
 from chatter.config.loader import HONESTY_HONEST, Config, ControlConfig, load_config
 from chatter.core import humanizer as H
 from chatter.core.brain import Brain
+from chatter.core.window import select_window
 from chatter.core.brand_safety import forbidden_mention
 from chatter.core.classifier import (
     ClassifierResult, classifier_degraded, note_classifier_error,
@@ -52,7 +53,8 @@ class Deps:
     sleep: Callable[[float], None]
     # Арка 3B (всё опционально → без них поведение как арки 3A/3B-off):
     notifier: Notifier | None = None
-    classify: Callable[[list[dict]], ClassifierResult] | None = None
+    # (history, profile) -> результат; профиль лида идёт в промпт классификатора
+    classify: Callable[[list[dict], str | None], ClassifierResult] | None = None
     escalation_keywords: list[str] = field(default_factory=list)
     # Раннер (Telethon) даёт билдер карточки с кликабельным ИМЕНЕМ/ссылкой
     # (резолв entity живёт на loop). Без него — текстовый фоллбек по contact_id.
@@ -218,7 +220,19 @@ def _escalation_pass(
         forbidden_terms=cfg.settings.forbidden_terms,
         owner_id=cfg.settings.owner_id, owner_ref=cfg.settings.owner_ref,
         strict_knowledge=cfg.settings.strict_knowledge)
-    cr = deps.classify(store.history(contact_id)) if deps.classify is not None else None
+    profile = store.get_profile(contact_id)
+    cr = None
+    if deps.classify is not None:
+        lim = deps.cfg.settings.limits
+        cr = deps.classify(
+            select_window(store.history(contact_id),
+                          budget_tokens=lim.history_budget_tokens,
+                          max_messages=lim.history_max_messages),
+            profile)
+        # Профиль применяем ТОЛЬКО на здоровом ответе (обрезка/мусор →
+        # degraded → профиль не трогаем, следующий ход догонит).
+        if cr is not None and not cr.degraded and cr.profile:
+            store.set_profile(contact_id, cr.profile, ts=now)
     decision = decide_escalation(det=det, classifier_result=cr)
 
     if decision.degraded:
@@ -476,9 +490,13 @@ def process_batch(
         )
         disclosure_sent = True
     else:
+        lim = deps.cfg.settings.limits
         reply = deps.brain.reply(
-            deps.store.history(contact_id),
+            select_window(deps.store.history(contact_id),
+                          budget_tokens=lim.history_budget_tokens,
+                          max_messages=lim.history_max_messages),
             context_note=missed_reply_context(missed_age_seconds),
+            profile=deps.store.get_profile(contact_id),
         )
 
     # Арка 3B: единый проход эскалации (детерминированный слой + классификатор),

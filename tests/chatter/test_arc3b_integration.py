@@ -73,7 +73,7 @@ def test_hot_lead_escalates_to_control_bot_then_owner_tap_resumes():
         cfg=cfg, store=store, brain=Brain(FakeLLM(scripted=["Отлично, расскажу!"]), cfg),
         rng=random.Random(0), clock=lambda: 1000.0, sleep=lambda s: None,
         notifier=notifier, escalation_keywords=["позови", "оплата"],
-        classify=lambda h: ClassifierResult(
+        classify=lambda h, profile=None: ClassifierResult(
             escalate=True, reason="готов внести предоплату", stage_signal="interested"),
         control=cfg.settings.control,
     )

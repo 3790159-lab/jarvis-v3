@@ -1464,10 +1464,13 @@ def _build_llm(cfg: Config, mode: str, usage_sink=None) -> LLMClient:
 
 
 def _bind_classifier(llm: LLMClient, cfg: Config):
-    """Замыкание дешёвого классификатора эскалации на LLM/плейбук персоны."""
-    def _run(history: list[dict]) -> ClassifierResult:
+    """Замыкание дешёвого классификатора эскалации на LLM/плейбук персоны.
+    profile — профиль лида (арка «память»): едет в промпт, классификатор
+    возвращает обновление."""
+    def _run(history: list[dict], profile: str | None = None) -> ClassifierResult:
         return _classify(
-            llm, playbook=cfg.playbook, language=cfg.settings.language, history=history)
+            llm, playbook=cfg.playbook, language=cfg.settings.language,
+            history=history, profile=profile)
     return _run
 
 

@@ -116,19 +116,25 @@ class Brain:
         self._cfg = cfg
         self._system = build_system_prompt(cfg)
 
-    def reply(self, history: list[dict], *, context_note: str | None = None) -> str:
+    def reply(self, history: list[dict], *, context_note: str | None = None,
+              profile: str | None = None) -> str:
         """`context_note`: an optional ONE-OFF instruction for this reply only
         (e.g. "this message waited 20 min, acknowledge the pause in your own
         words"). It rides in the system prompt for this single call but is NOT
         part of the persona -- absent by default, so existing behaviour is
         unchanged."""
-        # Разовая заметка уходит uncached_suffix-ом: стабильная система
-        # кэшируется (cache_control в AnthropicLLM), заметка — отдельным
-        # блоком ПОСЛЕ breakpoint'а, кэш не инвалидируется.
-        suffix = (
-            f"=== КОНТЕКСТ ОТВЕТА (разовая заметка, не часть персоны) ===\n{context_note}"
-            if context_note else None
-        )
+        # Профиль лида и разовая заметка уходят uncached_suffix-ом: стабильная
+        # система кэшируется (cache_control в AnthropicLLM) И ОБЩАЯ для всех
+        # контактов; per-contact профиль — отдельным блоком ПОСЛЕ breakpoint'а,
+        # кэш не инвалидируется, профиль всегда самый свежий (арка «память»).
+        parts = []
+        if profile:
+            parts.append(
+                f"=== ПРОФІЛЬ КЛІЄНТА (з минулих розмов; актуальні факти) ===\n{profile}")
+        if context_note:
+            parts.append(
+                f"=== КОНТЕКСТ ОТВЕТА (разовая заметка, не часть персоны) ===\n{context_note}")
+        suffix = "\n\n".join(parts) or None
         return self._llm.complete(
             self._system,
             build_messages(history),

@@ -24,7 +24,10 @@ STAGE_SIGNALS = frozenset(
 
 _JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
 
-_CLASSIFIER_MAX_TOKENS = 200
+# Условие 1 арки «память»: замер 2026-07-23 на реальной истории дал 157–177
+# ток ответа С профилем (все JSON-ok) — старые 200 были впритык. 500 = запас
+# ×2.5; обрезка при этом лимите = аномалия и ЯВНАЯ деградация (см. classify).
+_CLASSIFIER_MAX_TOKENS = 500
 
 
 @dataclass(frozen=True)
@@ -33,6 +36,9 @@ class ClassifierResult:
     reason: str
     stage_signal: str | None
     degraded: bool = False
+    # Обновлённый ПОЛНЫЙ профиль лида (None = «нового нічого немає»).
+    # Применяется вызывающей стороной ТОЛЬКО при degraded=False.
+    profile: str | None = None
     # Класс сбоя при degraded=True (пусто, когда всё хорошо). Инцидент volska
     # 2026-07-22: деградация без причины не диагностируется — теперь несём её.
     detail: str = ""
@@ -63,27 +69,42 @@ def parse_classifier_reply(raw: str) -> ClassifierResult:
     signal = data.get("stage_signal")
     if signal not in STAGE_SIGNALS:
         signal = None
+    raw_profile = data.get("profile")
+    profile = (str(raw_profile).strip() or None) if isinstance(raw_profile, str) else None
     return ClassifierResult(
         escalate=bool(data.get("escalate", False)),
         reason=str(data.get("reason", "") or ""),
         stage_signal=signal,
         degraded=False,
+        profile=profile,
     )
 
 
-def classifier_system_prompt(playbook: str, language: str) -> str:
+def classifier_system_prompt(playbook: str, language: str,
+                             profile: str | None = None) -> str:
     signals = ", ".join(sorted(STAGE_SIGNALS))
     return (
         "Ты — тихий классификатор диалога воронки продаж. Тебя НЕ видит клиент. "
         "По переписке реши: (1) нужно ли ПРЯМО СЕЙЧАС передать диалог живому "
         "владельцу (горячий лид, готов платить/бронировать, жалоба, нестандартный "
-        "запрос вне плейбука); (2) на какой стадии воронки диалог.\n\n"
+        "запрос вне плейбука); (2) на какой стадии воронки диалог; (3) обнови "
+        "профиль клиента.\n\n"
         f"=== ПЛЕЙБУК ВОРОНКИ ===\n{playbook}\n\n"
+        f"=== ПРОФИЛЬ КЛИЕНТА (из прошлых разговоров) ===\n"
+        f"{profile or '(порожній)'}\n\n"
+        "ПРОФИЛЬ: если из переписки узнал НОВЫЕ факты (кто клиент, сфера, "
+        "проект, какие вилки цен уже названы, договорённости, возражения, "
+        "даты) — верни в поле profile ПОЛНЫЙ обновлённый профиль (компактно, "
+        "до 500 символов). Если клиент ПЕРЕДУМАЛ (бюджет, сроки, объём) — "
+        "актуальное значение с пометкой «(раніше X — передумав)»; старое НЕ "
+        "держи как равнозначное. Если нового ничего нет и профиль актуален — "
+        "profile: null.\n\n"
         "Ответь СТРОГО одним компактным JSON-объектом, без пояснений и без "
         "markdown:\n"
         '{"escalate": true|false, "reason": "<=120 символов, что хочет лид / '
-        'почему эскалация>", "stage_signal": "<' + signals + '|null>"}\n'
-        f"reason пиши на языке диалога ({language})."
+        'почему эскалация>", "profile": "<полный обновлённый профиль|null>", '
+        '"stage_signal": "<' + signals + '|null>"}\n'
+        f"reason и profile пиши на языке диалога ({language})."
     )
 
 
@@ -91,11 +112,12 @@ def build_classifier_messages(history: list[dict]) -> list[dict]:
     return [{"role": m["role"], "content": m["text"]} for m in history]
 
 
-def classify(llm, *, playbook: str, language: str, history: list[dict]) -> ClassifierResult:
+def classify(llm, *, playbook: str, language: str, history: list[dict],
+             profile: str | None = None) -> ClassifierResult:
     """Один дешёвый вызов. НИКОГДА не бросает: сбой вызова → деградация (§6)."""
     try:
         raw = llm.complete(
-            classifier_system_prompt(playbook, language),
+            classifier_system_prompt(playbook, language, profile=profile),
             build_classifier_messages(history),
             max_tokens=_CLASSIFIER_MAX_TOKENS,
             # Без этого sonnet-5 (thinking по умолчанию) сжигает весь бюджет
@@ -106,6 +128,17 @@ def classify(llm, *, playbook: str, language: str, history: list[dict]) -> Class
     except Exception as e:
         log.exception("classifier LLM call failed — деградация, не эскалирую")
         return _degraded(f"вызов LLM упал: {type(e).__name__}: {e}")
+    # Условие 1 арки «память»: ответ, упёршийся в max_tokens, — ЯВНАЯ
+    # деградация «обрезан», даже если огрызок случайно распарсился бы.
+    # Тихий битый JSON уже ловится парсером; тихий ВАЛИДНЫЙ огрызок — нет,
+    # поэтому проверка ДО парса. Профиль при обрезке не применяется
+    # (degraded=True — вызывающая сторона не пишет профиль).
+    if getattr(llm, "last_stop_reason", None) == "max_tokens":
+        result = _degraded(
+            f"ответ обрезан (stop_reason=max_tokens при лимите "
+            f"{_CLASSIFIER_MAX_TOKENS}) — поднимите _CLASSIFIER_MAX_TOKENS")
+        log.warning("classifier degraded: %s", result.detail)
+        return result
     result = parse_classifier_reply(raw)
     # Парс-деградация НЕ логируется внутри parse_classifier_reply — она бы ушла
     # в тишину (инцидент volska 2026-07-22 03:21: classifier_error без следа в
