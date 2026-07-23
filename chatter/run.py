@@ -458,8 +458,17 @@ def process_batch(
     # механики. Детектор вопроса и текст раскрытия остаются на месте и под
     # тестами; тумблер решает лишь, перехватывать ли ответ. Эскалация вопроса
     # владельцу от режима НЕ зависит.
+    # Пилотная метрика (Фаза 2): считаем КАЖДЫЙ вопрос «ты бот?» — независимо от
+    # honesty-режима. Нужен для оценки, как часто лиды спрашивают про личность
+    # (сигнал доверия/подозрения). Событие пишется ДО ветки раскрытия, чтобы в
+    # free-режиме (перехвата нет, отвечает модель) вопрос всё равно учитывался.
+    # Счётчик за окно: store.count_events("bot_question", since_ts=...).
+    bot_question = is_bot_question(text)
+    if bot_question:
+        deps.store.add_event("bot_question", contact_id=contact_id, ts=deps.clock())
+
     disclosure_sent = False
-    if is_bot_question(text) and deps.cfg.settings.honesty_mode == HONESTY_HONEST:
+    if bot_question and deps.cfg.settings.honesty_mode == HONESTY_HONEST:
         reply = honest_disclosure(
             owner_id=deps.cfg.settings.owner_id,
             persona_line=_persona_first_line(deps.cfg.persona),

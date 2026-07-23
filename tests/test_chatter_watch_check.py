@@ -74,6 +74,51 @@ def test_resolve_is_down_trusts_the_guardians_verdict_over_the_heartbeat():
     assert cw.resolve_is_down(None, fresh, now=now, max_age=180) is False
 
 
+def test_bot_token_prefers_env_enc(tmp_path, monkeypatch):
+    """P1P2 слой процесса: после cutover plaintext .env шредится (§6 п.9) —
+    алертер обязан уметь взять токен из .env.enc, иначе онемеет ровно тогда,
+    когда нужен. Machine-scope DPAPI + entropy, как у всех."""
+    import sys as _sys
+    if _sys.platform != "win32":
+        import pytest
+        pytest.skip("DPAPI есть только на Windows")
+    from chatter.security.crypto import encrypt_to_file, generate_entropy
+    entropy = tmp_path / "entropy.bin"
+    generate_entropy(entropy)
+    monkeypatch.setenv("JARVIS_ENTROPY_FILE", str(entropy))
+    enc = tmp_path / ".env.enc"
+    encrypt_to_file(enc, b"TELEGRAM_BOT_TOKEN=tok-from-enc\n",
+                    entropy_path=entropy)
+    plain = tmp_path / ".env"
+    plain.write_text("TELEGRAM_BOT_TOKEN=tok-from-plain\n", encoding="utf-8")
+    monkeypatch.setattr(cw, "ENV_ENC_PATH", enc)
+    monkeypatch.setattr(cw, "ENV_PATH", plain)
+    assert cw._bot_token() == "tok-from-enc"
+
+
+def test_bot_token_legacy_plaintext_when_no_enc(tmp_path, monkeypatch):
+    """До cutover .enc нет — легаси-чтение plaintext живо (статус-кво)."""
+    monkeypatch.setattr(cw, "ENV_ENC_PATH", tmp_path / ".env.enc")
+    plain = tmp_path / ".env"
+    plain.write_text('TELEGRAM_BOT_TOKEN="tok-plain"\n', encoding="utf-8")
+    monkeypatch.setattr(cw, "ENV_PATH", plain)
+    assert cw._bot_token() == "tok-plain"
+
+
+def test_bot_token_broken_enc_falls_back_loudly(tmp_path, monkeypatch, capsys):
+    """Standalone-инвариант алертера: битый .enc/пакет НЕ делает его немым —
+    легаси plaintext доживает до шреда, а сбой печатается в лог гардиана
+    (DEV-18: не молча)."""
+    enc = tmp_path / ".env.enc"
+    enc.write_bytes(b"JRVSEC1\x00garbage-not-a-real-blob")
+    plain = tmp_path / ".env"
+    plain.write_text("TELEGRAM_BOT_TOKEN=tok-plain\n", encoding="utf-8")
+    monkeypatch.setattr(cw, "ENV_ENC_PATH", enc)
+    monkeypatch.setattr(cw, "ENV_PATH", plain)
+    assert cw._bot_token() == "tok-plain"
+    assert "env.enc" in capsys.readouterr().out
+
+
 def test_marker_roundtrip_preserves_alerted_flag(tmp_path, monkeypatch):
     # The `alerted` flag is the durable memory that pairs 🔴 with ✅. It MUST
     # survive a guardian restart (PID 8928 -> 12912 happened in prod), so it

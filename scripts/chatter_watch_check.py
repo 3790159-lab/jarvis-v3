@@ -17,6 +17,7 @@ The alert reaches the operator (chat 237616472) so the first client is never lef
 without a bot after a crash / Windows Update reboot.
 """
 import json
+import os
 import re
 import sys
 import time
@@ -27,6 +28,10 @@ ROOT = Path(__file__).resolve().parent.parent
 HEARTBEAT_PATH = ROOT / "state" / "chatter_heartbeat.txt"
 MARKER_PATH = ROOT / "state" / "chatter_watch_alert.json"
 ENV_PATH = ROOT / ".env"
+# P1P2 слой процесса: после cutover plaintext .env шредится (§6 п.9) — токен
+# живёт в .env.enc (machine-scope DPAPI + entropy). Plaintext ниже — легаси
+# до шреда.
+ENV_ENC_PATH = ROOT / ".env.enc"
 ADMIN_CHAT_ID = "237616472"
 HEARTBEAT_MAX_AGE_S = 180      # matches the guardian's tolerance for a transient stall
 ALERT_COOLDOWN_S = 3600        # at most one DOWN alert per hour
@@ -122,7 +127,34 @@ def _write_marker(now: float, *, alerted: bool) -> None:
         pass
 
 
+def _token_from_enc() -> str:
+    """Токен из .env.enc. Standalone-инвариант алертера НЕ нарушаем: сбой
+    ЛЮБОГО рода (нет entropy, tamper, битый chatter-пакет) не делает алертер
+    немым — печатаем в stdout (лог гардиана) и отдаём "" для легаси-ветки."""
+    if not ENV_ENC_PATH.exists():
+        return ""
+    try:
+        if str(ROOT) not in sys.path:
+            sys.path.insert(0, str(ROOT))
+        from chatter.security.crypto import decrypt_from_file
+        from chatter.security.secret_loader import parse_env_text
+        entropy = os.environ.get("JARVIS_ENTROPY_FILE") \
+            or str(ROOT / ".secrets" / "entropy.bin")
+        values = parse_env_text(
+            decrypt_from_file(ENV_ENC_PATH, entropy_path=entropy)
+            .decode("utf-8-sig"))
+        return (values.get("TELEGRAM_BOT_TOKEN")
+                or values.get("BOT_TOKEN") or "")
+    except Exception as exc:  # noqa: BLE001 - алертер обязан пережить всё
+        print("[chatter_watch_check] .env.enc unreadable (%s: %s) - "
+              "falling back to legacy plaintext .env" % (type(exc).__name__, exc))
+        return ""
+
+
 def _bot_token() -> str:
+    token = _token_from_enc()
+    if token:
+        return token
     try:
         env = ENV_PATH.read_text(encoding="utf-8")
     except Exception:
