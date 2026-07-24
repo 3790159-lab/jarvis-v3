@@ -29,6 +29,20 @@ def test_digest_empty():
     assert obligations_digest([]) == "n=0"
 
 
+def test_digest_reports_renderable_separately_from_total():
+    # obl=n считает ВСЕ owed_by, а рендер в brain — только owed_by=bot. Без этого
+    # разделения client-owed brief давал n=1 и «выглядел зелёным», хотя в промпт
+    # не инъектился (баг Д-10 2026-07-24). renderable = open+owed_by=bot.
+    obs = merge_obligations(
+        [], [{"kind": "brief", "owed_by": "bot", "status": "open", "detail": "бриф"},
+             {"kind": "other", "owed_by": "client", "status": "open",
+              "detail": "лід подумає", "slug": "think"}],
+        now=1.0, current_msg_id=1)
+    d = obligations_digest(obs)
+    assert "n=2" in d
+    assert "renderable=1" in d          # тільки bot-owed open доедет до brain
+
+
 def test_shape_line_is_pii_free(caplog):
     with caplog.at_level(logging.INFO, logger="chatter.core.prompt_log"):
         sha = log_prompt_shape(system="ABCDE", suffix="XY",

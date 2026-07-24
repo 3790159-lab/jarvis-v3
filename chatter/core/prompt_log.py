@@ -42,7 +42,14 @@ def obligations_digest(obligations) -> str:
     by_status = Counter(o.status for o in obligations)
     open_kinds = sorted({o.kind for o in obligations if o.status == "open"})
     deliv_kinds = sorted({o.kind for o in obligations if o.status == "delivered"})
+    # renderable = открытые owed_by=bot: РОВНО то, что render_slot_block инъектит в
+    # brain (секция ВІДКРИТІ). Отделено от n= (все owed_by), чтобы «посчитано» и
+    # «доедет до модели» нельзя было спутать — client-owed brief даёт n>0,
+    # renderable=0 (баг Д-10 2026-07-24).
+    renderable = sum(
+        1 for o in obligations if o.status == "open" and o.owed_by == "bot")
     parts = [f"n={len(obligations)}",
+             f"renderable={renderable}",
              "status=" + ",".join(f"{k}:{v}" for k, v in sorted(by_status.items()))]
     if open_kinds:
         parts.append("open=[" + ",".join(open_kinds) + "]")

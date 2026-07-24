@@ -131,8 +131,11 @@ def classifier_system_prompt(playbook: str, language: str,
     obl_section = ""
     schema_obl = ""
     if track_obligations:
+        # owed_by НЕ в схеме: для brief/examples/recalc это инвариант кода
+        # (filter_model_updates форсит bot), а не выбор модели — иначе client-owed
+        # brief не доедет до brain (баг Д-10 2026-07-24). Код владеет полем.
         schema_obl = (', "obligations": [{"kind": "brief|examples|recalc|'
-                      'owner_write|other", "owed_by": "bot|client", "status": '
+                      'owner_write|other", "status": '
                       '"open|delivered|cancelled", "detail": "<=80"}]')
         obl_section = (
             "=== ВІДКРИТІ ЗОБОВ'ЯЗАННЯ (поточні; онови статуси) ===\n"

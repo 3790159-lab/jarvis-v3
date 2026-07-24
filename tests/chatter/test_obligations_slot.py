@@ -158,3 +158,42 @@ def test_filter_model_updates_drops_owner_write_closures():
     assert ("owner_write", "cancelled") not in pairs
     assert ("owner_write", "open") in pairs            # создание — можно
     assert ("brief", "delivered") in pairs             # другие kind — как есть
+
+
+# --- owed_by brief/examples/recalc = ИНВАРИАНТ КОДА, не выбор модели --------
+# render_slot_block показывает ТОЛЬКО owed_by=bot; client-owed brief не доедет до
+# brain (баг дрила Д-10 2026-07-24: классификатор прислал owed_by=client → obl=n=1,
+# но пустой рендер). Гарантия — в коде, не в промпте.
+def test_filter_pins_owed_by_bot_for_brief_even_if_model_says_client():
+    from chatter.core.obligations_slot import filter_model_updates
+    out = filter_model_updates([
+        {"kind": "brief", "owed_by": "client", "status": "open", "detail": "бриф"},
+    ])
+    assert out[0]["owed_by"] == "bot"
+
+
+def test_filter_pins_owed_by_bot_for_examples_and_recalc_when_client():
+    from chatter.core.obligations_slot import filter_model_updates
+    out = filter_model_updates([
+        {"kind": "examples", "owed_by": "client", "status": "open", "detail": "e"},
+        {"kind": "recalc", "owed_by": "client", "status": "open", "detail": "r"},
+    ])
+    assert all(u["owed_by"] == "bot" for u in out)
+
+
+def test_filter_pins_owed_by_bot_when_model_omits_it():
+    from chatter.core.obligations_slot import filter_model_updates
+    out = filter_model_updates([
+        {"kind": "brief", "status": "open", "detail": "бриф"},
+    ])
+    assert out[0]["owed_by"] == "bot"
+
+
+def test_filter_leaves_other_kind_owed_by_choice_intact():
+    # 'other' — выбор владения осмыслен (лід щось винен нам): НЕ форсим.
+    from chatter.core.obligations_slot import filter_model_updates
+    out = filter_model_updates([
+        {"kind": "other", "owed_by": "client", "status": "open",
+         "detail": "лід обіцяв подумати", "slug": "think"},
+    ])
+    assert out[0]["owed_by"] == "client"

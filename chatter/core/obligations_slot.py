@@ -21,6 +21,14 @@ DAY = 86400.0
 
 KINDS = ("brief", "examples", "recalc", "owner_write", "other")
 OWED_BY = ("bot", "client")
+
+# owed_by этих видов — ИНВАРИАНТ КОДА, не поле выбора модели. render_slot_block
+# инъектит в brain ТОЛЬКО owed_by=bot; client-owed brief/examples/recalc не
+# доедет до модели (баг дрила Д-10 2026-07-24: классификатор прислал client →
+# obl=n=1, но пустой рендер). Клиент лишь ПОСТАВЛЯЕТ материал — обязательство
+# ПРОВЕСТИ бриф/дать примеры/пересчитать лежит на боте. Нормализуется в
+# filter_model_updates и в retro-миграции (единый источник истины).
+CODE_BOT_OWNED_KINDS = frozenset({"brief", "examples", "recalc"})
 STATUSES = ("open", "delivered", "cancelled")
 _CLOSED = ("delivered", "cancelled")
 
@@ -129,14 +137,23 @@ def merge_obligations(
 
 
 def filter_model_updates(updates):
-    """Политика владения (спека §3): статус owner_write ведёт ТОЛЬКО КОД по факту
-    доставленной карточки. Модель может owner_write лишь СОЗДАТЬ (open); её
-    попытки delivered/cancelled по owner_write отбрасываем ещё до merge."""
+    """Политика владения (спека §3) ПЕРЕД merge:
+    - owner_write: статус ведёт ТОЛЬКО КОД по факту доставленной карточки. Модель
+      может owner_write лишь СОЗДАТЬ (open); delivered/cancelled по owner_write
+      отбрасываем.
+    - owed_by для brief/examples/recalc (CODE_BOT_OWNED_KINDS) — ИНВАРИАНТ КОДА:
+      что бы модель ни прислала (client / пусто) — нормализуем в bot, иначе
+      обязательство не отрендерится в brain (render_slot_block — только bot)."""
     out = []
     for u in updates or ():
-        if (isinstance(u, dict) and u.get("kind") == "owner_write"
-                and (u.get("status") or "").strip() != "open"):
+        if not isinstance(u, dict):
+            out.append(u)          # merge отбросит по валидации
             continue
+        kind = u.get("kind")
+        if kind == "owner_write" and (u.get("status") or "").strip() != "open":
+            continue
+        if kind in CODE_BOT_OWNED_KINDS and u.get("owed_by") != "bot":
+            u = {**u, "owed_by": "bot"}
         out.append(u)
     return out
 
