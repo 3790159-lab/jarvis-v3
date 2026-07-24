@@ -5,6 +5,8 @@ import threading
 import time
 from pathlib import Path
 
+from chatter.core.obligations_slot import Obligation
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS contacts (
     contact_id TEXT PRIMARY KEY,
@@ -70,6 +72,19 @@ CREATE TABLE IF NOT EXISTS llm_usage (
     output_tokens INTEGER NOT NULL,
     cache_read_input_tokens INTEGER NOT NULL,
     cache_creation_input_tokens INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS contact_obligations (
+    contact_id     TEXT NOT NULL,
+    okey           TEXT NOT NULL,
+    kind           TEXT NOT NULL,
+    owed_by        TEXT NOT NULL,
+    status         TEXT NOT NULL,
+    detail         TEXT NOT NULL,
+    created_msg_id INTEGER,
+    closed_msg_id  INTEGER,
+    created_ts     REAL NOT NULL,
+    closed_ts      REAL,
+    PRIMARY KEY (contact_id, okey)
 );
 """
 
@@ -402,6 +417,46 @@ class Store:
                 "INSERT INTO contact_profile(contact_id, version, text, ts) "
                 "VALUES (?,?,?,?)", (contact_id, cur + 1, text, ts))
             self._conn.commit()
+
+    # --- слот открытых обязательств (спека 2026-07-24 §3) --------------------
+    def get_obligations(self, contact_id: str) -> list[Obligation]:
+        """Все обязательства контакта (включая закрытые — их несёт секция
+        «ЗАКРИТО НЕДАВНО» рендера). Порядок по created_ts для стабильности."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT okey, kind, owed_by, status, detail, created_msg_id, "
+                "closed_msg_id, created_ts, closed_ts FROM contact_obligations "
+                "WHERE contact_id=? ORDER BY created_ts, okey", (contact_id,)).fetchall()
+        return [Obligation(
+            okey=r["okey"], kind=r["kind"], owed_by=r["owed_by"], status=r["status"],
+            detail=r["detail"], created_msg_id=r["created_msg_id"],
+            closed_msg_id=r["closed_msg_id"], created_ts=r["created_ts"],
+            closed_ts=r["closed_ts"]) for r in rows]
+
+    def save_obligations(self, contact_id: str, obligations) -> None:
+        """Заменить весь набор обязательств контакта (delete+insert под одним
+        локом, атомарно). Обязательств на контакт единицы — полная замена проще
+        апсерта и не даёт дрейфа. РЕШЕНИЕ что хранить принимает merge_obligations
+        (obligations_slot) ВЫШЕ; store только персистит результат."""
+        with self._lock:
+            self._conn.execute(
+                "DELETE FROM contact_obligations WHERE contact_id=?", (contact_id,))
+            self._conn.executemany(
+                "INSERT INTO contact_obligations(contact_id, okey, kind, owed_by, "
+                "status, detail, created_msg_id, closed_msg_id, created_ts, closed_ts) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                [(contact_id, o.okey, o.kind, o.owed_by, o.status, o.detail,
+                  o.created_msg_id, o.closed_msg_id, o.created_ts, o.closed_ts)
+                 for o in obligations])
+            self._conn.commit()
+
+    def max_message_id(self, contact_id: str) -> int | None:
+        """MAX(messages.id) контакта — код штампует им created/closed обязательств
+        (модель ненадёжно знает id). None, если сообщений нет."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT MAX(id) m FROM messages WHERE contact_id=?", (contact_id,)).fetchone()
+        return row["m"] if row and row["m"] is not None else None
 
     # --- llm_usage: prompt-caching / расход токенов (спека 2026-07-23) -------
     def add_llm_usage(self, *, tag: str, model: str, input_tokens: int,
