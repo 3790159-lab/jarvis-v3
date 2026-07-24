@@ -16,7 +16,8 @@ from chatter.core import humanizer as H
 from chatter.core.brain import Brain
 from chatter.core.window import estimate_tokens, select_window
 from chatter.core.obligations_slot import (
-    merge_obligations, render_current_for_classifier, render_slot_block,
+    filter_model_updates, merge_obligations, render_current_for_classifier,
+    render_slot_block,
 )
 from chatter.core.brand_safety import forbidden_mention
 from chatter.core.classifier import (
@@ -289,8 +290,11 @@ def _escalation_pass(
             # ПРОФИЛЯ, не классификатора; долг перед лидом всё равно актуален).
             # На degraded этот блок не выполняется (guard выше) → долг не тронут.
             if slot_on:
+                # filter_model_updates: статус owner_write модель не ведёт —
+                # только код по факту карточки (см. _close_owner_write_by_card).
                 store.save_obligations(contact_id, merge_obligations(
-                    store.get_obligations(contact_id), cr.obligations,
+                    store.get_obligations(contact_id),
+                    filter_model_updates(cr.obligations),
                     now=now, current_msg_id=store.max_message_id(contact_id)))
     decision = decide_escalation(det=det, classifier_result=cr)
 
@@ -372,7 +376,40 @@ def _escalation_pass(
     # содержит → там no-op).
     if implies_owner and not protected:
         reply = _drop_trailing_question(reply)
+    # Слот §3: owner_write закрывает КОД по факту ДОСТАВЛЕННОЙ карточки (не
+    # модель). Карточка дошла → долг «керівниця напише» выполнен (владелец
+    # уведомлён); msg_id — id карточки из esc_active. Только при slot on.
+    if slot_on and delivered:
+        _close_owner_write_by_card(deps, contact_id, now=now)
     return reply, delivered
+
+
+def _card_msg_id(store, contact_id: str) -> int | None:
+    """id доставленной карточки из runtime_flag esc_active (`bot:<contact>:<id>`).
+    None, если формат неожиданный — тогда штампуем max(messages.id)."""
+    from chatter.core.escalation import esc_active_key
+    raw = store.get_runtime_flag(esc_active_key(contact_id))
+    if raw and ":" in raw:
+        try:
+            return int(raw.rsplit(":", 1)[1])
+        except ValueError:
+            return None
+    return None
+
+
+def _close_owner_write_by_card(deps: "Deps", contact_id: str, *, now: float) -> None:
+    """Детерминированно перевести owner_write в delivered (спека §3): карточка
+    керівниці доставлена. merge создаёт-и-закрывает, если owner_write ещё не был
+    открыт (эскалация без явного «керівниця напише»). closed_msg_id = id карточки."""
+    store = deps.store
+    card_id = _card_msg_id(store, contact_id)
+    if card_id is None:
+        card_id = store.max_message_id(contact_id)
+    store.save_obligations(contact_id, merge_obligations(
+        store.get_obligations(contact_id),
+        [{"kind": "owner_write", "owed_by": "bot", "status": "delivered",
+          "detail": "карточка керівниці доставлена"}],
+        now=now, current_msg_id=card_id))
 
 
 # Разбивка на предложения по границе .!? + пробел (хвостовой вопрос режем с конца).
@@ -637,11 +674,13 @@ def process_batch(
         lim = deps.cfg.settings.limits
         # Слот обязательств (спека §5): рендер из ТАБЛИЦЫ, не из окна — долг
         # доезжает до brain, даже когда ход-источник уехал за окно истории.
-        # flag off → "" → brain.reply как раньше (байт-в-байт).
+        # flag off → "" / log_shape=False → brain.reply как раньше (байт-в-байт).
+        slot_on = _obligations_enabled()
         obl_block = ""
-        if _obligations_enabled():
-            obl_block = render_slot_block(
-                deps.store.get_obligations(contact_id), now=deps.clock())
+        obl_list = ()
+        if slot_on:
+            obl_list = deps.store.get_obligations(contact_id)
+            obl_block = render_slot_block(obl_list, now=deps.clock())
         reply = deps.brain.reply(
             select_window(deps.store.history(contact_id),
                           budget_tokens=lim.history_budget_tokens,
@@ -649,6 +688,7 @@ def process_batch(
             context_note=missed_reply_context(missed_age_seconds),
             profile=deps.store.get_profile(contact_id),
             obligations_block=obl_block,
+            obligations=obl_list, log_shape=slot_on, contact_id=contact_id,
         )
 
     # Арка 3B: единый проход эскалации (детерминированный слой + классификатор),

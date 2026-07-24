@@ -164,3 +164,33 @@ def test_recent_delivered_injected_anti_repeat(monkeypatch):
     process_batch("lead1", ["ще"], _T(), deps)
     suf = brain_llm.calls[-1]["uncached_suffix"] or ""
     assert "ЗАКРИТО НЕДАВНО" in suf and "квал питання задані" in suf
+
+
+# --- фаза 6: owner_write ведёт КОД, не модель (спека §3) --------------------
+def test_classifier_cannot_close_owner_write(monkeypatch):
+    monkeypatch.setenv("CHATTER_OBLIGATIONS_SLOT", "1")
+    store = Store(":memory:")
+    store.get_or_create_contact("lead1")
+    store.save_obligations("lead1", merge_obligations(
+        [], [{"kind": "owner_write", "owed_by": "bot", "status": "open", "detail": "напише"}],
+        now=1.0, current_msg_id=1))
+    # классификатор пытается закрыть owner_write — должно быть проигнорировано
+    clf = ('{"escalate": false, "profile": null, "stage_signal": null, "obligations": '
+           '[{"kind": "owner_write", "owed_by": "bot", "status": "delivered", "detail": "nope"}]}')
+    process_batch("lead1", ["привіт"], _T(), _deps(store, [clf]))
+    obs = {o.okey: o for o in store.get_obligations("lead1")}
+    assert obs["owner_write"].status == "open"     # модель не смогла закрыть
+
+
+def test_close_owner_write_by_card_deterministic():
+    from chatter.core.escalation import esc_active_key
+    from chatter.run import _close_owner_write_by_card
+    store = Store(":memory:")
+    store.get_or_create_contact("lead1")
+    store.set_runtime_flag(esc_active_key("lead1"), "bot:lead1:87", ts=1.0)
+    deps = _deps(store, ['{"escalate": false}'])
+    _close_owner_write_by_card(deps, "lead1", now=100.0)
+    obs = {o.okey: o for o in store.get_obligations("lead1")}
+    assert "owner_write" in obs
+    assert obs["owner_write"].status == "delivered"
+    assert obs["owner_write"].closed_msg_id == 87   # msg_id карточки из esc_active

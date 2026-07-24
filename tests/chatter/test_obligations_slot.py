@@ -142,3 +142,19 @@ def test_render_for_classifier_lists_open_only():
 
 def test_render_for_classifier_empty():
     assert render_current_for_classifier([]) == ""
+
+
+# --- политика владения owner_write (спека §3) ------------------------------
+def test_filter_model_updates_drops_owner_write_closures():
+    from chatter.core.obligations_slot import filter_model_updates
+    out = filter_model_updates([
+        {"kind": "owner_write", "status": "delivered", "detail": "x"},
+        {"kind": "owner_write", "status": "cancelled", "detail": "x"},
+        {"kind": "owner_write", "status": "open", "detail": "обіцяно напише"},
+        {"kind": "brief", "status": "delivered", "detail": "y"},
+    ])
+    pairs = [(u["kind"], u["status"]) for u in out]
+    assert ("owner_write", "delivered") not in pairs   # закрытие — не модель
+    assert ("owner_write", "cancelled") not in pairs
+    assert ("owner_write", "open") in pairs            # создание — можно
+    assert ("brief", "delivered") in pairs             # другие kind — как есть

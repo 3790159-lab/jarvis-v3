@@ -128,6 +128,19 @@ def merge_obligations(
     return list(by_okey.values())
 
 
+def filter_model_updates(updates):
+    """Политика владения (спека §3): статус owner_write ведёт ТОЛЬКО КОД по факту
+    доставленной карточки. Модель может owner_write лишь СОЗДАТЬ (open); её
+    попытки delivered/cancelled по owner_write отбрасываем ещё до merge."""
+    out = []
+    for u in updates or ():
+        if (isinstance(u, dict) and u.get("kind") == "owner_write"
+                and (u.get("status") or "").strip() != "open"):
+            continue
+        out.append(u)
+    return out
+
+
 def render_slot_block(
     obligations, *, now: float, recent_days: float = RECENT_DAYS, cap: int = RENDER_CAP,
 ) -> str:

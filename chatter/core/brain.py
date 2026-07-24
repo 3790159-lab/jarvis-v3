@@ -4,6 +4,7 @@ import logging
 
 from chatter.config.loader import HONESTY_HONEST, Config
 from chatter.core.llm import LLMClient
+from chatter.core import prompt_log
 
 log = logging.getLogger("chatter.core.brain")
 
@@ -117,7 +118,8 @@ class Brain:
         self._system = build_system_prompt(cfg)
 
     def reply(self, history: list[dict], *, context_note: str | None = None,
-              profile: str | None = None, obligations_block: str = "") -> str:
+              profile: str | None = None, obligations_block: str = "",
+              obligations=(), log_shape: bool = False, contact_id: str = "") -> str:
         """`context_note`: an optional ONE-OFF instruction for this reply only
         (e.g. "this message waited 20 min, acknowledge the pause in your own
         words"). It rides in the system prompt for this single call but is NOT
@@ -143,6 +145,12 @@ class Brain:
             parts.append(
                 f"=== КОНТЕКСТ ОТВЕТА (разовая заметка, не часть персоны) ===\n{context_note}")
         suffix = "\n\n".join(parts) or None
+        # §8: структурная строка (PII-free) + полный дамп по флагу. Гейтится
+        # log_shape (=slot on) → при выключенной арке тишина, byte-identical.
+        if log_shape:
+            prompt_log.log_prompt_shape(
+                system=self._system, suffix=suffix, obligations=obligations,
+                tag="brain", contact_id=contact_id)
         return self._llm.complete(
             self._system,
             build_messages(history),
