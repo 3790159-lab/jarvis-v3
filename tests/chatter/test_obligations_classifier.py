@@ -57,3 +57,19 @@ def test_schema_omits_owed_by_model_choice():
                                  obligations_block="- brief (open): бриф")
     assert "bot|client" not in p           # выбор владения из схемы убран
     assert '"owed_by"' not in p            # поля owed_by в JSON-схеме нет
+
+
+def test_brief_closure_criterion_has_material_anti_example():
+    # Д-10 T2 2026-07-24: классификатор держал brief open «в ожидании материалов
+    # от клиента». Явный анти-пример: вопросы ЗАДАНЫ = delivered, ожидание
+    # материала НЕ является открытым долгом бота.
+    p = classifier_system_prompt("PB", "uk", track_obligations=True,
+                                 obligations_block="- brief (open): бриф")
+    assert "материалов от клиента" in p
+
+
+def test_anti_fragmentation_instruction_present():
+    # Д-10 T2: при открытом brief создан дублирующий other → cap ≤5 клонами.
+    p = classifier_system_prompt("PB", "uk", track_obligations=True,
+                                 obligations_block="- brief (open): бриф")
+    assert "дублирующее" in p

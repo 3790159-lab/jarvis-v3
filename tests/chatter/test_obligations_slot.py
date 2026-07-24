@@ -197,3 +197,34 @@ def test_filter_leaves_other_kind_owed_by_choice_intact():
          "detail": "лід обіцяв подумати", "slug": "think"},
     ])
     assert out[0]["owed_by"] == "client"
+
+
+# --- анти-фрагментация: не плодим other поверх открытого канонического долга -
+# (дрил Д-10 T2 2026-07-24: при открытом brief классификатор создал дублирующее
+#  other про те же уточнення → cap ≤5 забивается клонами одного долга).
+def test_new_other_dropped_when_canonical_obligation_open():
+    existing = merge_obligations(
+        [], [_open("brief", "бріф")], now=1.0, current_msg_id=1)
+    result = merge_obligations(
+        existing, [_open("other", "уточнити референси", slug="ref")],
+        now=2.0, current_msg_id=2)
+    assert "brief" in {o.okey for o in result}
+    assert not any(o.kind == "other" for o in result)   # дубль-other отброшен
+
+
+def test_new_other_kept_when_no_canonical_open():
+    # без открытого канонического долга «other» легитимен — не над-фильтровать.
+    result = merge_obligations(
+        [], [_open("other", "щось особливе", slug="x")], now=1.0, current_msg_id=1)
+    assert any(o.kind == "other" for o in result)
+
+
+def test_new_other_kept_when_canonical_only_delivered():
+    # канонический долг ЗАКРЫТ (delivered) → новый other не дублирует активное.
+    existing = merge_obligations(
+        [], [{"kind": "brief", "owed_by": "bot", "status": "delivered",
+              "detail": "готово"}], now=1.0, current_msg_id=1)
+    result = merge_obligations(
+        existing, [_open("other", "нове питання", slug="q")],
+        now=2.0, current_msg_id=2)
+    assert any(o.kind == "other" for o in result)

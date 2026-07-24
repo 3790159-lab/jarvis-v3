@@ -106,6 +106,15 @@ def merge_obligations(
         cur = by_okey.get(okey)
         if cur is None:
             if status == "open":
+                # Анти-фрагментация (дрил Д-10 T2): не создаём НОВЫЙ «other»,
+                # пока открыт канонический долг (brief/examples/recalc/owner_write)
+                # — вагомий долг уже есть, «other» почти всегда его клон, а cap ≤5
+                # забился бы дублями. Семантику несёт промпт классификатора; это
+                # детерминированный бэкстоп.
+                if kind == "other" and any(
+                        o.status == "open" and o.kind != "other"
+                        for o in by_okey.values()):
+                    continue
                 by_okey[okey] = Obligation(
                     okey=okey, kind=kind, owed_by=owed_by, status="open",
                     detail=detail, created_msg_id=current_msg_id, closed_msg_id=None,

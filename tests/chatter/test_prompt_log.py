@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from chatter.core.obligations_slot import merge_obligations
+from chatter.core.obligations_slot import Obligation, merge_obligations
 from chatter.core.prompt_log import log_prompt_shape, obligations_digest
 
 
@@ -33,11 +33,13 @@ def test_digest_reports_renderable_separately_from_total():
     # obl=n считает ВСЕ owed_by, а рендер в brain — только owed_by=bot. Без этого
     # разделения client-owed brief давал n=1 и «выглядел зелёным», хотя в промпт
     # не инъектился (баг Д-10 2026-07-24). renderable = open+owed_by=bot.
-    obs = merge_obligations(
-        [], [{"kind": "brief", "owed_by": "bot", "status": "open", "detail": "бриф"},
-             {"kind": "other", "owed_by": "client", "status": "open",
-              "detail": "лід подумає", "slug": "think"}],
-        now=1.0, current_msg_id=1)
+    # Строим Obligation напрямую: digest не зависит от merge (а merge отбросил бы
+    # other анти-фрагментацией — это другой инвариант, не про digest).
+    def _o(okey, kind, owed_by):
+        return Obligation(okey=okey, kind=kind, owed_by=owed_by, status="open",
+                          detail="x", created_msg_id=1, closed_msg_id=None,
+                          created_ts=1.0, closed_ts=None)
+    obs = [_o("brief", "brief", "bot"), _o("other:think", "other", "client")]
     d = obligations_digest(obs)
     assert "n=2" in d
     assert "renderable=1" in d          # тільки bot-owed open доедет до brain
