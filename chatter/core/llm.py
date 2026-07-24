@@ -4,6 +4,8 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Callable
 
+from chatter.core.prompt_log import log_usage_shape
+
 log = logging.getLogger("chatter.core.llm")
 
 
@@ -134,7 +136,7 @@ class AnthropicLLM(LLMClient):
         try:
             u = resp.usage
             m5, h1 = self._cache_creation_split(u)
-            self._usage_sink({
+            rec = {
                 "tag": tag, "model": self._model,
                 "input_tokens": int(getattr(u, "input_tokens", 0) or 0),
                 "output_tokens": int(getattr(u, "output_tokens", 0) or 0),
@@ -144,7 +146,12 @@ class AnthropicLLM(LLMClient):
                     int(getattr(u, "cache_creation_input_tokens", 0) or 0),
                 "cache_creation_5m": m5,
                 "cache_creation_1h": h1,
-            })
+            }
+            # Строка в лог ДО записи в БД: наблюдаемость не должна зависеть от
+            # того, доехал ли sink (спека 2026-07-25 §6 — регрессия 23.07 жила
+            # ровно в слепой зоне «что доехало в кэш»).
+            log_usage_shape(rec)
+            self._usage_sink(rec)
         except Exception:
             # Логгер — наблюдаемость, не бизнес-путь: ответ лиду важнее записи
             # метрики. Но тихо глотать нельзя (DEV-18).

@@ -150,6 +150,17 @@ def test_usage_sink_passes_split_through():
     assert row["cache_creation_1h"] == 7770 and row["tag"] == "classifier"
 
 
+def test_record_usage_emits_the_structural_line(caplog):
+    """Наблюдаемость не должна зависеть от того, доехал ли sink в БД."""
+    import logging
+    with caplog.at_level(logging.INFO):
+        _llm_with(_Usage(total_creation=7767, split=_CacheCreation(h1=7767)),
+                  lambda rec: None)
+    assert "llm-usage" in caplog.text
+    assert "tag=classifier" in caplog.text and "cached=miss" in caplog.text
+    assert "ttl=1h" in caplog.text
+
+
 # --- миграция живой базы -----------------------------------------------------
 
 _OLD_LLM_USAGE = """

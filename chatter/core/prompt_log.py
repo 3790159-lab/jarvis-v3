@@ -58,6 +58,27 @@ def obligations_digest(obligations) -> str:
     return " ".join(parts)
 
 
+def log_usage_shape(rec: dict) -> None:
+    """Строка на КАЖДЫЙ LLM-вызов: теги и числа, ни байта содержимого — тот же
+    стандарт ПДн, что у `prompt-shape` (§8).
+
+    Мотив (спека 2026-07-25 §6): до неё «что мы собрали» логировалось, а «что
+    из этого доехало в кэш» — нет. Регрессия 23.07 прожила сутки именно в этой
+    слепой зоне. `cached=hit|miss` — тот самый второй конец.
+
+    `ttl=` показывает, по какой ставке оплачена запись (5m $3.75/M против 1h
+    $6/M): в счёте это треть разницы, а по суммарному счётчику неразличимо."""
+    cw = rec.get("cache_creation_input_tokens", 0) or 0
+    cr = rec.get("cache_read_input_tokens", 0) or 0
+    h1 = rec.get("cache_creation_1h", 0) or 0
+    m5 = rec.get("cache_creation_5m", 0) or 0
+    ttl = "1h" if h1 else ("5m" if m5 else "-")
+    log.info("llm-usage tag=%s model=%s in=%d out=%d cr=%d cw=%d ttl=%s cached=%s",
+             rec.get("tag", "-"), rec.get("model", "-"),
+             rec.get("input_tokens", 0) or 0, rec.get("output_tokens", 0) or 0,
+             cr, cw, ttl, "hit" if cr > 0 else "miss")
+
+
 def _dump_dir() -> Path:
     return Path(os.getenv("CHATTER_PROMPT_DUMP_DIR", "logs"))
 
