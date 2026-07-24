@@ -194,3 +194,53 @@ def test_close_owner_write_by_card_deterministic():
     assert "owner_write" in obs
     assert obs["owner_write"].status == "delivered"
     assert obs["owner_write"].closed_msg_id == 87   # msg_id карточки из esc_active
+
+
+def _seed_delivered_owner_write(store, *, created=244, card=93):
+    """Здоровое состояние конца T3 (реальные id живого дрила Д-10): owner_write
+    создан классификатором (open, msg 244) и закрыт КОДОМ по карточке (msg 93)."""
+    seed = merge_obligations(
+        [], [{"kind": "owner_write", "owed_by": "bot", "status": "open",
+              "detail": "керівниця напише"}], now=1.0, current_msg_id=created)
+    seed = merge_obligations(
+        seed, [{"kind": "owner_write", "owed_by": "bot", "status": "delivered",
+                "detail": "карточка керівниці доставлена"}], now=2.0, current_msg_id=card)
+    store.save_obligations("lead1", seed)
+
+
+def test_model_open_does_not_reopen_code_delivered_owner_write(monkeypatch):
+    """Регрессия дрила Д-10 T4 2026-07-24: owner_write доставлен КОДОМ (T3,
+    closed_msg_id=93). На T4 классификатор снова эмитит owner_write open (платёжный
+    контекст ещё в окне) — фикс должен ОСТАВИТЬ строку нетронутой, а НЕ переоткрыть
+    (иначе на T5 renderable=1 → ложная повторная передача керівниці)."""
+    monkeypatch.setenv("CHATTER_OBLIGATIONS_SLOT", "1")
+    store = Store(":memory:")
+    store.get_or_create_contact("lead1")
+    _seed_delivered_owner_write(store)
+    t4_reopen = ('{"escalate": false, "profile": null, "stage_signal": null, "obligations": '
+                 '[{"kind": "owner_write", "owed_by": "bot", "status": "open", '
+                 '"detail": "керівниця напише"}]}')
+    process_batch("lead1", ["ще подумаю"], _T(), _deps(store, [t4_reopen]))
+    ow = {o.okey: o for o in store.get_obligations("lead1")}["owner_write"]
+    assert ow.status == "delivered"       # НЕ переоткрыт моделью
+    assert ow.closed_msg_id == 93         # code-доставка сохранена
+    assert ow.created_msg_id == 244
+
+
+def test_repeat_escalation_restamps_owner_write_with_new_card():
+    """Легитимная НОВАЯ эскалация после delivered (лид через неделю снова про
+    оплату): фикс НЕ запирает повтор — code-путь перештамповывает closed_* на
+    новую карточку (150), не полагаясь на idempotency merge (та бережёт первое
+    закрытие для классификатор-ведомых видов)."""
+    from chatter.core.escalation import esc_active_key
+    from chatter.run import _close_owner_write_by_card
+    store = Store(":memory:")
+    store.get_or_create_contact("lead1")
+    _seed_delivered_owner_write(store)               # delivered, card=93
+    store.set_runtime_flag(esc_active_key("lead1"), "bot:lead1:150", ts=100.0)
+    _close_owner_write_by_card(_deps(store, ['{"escalate": false}']), "lead1", now=200.0)
+    ow = {o.okey: o for o in store.get_obligations("lead1")}["owner_write"]
+    assert ow.status == "delivered"
+    assert ow.closed_msg_id == 150        # перештамповано на НОВУЮ карточку
+    assert ow.closed_ts == 200.0
+    assert ow.created_msg_id == 244       # создание не тронуто

@@ -7,7 +7,7 @@ import random
 import re
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable
 
@@ -290,11 +290,15 @@ def _escalation_pass(
             # ПРОФИЛЯ, не классификатора; долг перед лидом всё равно актуален).
             # На degraded этот блок не выполняется (guard выше) → долг не тронут.
             if slot_on:
-                # filter_model_updates: статус owner_write модель не ведёт —
+                # filter_model_updates: жизненный цикл owner_write модель не ведёт —
                 # только код по факту карточки (см. _close_owner_write_by_card).
+                # existing прокидываем в фильтр: он роняет owner_write open, если
+                # строка уже есть (иначе модель переоткрыла бы code-доставку — баг
+                # дрила Д-10 T4). Читаем один раз — используем и в фильтре, и в merge.
+                existing_obl = store.get_obligations(contact_id)
                 store.save_obligations(contact_id, merge_obligations(
-                    store.get_obligations(contact_id),
-                    filter_model_updates(cr.obligations),
+                    existing_obl,
+                    filter_model_updates(cr.obligations, existing=existing_obl),
                     now=now, current_msg_id=store.max_message_id(contact_id)))
     decision = decide_escalation(det=det, classifier_result=cr)
 
@@ -405,8 +409,23 @@ def _close_owner_write_by_card(deps: "Deps", contact_id: str, *, now: float) -> 
     card_id = _card_msg_id(store, contact_id)
     if card_id is None:
         card_id = store.max_message_id(contact_id)
+    existing = store.get_obligations(contact_id)
+    ow = next((o for o in existing if o.okey == "owner_write"), None)
+    if ow is not None and ow.status != "open":
+        # Повторная эскалация: owner_write уже закрыт, но доставлена НОВАЯ карточка
+        # → новое достоверное событие закрытия. Код — единственный владелец
+        # жизненного цикла owner_write (спека §3), поэтому перештамповываем closed_*
+        # на актуальную карточку НАПРЯМУЮ, в обход idempotency merge (та бережёт
+        # ПЕРВОЕ закрытие для классификатор-ведомых brief/examples/recalc). Так фикс
+        # filter (модель не переоткрывает) не запирает легитимный повтор.
+        rest = [o for o in existing if o.okey != "owner_write"]
+        rest.append(replace(ow, status="delivered",
+                            closed_msg_id=card_id, closed_ts=now))
+        store.save_obligations(contact_id, rest)
+        return
+    # первое закрытие (owner_write open) или create-and-close (строки ещё нет)
     store.save_obligations(contact_id, merge_obligations(
-        store.get_obligations(contact_id),
+        existing,
         [{"kind": "owner_write", "owed_by": "bot", "status": "delivered",
           "detail": "карточка керівниці доставлена"}],
         now=now, current_msg_id=card_id))

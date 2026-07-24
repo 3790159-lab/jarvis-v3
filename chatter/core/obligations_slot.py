@@ -145,22 +145,31 @@ def merge_obligations(
     return list(by_okey.values())
 
 
-def filter_model_updates(updates):
+def filter_model_updates(updates, existing=()):
     """Политика владения (спека §3) ПЕРЕД merge:
-    - owner_write: статус ведёт ТОЛЬКО КОД по факту доставленной карточки. Модель
-      может owner_write лишь СОЗДАТЬ (open); delivered/cancelled по owner_write
-      отбрасываем.
+    - owner_write: весь жизненный цикл ПОСЛЕ создания ведёт ТОЛЬКО КОД
+      (_close_owner_write_by_card по факту доставленной карточки). Модель может
+      owner_write лишь СОЗДАТЬ первую строку (open, когда её ещё нет);
+      delivered/cancelled отбрасываем всегда, а open — если строка owner_write
+      УЖЕ существует (в любом статусе). Без этого гарда классификатор, пока
+      платёжный контекст в окне, на каждом ходу шлёт owner_write open → merge
+      трактует как «переобещали» и сбрасывает closed_* code-доставленной строки
+      (регрессия дрила Д-10 T4 2026-07-24: delivered→open, closed_msg_id обнулён →
+      ложная повторная эскалация). `existing` — текущие обязательства контакта.
     - owed_by для brief/examples/recalc (CODE_BOT_OWNED_KINDS) — ИНВАРИАНТ КОДА:
       что бы модель ни прислала (client / пусто) — нормализуем в bot, иначе
       обязательство не отрендерится в brain (render_slot_block — только bot)."""
+    existing_okeys = {o.okey for o in existing}
     out = []
     for u in updates or ():
         if not isinstance(u, dict):
             out.append(u)          # merge отбросит по валидации
             continue
         kind = u.get("kind")
-        if kind == "owner_write" and (u.get("status") or "").strip() != "open":
-            continue
+        if kind == "owner_write":
+            status = (u.get("status") or "").strip()
+            if status != "open" or "owner_write" in existing_okeys:
+                continue
         if kind in CODE_BOT_OWNED_KINDS and u.get("owed_by") != "bot":
             u = {**u, "owed_by": "bot"}
         out.append(u)

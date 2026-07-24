@@ -228,3 +228,40 @@ def test_new_other_kept_when_canonical_only_delivered():
         existing, [_open("other", "нове питання", slug="q")],
         now=2.0, current_msg_id=2)
     assert any(o.kind == "other" for o in result)
+
+
+# --- owner_write: модель НЕ переоткрывает уже существующий (спека §3, дрил T4) --
+# Регрессия дрила Д-10 T4 2026-07-24: пока платёжный контекст в окне, классификатор
+# на каждом ходу заново шлёт owner_write open → без гарда merge сбрасывал closure
+# code-доставленной строки. filter теперь роняет owner_write open, если строка уже
+# есть (в любом статусе): её жизненный цикл после создания ведёт ТОЛЬКО код.
+def test_filter_drops_owner_write_open_when_row_already_exists():
+    from chatter.core.obligations_slot import filter_model_updates
+    existing = merge_obligations(
+        [], [{"kind": "owner_write", "owed_by": "bot", "status": "delivered",
+              "detail": "карточка доставлена"}], now=1.0, current_msg_id=93)
+    out = filter_model_updates(
+        [{"kind": "owner_write", "owed_by": "bot", "status": "open",
+          "detail": "керівниця напише"}],
+        existing=existing)
+    assert out == []          # переоткрытие code-owned owner_write отброшено
+
+
+def test_filter_keeps_owner_write_open_for_first_creation():
+    # строки owner_write ещё нет → модель ВПРАВЕ её создать (open проходит).
+    from chatter.core.obligations_slot import filter_model_updates
+    existing = merge_obligations(
+        [], [_open("brief", "бриф")], now=1.0, current_msg_id=1)
+    out = filter_model_updates(
+        [{"kind": "owner_write", "owed_by": "bot", "status": "open",
+          "detail": "керівниця напише"}],
+        existing=existing)
+    assert [(u["kind"], u["status"]) for u in out] == [("owner_write", "open")]
+
+
+def test_filter_owner_write_backward_compatible_without_existing():
+    # старая сигнатура (без existing) = поведение до фикса: open проходит.
+    from chatter.core.obligations_slot import filter_model_updates
+    out = filter_model_updates(
+        [{"kind": "owner_write", "owed_by": "bot", "status": "open", "detail": "x"}])
+    assert [(u["kind"], u["status"]) for u in out] == [("owner_write", "open")]
