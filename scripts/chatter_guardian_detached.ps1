@@ -77,6 +77,14 @@ if (Test-Path $semidemoFlag) {
 # приёмки, вручную, с удалением дампа после — см. docs/chatter/DRILL_D10_OBLIGATIONS.md.
 $env:CHATTER_OBLIGATIONS_SLOT = '1'
 
+# --- КЭШ КЛАССИФИКАТОРА (арка arc/classifier-cache, приёмка 2026-07-25) ------
+# Раскладка A1: стабильный префикс под cache_control-breakpoint, профиль и блок
+# обязательств — вторым (некэшируемым) system-блоком. Убрать строку + рестарт
+# ТАСКА → промпт байт-в-байт как до арки (ветка отката, тест держит).
+# Пока строки нет, классификатор пишет ~7.8К ток кэша КАЖДЫЙ ход и не читает
+# его ни разу = 83% стоимости хода.
+$env:CHATTER_CLASSIFIER_CACHE = '1'
+
 function Write-G([string]$msg) {
     # Add-Content + Write-Host (NOT Tee-Object): keep a side-effect-free return so
     # callers using `if (-not (Stop-OldRunner))` see a real boolean, not a log array.
