@@ -8,6 +8,7 @@ from chatter.core.obligations_slot import (
     Obligation,
     merge_obligations,
     render_slot_block,
+    render_current_for_classifier,
     okey_for,
 )
 
@@ -125,3 +126,19 @@ def test_render_only_bot_owed_open_shown():
     block = render_slot_block(obs, now=2.0)
     assert "бот винен бриф" in block
     assert "лід обіцяв подумати" not in block       # client-обязательства brain не грузим
+
+
+# --- рендер для классификатора (только открытые) ---------------------------
+def test_render_for_classifier_lists_open_only():
+    obs = merge_obligations([], [_open("brief", "бриф"), _open("recalc", "пересчёт")],
+                            now=1.0, current_msg_id=1)
+    obs = merge_obligations(
+        obs, [{"kind": "recalc", "owed_by": "bot", "status": "delivered", "detail": "done"}],
+        now=2.0, current_msg_id=2)
+    s = render_current_for_classifier(obs)
+    assert "brief" in s and "бриф" in s
+    assert "recalc" not in s        # закрытое классификатору не показываем
+
+
+def test_render_for_classifier_empty():
+    assert render_current_for_classifier([]) == ""

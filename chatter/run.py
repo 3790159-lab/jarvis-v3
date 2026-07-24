@@ -15,6 +15,9 @@ from chatter.config.loader import HONESTY_HONEST, Config, ControlConfig, load_co
 from chatter.core import humanizer as H
 from chatter.core.brain import Brain
 from chatter.core.window import estimate_tokens, select_window
+from chatter.core.obligations_slot import (
+    merge_obligations, render_current_for_classifier, render_slot_block,
+)
 from chatter.core.brand_safety import forbidden_mention
 from chatter.core.classifier import (
     ClassifierResult, classifier_degraded, classifier_failure_count,
@@ -41,6 +44,14 @@ from chatter.notify.base import Card, CardHandle, Notifier
 from chatter.storage.db import Store, usage_sink_for
 from chatter.transport.base import Transport
 from chatter.transport.fake import FakeConsoleTransport
+
+
+def _obligations_enabled() -> bool:
+    """Флаг арки обязательств (спека 2026-07-24 §12): default OFF → поведение
+    БАЙТ-В-БАЙТ как до арки. Читаем env КАЖДЫЙ раз (не кэшируем на импорте),
+    чтобы тесты и выкатка переключали без перезапуска процесса."""
+    return os.getenv("CHATTER_OBLIGATIONS_SLOT", "").strip().lower() in (
+        "1", "true", "yes", "on")
 
 log = logging.getLogger("chatter.run")
 
@@ -225,14 +236,23 @@ def _escalation_pass(
         owner_id=cfg.settings.owner_id, owner_ref=cfg.settings.owner_ref,
         strict_knowledge=cfg.settings.strict_knowledge)
     profile = store.get_profile(contact_id)
+    slot_on = _obligations_enabled()
     cr = None
     if deps.classify is not None:
         lim = deps.cfg.settings.limits
-        cr = deps.classify(
-            select_window(store.history(contact_id),
-                          budget_tokens=lim.history_budget_tokens,
-                          max_messages=lim.history_max_messages),
-            profile)
+        window = select_window(store.history(contact_id),
+                               budget_tokens=lim.history_budget_tokens,
+                               max_messages=lim.history_max_messages)
+        if slot_on:
+            # Классификатор видит открытые обязательства, чтобы закрыть их по
+            # выполнению функции. track_obligations гейтит расширение промпта.
+            cr = deps.classify(
+                window, profile, track_obligations=True,
+                obligations_block=render_current_for_classifier(
+                    store.get_obligations(contact_id)))
+        else:
+            # flag off: вызов 2-позиционный, как до арки (байт-в-байт).
+            cr = deps.classify(window, profile)
         # Профиль применяем ТОЛЬКО на здоровом ответе (обрезка/мусор →
         # degraded → профиль не трогаем, следующий ход догонит).
         if cr is not None and not cr.degraded:
@@ -264,6 +284,14 @@ def _escalation_pass(
                 # profile=null — это «нового ничего нет», а НЕ пропуск:
                 # классификатор жив, отставать памяти нечем. Серия рвётся.
                 reset_profile_miss(store, contact_id, now=now)
+            # Слот обязательств (спека §4): применяем на ЗДОРОВОМ классификаторе,
+            # НЕЗАВИСИМО от судьбы профиля (перебор бюджета профиля — деградация
+            # ПРОФИЛЯ, не классификатора; долг перед лидом всё равно актуален).
+            # На degraded этот блок не выполняется (guard выше) → долг не тронут.
+            if slot_on:
+                store.save_obligations(contact_id, merge_obligations(
+                    store.get_obligations(contact_id), cr.obligations,
+                    now=now, current_msg_id=store.max_message_id(contact_id)))
     decision = decide_escalation(det=det, classifier_result=cr)
 
     if decision.degraded:

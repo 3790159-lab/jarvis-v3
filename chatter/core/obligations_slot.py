@@ -159,3 +159,14 @@ def render_slot_block(
         lines.append(_RECENT_HEADER)
         lines.extend(f"- {o.kind} ✓ — {o.detail}" for o in recent)
     return "\n".join(lines)
+
+
+def render_current_for_classifier(obligations) -> str:
+    """Компактный список ОТКРЫТЫХ обязательств для промпта классификатора — чтобы
+    он мог их закрыть (open→delivered/cancelled) по выполнению функции. В отличие
+    от render_slot_block (для brain) — без UA-заголовков и без секции «недавно
+    закрытых» (классификатор оценивает только активные). Пусто → ""."""
+    open_ones = [o for o in obligations if o.status == "open"]
+    if not open_ones:
+        return ""
+    return "\n".join(f"- {o.kind} ({o.owed_by}): {o.detail}" for o in open_ones)
