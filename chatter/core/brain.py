@@ -117,12 +117,18 @@ class Brain:
         self._system = build_system_prompt(cfg)
 
     def reply(self, history: list[dict], *, context_note: str | None = None,
-              profile: str | None = None) -> str:
+              profile: str | None = None, obligations_block: str = "") -> str:
         """`context_note`: an optional ONE-OFF instruction for this reply only
         (e.g. "this message waited 20 min, acknowledge the pause in your own
         words"). It rides in the system prompt for this single call but is NOT
         part of the persona -- absent by default, so existing behaviour is
-        unchanged."""
+        unchanged.
+
+        `obligations_block`: рендер слота обязательств (спека 2026-07-24 §5),
+        уже с заголовками. Пусто по умолчанию → поведение как раньше (флаг
+        CHATTER_OBLIGATIONS_SLOT off). Едет тем же uncached_suffix-ом, что и
+        профиль, но рендерится из ТАБЛИЦЫ (не из окна) → долг доезжает, даже
+        когда ход-источник уехал за окно истории."""
         # Профиль лида и разовая заметка уходят uncached_suffix-ом: стабильная
         # система кэшируется (cache_control в AnthropicLLM) И ОБЩАЯ для всех
         # контактов; per-contact профиль — отдельным блоком ПОСЛЕ breakpoint'а,
@@ -131,6 +137,8 @@ class Brain:
         if profile:
             parts.append(
                 f"=== ПРОФІЛЬ КЛІЄНТА (з минулих розмов; актуальні факти) ===\n{profile}")
+        if obligations_block:
+            parts.append(obligations_block)
         if context_note:
             parts.append(
                 f"=== КОНТЕКСТ ОТВЕТА (разовая заметка, не часть персоны) ===\n{context_note}")

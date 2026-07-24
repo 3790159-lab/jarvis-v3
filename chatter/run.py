@@ -635,12 +635,20 @@ def process_batch(
         disclosure_sent = True
     else:
         lim = deps.cfg.settings.limits
+        # Слот обязательств (спека §5): рендер из ТАБЛИЦЫ, не из окна — долг
+        # доезжает до brain, даже когда ход-источник уехал за окно истории.
+        # flag off → "" → brain.reply как раньше (байт-в-байт).
+        obl_block = ""
+        if _obligations_enabled():
+            obl_block = render_slot_block(
+                deps.store.get_obligations(contact_id), now=deps.clock())
         reply = deps.brain.reply(
             select_window(deps.store.history(contact_id),
                           budget_tokens=lim.history_budget_tokens,
                           max_messages=lim.history_max_messages),
             context_note=missed_reply_context(missed_age_seconds),
             profile=deps.store.get_profile(contact_id),
+            obligations_block=obl_block,
         )
 
     # Арка 3B: единый проход эскалации (детерминированный слой + классификатор),
