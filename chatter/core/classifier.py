@@ -54,6 +54,11 @@ class ClassifierResult:
     # считает ЛЮБОЙ такой ход как сбой модели — иначе «спасённые» отказы
     # исчезают из статистики и порог алерта никогда не срабатывает.
     retried: bool = False
+    # Обновления слота обязательств (спека 2026-07-24 §4): кортеж dict-ов
+    # {kind, owed_by, status, detail, slug?}. Применяется ВЫЗЫВАЮЩЕЙ стороной
+    # ТОЛЬКО при degraded=False и включённом флаге CHATTER_OBLIGATIONS_SLOT.
+    # Пусто → изменений слота нет. Валидацию делает merge_obligations.
+    obligations: tuple = ()
 
 
 def _degraded(detail: str = "") -> ClassifierResult:
@@ -97,23 +102,51 @@ def parse_classifier_reply(raw: str) -> ClassifierResult:
         signal = None
     raw_profile = data.get("profile")
     profile = (str(raw_profile).strip() or None) if isinstance(raw_profile, str) else None
+    raw_obl = data.get("obligations")
+    obligations = (tuple(d for d in raw_obl if isinstance(d, dict))
+                   if isinstance(raw_obl, list) else ())
     return ClassifierResult(
         escalate=bool(data.get("escalate", False)),
         reason=str(data.get("reason", "") or ""),
         stage_signal=signal,
         degraded=False,
         profile=profile,
+        obligations=obligations,
     )
 
 
 def classifier_system_prompt(playbook: str, language: str,
                              profile: str | None = None,
-                             profile_budget_tokens: int = _PROFILE_BUDGET_TOKENS) -> str:
+                             profile_budget_tokens: int = _PROFILE_BUDGET_TOKENS,
+                             *, track_obligations: bool = False,
+                             obligations_block: str = "") -> str:
     signals = ", ".join(sorted(STAGE_SIGNALS))
     # Просим ⅔ от жёсткого потолка: модель не считает символы точно, запас
     # между просьбой и рубежом (run.py не применяет профиль сверх потолка)
     # держит нормальную работу вне зоны отсечения.
     profile_chars = profile_budget_tokens * _CHARS_PER_TOKEN * 2 // 3
+    # Слот обязательств (спека 2026-07-24 §4) — ТОЛЬКО при track_obligations.
+    # Иначе obl_section и schema_obl пустые → промпт байт-в-байт как до арки
+    # (приёмка «flag off = поведение как сейчас»).
+    obl_section = ""
+    schema_obl = ""
+    if track_obligations:
+        schema_obl = (', "obligations": [{"kind": "brief|examples|recalc|'
+                      'owner_write|other", "owed_by": "bot|client", "status": '
+                      '"open|delivered|cancelled", "detail": "<=80"}]')
+        obl_section = (
+            "=== ВІДКРИТІ ЗОБОВ'ЯЗАННЯ (поточні; онови статуси) ===\n"
+            f"{obligations_block or '(порожньо)'}\n\n"
+            "ЗОБОВ'ЯЗАННЯ: следи, что бот ДОЛЖЕН лиду (обещанный бриф, примеры "
+            "работ, пересчёт цены, «керівниця напише») и что должен лид. Верни "
+            "массив obligations — по объекту на КАЖДОЕ активное обязательство с "
+            "актуальным статусом. delivered ставь по ВЫПОЛНЕНИЮ ФУНКЦИИ, а НЕ по "
+            "упоминанию слова: brief=заданы квалифицирующие вопросы по существу "
+            "(НЕ когда сказано «бриф»); examples=дана ссылка на портфоліо; "
+            "recalc=названа сумма/зафиксирован запрос; owner_write=карточка "
+            "владельцу выставлена. Обязательство БЕЗ изменений можно не "
+            "возвращать. Это ОТДЕЛЬНЫЙ структурный список — НЕ ужимай его при "
+            "сжатии профиля. Нет обязательств — [].\n\n")
     return (
         "Ты — тихий классификатор диалога воронки продаж. Тебя НЕ видит клиент. "
         # Ролевая граница (инцидент volska 2026-07-23 17:03 и 18:28: модель
@@ -141,11 +174,12 @@ def classifier_system_prompt(playbook: str, language: str,
         "актуальное значение с пометкой «(раніше X — передумав)»; старое НЕ "
         "держи как равнозначное. Если нового ничего нет и профиль актуален — "
         "profile: null.\n\n"
+        + obl_section +
         "Ответь СТРОГО одним компактным JSON-объектом, без пояснений и без "
         "markdown:\n"
         '{"escalate": true|false, "reason": "<=120 символов, что хочет лид / '
         'почему эскалация>", "profile": "<полный обновлённый профиль|null>", '
-        '"stage_signal": "<' + signals + '|null>"}\n'
+        '"stage_signal": "<' + signals + '|null>"' + schema_obl + '}\n'
         f"reason и profile пиши на языке диалога ({language}).\n\n"
         # Анти-образец: описания правильного формата оказалось мало — модель
         # дважды за сутки вернула живую реплику. Показываем сам провал.
@@ -167,12 +201,14 @@ def build_classifier_messages(history: list[dict]) -> list[dict]:
 
 def classify(llm, *, playbook: str, language: str, history: list[dict],
              profile: str | None = None,
-             profile_budget_tokens: int = _PROFILE_BUDGET_TOKENS) -> ClassifierResult:
+             profile_budget_tokens: int = _PROFILE_BUDGET_TOKENS,
+             track_obligations: bool = False, obligations_block: str = "") -> ClassifierResult:
     """Один дешёвый вызов + ОДИН повтор при невалидном JSON.
     НИКОГДА не бросает: сбой вызова → деградация (§6)."""
     system = classifier_system_prompt(
         playbook, language, profile=profile,
-        profile_budget_tokens=profile_budget_tokens)
+        profile_budget_tokens=profile_budget_tokens,
+        track_obligations=track_obligations, obligations_block=obligations_block)
     messages = build_classifier_messages(history)
 
     def _call(nudge: str | None) -> str:
