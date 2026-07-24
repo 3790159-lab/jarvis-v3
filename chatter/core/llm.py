@@ -112,11 +112,28 @@ class AnthropicLLM(LLMClient):
         self._record_usage(resp, tag)
         return "".join(b.text for b in resp.content if getattr(b, "type", None) == "text").strip()
 
+    @staticmethod
+    def _cache_creation_split(u) -> tuple[int, int]:
+        """(5m, 1h) из `usage.cache_creation`. Разбивка нужна, потому что ставки
+        записи РАЗНЫЕ ($3.75/M против $6/M), а суммарный
+        `cache_creation_input_tokens` их не различает — по нему нельзя сказать,
+        занижает ли тарифная модель счёт (арка «кэш классификатора», фаза 0).
+
+        Отсутствие поля НЕ ошибка: старый SDK/мок его не отдаёт, а сумма нам
+        всё равно известна. Тогда (0, 0) — «разбивки нет», а не «ноль записи»;
+        различает их сумма, лежащая в соседней колонке."""
+        cc = getattr(u, "cache_creation", None)
+        if cc is None:
+            return 0, 0
+        return (int(getattr(cc, "ephemeral_5m_input_tokens", 0) or 0),
+                int(getattr(cc, "ephemeral_1h_input_tokens", 0) or 0))
+
     def _record_usage(self, resp, tag: str) -> None:
         if self._usage_sink is None:
             return
         try:
             u = resp.usage
+            m5, h1 = self._cache_creation_split(u)
             self._usage_sink({
                 "tag": tag, "model": self._model,
                 "input_tokens": int(getattr(u, "input_tokens", 0) or 0),
@@ -125,6 +142,8 @@ class AnthropicLLM(LLMClient):
                     int(getattr(u, "cache_read_input_tokens", 0) or 0),
                 "cache_creation_input_tokens":
                     int(getattr(u, "cache_creation_input_tokens", 0) or 0),
+                "cache_creation_5m": m5,
+                "cache_creation_1h": h1,
             })
         except Exception:
             # Логгер — наблюдаемость, не бизнес-путь: ответ лиду важнее записи

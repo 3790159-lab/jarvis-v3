@@ -35,16 +35,22 @@ def _load_module():
 
 
 def _mkdb(path: Path, rows) -> str:
-    """rows = [(ts, tag, in, out, cache_read, cache_creation), ...]"""
+    """rows = [(ts, tag, in, out, cache_read, cache_creation[, c5m, c1h]), ...]
+
+    Хвост (c5m, c1h) необязателен: без него строка изображает ИСТОРИЧЕСКУЮ
+    запись без разбивки по TTL (NULL), как в живой базе до фазы 0.
+    """
     conn = sqlite3.connect(path)
     conn.execute(
         "CREATE TABLE llm_usage (id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, "
         "tag TEXT, model TEXT, input_tokens INT, output_tokens INT, "
-        "cache_read_input_tokens INT, cache_creation_input_tokens INT)")
+        "cache_read_input_tokens INT, cache_creation_input_tokens INT, "
+        "cache_creation_5m INT, cache_creation_1h INT)")
     conn.executemany(
         "INSERT INTO llm_usage (ts, tag, model, input_tokens, output_tokens, "
-        "cache_read_input_tokens, cache_creation_input_tokens) VALUES (?,?,'m',?,?,?,?)",
-        rows)
+        "cache_read_input_tokens, cache_creation_input_tokens, cache_creation_5m, "
+        "cache_creation_1h) VALUES (?,?,'m',?,?,?,?,?,?)",
+        [tuple(r) + (None, None) if len(r) == 6 else tuple(r) for r in rows])
     conn.commit()
     conn.close()
     return str(path)
@@ -185,6 +191,69 @@ def test_gate_verdict_flips_at_ten_percent(tmp_path):
     assert rep.delta == pytest.approx(20.0)
     assert rep.passed is False
     assert "ПРЕВЫШЕН" in rep.render()
+
+
+# ── ставка записи кэша: 5m ($3.75/M) против 1h ($6/M) ────────────────────────
+
+
+def test_write_rate_is_1h_when_split_says_1h(tmp_path):
+    """ttl:1h в llm.py = write x2. Пока скрипт считал всё по 5m, он занижал
+    счёт классификатора на треть."""
+    mod = _load_module()
+    rows = [(_ts(18, 0), "brain", 0, 0, 0, 1_000_000, 0, 1_000_000)]
+    db = _mkdb(tmp_path / "t.db", rows)
+    rep = mod.report(db, split_ts=_ts(17, 0), include_cold=True)
+    assert rep.on_total == pytest.approx(6.0)      # 1M x $6/M, а не $3.75
+
+
+def test_write_rate_is_5m_when_split_says_5m(tmp_path):
+    mod = _load_module()
+    rows = [(_ts(18, 0), "brain", 0, 0, 0, 1_000_000, 1_000_000, 0)]
+    db = _mkdb(tmp_path / "t.db", rows)
+    rep = mod.report(db, split_ts=_ts(17, 0), include_cold=True)
+    assert rep.on_total == pytest.approx(3.75)
+
+
+def test_mixed_ttl_row_is_billed_per_part(tmp_path):
+    mod = _load_module()
+    rows = [(_ts(18, 0), "brain", 0, 0, 0, 2_000_000, 1_000_000, 1_000_000)]
+    db = _mkdb(tmp_path / "t.db", rows)
+    rep = mod.report(db, split_ts=_ts(17, 0), include_cold=True)
+    assert rep.on_total == pytest.approx(3.75 + 6.0)
+
+
+def test_legacy_rows_without_split_fall_back_and_are_flagged_as_estimate(tmp_path):
+    """Историческую строку не выдумываем: считаем по старой ставке, но ГОВОРИМ,
+    что это оценка — иначе замер ДО/ПОСЛЕ молча смешает факт с догадкой."""
+    mod = _load_module()
+    rows = [(_ts(15, 0), "brain", 0, 0, 0, 1_000_000),                    # NULL-разбивка
+            (_ts(18, 0), "brain", 0, 0, 0, 1_000_000, 0, 1_000_000)]
+    db = _mkdb(tmp_path / "t.db", rows)
+    rep = mod.report(db, split_ts=_ts(17, 0), include_cold=True)
+    assert rep.off_total == pytest.approx(3.75)    # legacy → старая ставка
+    assert rep.on_total == pytest.approx(6.0)      # факт → 1h
+    assert rep.legacy_write_rows == 1
+    assert "оценка" in rep.render()
+
+
+def test_no_estimate_note_when_every_row_has_split(tmp_path):
+    mod = _load_module()
+    rows = [(_ts(15, 0), "brain", 0, 0, 0, 1_000_000, 1_000_000, 0),
+            (_ts(18, 0), "brain", 0, 0, 0, 1_000_000, 1_000_000, 0)]
+    db = _mkdb(tmp_path / "t.db", rows)
+    rep = mod.report(db, split_ts=_ts(17, 0), include_cold=True)
+    assert rep.legacy_write_rows == 0
+    assert "оценка" not in rep.render()
+
+
+def test_cache_read_rows_are_unaffected_by_rate_choice(tmp_path):
+    """Ставка чтения одна ($0.30/M) — экономия арки не должна зависеть от того,
+    разобрались мы со ставкой записи или нет."""
+    mod = _load_module()
+    rows = [(_ts(18, 0), "brain", 0, 0, 1_000_000, 0)]
+    db = _mkdb(tmp_path / "t.db", rows)
+    rep = mod.report(db, split_ts=_ts(17, 0))
+    assert rep.on_total == pytest.approx(0.30)
 
 
 def test_empty_baseline_reports_honestly_instead_of_nan(tmp_path):

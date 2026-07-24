@@ -71,7 +71,9 @@ CREATE TABLE IF NOT EXISTS llm_usage (
     input_tokens INTEGER NOT NULL,
     output_tokens INTEGER NOT NULL,
     cache_read_input_tokens INTEGER NOT NULL,
-    cache_creation_input_tokens INTEGER NOT NULL
+    cache_creation_input_tokens INTEGER NOT NULL,
+    cache_creation_5m INTEGER,
+    cache_creation_1h INTEGER
 );
 CREATE TABLE IF NOT EXISTS contact_obligations (
     contact_id     TEXT NOT NULL,
@@ -95,6 +97,15 @@ ROW_MUTE_SOURCES = frozenset({"human_takeover", "command"})
 # Колонки, которых нет в базах арки 1/2. CREATE TABLE IF NOT EXISTS не добавляет
 # колонки в СУЩЕСТВУЮЩУЮ таблицу — старая база получит их только через ALTER.
 _ADDED_COLUMNS = {
+    # Разбивка записи кэша по TTL (арка «кэш классификатора», фаза 0). Ставки
+    # записи разные ($3.75/M за 5m, $6/M за 1h), а суммарный
+    # cache_creation_input_tokens их не различает. NULL у исторических строк —
+    # осознанно: мы НЕ знаем, по какой ставке они оплачены, и не выдумываем 0
+    # (дельта-скрипт помечает такие строки как оценку).
+    "llm_usage": {
+        "cache_creation_5m": "INTEGER",
+        "cache_creation_1h": "INTEGER",
+    },
     "contacts": {
         "paused_at": "REAL",
         "pause_source": "TEXT",
@@ -462,17 +473,24 @@ class Store:
     def add_llm_usage(self, *, tag: str, model: str, input_tokens: int,
                       output_tokens: int, cache_read_input_tokens: int,
                       cache_creation_input_tokens: int,
+                      cache_creation_5m: int = 0, cache_creation_1h: int = 0,
                       ts: float | None = None) -> None:
         """Одна строка на каждый LLM-вызов. ts — момент вызова (дефолт: сейчас);
-        по нему же считаются интервалы диалога для решения о TTL кэша."""
+        по нему же считаются интервалы диалога для решения о TTL кэша.
+
+        cache_creation_5m/1h — разбивка записи кэша по ставкам ($3.75/M против
+        $6/M). Дефолт 0 сохраняет совместимость с вызывающими, которые её не
+        знают (старые тесты, FakeLLM-шов)."""
         with self._lock:
             self._conn.execute(
                 "INSERT INTO llm_usage(ts, tag, model, input_tokens, "
                 "output_tokens, cache_read_input_tokens, "
-                "cache_creation_input_tokens) VALUES (?,?,?,?,?,?,?)",
+                "cache_creation_input_tokens, cache_creation_5m, "
+                "cache_creation_1h) VALUES (?,?,?,?,?,?,?,?,?)",
                 (time.time() if ts is None else ts, tag, model, input_tokens,
                  output_tokens, cache_read_input_tokens,
-                 cache_creation_input_tokens))
+                 cache_creation_input_tokens, cache_creation_5m,
+                 cache_creation_1h))
             self._conn.commit()
 
     def llm_usage_totals(self) -> dict[str, dict[str, int]]:

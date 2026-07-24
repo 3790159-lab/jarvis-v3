@@ -31,7 +31,8 @@ import datetime
 import sqlite3
 from dataclasses import dataclass, field
 
-RATE_IN, RATE_OUT, RATE_CR, RATE_CW = 3.0, 15.0, 0.30, 3.75  # $/M
+RATE_IN, RATE_OUT, RATE_CR = 3.0, 15.0, 0.30           # $/M
+RATE_CW_5M, RATE_CW_1H = 3.75, 6.0                     # запись кэша: x1.25 / x2
 
 _TAGS = ("brain", "classifier", "classifier_retry")
 GATE_PCT = 10.0
@@ -43,11 +44,33 @@ def default_since() -> float:
         datetime.date.today(), datetime.time.min).timestamp()
 
 
-def _cost(r) -> float:
+def _keys(r) -> set:
+    return set(r.keys()) if hasattr(r, "keys") else set()
+
+
+def _write_cost(r) -> tuple[float, bool]:
+    """($ записи кэша, была ли разбивка по TTL).
+
+    Ставки записи РАЗНЫЕ: 5m = $3.75/M, 1h = $6/M. Пока считали всё по 5m,
+    занижали стоимость классификатора на треть (он пишет ~7.8К ток каждый ход
+    при `ttl:1h` в llm.py). Строки старше фазы 0 разбивки не имеют — для них
+    остаётся прежняя ставка, но отчёт об этом ГОВОРИТ: смешивать факт с
+    оценкой молча нельзя, замер ДО/ПОСЛЕ на этом и поедет."""
+    cols = _keys(r)
+    m5 = r["cache_creation_5m"] if "cache_creation_5m" in cols else None
+    h1 = r["cache_creation_1h"] if "cache_creation_1h" in cols else None
+    if (m5 or 0) + (h1 or 0) > 0:
+        return ((m5 or 0) * RATE_CW_5M + (h1 or 0) * RATE_CW_1H) / 1_000_000, False
+    return r["cache_creation_input_tokens"] * RATE_CW_5M / 1_000_000, \
+        r["cache_creation_input_tokens"] > 0
+
+
+def _cost(r) -> tuple[float, bool]:
+    """($ вызова, посчитан ли он по ОЦЕНОЧНОЙ ставке записи)."""
+    write, legacy = _write_cost(r)
     return (r["input_tokens"] * RATE_IN
             + r["output_tokens"] * RATE_OUT
-            + r["cache_read_input_tokens"] * RATE_CR
-            + r["cache_creation_input_tokens"] * RATE_CW) / 1_000_000
+            + r["cache_read_input_tokens"] * RATE_CR) / 1_000_000 + write, legacy
 
 
 @dataclass
@@ -69,6 +92,7 @@ class Report:
     on_cold: int = 0
     off_total: float = 0.0
     on_total: float = 0.0
+    legacy_write_rows: int = 0
     warnings: list[str] = field(default_factory=list)
 
     @property
@@ -118,6 +142,13 @@ class Report:
         else:
             verdict = "OK" if self.passed else "ПРЕВЫШЕН — режь RECENT_DAYS 7→3"
             lines.append(f"ДЕЛЬТА: {d:+.1f}%   гейт ≤ +{GATE_PCT:.0f}%   {verdict}")
+        if self.legacy_write_rows:
+            lines.append(
+                f"⚠ {self.legacy_write_rows} вызов(ов) без разбивки cache_creation по "
+                f"TTL — их запись посчитана по ставке 5m (${RATE_CW_5M}/M): это оценка, "
+                f"не факт. "
+                f"При ttl:1h реальная ставка ${RATE_CW_1H}/M, то есть эта часть занижена "
+                f"до {(RATE_CW_1H / RATE_CW_5M - 1) * 100:.0f}%.")
         lines.extend(self.warnings)
         return "\n".join(lines)
 
@@ -146,12 +177,15 @@ def report(db: str, *, split_ts: float, since: float | None = None,
     cur: _Turn | None = None
     orphan_tail = 0
     for r in rows:
+        cost, legacy = _cost(r)
+        if legacy:
+            rep.legacy_write_rows += 1
         if r["tag"] == "brain":
             cur = _Turn(ts=r["ts"], cold=r["cache_creation_input_tokens"] > 0,
-                        cost=_cost(r))
+                        cost=cost)
             turns.append(cur)
         elif cur is not None:
-            cur.cost += _cost(r)
+            cur.cost += cost
         else:
             orphan_tail += 1
     if orphan_tail:
