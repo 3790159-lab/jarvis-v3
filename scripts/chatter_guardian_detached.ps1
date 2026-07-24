@@ -66,6 +66,17 @@ if (Test-Path $semidemoFlag) {
     $rOut = Join-Path $logDir 'chatter_volska.stdout.log'
 }
 
+# --- СЛОТ ОБЯЗАТЕЛЬСТВ (арка «б», принята Д-10 2026-07-24) -------------------
+# Слот в проде. Флаг остаётся рубильником отката: убрать строку + рестарт таска
+# → §8-строка молчит, блок в промпт не инъектится (byte-identical к до-арке).
+# env фиксируется на СТАРТЕ раннера (читается каждый ход, но из окружения
+# процесса) → правка этой строки требует рестарта ТАСКА гардиана, не раннера.
+#
+# ⚠️ CHATTER_PROMPT_DUMP здесь НЕ ставить: пишет ПОЛНЫЙ промпт (профиль +
+# переписка лида = ПДн) в logs/prompt_dump.log, ~30-40КБ/ход. Только на время
+# приёмки, вручную, с удалением дампа после — см. docs/chatter/DRILL_D10_OBLIGATIONS.md.
+$env:CHATTER_OBLIGATIONS_SLOT = '1'
+
 function Write-G([string]$msg) {
     # Add-Content + Write-Host (NOT Tee-Object): keep a side-effect-free return so
     # callers using `if (-not (Stop-OldRunner))` see a real boolean, not a log array.
