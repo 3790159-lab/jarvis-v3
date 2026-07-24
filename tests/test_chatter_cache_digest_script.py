@@ -130,6 +130,71 @@ def test_window_is_last_24h(tmp_path):
     assert mod.build_report(db, now=now)["classifier"] == (1, 1)
 
 
+# ── P16(г): видимость ростера — «by design» не должно выглядеть как авария ──
+
+
+def _fake_root(tmp_path, clients=("demo", "demo2"), semidemo=False):
+    (tmp_path / "chatter" / "clients").mkdir(parents=True)
+    (tmp_path / "chatter" / "clients" / "active.yaml").write_text(
+        "clients:\n" + "".join(f"  - {c}\n" for c in clients), encoding="utf-8")
+    (tmp_path / "state").mkdir()
+    if semidemo:
+        (tmp_path / "state" / "chatter_semidemo_volska.flag").write_text("", encoding="utf-8")
+    return tmp_path
+
+
+def test_roster_reports_declared_clients_when_no_override(tmp_path):
+    mod = _load()
+    st = mod.roster_status(_fake_root(tmp_path))
+    assert st["declared"] == ["demo", "demo2"]
+    assert st["served"] == ["demo", "demo2"]
+    assert st["override"] is None and st["muted"] == []
+
+
+def test_semidemo_flag_is_reported_as_explicit_override(tmp_path):
+    """Форензика 25.07: раннер обслуживал ТОЛЬКО volska с 22.07, а declared
+    остался demo,demo2 — и это состояние не было видно нигде."""
+    mod = _load()
+    st = mod.roster_status(_fake_root(tmp_path, semidemo=True))
+    assert st["override"] == "volska"
+    assert st["served"] == ["volska"]
+    assert st["muted"] == ["demo", "demo2"]
+
+
+def test_muted_clients_named_in_the_report_text(tmp_path):
+    mod = _load()
+    line = mod.format_roster(mod.roster_status(_fake_root(tmp_path, semidemo=True)))
+    assert "volska" in line
+    assert "demo" in line and "demo2" in line
+    assert "флаг" in line.lower()
+
+
+def test_healthy_roster_line_is_quiet(tmp_path):
+    """Без переопределения строка не должна кричать — иначе её перестанут читать."""
+    mod = _load()
+    line = mod.format_roster(mod.roster_status(_fake_root(tmp_path)))
+    assert "⚠️" not in line and "🔴" not in line
+    assert "demo" in line
+
+
+def test_report_carries_roster(tmp_path):
+    mod = _load()
+    root = _fake_root(tmp_path, semidemo=True)
+    db = _mkdb(tmp_path / "d.db", [(time.time() - 100, "classifier", 7770, 0)])
+    rep = mod.build_report(db, now=time.time(), client_dir=root / "chatter" / "clients" / "volska",
+                           root=root)
+    assert rep["roster"]["override"] == "volska"
+    assert "demo" in mod.format_report(rep)
+
+
+def test_missing_active_yaml_does_not_crash_the_digest(tmp_path):
+    """Раннер стартует с legacy-дефолтом — сводка обязана это пережить."""
+    mod = _load()
+    (tmp_path / "state").mkdir()
+    st = mod.roster_status(tmp_path)
+    assert st["declared"]          # legacy-дефолт, а не исключение
+
+
 def test_no_network_send_under_pytest(tmp_path, monkeypatch):
     mod = _load()
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "faketoken")

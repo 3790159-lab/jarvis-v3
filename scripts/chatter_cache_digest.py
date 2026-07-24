@@ -82,6 +82,47 @@ def config_change_times(client_dir=DEFAULT_CLIENT_DIR) -> list[float]:
                   if p.is_dir() and p.name.isdigit())
 
 
+# ── P16(г): кого раннер обслуживает на самом деле ────────────────────────────
+# Форензика 2026-07-25: с 22.07 раннер обслуживал только `volska`, а
+# `active.yaml` по-прежнему объявлял `demo, demo2`. Состояние было ЗАКОННЫМ
+# (semidemo-флаг), но не видно нигде — то есть «by design» неотличимо от
+# аварии, и отвалившийся клиент выглядел бы точно так же. Сводка обязана
+# называть расхождение вслух.
+
+SEMIDEMO_FLAG = "chatter_semidemo_volska.flag"
+SEMIDEMO_PERSONA = "volska"
+
+
+def roster_status(root=_ROOT) -> dict:
+    """Объявленный состав против фактически обслуживаемого.
+
+    Объявленный берём ТЕМ ЖЕ швом, что и раннер (`resolve_personas`) — если
+    формат `active.yaml` изменится, сводка поедет за ним, а не разъедется.
+    `env={}` намеренно: нас интересует, что записано в конфиге, а не что
+    подсунуто окружением текущего процесса."""
+    root = Path(root)
+    try:
+        from chatter.config.active import resolve_personas
+        declared = resolve_personas(clients_dir=root / "chatter" / "clients", env={})
+    except Exception as exc:                      # битый/отсутствующий конфиг
+        logger.warning("chatter_cache_digest: состав клиентов не прочитан: %s", exc)
+        declared = []
+    override = (SEMIDEMO_PERSONA
+                if (root / "state" / SEMIDEMO_FLAG).exists() else None)
+    served = [override] if override else list(declared)
+    return {"declared": list(declared), "served": served, "override": override,
+            "muted": [c for c in declared if c not in served]}
+
+
+def format_roster(st: dict) -> str:
+    if not st["override"]:
+        return "ростер: " + (", ".join(st["served"]) or "(пусто)")
+    muted = ", ".join(st["muted"]) or "—"
+    return (f"⚠️ ростер ПЕРЕОПРЕДЕЛЁН флагом: обслуживается только "
+            f"{', '.join(st['served'])}; отключены: {muted} "
+            f"(state/{SEMIDEMO_FLAG})")
+
+
 def _rows_since(db: str, since: float) -> list[dict]:
     try:
         conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
@@ -104,12 +145,13 @@ def _rows_since(db: str, since: float) -> list[dict]:
 
 
 def build_report(db: str, *, now: float | None = None,
-                 client_dir=DEFAULT_CLIENT_DIR) -> dict:
+                 client_dir=DEFAULT_CLIENT_DIR, root=_ROOT) -> dict:
     now = time.time() if now is None else now
     rows = _rows_since(db, now - WINDOW_SEC)
     changes = config_change_times(client_dir)
     rep: dict = {t: hit_rate(rows, t) for t in _TAGS}
     rep["window_h"] = WINDOW_SEC / 3600
+    rep["roster"] = roster_status(root)
     # Алертим ТОЛЬКО по классификатору: у brain кэш исправен, и его промахи
     # почти всегда — законно истёкший TTL долгого диалога.
     rep["alert"] = is_regression(rows, "classifier", config_change_ts=changes)
@@ -124,6 +166,7 @@ def format_report(rep: dict) -> str:
 
     head = "🔴 КЭШ КЛАССИФИКАТОРА СЛОМАН" if rep["alert"] else "🧊 кэш chatter"
     lines = [f"{head} — за {rep['window_h']:.0f}ч",
+             format_roster(rep["roster"]),
              _line("brain"), _line("classifier")]
     if rep["classifier_retry"][1]:
         lines.append(_line("classifier_retry"))
