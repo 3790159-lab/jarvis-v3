@@ -12,8 +12,15 @@ from __future__ import annotations
 
 import argparse
 import sqlite3
+import sys
+from pathlib import Path
 
-from chatter.core.obligations_slot import CODE_BOT_OWNED_KINDS
+# Запуск как `python scripts/foo.py` ставит sys.path[0]=scripts/, корень репо не
+# на пути → импорт chatter падает. Добавляем корень явно (единый источник видов —
+# obligations_slot, дублировать список kinds в скрипте нельзя).
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from chatter.core.obligations_slot import CODE_BOT_OWNED_KINDS  # noqa: E402
 
 
 def normalize_owed_by(db_path: str) -> int:

@@ -51,3 +51,19 @@ def test_migration_idempotent(tmp_path):
     mod = _load()
     assert mod.normalize_owed_by(str(db)) == 1
     assert mod.normalize_owed_by(str(db)) == 0
+
+
+def test_migration_runs_as_standalone_script(tmp_path):
+    # Регресс: скрипт документирован как `python scripts/foo.py --db …`. Тогда
+    # sys.path[0]=scripts/, и `from chatter…` падает без bootstrap корня (баг
+    # найден живьём на Д-10; importlib-тесты его не ловят — chatter уже на path).
+    import subprocess
+    import sys
+    db = tmp_path / "t.db"
+    store = Store(db)
+    _insert_legacy(store, "c1", "brief", "brief", "client")
+    r = subprocess.run([sys.executable, str(_SCRIPT), "--db", str(db)],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    obs = {o.okey: o.owed_by for o in Store(db).get_obligations("c1")}
+    assert obs["brief"] == "bot"
