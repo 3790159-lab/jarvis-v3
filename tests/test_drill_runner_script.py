@@ -16,6 +16,8 @@ import sys
 import time
 from pathlib import Path
 
+import pytest
+
 _SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "drill_runner.py"
 
 
@@ -172,27 +174,36 @@ def test_no_signal_yet(tmp_path):
 
 def test_cost_estimate_is_printed_before_the_run():
     """Молчаливый прогон на 40 шагов недопустим."""
+    from chatter.core.drill import parse_scenario
     mod = _load()
-    est = mod.estimate_cost(steps=4)
+    sc = parse_scenario("name: x\ncontact: c\nsteps:\n  - say: \"раз\"\n"
+                        "  - say: \"два\"\n  - say: \"три\"\n  - say: \"чотири\"\n")
+    est = mod.estimate_cost(sc.steps)
     assert est > 0
-    assert "4" in mod.format_estimate(4, est)
+    text = mod.format_estimate(sc.steps, est)
+    assert "холодный" in text
+    # Тёплая ставка держится, только пока жив кэш: пауза длиннее часа делает
+    # ХОЛОДНЫМ каждый следующий ход, и смета перестаёт быть правдой.
+    assert "часа" in text or "TTL" in text
 
 
 def test_spend_is_measured_from_usage(tmp_path):
     mod = _load()
     db = _db(tmp_path / "d.db", usage=[(1001.0, "brain", 8801, 0, 0),
                                        (1002.0, "classifier", 7681, 0, 0)])
-    spent = mod.measure_spend(db, since_ts=1000.0)
+    spent = mod.measure_spend(db, windows=[(1000.0, 1010.0)])
     assert spent > 0
 
 
 def test_report_names_every_check(tmp_path):
-    from chatter.core.drill import CheckResult
+    from chatter.core.drill import CheckResult, StepOutcome
     mod = _load()
     text = mod.format_report("Д-10", [
-        {"say": "привіт", "checks": [CheckResult("cache", True, "ожидали hit, факт hit")]},
-        {"say": "ще", "checks": [CheckResult("obligations", False, "brief: open, ждали delivered")]},
-    ], spent=0.14)
+        StepOutcome(say="привіт",
+                    checks=(CheckResult("cache", True, "ожидали hit, факт hit"),)),
+        StepOutcome(say="ще",
+                    checks=(CheckResult("obligations", False, "brief: open, ждали delivered"),)),
+    ], money=mod.Money(estimate=0.14, drill=0.14, window=0.14))
     assert "✅" in text and "🔴" in text
     assert "cache" in text and "obligations" in text
     assert "0.14" in text
@@ -220,3 +231,155 @@ def test_dry_run_prints_the_plan(tmp_path, capsys):
     out = capsys.readouterr().out
     assert rc == 0
     assert "первая" in out and "вторая" in out
+
+
+# ── деньги: считаем ТОЛЬКО ходы дрила ────────────────────────────────────────
+# Первый прогон: смета $0.14 на 4 шага, факт $0.1191 за ОДИН выполненный шаг —
+# ×3.4 к ставке. Разбор по строкам llm_usage: постороннего трафика в окне не
+# было, врала не БД, а метод. Два дефекта: (1) окно замера — от старта до конца
+# прогона, то есть 45 минут таймаутов, в которые мог лечь любой чужой ход;
+# (2) ставка $0.0352 — ТЁПЛАЯ, а первый ход сценария по договору холодный
+# (`cache: miss`) и платит запись обоих префиксов по 1h-ставке.
+
+
+def test_spend_counts_only_the_drill_turns(tmp_path):
+    """Чужой ход, легший в паузу между шагами, не должен попадать в счёт дрила:
+    иначе дрил «дорожает» ровно настолько, насколько владелец отошёл."""
+    mod = _load()
+    db = _db(tmp_path / "d.db", usage=[(1010.0, "brain", 8801, 0, 0),
+                                       (2000.0, "brain", 8801, 0, 0)])
+    drill_only = mod.measure_spend(db, windows=[(1000.0, 1060.0)])
+    whole_window = mod.measure_spend(db, windows=[(1000.0, 3000.0)])
+    assert drill_only > 0
+    assert whole_window > drill_only, "фикстура обязана содержать посторонний ход"
+    assert abs(whole_window - 2 * drill_only) < 1e-9
+
+
+def test_skipped_step_contributes_no_window(tmp_path):
+    """Пропущенный шаг ходов не делал — его окно в счёт не идёт."""
+    mod = _load()
+    db = _db(tmp_path / "d.db", usage=[(1500.0, "brain", 8801, 0, 0)])
+    assert mod.measure_spend(db, windows=[]) == 0.0
+
+
+def test_estimate_prices_the_first_turn_as_cold(tmp_path):
+    """Смета обязана закладывать холодный старт: первый ход сценария по
+    договору `cache: miss` и платит запись обоих префиксов ($6/M за 1h)."""
+    mod = _load()
+    from chatter.core.drill import parse_scenario
+    sc = parse_scenario("name: x\ncontact: c\nsteps:\n"
+                        "  - say: \"раз\"\n    expect: {cache: miss}\n"
+                        "  - say: \"два\"\n    expect: {cache: hit}\n")
+    est = mod.estimate_cost(sc.steps)
+    assert est == pytest.approx(mod.COST_TURN_COLD + mod.COST_TURN_WARM)
+    assert est > 2 * mod.COST_TURN_WARM, "плоская тёплая ставка занижала смету в 3.4 раза"
+
+
+def test_estimate_assumes_cold_when_the_scenario_is_silent_about_cache(tmp_path):
+    """Молчание сценария про кэш — не повод занижать смету: деньги считаем по
+    худшему случаю, иначе владелец узнаёт цену после списания."""
+    mod = _load()
+    from chatter.core.drill import parse_scenario
+    sc = parse_scenario("name: x\ncontact: c\nsteps:\n  - say: \"раз\"\n  - say: \"два\"\n")
+    assert mod.estimate_cost(sc.steps) == pytest.approx(
+        mod.COST_TURN_COLD + mod.COST_TURN_WARM)
+
+
+def test_report_puts_estimate_fact_and_foreign_traffic_side_by_side():
+    """Расхождение сметы с фактом должно быть видно в отчёте, а не всплывать
+    вопросом владельца на следующий день."""
+    from chatter.core.drill import CheckResult, StepOutcome
+    mod = _load()
+    text = mod.format_report("Д-10", [StepOutcome(say="раз", checks=(
+        CheckResult("cache", True, "ожидали miss, факт miss"),))],
+        money=mod.Money(estimate=0.2247, drill=0.1191, window=0.1500))
+    assert "0.2247" in text and "0.1191" in text
+    assert "0.0309" in text, "посторонний трафик в окне обязан быть назван отдельно"
+
+
+# ── оркестрация: план целиком до старта, прогресс — на диск ──────────────────
+# Прогон 2026-07-25 стоял 45 минут в фоновой команде и не показывал НИЧЕГО:
+# stdout фонового процесса буферизован, а суфлёр печатал шаг только в него.
+# Реплики пришлось диктовать вручную. Класс лечится двумя свойствами: весь план
+# известен ДО старта, а прогресс живёт в файле, а не в чьём-то терминале.
+
+
+def _scenario_file(tmp_path):
+    sc = tmp_path / "s.yaml"
+    sc.write_text(
+        "name: тест\ncontact: c\nsteps:\n"
+        "  - say: \"перша репліка\"\n    expect: {cache: miss}\n"
+        "  - say: \"друга репліка\"\n    expect: {card_delivered: true}\n",
+        encoding="utf-8")
+    return sc
+
+
+def test_progress_file_exists_before_the_first_step_starts(tmp_path, capsys, monkeypatch):
+    """К моменту, когда харнесс ждёт первую реплику, план уже на диске —
+    иначе о ходе прогона можно узнать, только глядя в фоновый stdout."""
+    mod = _load()
+    db = _db(tmp_path / "d.db")
+    out = tmp_path / "drills"
+    seen = {}
+
+    def _spy(*a, **kw):
+        files = list(out.glob("*.md"))
+        seen["text"] = files[0].read_text(encoding="utf-8") if files else None
+        return False
+
+    monkeypatch.setattr(mod, "step_signal_seen", _spy)
+    mod.main([str(_scenario_file(tmp_path)), "--db", db, "--out", str(out),
+              "--log", str(tmp_path / "no.log"), "--yes", "--step-timeout", "0.1"])
+    assert seen["text"], "к первому ожиданию прогресс-файл обязан существовать"
+    assert "перша репліка" in seen["text"] and "друга репліка" in seen["text"]
+
+
+def test_plan_names_every_replica_and_the_owner_actions(tmp_path, capsys):
+    """Владелец должен видеть ВЕСЬ сценарий до старта — включая шаги, где от
+    него ждут не только реплику (тап по карточке)."""
+    mod = _load()
+    rc = mod.main([str(_scenario_file(tmp_path)), "--db", str(tmp_path / "n.db"),
+                   "--dry-run"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "перша репліка" in out and "друга репліка" in out
+    assert "карточк" in out.lower(), "шаг с карточкой обязан быть помечен в плане"
+
+
+def test_timed_out_run_exits_nonzero_and_says_so_in_the_report(tmp_path, capsys):
+    """Сигнала не было ни на одном шаге: прогон НЕ состоялся — ненулевой код и
+    явный вердикт в отчёте, а не тихий зелёный ноль."""
+    mod = _load()
+    db = _db(tmp_path / "d.db")
+    out = tmp_path / "drills"
+    rc = mod.main([str(_scenario_file(tmp_path)), "--db", db, "--out", str(out),
+                   "--log", str(tmp_path / "no.log"), "--yes", "--step-timeout", "0.1"])
+    assert rc == 2, "пропуск шагов обязан давать ненулевой exit"
+    report = sorted(out.glob("*.md"))[0].read_text(encoding="utf-8")
+    assert "НЕ СОСТОЯЛСЯ" in report
+    assert "НЕ СОСТОЯЛСЯ" in capsys.readouterr().out
+
+
+def test_plan_warns_about_expectations_already_satisfied(tmp_path, capsys):
+    """Дрил идёт по живому контакту: слот мог закрыться прошлым прогоном.
+    Владелец должен увидеть пустую проверку ДО того, как заплатит за прогон."""
+    mod = _load()
+    db = _db(tmp_path / "d.db", obligations=[("c", "owner_write", "delivered")])
+    sc = tmp_path / "s.yaml"
+    sc.write_text("name: x\ncontact: c\nsteps:\n  - say: \"оплата\"\n"
+                  "    expect: {obligations: {owner_write: delivered}}\n", encoding="utf-8")
+    mod.main([str(sc), "--db", db, "--dry-run"])
+    out = capsys.readouterr().out
+    assert "owner_write" in out and "ничего не докажет" in out
+
+
+def test_missing_db_does_not_hide_the_plan(tmp_path, capsys):
+    """Нет БД — план всё равно печатается, а причина названа вслух: молчаливое
+    проглатывание ошибки здесь скрыло бы, что снимок «до» не прочитан."""
+    mod = _load()
+    sc = tmp_path / "s.yaml"
+    sc.write_text("name: x\ncontact: c\nsteps:\n  - say: \"раз\"\n", encoding="utf-8")
+    rc = mod.main([str(sc), "--db", str(tmp_path / "нет.db"), "--dry-run"])
+    out = capsys.readouterr().out
+    assert rc == 0 and "раз" in out
+    assert "снимок" in out.lower()

@@ -69,6 +69,49 @@ class CheckResult:
     detail: str
 
 
+@dataclass(frozen=True)
+class StepOutcome:
+    """Итог одного шага. `skipped` отделён от «нет проверок» намеренно: шаг
+    «отправь и посмотри» СОСТОЯЛСЯ, а пропущенный по таймауту — нет, и
+    складывать их в одну корзину значит красить молчание в зелёный."""
+    say: str
+    checks: tuple[CheckResult, ...] = ()
+    skipped: bool = False
+    note: str = ""
+
+    @property
+    def failed(self) -> int:
+        return sum(1 for c in self.checks if not c.ok)
+
+
+@dataclass(frozen=True)
+class Verdict:
+    code: int          # 0 зелёный · 1 есть красное · 2 прогон НЕ состоялся
+    headline: str
+    detail: str
+
+
+def run_verdict(outcomes) -> Verdict:
+    """Гейт прогона. Пропуск шага ПЕРЕВЕШИВАЕТ зелёные проверки: первый прогон
+    харнесса (2026-07-25) вышел с кодом 0, имея 1 выполненный шаг из 4, потому
+    что «шага не было» проверкой не считалось. Отчёт по четверти сценария нельзя
+    предъявлять на приёмке, и автоматика не должна принимать его за успех."""
+    total = len(outcomes)
+    skipped = sum(1 for o in outcomes if o.skipped)
+    failed = sum(o.failed for o in outcomes if not o.skipped)
+    if skipped:
+        return Verdict(
+            2, "🔴 ВЕРДИКТ: ПРОГОН НЕ СОСТОЯЛСЯ",
+            f"пропущено {skipped} из {total} шаг(ов) — сценарий не пройден "
+            f"целиком, результат не годится для приёмки")
+    if failed:
+        return Verdict(
+            1, "🔴 ВЕРДИКТ: ЕСТЬ КРАСНОЕ",
+            f"{total} шаг(ов) выполнено, провалено проверок: {failed}")
+    return Verdict(0, "✅ ВЕРДИКТ: ПРОГОН ЗЕЛЁНЫЙ",
+                   f"{total} из {total} шаг(ов), все проверки зелёные")
+
+
 def parse_scenario(text: str) -> Scenario:
     try:
         raw = yaml.safe_load(text)
@@ -98,6 +141,56 @@ def parse_scenario(text: str) -> Scenario:
                     contact=str(raw.get("contact", "")),
                     client=str(raw.get("client", "")),
                     steps=tuple(steps))
+
+
+# --- суфлёр -----------------------------------------------------------------
+# Весь сценарий печатается ДО старта. Прогон 2026-07-25 висел в фоновой команде,
+# и реплики пришлось диктовать по одной вручную: план, известный только скрипту,
+# бесполезен человеку у телефона.
+
+_OWNER_ACTIONS = {
+    "card_delivered": "придёт карточка владельцу — тапни решение",
+    "obligations": "ждём изменения слота обязательств",
+    "cache": None,  # заполняется отдельно: холодный ход стоит дороже
+}
+
+
+def owner_action(step: "Step") -> str:
+    """Что ещё, кроме отправки реплики, ждут от владельца на этом шаге."""
+    hints = []
+    if step.expect.get("card_delivered"):
+        hints.append(_OWNER_ACTIONS["card_delivered"])
+    if "owner_write" in (step.expect.get("obligations") or {}):
+        hints.append("ход требует ответа владельца (owner_write)")
+    if step.expect.get("cache") == "miss":
+        hints.append("холодный ход — платим за новый кэш")
+    return "; ".join(hints)
+
+
+def vacuous_expectations(scenario: "Scenario", before: dict) -> list[str]:
+    """Проверки, которые пройдут ещё до того, как дрил что-то сделает.
+
+    Дрил идёт по ЖИВОМУ контакту: слот обязательств мог быть закрыт прошлым
+    прогоном или обычным разговором. Тогда `obligations: {owner_write:
+    delivered}` зеленеет, ничего не доказав. Владелец должен знать это ДО
+    старта — иначе прогон за $0.22 подтвердит сам себя."""
+    out = []
+    for i, s in enumerate(scenario.steps, 1):
+        for okey, status in (s.expect.get("obligations") or {}).items():
+            if before.get(okey) == status:
+                out.append(f"шаг {i}: obligations {okey}={status} — уже так ДО прогона, "
+                           f"проверка ничего не докажет")
+    return out
+
+
+def plan_lines(scenario: "Scenario") -> list[str]:
+    out = []
+    for i, s in enumerate(scenario.steps, 1):
+        action = owner_action(s)
+        checks = ", ".join(sorted(s.expect)) or "без проверок"
+        out.append(f"{i}. «{s.say}»\n     проверки: {checks}"
+                   + (f"\n     ⚠️ {action}" if action else ""))
+    return out
 
 
 # --- проверки ---------------------------------------------------------------

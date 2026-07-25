@@ -13,7 +13,8 @@ from __future__ import annotations
 import pytest
 
 from chatter.core.drill import (
-    EXPECT_KEYS, DrillScenarioError, Facts, check_step, parse_scenario,
+    EXPECT_KEYS, CheckResult, DrillScenarioError, Facts, StepOutcome, check_step,
+    parse_scenario, plan_lines, run_verdict, vacuous_expectations,
 )
 
 SCENARIO = """
@@ -182,3 +183,88 @@ def test_all_checks_run_even_after_the_first_failure():
 def test_empty_expect_is_a_neutral_step():
     """Шаг «просто отправь и посмотри» — законный: не всякий ход проверяем."""
     assert check_step({}, _facts()) == []
+
+
+# ── вердикт прогона: пропуск шага = прогон НЕ состоялся ──────────────────────
+# Первый прогон 2026-07-25 вышел с кодом 0, хотя 3 шага из 4 были пропущены по
+# таймауту: гейт считал только красные проверки, а «шага не было» проверкой не
+# считалось. Отчёт с одним зелёным шагом из четырёх нельзя предъявлять на
+# приёмке, и автоматика не должна принимать его за успех.
+
+
+def test_skipped_step_means_the_run_did_not_happen():
+    v = run_verdict([StepOutcome(say="1", checks=(CheckResult("cache", True, ""),)),
+                     StepOutcome(say="2", skipped=True),
+                     StepOutcome(say="3", skipped=True)])
+    assert v.code == 2, "пропуск шага обязан давать НЕНУЛЕВОЙ код выхода"
+    assert "НЕ СОСТОЯЛСЯ" in v.headline
+    assert "2 из 3" in v.detail
+
+
+def test_skipped_step_outranks_green_checks():
+    """Все выполненные проверки зелёные — но прогон всё равно не состоялся."""
+    v = run_verdict([StepOutcome(say="1", checks=(CheckResult("cache", True, "ok"),)),
+                     StepOutcome(say="2", skipped=True)])
+    assert v.code == 2
+
+
+def test_failed_check_on_a_full_run_is_code_one():
+    v = run_verdict([StepOutcome(say="1", checks=(CheckResult("cache", False, "ждали hit"),))])
+    assert v.code == 1
+    assert "КРАСН" in v.headline.upper()
+
+
+def test_full_green_run_is_code_zero():
+    v = run_verdict([StepOutcome(say="1", checks=(CheckResult("cache", True, "ok"),)),
+                     StepOutcome(say="2", checks=())])
+    assert v.code == 0
+    assert "ЗЕЛЁНЫЙ" in v.headline
+
+
+def test_step_without_checks_is_not_a_skip():
+    """«Отправь и посмотри» — законный шаг: он СОСТОЯЛСЯ, просто нечего сверять.
+    Путать его с пропуском значит красить молчание в зелёный."""
+    v = run_verdict([StepOutcome(say="1", checks=())])
+    assert v.code == 0
+
+
+# ── суфлёр: план целиком до старта ───────────────────────────────────────────
+
+
+def test_plan_lists_every_replica_with_its_number():
+    sc = parse_scenario(SCENARIO)
+    plan = plan_lines(sc)
+    assert len(plan) == 2
+    assert plan[0].startswith("1.") and "Ми вирішили" in plan[0]
+    assert plan[1].startswith("2.") and "вартість" in plan[1]
+
+
+def test_plan_marks_steps_that_need_more_than_a_replica():
+    """На шаге с карточкой от владельца ждут тап — он должен знать это ДО
+    старта, а не в момент, когда прогон уже висит на таймауте."""
+    sc = parse_scenario("name: x\ncontact: c\nsteps:\n"
+                        "  - say: \"оплата\"\n    expect: {card_delivered: true}\n")
+    assert "карточк" in plan_lines(sc)[0].lower()
+
+
+# ── пустые проверки видны ДО старта ──────────────────────────────────────────
+# Слот обязательств у живого контакта уже мог быть закрыт прошлым прогоном.
+# Тогда `obligations: {owner_write: delivered}` пройдёт, ничего не доказав, —
+# и об этом надо знать до того, как прогон спишет деньги, а не после.
+
+
+def test_expectation_already_satisfied_before_the_run_is_flagged():
+    sc = parse_scenario("name: x\ncontact: c\nsteps:\n"
+                        "  - say: \"оплата\"\n"
+                        "    expect: {obligations: {owner_write: delivered}}\n")
+    warns = vacuous_expectations(sc, {"owner_write": "delivered"})
+    assert len(warns) == 1
+    assert "owner_write" in warns[0] and "1" in warns[0]
+
+
+def test_expectation_that_still_has_to_happen_is_not_flagged():
+    sc = parse_scenario("name: x\ncontact: c\nsteps:\n"
+                        "  - say: \"оплата\"\n"
+                        "    expect: {obligations: {owner_write: delivered}}\n")
+    assert vacuous_expectations(sc, {"owner_write": "open"}) == []
+    assert vacuous_expectations(sc, {}) == []
