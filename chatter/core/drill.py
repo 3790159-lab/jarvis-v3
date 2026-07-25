@@ -177,7 +177,7 @@ def vacuous_expectations(scenario: "Scenario", before: dict) -> list[str]:
     out = []
     for i, s in enumerate(scenario.steps, 1):
         for okey, status in (s.expect.get("obligations") or {}).items():
-            if before.get(okey) == status:
+            if before.get(okey) in _statuses(status):
                 out.append(f"шаг {i}: obligations {okey}={status} — уже так ДО прогона, "
                            f"проверка ничего не докажет")
     return out
@@ -203,13 +203,20 @@ def _check_cache(want: str, f: Facts) -> CheckResult:
                        f"ожидали {want}, факт {f.cache}")
 
 
+def _statuses(want: str) -> set[str]:
+    """`open|delivered` — законное ожидание, а не размытость: обязательство может
+    родиться и закрыться ОДНИМ ходом (лид просит пересчёт, бот тут же называет
+    сумму), а может провисеть до следующего. Оба исхода — норма."""
+    return {s.strip() for s in str(want).split("|") if s.strip()}
+
+
 def _check_obligations(want: dict, f: Facts) -> CheckResult:
     bad = []
     for okey, status in (want or {}).items():
         have = f.obligations.get(okey)
         if have is None:
             bad.append(f"{okey}: нет в слоте (ждали {status})")
-        elif have != status:
+        elif have not in _statuses(status):
             bad.append(f"{okey}: {have}, ждали {status}")
     return CheckResult("obligations", not bad,
                        "; ".join(bad) or "совпало")

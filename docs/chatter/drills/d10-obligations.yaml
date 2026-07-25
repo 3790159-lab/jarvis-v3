@@ -23,6 +23,18 @@ steps:
       classifier_errors: 0
       no_duplicate_reply: true
 
+  # Живой слот: brief/examples/owner_write у этого контакта уже delivered, и
+  # проверять их — значит проверять прошлое. Этот ход ЗАВОДИТ новый долг:
+  # критерий закрытия recalc в промпте классификатора буквально «названа
+  # сумма». Бот может назвать вилку тем же ходом (delivered сразу) или уйти
+  # в прорахунок (open) — оба исхода законны, поэтому альтернатива.
+  - say: "А якщо додати ще дизайн візитівок — скільки це буде?"
+    expect:
+      cache: hit
+      obligations: { recalc: "open|delivered" }
+      classifier_errors: 0
+      no_duplicate_reply: true
+
   - say: "Добре, давайте оформлювати оплату"
     expect:
       cache: hit
@@ -33,6 +45,8 @@ steps:
   - say: "Дякую, чекаю"
     expect:
       cache: hit
-      obligations: { brief: delivered, owner_write: delivered }
+      # К этому ходу сумма обязана быть названа: долг, созданный на шаге 3,
+      # закрыт. Это единственная НЕ пустая obligations-проверка прогона.
+      obligations: { recalc: delivered, brief: delivered, owner_write: delivered }
       classifier_errors: 0
       no_duplicate_reply: true

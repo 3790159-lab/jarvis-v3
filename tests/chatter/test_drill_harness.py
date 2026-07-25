@@ -268,3 +268,40 @@ def test_expectation_that_still_has_to_happen_is_not_flagged():
                         "    expect: {obligations: {owner_write: delivered}}\n")
     assert vacuous_expectations(sc, {"owner_write": "open"}) == []
     assert vacuous_expectations(sc, {}) == []
+
+
+# ── «создан на этом ходе» vs «закрыт к этому ходу» — разные проверки ─────────
+# Обязательство может родиться и закрыться ОДНИМ ходом (лид просит пересчёт,
+# бот тут же называет сумму = recalc сразу delivered), а может провисеть до
+# следующего. Требовать ровно один статус — значит красить нормальное
+# поведение в красное; поэтому статус умеет альтернативу «open|delivered».
+
+
+def test_obligation_status_accepts_an_alternative():
+    for actual in ("open", "delivered"):
+        ok, _ = _verdict({"obligations": {"recalc": "open|delivered"}},
+                         _facts(obligations={"recalc": actual}))
+        assert ok, f"{actual} входит в альтернативу и обязан проходить"
+
+
+def test_alternative_does_not_swallow_a_wrong_status():
+    ok, res = _verdict({"obligations": {"recalc": "open|delivered"}},
+                       _facts(obligations={"recalc": "cancelled"}))
+    assert not ok
+    assert "cancelled" in res[0].detail and "open|delivered" in res[0].detail
+
+
+def test_alternative_still_requires_the_obligation_to_exist():
+    """Ход, который ОБЯЗАН был завести долг, но не завёл, — это провал, а не
+    «ну, статуса нет — значит любой подойдёт»."""
+    ok, res = _verdict({"obligations": {"recalc": "open|delivered"}},
+                       _facts(obligations={}))
+    assert not ok and "нет в слоте" in res[0].detail
+
+
+def test_alternative_is_flagged_vacuous_only_when_already_matching():
+    sc = parse_scenario("name: x\ncontact: c\nsteps:\n  - say: \"порахуйте\"\n"
+                        "    expect: {obligations: {recalc: open|delivered}}\n")
+    assert vacuous_expectations(sc, {"recalc": "delivered"})
+    assert vacuous_expectations(sc, {"recalc": "cancelled"}) == []
+    assert vacuous_expectations(sc, {}) == []
