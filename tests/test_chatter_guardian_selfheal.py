@@ -37,14 +37,47 @@ def test_task_has_a_repetition_trigger():
 
 
 def test_repetition_is_indefinite_not_a_one_off():
-    """`RepetitionDuration` без бесконечности = самоподъём протухнет через N
-    часов, и дыра вернётся молча."""
+    """Бессрочность в схеме Планировщика = `<Repetition>` БЕЗ `<Duration>`.
+
+    Приёмка 25.07: первая редакция задавала `-RepetitionDuration
+    ([TimeSpan]::MaxValue)`, что сериализуется в `P99999999DT23H59M59S` и
+    отвергается валидатором XML (`HRESULT 0x80041318`, "value which is
+    incorrectly formatted or out of range"). Register-ScheduledTask падал,
+    таск оставался со СТАРЫМИ двумя триггерами — а этот тест был зелёным,
+    потому что читал текст скрипта, а не то, что принял Windows.
+    """
     t = _text(REGISTER)
     m = re.search(r"RepetitionDuration\s+([^\s`]+)", t)
-    assert m, "не задана длительность повторения"
-    assert "Max" in m.group(1) or "MaxValue" in m.group(1), (
-        f"повторение конечно ({m.group(1)}) — после его истечения гардиан снова "
-        f"некому поднять")
+    assert m is None, (
+        f"задана RepetitionDuration ({m.group(1) if m else ''}) — конечная "
+        f"длительность вернёт дыру молча, а [TimeSpan]::MaxValue Планировщик "
+        f"вообще отвергнет (0x80041318). Бессрочно = НЕ задавать Duration.")
+
+
+def _code_lines(p: Path) -> list[str]:
+    """Только исполняемые строки: в комментариях `MaxValue` живёт законно —
+    там объяснено, ПОЧЕМУ его нельзя передавать."""
+    return [ln for ln in _text(p).splitlines() if not ln.lstrip().startswith("#")]
+
+
+def test_maxvalue_duration_is_never_used():
+    """Сторож против регресса ровно того значения, на котором падал деплой."""
+    bad = [ln for ln in _code_lines(REGISTER) if "MaxValue" in ln]
+    assert not bad, (
+        f"{bad} — [TimeSpan]::MaxValue → P99999999DT23H59M59S → "
+        f"Register-ScheduledTask падает с 0x80041318 и таск остаётся без "
+        f"самоподъёма")
+
+
+def test_registration_verifies_the_trigger_landed():
+    """Код возврата не доказывает ничего: провал регистрации виден только в
+    живом XML. Скрипт обязан САМ перечитать таск и упасть, если повторения
+    нет — иначе следующий деплой снова оставит дыру молча."""
+    t = _text(REGISTER)
+    assert "Get-ScheduledTask -TaskName $TaskName" in t, (
+        "скрипт не перечитывает зарегистрированный таск")
+    assert "Repetition.Interval" in t and "throw" in t, (
+        "нет проверки-факта, что повторяющийся триггер принят Планировщиком")
 
 
 def test_repetition_interval_is_sane():
