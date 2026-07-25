@@ -52,8 +52,14 @@ class _Silent(Transport):
         pass
 
 
-def _run_turn(reply: str):
-    """Прогнать один ход и вернуть окно истории, которое увидел классификатор."""
+def _run_turn(reply: str, monkeypatch=None):
+    """Прогнать один ход и вернуть то, что увидел классификатор.
+
+    Слот обязательств гейтится флагом (по умолчанию OFF = поведение байт-в-байт
+    как до арки), а `pending_reply` живёт именно в этой ветке — значит флаг
+    включаем явно, иначе тест проверял бы мёртвый путь."""
+    if monkeypatch is not None:
+        monkeypatch.setenv("CHATTER_OBLIGATIONS_SLOT", "1")
     seen = {}
 
     def _classify(history, profile=None, **kw):
@@ -75,28 +81,25 @@ def _run_turn(reply: str):
     return seen, deps
 
 
-def test_classifier_sees_the_bot_reply_of_this_very_turn():
-    """КОРЕНЬ P18. Без ответа бота в окне классификатор судит ход по одной
-    реплике лида и обещание бота увидеть не может."""
+def test_classifier_gets_the_bot_reply_of_this_very_turn(monkeypatch):
+    """КОРЕНЬ P18. Ответ бота обязан доехать до классификатора на СВОЁМ ходу —
+    но параметром, а не репликой в переписке (иначе API 400, см. сторож ниже)."""
+    seen, _ = _run_turn(PROMISE, monkeypatch)
+    assert "керівниці" in (seen["kw"].get("pending_reply") or ""), \
+        "ответ текущего хода не доехал до классификатора"
+
+
+def test_conversation_window_still_ends_with_the_lead():
+    """Окно остаётся перепиской: последним идёт сообщение ЛИДА."""
     seen, _ = _run_turn(PROMISE)
     window = seen["window"]
-    assert window, "классификатор вызван с пустым окном"
-    last = window[-1]
-    assert last["role"] == "assistant", f"последним обязан идти ответ бота, а не {last['role']}"
-    assert "керівниці" in last["text"]
-
-
-def test_lead_message_is_still_in_the_window():
-    """Реплику лида дописанный ответ бота не вытесняет."""
-    seen, _ = _run_turn(PROMISE)
-    roles = [m["role"] for m in seen["window"]]
-    texts = " ".join(m["text"] for m in seen["window"])
-    assert "user" in roles and "візитівок" in texts
+    assert window and window[-1]["role"] == "user"
+    assert "візитівок" in window[-1]["text"]
 
 
 def test_pending_reply_is_not_persisted_twice():
-    """Ответ дописывается ТОЛЬКО в окно классификатора. Если он попадёт в
-    store, история удвоится и следующий ход будет судить по дублю."""
+    """Ответ едет контекстом. Если он попадёт в store, история удвоится и
+    следующий ход будет судить по дублю."""
     seen, deps = _run_turn(PROMISE)
     saved = [m for m in deps.store.history("42:demo") if m["role"] == "assistant"]
     assert len(saved) <= 1, f"ответ сохранён {len(saved)} раз(а)"
@@ -123,3 +126,49 @@ def test_prompt_closes_recalc_when_handed_to_the_owner():
     for p in _prompts():
         assert "передан" in p.lower() and "recalc" in p
         assert "delivered" in p
+
+
+# ── СТОРОЖ: переписка обязана заканчиваться репликой ЛИДА ────────────────────
+# Инцидент 2026-07-26 01:2x: первая версия фикса P18 дописывала ответ бота в
+# МАССИВ СООБЩЕНИЙ. API ответил 400 «This model does not support assistant
+# message prefill. The conversation must end with a user message», классификатор
+# падал на КАЖДОМ ходу пять ходов подряд — без эскалации и без карточки на шаге
+# оплаты. Тест на фейке classify этого не поймал: фейк принимал любое окно.
+# Поэтому сторож стоит на РЕАЛЬНОЙ сборке сообщений.
+
+
+def test_messages_never_end_with_an_assistant_turn():
+    from chatter.core.classifier import build_classifier_messages
+    msgs = build_classifier_messages([
+        {"role": "user", "text": "а скільки візитівки?"},
+        {"role": "assistant", "text": PROMISE},
+    ])
+    assert msgs, "сообщения не собрались"
+    assert msgs[-1]["role"] == "user", (
+        "переписка заканчивается ответом бота — API отвергнет это как prefill "
+        "(400) и классификатор умрёт на каждом ходу")
+
+
+def test_bot_reply_travels_in_the_system_block_not_in_the_conversation():
+    """Ответ текущего хода классификатор получает КОНТЕКСТОМ, а не репликой."""
+    from chatter.core.classifier import classifier_volatile_suffix
+    tail = classifier_volatile_suffix("профиль", "", track_obligations=True,
+                                      pending_reply=PROMISE)
+    assert "керівниці" in tail
+
+
+def test_production_binding_accepts_what_run_py_passes():
+    """DEV-19: фейк classify в тестах принимал **kw и молчал, а ПРОДОВАЯ
+    привязка (_bind_classifier) могла бы не принять новый аргумент — тогда
+    раннер падал бы на первом же ходу. Сверяем с реальной сигнатурой."""
+    import inspect
+
+    from chatter.telethon_run import _bind_classifier
+
+    params = inspect.signature(_bind_classifier.__wrapped__ if
+                               hasattr(_bind_classifier, "__wrapped__")
+                               else _bind_classifier).parameters
+    assert params, "привязка без параметров — сигнатура не читается"
+    src = inspect.getsource(_bind_classifier)
+    for kw in ("track_obligations", "obligations_block", "pending_reply"):
+        assert kw in src, f"продовая привязка не принимает {kw}"

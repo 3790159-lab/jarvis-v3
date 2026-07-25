@@ -1496,12 +1496,14 @@ def _bind_classifier(llm: LLMClient, cfg: Config):
     profile — профиль лида (арка «память»): едет в промпт, классификатор
     возвращает обновление."""
     def _run(history: list[dict], profile: str | None = None, *,
-             track_obligations: bool = False, obligations_block: str = "") -> ClassifierResult:
+             track_obligations: bool = False, obligations_block: str = "",
+             pending_reply: str = "") -> ClassifierResult:
         return _classify(
             llm, playbook=cfg.playbook, language=cfg.settings.language,
             history=history, profile=profile,
             profile_budget_tokens=cfg.settings.limits.profile_budget_tokens,
-            track_obligations=track_obligations, obligations_block=obligations_block)
+            track_obligations=track_obligations, obligations_block=obligations_block,
+            pending_reply=pending_reply)
     return _run
 
 

@@ -256,14 +256,32 @@ def classifier_stable_prefix(playbook: str, language: str,
             + _schema_block(language, track_obligations=track_obligations))
 
 
+def _pending_reply_block(pending_reply: str) -> str:
+    """Ответ бота ЭТОГО хода — контекстом, а НЕ репликой в переписке.
+
+    P18 требует, чтобы классификатор видел собственные обещания бота сразу. Но
+    дописать ответ в массив сообщений нельзя: разговор обязан заканчиваться
+    репликой лида, иначе API отвечает 400 «does not support assistant message
+    prefill» и классификатор умирает на каждом ходу (инцидент 2026-07-26).
+    Поэтому ответ едет системным блоком — и обязательно ПОСЛЕ breakpoint'а,
+    он изменчив на каждом ходу."""
+    return ("\n=== ВІДПОВІДЬ БОТА НА ЦЬОМУ ХОДУ (щойно згенерована, ще НЕ в "
+            "переписці) ===\n"
+            f"{pending_reply}\n"
+            "Це репліка БОТА. Обіцянки в ній — долг бота, що виник САМЕ зараз.\n")
+
+
 def classifier_volatile_suffix(profile: str | None, obligations_block: str = "",
-                               *, track_obligations: bool = False) -> str:
+                               *, track_obligations: bool = False,
+                               pending_reply: str = "") -> str:
     """Изменчивый хвост: уходит ОТДЕЛЬНЫМ system-блоком после breakpoint'а."""
     out = ("=== ПРОФИЛЬ КЛИЕНТА (из прошлых разговоров) ===\n"
            f"{profile or '(порожній)'}\n")
     if track_obligations:
         out += ("\n=== ВІДКРИТІ ЗОБОВ'ЯЗАННЯ (поточні; онови статуси) ===\n"
                 f"{obligations_block or '(порожньо)'}\n")
+    if pending_reply:
+        out += _pending_reply_block(pending_reply)
     return out
 
 
@@ -271,7 +289,8 @@ def classifier_system_prompt(playbook: str, language: str,
                              profile: str | None = None,
                              profile_budget_tokens: int = _PROFILE_BUDGET_TOKENS,
                              *, track_obligations: bool = False,
-                             obligations_block: str = "") -> str:
+                             obligations_block: str = "",
+                             pending_reply: str = "") -> str:
     """СТАРАЯ сборка (флаг off): всё одной строкой, изменчивое в середине.
     Оставлена дословно как ветка отката — не рефакторить «заодно»."""
     signals = ", ".join(sorted(STAGE_SIGNALS))
@@ -349,7 +368,8 @@ def classifier_system_prompt(playbook: str, language: str,
         "актуальное значение с пометкой «(раніше X — передумав)»; старое НЕ "
         "держи как равнозначное. Если нового ничего нет и профиль актуален — "
         "profile: null.\n\n"
-        + obl_section +
+        + obl_section
+        + (_pending_reply_block(pending_reply) + "\n" if pending_reply else "") +
         "Ответь СТРОГО одним компактным JSON-объектом, без пояснений и без "
         "markdown:\n"
         '{"escalate": true|false, "reason": "<=120 символов, что хочет лид / '
@@ -371,13 +391,22 @@ def classifier_system_prompt(playbook: str, language: str,
 
 
 def build_classifier_messages(history: list[dict]) -> list[dict]:
-    return [{"role": m["role"], "content": m["text"]} for m in history]
+    """Переписка для API. Хвостовые реплики БОТА срезаются: разговор обязан
+    заканчиваться сообщением лида, иначе это assistant-prefill и API отвечает
+    400 (инцидент 2026-07-26 — классификатор падал на каждом ходу). Ответ
+    текущего хода до классификатора доезжает системным блоком, см.
+    `_pending_reply_block`."""
+    msgs = [{"role": m["role"], "content": m["text"]} for m in history]
+    while msgs and msgs[-1]["role"] != "user":
+        msgs.pop()
+    return msgs
 
 
 def classify(llm, *, playbook: str, language: str, history: list[dict],
              profile: str | None = None,
              profile_budget_tokens: int = _PROFILE_BUDGET_TOKENS,
-             track_obligations: bool = False, obligations_block: str = "") -> ClassifierResult:
+             track_obligations: bool = False, obligations_block: str = "",
+             pending_reply: str = "") -> ClassifierResult:
     """Один дешёвый вызов + ОДИН повтор при невалидном JSON.
     НИКОГДА не бросает: сбой вызова → деградация (§6)."""
     if _cache_enabled():
@@ -385,13 +414,14 @@ def classify(llm, *, playbook: str, language: str, history: list[dict],
             playbook, language, profile_budget_tokens,
             track_obligations=track_obligations)
         volatile = classifier_volatile_suffix(
-            profile, obligations_block, track_obligations=track_obligations)
+            profile, obligations_block, track_obligations=track_obligations,
+            pending_reply=pending_reply)
     else:
         system = classifier_system_prompt(
             playbook, language, profile=profile,
             profile_budget_tokens=profile_budget_tokens,
             track_obligations=track_obligations,
-            obligations_block=obligations_block)
+            obligations_block=obligations_block, pending_reply=pending_reply)
         volatile = None
     messages = build_classifier_messages(history)
 
