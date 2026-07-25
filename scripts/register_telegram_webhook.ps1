@@ -1,4 +1,4 @@
-# Register Telegram webhook URL with Bot API
+﻿# Register Telegram webhook URL with Bot API
 # Run after tunnel is up to switch from long-polling to webhook mode
 #
 # Usage:

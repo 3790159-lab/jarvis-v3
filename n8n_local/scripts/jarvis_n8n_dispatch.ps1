@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$ProjectRoot = (Get-Location).Path,
     [string]$Action = "echo",
     [string]$Intent = "automation",

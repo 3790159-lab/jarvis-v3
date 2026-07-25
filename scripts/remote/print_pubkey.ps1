@@ -1,4 +1,4 @@
-# scripts/remote/print_pubkey.ps1
+﻿# scripts/remote/print_pubkey.ps1
 # Print the laptop's SSH public key for copy-paste into the desktop's
 # authorized_keys (and administrators_authorized_keys, if desktop user
 # is an admin).

@@ -1,4 +1,4 @@
-# Test Cloudflare Tunnel connectivity for Jarvis
+﻿# Test Cloudflare Tunnel connectivity for Jarvis
 # Run after setup_cloudflare_tunnel.ps1 to verify everything works
 #
 # Usage:

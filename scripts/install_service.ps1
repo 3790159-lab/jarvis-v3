@@ -1,4 +1,4 @@
-# Jarvis Windows Service Installer via NSSM
+﻿# Jarvis Windows Service Installer via NSSM
 # Requires: Run as Administrator
 # Installs: JarvisBackend (uvicorn) + JarvisBot (telegram) + JarvisWatchdog
 

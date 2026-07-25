@@ -1,4 +1,4 @@
-Set-ExecutionPolicy -Scope Process Bypass -Force
+﻿Set-ExecutionPolicy -Scope Process Bypass -Force
 $ErrorActionPreference = "Stop"
 
 $ProjectRoot = "C:\Users\Daniil Lapin\Downloads\supervisor_v1_5_smart_telegram (1)\supervisor_v1_5_smart_telegram"

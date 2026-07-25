@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$ProjectRoot = (Get-Location).Path
 )
 . "$PSScriptRoot\jarvis_n8n_common.ps1"

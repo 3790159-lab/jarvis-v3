@@ -1,4 +1,4 @@
-# Registers (or re-registers) the JarvisChatterGuardian scheduled task.
+﻿# Registers (or re-registers) the JarvisChatterGuardian scheduled task.
 # Mirrors JarvisBotGuardian / JarvisBackendGuardian: S4U + RunLevel Highest so it
 # runs whether the user is logged on or not (session-independent), so the chatter
 # userbot recovers on a HEADLESS reboot (e.g. Windows Update) without an

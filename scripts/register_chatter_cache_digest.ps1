@@ -1,4 +1,4 @@
-# Registers (or re-registers) the JarvisChatterCacheDigest scheduled task.
+﻿# Registers (or re-registers) the JarvisChatterCacheDigest scheduled task.
 # Mirrors JarvisErrorDigest: S4U + RunLevel Highest so it runs whether the user
 # is logged on or not (session-independent, reboot-resistant).
 # StartWhenAvailable catches up a run skipped while the PC was off.

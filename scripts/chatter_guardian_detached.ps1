@@ -1,4 +1,4 @@
-# Keeps the chatter Telethon userbot (chatter.telethon_run) alive, fully detached
+﻿# Keeps the chatter Telethon userbot (chatter.telethon_run) alive, fully detached
 # from any interactive/SSH session. Invoked by the JarvisChatterGuardian scheduled
 # task (S4U / RunLevel Highest, like JarvisBotGuardian) so it survives logoff, SSH
 # drops, the starting session, and a reboot (AtStartup) WITHOUT an interactive logon.

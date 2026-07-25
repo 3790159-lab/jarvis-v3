@@ -1,4 +1,4 @@
-# Registers (or re-registers) the JarvisIgSchedulePublisher scheduled task.
+﻿# Registers (or re-registers) the JarvisIgSchedulePublisher scheduled task.
 # Mirrors JarvisMorningDigest: S4U + RunLevel Highest so it runs whether the
 # user is logged on or not (session-independent, reboot-resistant). Unlike
 # the daily digest, this one repeats every 5 minutes to drain the

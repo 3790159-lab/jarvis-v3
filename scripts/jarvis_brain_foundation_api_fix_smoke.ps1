@@ -1,4 +1,4 @@
-Set-ExecutionPolicy -Scope Process Bypass -Force
+﻿Set-ExecutionPolicy -Scope Process Bypass -Force
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 

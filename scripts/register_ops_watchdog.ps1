@@ -1,4 +1,4 @@
-# Registers (or re-registers) the JarvisOpsWatchdog scheduled task.
+﻿# Registers (or re-registers) the JarvisOpsWatchdog scheduled task.
 # Mirrors register_bot_guardian.ps1 / register_backend_guardian.ps1: S4U +
 # RunLevel Highest so it runs whether the user is logged on or not
 # (session-independent), so the independent monitor survives a HEADLESS reboot

@@ -1,4 +1,4 @@
-# Daily backup: copies state/ to state_backups/YYYY-MM-DD/
+﻿# Daily backup: copies state/ to state_backups/YYYY-MM-DD/
 # Can be run manually or via Windows Task Scheduler at 3:00 AM
 
 param(
