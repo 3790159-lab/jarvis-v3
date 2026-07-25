@@ -84,7 +84,8 @@ def _has_table(conn, name: str) -> bool:
 
 
 def collect_facts(db: str, *, contact: str, since_ts: float,
-                  log_lines: list[str], before: dict) -> Facts:
+                  log_lines: list[str], before: dict,
+                  before_bot: dict | None = None) -> Facts:
     conn = _ro(db)
     conn.row_factory = sqlite3.Row
     try:
@@ -96,9 +97,13 @@ def collect_facts(db: str, *, contact: str, since_ts: float,
         # объявлять это промахом кэша значило бы врать в отчёте.
         cache = "n/a" if clf is None else ("hit" if (clf["cr"] or 0) > 0 else "miss")
 
-        obligations = {r["okey"]: r["status"] for r in conn.execute(
-            "SELECT okey, status FROM contact_obligations WHERE contact_id=?",
-            (contact,))}
+        rows = conn.execute(
+            "SELECT okey, status, owed_by FROM contact_obligations WHERE contact_id=?",
+            (contact,)).fetchall()
+        obligations = {r["okey"]: r["status"] for r in rows}
+        # Долги БОТА отдельно: клиентская заметка (owed_by=client, законна после
+        # фикса P17) не является шевелением слота брейна.
+        obligations_bot = {r["okey"]: r["status"] for r in rows if r["owed_by"] == "bot"}
 
         prof = conn.execute(
             "SELECT text FROM contact_profile WHERE contact_id=? ORDER BY rowid DESC LIMIT 1",
@@ -118,7 +123,9 @@ def collect_facts(db: str, *, contact: str, since_ts: float,
         profile=(prof["text"] if prof else ""), classifier_errors=int(errors),
         cards_delivered=int(cards),
         replies=sum(1 for ln in log_lines if ": OUT " in ln),
-        process_ends=sum(1 for ln in log_lines if "process END" in ln))
+        process_ends=sum(1 for ln in log_lines if "process END" in ln),
+        obligations_bot=obligations_bot,
+        obligations_bot_before=dict(before_bot if before_bot is not None else before))
 
 
 def snapshot_before(db: str, contact: str) -> tuple[dict, str]:
@@ -134,14 +141,17 @@ def snapshot_before(db: str, contact: str) -> tuple[dict, str]:
         return {}, f"снимок слота ДО прогона НЕ прочитан ({exc}) — прогон вслепую"
 
 
-def obligations_snapshot(db: str, contact: str) -> dict:
+def obligations_snapshot(db: str, contact: str, *, only_bot: bool = False) -> dict:
     conn = _ro(db)
     conn.row_factory = sqlite3.Row
     try:
         if not _has_table(conn, "contact_obligations"):
             return {}
-        return {r["okey"]: r["status"] for r in conn.execute(
-            "SELECT okey, status FROM contact_obligations WHERE contact_id=?", (contact,))}
+        rows = conn.execute(
+            "SELECT okey, status, owed_by FROM contact_obligations WHERE contact_id=?",
+            (contact,)).fetchall()
+        return {r["okey"]: r["status"] for r in rows
+                if not only_bot or r["owed_by"] == "bot"}
     finally:
         conn.close()
 
@@ -347,6 +357,10 @@ def main(argv=None) -> int:
 
     run_start = time.time()
     before = before0
+    # Долги бота отдельным снимком: «слот не шевельнулся» судит по ним, а не по
+    # клиентским заметкам (P17). Снимок не прочитан — сравнивать не с чем.
+    before_bot = {} if snap_note else obligations_snapshot(
+        a.db, sc.contact, only_bot=True)
     outcomes: list[StepOutcome] = [StepOutcome(say=s.say) for s in sc.steps]
     skips_in_a_row = 0
     windows: list[tuple[float, float]] = []
@@ -412,7 +426,8 @@ def main(argv=None) -> int:
             time.sleep(POLL_SEC)
         lines, offset = _read_log_since(log_path, offset)
         facts = collect_facts(a.db, contact=sc.contact, since_ts=step_start,
-                              log_lines=lines, before=before)
+                              log_lines=lines, before=before,
+                              before_bot=before_bot)
         checks = check_step(step.expect, facts)
         for c in checks:
             say(f"  {'✅' if c.ok else '🔴'} {c.key}: {c.detail}")
@@ -422,6 +437,7 @@ def main(argv=None) -> int:
         outcomes[i - 1] = StepOutcome(say=step.say, checks=tuple(checks))
         skips_in_a_row = 0     # шаг состоялся — считаем подряд идущие заново
         before = facts.obligations
+        before_bot = facts.obligations_bot
         flush_progress("")
 
     money = Money(estimate=est,

@@ -53,13 +53,19 @@ class Scenario:
 class Facts:
     """Снимок хода. Собирается read-only из БД и лога раннера."""
     cache: str                      # hit | miss | n/a
-    obligations: dict               # {okey: status} после хода
+    obligations: dict               # {okey: status} после хода — ВСЕ строки
     obligations_before: dict        # до хода
     profile: str
     classifier_errors: int
     cards_delivered: int
     replies: int                    # сколько OUT ушло лиду
     process_ends: int               # сколько раз ход завершился
+    # Только долги БОТА. После фикса P17 клиентская заметка («клієнт ще не
+    # обрав спосіб оплати») — законная запись с owed_by=client; она не долг
+    # бота, и «слот не шевельнулся» смотрит именно сюда. Дефолт пустой —
+    # старые фикстуры продолжают собираться.
+    obligations_bot: dict = field(default_factory=dict)
+    obligations_bot_before: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -223,11 +229,16 @@ def _check_obligations(want: dict, f: Facts) -> CheckResult:
 
 
 def _check_unchanged(want: bool, f: Facts) -> CheckResult:
-    changed = f.obligations != f.obligations_before
+    # Сравниваем ДОЛГИ БОТА, а не весь слот: клиентская заметка (owed_by=client)
+    # — законная запись, которая ботом не отрабатывается и «шевелением слота»
+    # не является. До фикса P17 таких записей просто не было — все other молча
+    # становились долгом бота, и разницы между «весь слот» и «долги бота» тоже.
+    before, after = f.obligations_bot_before, f.obligations_bot
+    changed = after != before
     ok = (not changed) if want else changed
     return CheckResult("obligations_unchanged", ok,
-                       f"слот изменился: {f.obligations_before} → {f.obligations}"
-                       if changed else "слот не тронут")
+                       f"долги бота изменились: {before} → {after}"
+                       if changed else "долги бота не тронуты")
 
 
 def _check_profile(want, f: Facts) -> CheckResult:

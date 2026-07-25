@@ -122,13 +122,18 @@ def test_missing_obligation_is_reported_not_crashed():
 
 
 def test_obligations_unchanged():
+    # ПЕРЕСМОТРЕНО 2026-07-26: сравниваются ДОЛГИ БОТА, а не весь слот
+    # (см. test_unchanged_ignores_a_new_client_owned_row).
     same = {"brief": "delivered"}
     ok, _ = _verdict({"obligations_unchanged": True},
-                     _facts(obligations=same, obligations_before=dict(same)))
+                     _facts(obligations=same, obligations_before=dict(same),
+                            obligations_bot=same, obligations_bot_before=dict(same)))
     assert ok
     ok, res = _verdict({"obligations_unchanged": True},
                        _facts(obligations={"brief": "open"},
-                              obligations_before={"brief": "delivered"}))
+                              obligations_before={"brief": "delivered"},
+                              obligations_bot={"brief": "open"},
+                              obligations_bot_before={"brief": "delivered"}))
     assert not ok and "изменил" in res[0].detail.lower()
 
 
@@ -305,3 +310,26 @@ def test_alternative_is_flagged_vacuous_only_when_already_matching():
     assert vacuous_expectations(sc, {"recalc": "delivered"})
     assert vacuous_expectations(sc, {"recalc": "cancelled"}) == []
     assert vacuous_expectations(sc, {}) == []
+
+
+# ── obligations_unchanged смотрит на долги БОТА ──────────────────────────────
+# После фикса P17 клиентская заметка («клієнт ще не обрав спосіб оплати») —
+# законная запись со своим owed_by=client. Она не долг бота и не должна валить
+# проверку «слот не шевельнулся»: слот brain — это про обязательства БОТА.
+
+
+def test_unchanged_ignores_a_new_client_owned_row():
+    f = _facts(obligations_before={"brief": "delivered"},
+               obligations={"brief": "delivered", "other:клієнт не оплатив": "open"},
+               obligations_bot_before={"brief": "delivered"},
+               obligations_bot={"brief": "delivered"})
+    ok, res = _verdict({"obligations_unchanged": True}, f)
+    assert ok, res[0].detail
+
+
+def test_unchanged_still_catches_a_moved_bot_obligation():
+    f = _facts(obligations_before={"brief": "open"}, obligations={"brief": "delivered"},
+               obligations_bot_before={"brief": "open"},
+               obligations_bot={"brief": "delivered"})
+    ok, res = _verdict({"obligations_unchanged": True}, f)
+    assert not ok and "brief" in res[0].detail
