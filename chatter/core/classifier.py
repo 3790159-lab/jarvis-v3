@@ -169,10 +169,23 @@ def _profile_instruction(profile_chars: int) -> str:
         "profile: null.\n\n")
 
 
+def _owner_rule() -> str:
+    """P17 (дрил 2026-07-25): у свободной корзины `other` владельца НАЗЫВАЕТ
+    модель — код его знать не может. У канонических видов поле не спрашиваем
+    вовсе: там владелец — инвариант кода (иначе client-owed brief не доедет до
+    brain, баг Д-10 2026-07-24)."""
+    return (
+        "ВЛАДЕЛЕЦ ДОЛГА (owed_by) — поле ТОЛЬКО для kind=other, у остальных "
+        "видов его НЕ пиши: bot = это должен сделать бот, client = ждём хода "
+        "клиента. Без owed_by запись other будет ОТБРОШЕНА. "
+        "НЕПРАВИЛЬНО: {\"kind\":\"other\",\"owed_by\":\"bot\","
+        "\"detail\":\"клієнт ще не оплатив\"} — оплата это ход КЛИЕНТА, бот "
+        "такое отработать не может; правильно owed_by=client. "
+        "ПРАВИЛЬНО с bot: {\"kind\":\"other\",\"owed_by\":\"bot\","
+        "\"detail\":\"надішлю договір у понеділок\"}.\n\n")
+
+
 def _obligations_instruction() -> str:
-    # owed_by НЕ в схеме: для brief/examples/recalc это инвариант кода
-    # (filter_model_updates форсит bot), а не выбор модели — иначе client-owed
-    # brief не доедет до brain (баг Д-10 2026-07-24). Код владеет полем.
     return (
         "ЗОБОВ'ЯЗАННЯ: следи, что бот ДОЛЖЕН лиду (обещанный бриф, примеры "
         "работ, пересчёт цены, «керівниця напише») и что должен лид. Верни "
@@ -198,7 +211,8 @@ def _obligations_instruction() -> str:
 def _schema_block(language: str, *, track_obligations: bool) -> str:
     signals = ", ".join(sorted(STAGE_SIGNALS))
     schema_obl = (', "obligations": [{"kind": "brief|examples|recalc|'
-                  'owner_write|other", "status": '
+                  'owner_write|other", "owed_by": "bot|client — ТОЛЬКО для '
+                  'kind=other", "status": '
                   '"open|delivered|cancelled", "detail": "<=80"}]'
                   ) if track_obligations else ""
     return (
@@ -232,7 +246,7 @@ def classifier_stable_prefix(playbook: str, language: str,
             + f"=== ПЛЕЙБУК ВОРОНКИ ===\n{playbook}\n\n"
             + _TAIL_POINTER + "\n\n"
             + _profile_instruction(profile_chars)
-            + (_obligations_instruction() if track_obligations else "")
+            + (_obligations_instruction() + _owner_rule() if track_obligations else "")
             + _schema_block(language, track_obligations=track_obligations))
 
 
@@ -265,11 +279,13 @@ def classifier_system_prompt(playbook: str, language: str,
     obl_section = ""
     schema_obl = ""
     if track_obligations:
-        # owed_by НЕ в схеме: для brief/examples/recalc это инвариант кода
-        # (filter_model_updates форсит bot), а не выбор модели — иначе client-owed
-        # brief не доедет до brain (баг Д-10 2026-07-24). Код владеет полем.
+        # owed_by спрашиваем ТОЛЬКО для other (P17): у канонических видов это
+        # инвариант кода (filter_model_updates форсит bot) — иначе client-owed
+        # brief не доедет до brain (баг Д-10 2026-07-24). Поле держим в обеих
+        # сборках: расхождение живого пути и ветки отката — тихая мина.
         schema_obl = (', "obligations": [{"kind": "brief|examples|recalc|'
-                      'owner_write|other", "status": '
+                      'owner_write|other", "owed_by": "bot|client — ТОЛЬКО для '
+                      'kind=other", "status": '
                       '"open|delivered|cancelled", "detail": "<=80"}]')
         obl_section = (
             "=== ВІДКРИТІ ЗОБОВ'ЯЗАННЯ (поточні; онови статуси) ===\n"
@@ -292,7 +308,7 @@ def classifier_system_prompt(playbook: str, language: str,
             "вида: уточнение по брифу — это часть brief, а НЕ отдельный other. "
             "Обязательство БЕЗ изменений можно не возвращать. Это ОТДЕЛЬНЫЙ "
             "структурный список — НЕ ужимай его при сжатии профиля. Нет "
-            "обязательств — [].\n\n")
+            "обязательств — [].\n\n") + _owner_rule()
     return (
         "Ты — тихий классификатор диалога воронки продаж. Тебя НЕ видит клиент. "
         # Ролевая граница (инцидент volska 2026-07-23 17:03 и 18:28: модель

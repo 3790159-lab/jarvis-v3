@@ -15,7 +15,10 @@
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, replace
+
+logger = logging.getLogger("chatter.obligations_slot")
 
 DAY = 86400.0
 
@@ -94,7 +97,19 @@ def merge_obligations(
     for upd in updates or []:
         kind = (upd.get("kind") or "").strip()
         status = (upd.get("status") or "").strip()
-        owed_by = (upd.get("owed_by") or "bot").strip()
+        stated = (upd.get("owed_by") or "").strip()
+        # P17: для СВОБОДНОЙ корзины `other` владелец обязан быть НАЗВАН. Раньше
+        # здесь стоял дефолт `bot` — и любой факт про ход клиента («клієнт ще не
+        # оплатив») молча становился долгом бота, рендерился в brain как
+        # «відпрацювати ПЕРЕД хендоффом» и дожимался. Дефолт в любую сторону
+        # плох: `bot` возвращает баг, `client` тихо теряет обещание бота.
+        # Поэтому — громкий отказ; канонические виды владельца не выбирают
+        # вовсе (filter_model_updates форсит bot), их дефолт остаётся.
+        if kind == "other" and not stated:
+            logger.warning("obligations: other без owed_by отброшено (P17): %r",
+                           _clean_detail(upd.get("detail", "")))
+            continue
+        owed_by = stated or "bot"
         if status not in STATUSES or owed_by not in OWED_BY or not kind:
             continue
         detail = _clean_detail(upd.get("detail", ""))

@@ -49,14 +49,20 @@ def test_prompt_includes_obligations_when_on():
     assert "brief" in p                    # текущий блок обязательств вставлен
 
 
-def test_schema_omits_owed_by_model_choice():
-    # owed_by для brief/examples/recalc — инвариант кода (см. filter_model_updates),
-    # не поле выбора модели: убираем bot|client из JSON-схемы, чтобы модель его не
-    # выставляла ошибочно (баг Д-10 2026-07-24). Гарантия — в коде, промпт вторичен.
+def test_owed_by_is_asked_only_for_kind_other():
+    # ПЕРЕСМОТРЕНО 2026-07-25 (P17). Было: поля owed_by в схеме нет вовсе —
+    # владелец есть инвариант кода (баг Д-10 2026-07-24: client-owed brief не
+    # доезжал до brain). Оказалось, у свободной корзины `other` инварианта нет:
+    # merge подставлял `bot` по умолчанию, и факт про ход КЛИЕНТА («клієнт ще не
+    # оплатив») становился долгом бота и дожимался в промпте.
+    # Стало: поле есть, но ТОЛЬКО для other; у канонических видов по-прежнему
+    # владеет код. Оба условия держим одним тестом, чтобы «вернуть как было»
+    # нельзя было незаметно.
     p = classifier_system_prompt("PB", "uk", track_obligations=True,
                                  obligations_block="- brief (open): бриф")
-    assert "bot|client" not in p           # выбор владения из схемы убран
-    assert '"owed_by"' not in p            # поля owed_by в JSON-схеме нет
+    assert '"owed_by"' in p                      # поле есть
+    assert "ТОЛЬКО для kind=other" in p          # и оно ограничено other
+    assert "у остальных видов его НЕ пиши" in p  # канонические — за кодом
 
 
 def test_brief_closure_criterion_has_material_anti_example():
