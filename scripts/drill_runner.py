@@ -63,6 +63,9 @@ COST_TURN_WARM = 0.0352
 COST_TURN_COLD = 0.1191
 CONFIRM_THRESHOLD_USD = 0.50
 STEP_TIMEOUT_SEC = 15 * 60
+# Два пропуска подряд = владельца нет у телефона. Досиживать остальные
+# таймауты по 15 минут — это час ожидания ради известного вердикта.
+MAX_SKIPS_IN_A_ROW = 2
 POLL_SEC = 2.0
 
 RATE_IN, RATE_OUT, RATE_CR, RATE_CW5, RATE_CW1H = 3.0, 15.0, 0.30, 3.75, 6.0
@@ -345,6 +348,7 @@ def main(argv=None) -> int:
     run_start = time.time()
     before = before0
     outcomes: list[StepOutcome] = [StepOutcome(say=s.say) for s in sc.steps]
+    skips_in_a_row = 0
     windows: list[tuple[float, float]] = []
     _, offset = _read_log_since(log_path, 0)
 
@@ -384,6 +388,19 @@ def main(argv=None) -> int:
             note = f"шаг пропущен: сигнала не было {a.step_timeout / 60:.1f} мин"
             say(f"⛔ {note}")
             outcomes[i - 1] = StepOutcome(say=step.say, skipped=True, note=note)
+            skips_in_a_row += 1
+            # Fail-fast. Первый прогон досиживал КАЖДЫЙ таймаут: четыре шага без
+            # человека = час ожидания ради вердикта, известного после второго
+            # пропуска. Владелец вышел — прогон закрываем, а не досиживаем.
+            if skips_in_a_row >= MAX_SKIPS_IN_A_ROW and i < len(sc.steps):
+                closed = (f"прогон закрыт досрочно: {skips_in_a_row} пропуска "
+                          f"подряд — шаг не выполнялся")
+                for j in range(i, len(sc.steps)):
+                    outcomes[j] = StepOutcome(say=sc.steps[j].say, skipped=True,
+                                              note=closed)
+                say(f"\n🛑 два пропуска подряд — закрываю прогон досрочно "
+                    f"(осталось невыполненных шагов: {len(sc.steps) - i})")
+                break
             flush_progress(f"⏳ ПРОГОН ИДЁТ — шаг {i} пропущен")
             continue
 
@@ -403,6 +420,7 @@ def main(argv=None) -> int:
         # а не всё, что случилось, пока владелец шёл к телефону.
         windows.append((step_start, time.time()))
         outcomes[i - 1] = StepOutcome(say=step.say, checks=tuple(checks))
+        skips_in_a_row = 0     # шаг состоялся — считаем подряд идущие заново
         before = facts.obligations
         flush_progress("")
 

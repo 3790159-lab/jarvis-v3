@@ -383,3 +383,66 @@ def test_missing_db_does_not_hide_the_plan(tmp_path, capsys):
     out = capsys.readouterr().out
     assert rc == 0 and "раз" in out
     assert "снимок" in out.lower()
+
+
+# ── fail-fast: два пропуска подряд закрывают прогон ──────────────────────────
+# Первый прогон досиживал КАЖДЫЙ таймаут по 15 минут: 4 шага без человека =
+# час ожидания ради результата, известного после второго пропуска. Прогон, из
+# которого владелец вышел, надо закрывать, а не досиживать.
+
+
+def _yaml(tmp_path, n):
+    sc = tmp_path / "s.yaml"
+    sc.write_text("name: x\ncontact: c\nsteps:\n"
+                  + "".join(f"  - say: \"крок {i}\"\n" for i in range(1, n + 1)),
+                  encoding="utf-8")
+    return str(sc)
+
+
+def test_two_skips_in_a_row_close_the_run_immediately(tmp_path, capsys, monkeypatch):
+    mod = _load()
+    db = _db(tmp_path / "d.db")
+    out = tmp_path / "drills"
+    polled = []
+
+    def _spy(_db_, *, contact, since_ts, flag_key):
+        polled.append(flag_key)
+        return False
+
+    monkeypatch.setattr(mod, "step_signal_seen", _spy)
+    rc = mod.main([_yaml(tmp_path, 4), "--db", db, "--out", str(out),
+                   "--log", str(tmp_path / "no.log"), "--yes", "--step-timeout", "0.1"])
+
+    assert rc == 2
+    assert "drill:3" not in polled, "третий шаг не должен даже начинаться"
+    report = sorted(out.glob("*.md"))[0].read_text(encoding="utf-8")
+    assert "досрочно" in report
+    assert "НЕ СОСТОЯЛСЯ" in report
+
+
+def test_a_successful_step_resets_the_skip_counter(tmp_path, capsys, monkeypatch):
+    """Пропуск-удача-пропуск — это не «два подряд»: прогон продолжается."""
+    mod = _load()
+    db = _db(tmp_path / "d.db")
+    log = tmp_path / "run.log"
+    log.write_text("", encoding="utf-8")
+    out = tmp_path / "drills"
+    polled = []
+
+    def _spy(_db_, *, contact, since_ts, flag_key):
+        polled.append(flag_key)
+        if flag_key != "drill:2":
+            return False
+        # Харнесс читает лог С КОНЦА (offset снят на старте) — строку должен
+        # дописать «раннер» ПО ХОДУ, иначе ход не считается завершённым.
+        with log.open("a", encoding="utf-8") as fh:
+            fh.write("process END c\n")
+        return True
+
+    monkeypatch.setattr(mod, "step_signal_seen", _spy)
+    rc = mod.main([_yaml(tmp_path, 4), "--db", db, "--out", str(out),
+                   "--log", str(log), "--yes", "--step-timeout", "0.1"])
+
+    assert rc == 2
+    assert "drill:3" in polled, "после удачного шага 2 прогон обязан идти дальше"
+    assert "drill:4" in polled, "шаги 3 и 4 — первая пара подряд, четвёртый ещё начинается"
