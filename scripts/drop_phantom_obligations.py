@@ -23,6 +23,11 @@ import sqlite3
 import sys
 import time
 
+# Жёсткое удаление (--delete) разрешено ТОЛЬКО на дрил-контакте. На живом
+# клиенте это стирание истории его обязательств: строка `cancelled` остаётся
+# уликой, а удалённая — нет. Список явный и короткий, менять осознанно.
+DRILL_CONTACTS = frozenset({"237616472:volska"})
+
 
 def snapshot(conn, contact: str) -> list[tuple]:
     return list(conn.execute(
@@ -47,10 +52,19 @@ def main(argv=None) -> int:
                     help="ключ обязательства; можно повторять")
     ap.add_argument("--apply", action="store_true",
                     help="применить (без флага печатается только план)")
+    ap.add_argument("--delete", action="store_true",
+                    help="УДАЛИТЬ строку целиком, а не снять в cancelled: дрилу "
+                         "нужен свободный ключ, иначе классификатор переиспользует "
+                         "старую строку вместо создания новой (прогон №5)")
     a = ap.parse_args(argv)
 
     if not a.okey:
         print("нужен хотя бы один --okey")
+        return 2
+    if a.delete and a.contact not in DRILL_CONTACTS:
+        print(f"ОТКАЗ: --delete разрешён только на дрил-контакте "
+              f"({', '.join(sorted(DRILL_CONTACTS))}), а не на {a.contact}. "
+              f"Для живого клиента используй снятие в cancelled.")
         return 2
 
     conn = sqlite3.connect(a.db, timeout=10.0)
@@ -60,22 +74,33 @@ def main(argv=None) -> int:
 
         have = {r[0]: r[3] for r in before}
         missing = [k for k in a.okey if k not in have]
-        todo = [k for k in a.okey if have.get(k) == "open"]
-        already = [k for k in a.okey if k in have and have[k] != "open"]
+        # В режиме удаления берём строку в ЛЮБОМ статусе: занятый ключ мешает
+        # дрилу независимо от того, open он или cancelled.
+        todo = [k for k in a.okey
+                if (k in have) if a.delete or have[k] == "open"]
+        already = [] if a.delete else [
+            k for k in a.okey if k in have and have[k] != "open"]
 
         print()
         for k in already:
             print(f"  ⏭ уже снято ранее ({have[k]}): {k}")
         for k in missing:
-            print(f"  🔴 не найдено у контакта: {k}")
+            # Отсутствие ключа при удалении — норма (повтор), при снятии —
+            # опечатка или не та БД, и молчать об этом нельзя (DEV-18).
+            print(f"  {'⏭ уже удалено' if a.delete else '🔴 не найдено у контакта'}: {k}")
         for k in todo:
-            print(f"  ✂️ снимаю (open → cancelled): {k}")
+            print(f"  {'🗑 УДАЛЯЮ строку целиком' if a.delete else '✂️ снимаю (open → cancelled)'}: {k}")
 
         if not a.apply:
             print("\nэто ПЛАН. Применить: добавь --apply")
-            return 1 if missing else 0
+            return 0 if (a.delete or not missing) else 1
 
-        if todo:
+        if todo and a.delete:
+            conn.executemany(
+                "DELETE FROM contact_obligations WHERE contact_id=? AND okey=?",
+                [(a.contact, k) for k in todo])
+            conn.commit()
+        elif todo:
             now = time.time()
             conn.executemany(
                 "UPDATE contact_obligations SET status='cancelled', closed_ts=? "
@@ -85,9 +110,7 @@ def main(argv=None) -> int:
 
         print()
         _print_snapshot("ПОСЛЕ", snapshot(conn, a.contact))
-        # Названный ключ, которого нет, — это опечатка или не та БД. Молчаливый
-        # ноль здесь выглядел бы как выполненная уборка (DEV-18).
-        return 1 if missing else 0
+        return 0 if (a.delete or not missing) else 1
     finally:
         conn.close()
 

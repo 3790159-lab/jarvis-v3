@@ -14,7 +14,7 @@ import pytest
 
 from chatter.core.drill import (
     EXPECT_KEYS, CheckResult, DrillScenarioError, Facts, StepOutcome, check_step,
-    parse_scenario, plan_lines, run_verdict, vacuous_expectations,
+    match_step, parse_scenario, plan_lines, run_verdict, vacuous_expectations,
 )
 
 SCENARIO = """
@@ -333,3 +333,51 @@ def test_unchanged_still_catches_a_moved_bot_obligation():
                obligations_bot={"brief": "delivered"})
     ok, res = _verdict({"obligations_unchanged": True}, f)
     assert not ok and "brief" in res[0].detail
+
+
+# ── сопоставление реплики со сценарием (прогон №5 разъехался на шаг) ─────────
+# Харнесс ждал «любое новое сообщение лида», поэтому опоздание владельца на один
+# шаг сдвинуло ВЕСЬ прогон: проверки шага N применялись к ходу шага N−1, а
+# зелёные и красные перестали относиться к тому, что написано в отчёте.
+
+
+def _steps():
+    return parse_scenario(
+        "name: x\ncontact: c\nsteps:\n"
+        "  - say: \"Ми вирішили - робимо новий логотип з нуля, не ребрендинг\"\n"
+        "  - say: \"А що саме входить у вартість?\"\n"
+        "  - say: \"А якщо додати ще дизайн візитівок — скільки це буде?\"\n"
+        "  - say: \"Добре, давайте оформлювати оплату\"\n"
+        "  - say: \"Дякую, чекаю\"\n").steps
+
+
+def test_exact_replica_matches_its_step():
+    steps = _steps()
+    assert match_step("Дякую, чекаю", steps) == 4
+    assert match_step("А що саме входить у вартість?", steps) == 1
+
+
+def test_case_and_punctuation_do_not_break_the_match():
+    steps = _steps()
+    assert match_step("добре давайте оформлювати оплату!!!", steps) == 3
+    assert match_step("А ЯКЩО ДОДАТИ ЩЕ ДИЗАЙН ВІЗИТІВОК - СКІЛЬКИ ЦЕ БУДЕ", steps) == 2
+
+
+def test_one_word_typo_does_not_break_the_match():
+    """Владелец печатает с телефона — опечатка не повод рвать прогон."""
+    steps = _steps()
+    assert match_step("Дякую, чекаюю", steps) == 4
+    assert match_step("Ми вирішили - робимо новий логотп з нуля, не ребрендинг", steps) == 0
+
+
+def test_foreign_text_matches_nothing():
+    """Посторонняя реплика не должна молча притворяться шагом сценария."""
+    assert match_step("а де ви знаходитесь?", _steps()) is None
+    assert match_step("", _steps()) is None
+
+
+def test_replicas_do_not_collide_with_each_other():
+    """Каждая реплика сценария опознаётся как СВОЙ шаг, а не как соседний."""
+    steps = _steps()
+    for i, s in enumerate(steps):
+        assert match_step(s.say, steps) == i, f"шаг {i+1} опознан неверно"

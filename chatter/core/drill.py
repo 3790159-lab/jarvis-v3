@@ -173,6 +173,40 @@ def owner_action(step: "Step") -> str:
     return "; ".join(hints)
 
 
+def _normalize_say(text: str) -> str:
+    """Реплика без того, что не меняет смысла: регистр, пунктуация, тире,
+    эмодзи, лишние пробелы. Владелец печатает с телефона, и «Дякую, чекаю!!!»
+    — та же реплика, что «Дякую, чекаю»."""
+    keep = [ch.lower() if (ch.isalnum() or ch.isspace()) else " "
+            for ch in (text or "")]
+    return " ".join("".join(keep).split())
+
+
+def match_step(text: str, steps, *, threshold: float = 0.72) -> int | None:
+    """Какому шагу сценария соответствует РЕАЛЬНО отправленная реплика.
+
+    Прогон №5 (2026-07-26) разъехался на шаг: харнесс ждал «любое новое
+    сообщение лида», владелец опоздал на первый шаг — и дальше проверки шага N
+    применялись к ходу шага N−1. Зелёное и красное в отчёте перестали
+    относиться к тому, что в нём написано. Поэтому шаг опознаётся ПО ТЕКСТУ,
+    а курсор переставляется на реально отправленную реплику.
+
+    Сравнение нестрогое: одна опечатка не повод рвать прогон. Возвращает индекс
+    шага либо None, если реплика не похожа ни на один (посторонняя фраза не
+    должна молча притвориться шагом сценария)."""
+    from difflib import SequenceMatcher
+
+    want = _normalize_say(text)
+    if not want:
+        return None
+    scores = [SequenceMatcher(None, want, _normalize_say(s.say)).ratio()
+              for s in steps]
+    if not scores:
+        return None
+    best = max(range(len(scores)), key=lambda i: scores[i])
+    return best if scores[best] >= threshold else None
+
+
 def vacuous_expectations(scenario: "Scenario", before: dict) -> list[str]:
     """Проверки, которые пройдут ещё до того, как дрил что-то сделает.
 

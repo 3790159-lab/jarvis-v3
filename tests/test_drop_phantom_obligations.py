@@ -114,3 +114,56 @@ def test_unknown_okey_is_named_not_swallowed(tmp_path, capsys):
     out = capsys.readouterr().out
     assert rc == 1, "ничего не нашли по явно названному ключу — это не успех"
     assert "не найдено" in out
+
+
+# ── --delete: жёсткое удаление ключа для чистоты дрила ──────────────────────
+# Прогон №5 не смог проверить P18: снятая через `cancelled` строка recalc
+# осталась в слоте, и классификатор ПЕРЕИСПОЛЬЗОВАЛ её вместо создания новой.
+# Проверить «долг возникает на своём ходу» на занятом ключе нельзя.
+
+
+def test_delete_removes_the_row_entirely(tmp_path):
+    mod = _load()
+    mod.DRILL_CONTACTS = frozenset({"c"})   # фикстурный контакт объявляем дрил-контактом
+    db = _db(tmp_path / "d.db", _ROWS)
+    rc = mod.main([db, "--contact", "c", "--apply", "--delete",
+                   "--okey", "other:клієнт ще не оплатив"])
+    assert rc == 0
+    assert "other:клієнт ще не оплатив" not in _statuses(db)
+    assert "brief" in _statuses(db), "чужие строки не трогаем"
+
+
+def test_delete_is_idempotent(tmp_path, capsys):
+    """Повтор — норма: ключа уже нет, это не ошибка (в отличие от режима
+    снятия, где ненайденный ключ = опечатка)."""
+    mod = _load()
+    mod.DRILL_CONTACTS = frozenset({"c"})
+    db = _db(tmp_path / "d.db", _ROWS)
+    args = [db, "--contact", "c", "--apply", "--delete",
+            "--okey", "other:клієнт ще не оплатив"]
+    mod.main(args)
+    capsys.readouterr()
+    rc = mod.main(args)
+    assert rc == 0 and "уже удал" in capsys.readouterr().out
+
+
+def test_delete_refuses_a_contact_outside_the_drill_allowlist(tmp_path, capsys):
+    """Жёсткое удаление — только на дрил-контакте. На живом клиенте это стирание
+    его истории обязательств, и такого рычага у скрипта быть не должно."""
+    mod = _load()
+    db = _db(tmp_path / "d.db", [("777:realclient", "recalc", "recalc", "bot",
+                                  "open", "прорахунок")])
+    rc = mod.main([db, "--contact", "777:realclient", "--apply", "--delete",
+                   "--okey", "recalc"])
+    out = capsys.readouterr().out
+    assert rc == 2, "удаление на чужом контакте обязано быть отказано"
+    assert "recalc" in _statuses(db, "777:realclient"), "строка обязана уцелеть"
+    assert "дрил" in out.lower()
+
+
+def test_delete_still_requires_explicit_keys(tmp_path, capsys):
+    mod = _load()
+    mod.DRILL_CONTACTS = frozenset({"c"})
+    db = _db(tmp_path / "d.db", _ROWS)
+    rc = mod.main([db, "--contact", "c", "--apply", "--delete"])
+    assert rc == 2 and "okey" in capsys.readouterr().out

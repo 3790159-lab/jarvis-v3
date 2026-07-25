@@ -39,8 +39,8 @@ _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT))
 
 from chatter.core.drill import (  # noqa: E402
-    Facts, StepOutcome, check_step, owner_action, parse_scenario, plan_lines,
-    run_verdict, vacuous_expectations,
+    Facts, StepOutcome, check_step, match_step, owner_action, parse_scenario,
+    plan_lines, run_verdict, vacuous_expectations,
 )
 
 logger = logging.getLogger("jarvis.drill_runner")
@@ -66,6 +66,10 @@ STEP_TIMEOUT_SEC = 15 * 60
 # Два пропуска подряд = владельца нет у телефона. Досиживать остальные
 # таймауты по 15 минут — это час ожидания ради известного вердикта.
 MAX_SKIPS_IN_A_ROW = 2
+# Отдельный (длинный) таймер ПЕРВОГО шага: он взводится приходом первой реплики,
+# а не запуском скрипта. Прогон №5 сгорел ровно так — первый шаг истёк, пока
+# владелец шёл к телефону, и весь дальнейший прогон разъехался на шаг.
+FIRST_STEP_TIMEOUT_SEC = 60 * 60
 POLL_SEC = 2.0
 
 RATE_IN, RATE_OUT, RATE_CR, RATE_CW5, RATE_CW1H = 3.0, 15.0, 0.30, 3.75, 6.0
@@ -157,6 +161,23 @@ def obligations_snapshot(db: str, contact: str, *, only_bot: bool = False) -> di
 
 
 # ── сигнал «ход случился»: сообщение лида ИЛИ тап кнопки ─────────────────────
+
+
+def new_lead_message(db: str, *, contact: str, since_ts: float) -> str | None:
+    """Текст новой реплики лида (None — её ещё нет).
+
+    Текст нужен, чтобы понять, КАКОЙ шаг сценария владелец реально отправил:
+    прогон №5 разъехался на шаг, потому что харнесс ждал «любое новое
+    сообщение» и молча приписывал ход текущему курсору."""
+    conn = _ro(db)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute(
+            "SELECT text FROM messages WHERE contact_id=? AND role='user' AND ts > ? "
+            "ORDER BY ts LIMIT 1", (contact, since_ts)).fetchone()
+        return None if row is None else (row["text"] or "")
+    finally:
+        conn.close()
 
 
 def step_signal_seen(db: str, *, contact: str, since_ts: float, flag_key: str) -> bool:
@@ -325,7 +346,18 @@ def main(argv=None) -> int:
     ap.add_argument("--dry-run", action="store_true",
                     help="напечатать план и смету, ничего не делать")
     ap.add_argument("--step-timeout", type=float, default=STEP_TIMEOUT_SEC)
+    ap.add_argument("--first-step-timeout", type=float, default=None,
+                    help="ожидание ПЕРВОЙ реплики (таймер шагов взводится ею); "
+                         "по умолчанию час, но при явно укороченном --step-timeout "
+                         "равен ему — это прогон-проверка, а не живой дрил")
     a = ap.parse_args(argv)
+    if a.first_step_timeout is None:
+        # Живой дрил: первую реплику ждём час (человек идёт к телефону).
+        # Явно укороченный --step-timeout = не живой прогон, а проверка самого
+        # харнесса: тогда и первый шаг не должен висеть час.
+        a.first_step_timeout = (FIRST_STEP_TIMEOUT_SEC
+                                if a.step_timeout == STEP_TIMEOUT_SEC
+                                else a.step_timeout)
 
     sc = parse_scenario(Path(a.scenario).read_text(encoding="utf-8"))
     est = estimate_cost(sc.steps)
@@ -385,23 +417,37 @@ def main(argv=None) -> int:
     flush_progress(f"⏳ ПРОГОН ИДЁТ — шаг 1/{len(sc.steps)}, ждём реплику")
     say(f"прогресс пишется в {out_file} (читается на любой стадии)")
 
-    for i, step in enumerate(sc.steps, 1):
+    cursor = 0
+    armed = False   # первая реплика ещё не пришла — таймер шага не взведён
+    while cursor < len(sc.steps):
+        i = cursor + 1
+        step = sc.steps[cursor]
         hint = owner_action(step)
         say(f"\n=== ШАГ {i}/{len(sc.steps)} — отправь Ольге: ===\n{step.say}\n"
             + (f"    ⚠️ {hint}\n" if hint else ""))
         flush_progress(f"⏳ ПРОГОН ИДЁТ — шаг {i}/{len(sc.steps)}, ждём реплику")
         step_start = time.time()
         flag_key = f"drill:{i}"
-        deadline = step_start + a.step_timeout
+        # Пока не пришла ПЕРВАЯ реплика, действует свой (длинный) таймер:
+        # прогон не должен умирать, пока человек идёт к телефону (прогон №5
+        # сгорел ровно так — первый шаг истёк до того, как владелец начал).
+        limit = a.step_timeout if armed else a.first_step_timeout
+        deadline = step_start + limit
+        note = None
+        seen_text = None
         while time.time() < deadline:
+            seen_text = new_lead_message(a.db, contact=sc.contact, since_ts=step_start)
+            if seen_text is not None:
+                break
             if step_signal_seen(a.db, contact=sc.contact, since_ts=step_start,
                                 flag_key=flag_key):
                 break
             time.sleep(POLL_SEC)
         else:
-            note = f"шаг пропущен: сигнала не было {a.step_timeout / 60:.1f} мин"
+            note = f"шаг пропущен: сигнала не было {limit / 60:.1f} мин"
             say(f"⛔ {note}")
             outcomes[i - 1] = StepOutcome(say=step.say, skipped=True, note=note)
+            cursor += 1
             skips_in_a_row += 1
             # Fail-fast. Первый прогон досиживал КАЖДЫЙ таймаут: четыре шага без
             # человека = час ожидания ради вердикта, известного после второго
@@ -417,6 +463,29 @@ def main(argv=None) -> int:
                 break
             flush_progress(f"⏳ ПРОГОН ИДЁТ — шаг {i} пропущен")
             continue
+
+        armed = True
+        # Курсор идёт за РЕАЛЬНОЙ репликой, а не за счётчиком шагов: владелец
+        # мог опоздать или перескочить, и тогда проверки шага N применялись бы
+        # к чужому ходу (прогон №5 разъехался ровно так, весь отчёт стал
+        # нечитаемым). Сопоставление нестрогое — опечатка прогон не рвёт.
+        if seen_text:
+            idx = match_step(seen_text, sc.steps)
+            if idx is None:
+                note = (f"текст не совпал ни с одним шагом сценария: "
+                        f"«{seen_text[:60]}» — считаю ходом шага {i}")
+                say(f"⚠️ {note}")
+            elif idx != cursor:
+                jumped = [j for j in range(cursor, idx)]
+                for j in jumped:
+                    outcomes[j] = StepOutcome(
+                        say=sc.steps[j].say, skipped=True,
+                        note="не выполнялся: владелец отправил реплику другого шага")
+                note = (f"курсор переставлен: пришла реплика шага {idx + 1}, "
+                        f"а ждали шаг {i}")
+                say(f"⚠️ {note}")
+                cursor, i = idx, idx + 1
+                step = sc.steps[cursor]
 
         # Ход мог ещё договаривать баббл — дадим ему закрыться по process END.
         for _ in range(60):
@@ -434,8 +503,10 @@ def main(argv=None) -> int:
         # Окно шага закрывается ЗДЕСЬ: в счёт дрила идут только ходы дрила,
         # а не всё, что случилось, пока владелец шёл к телефону.
         windows.append((step_start, time.time()))
-        outcomes[i - 1] = StepOutcome(say=step.say, checks=tuple(checks))
+        outcomes[i - 1] = StepOutcome(say=step.say, checks=tuple(checks),
+                                      note=note or "")
         skips_in_a_row = 0     # шаг состоялся — считаем подряд идущие заново
+        cursor += 1
         before = facts.obligations
         before_bot = facts.obligations_bot
         flush_progress("")

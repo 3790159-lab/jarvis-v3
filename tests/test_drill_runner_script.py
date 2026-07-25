@@ -446,3 +446,84 @@ def test_a_successful_step_resets_the_skip_counter(tmp_path, capsys, monkeypatch
     assert rc == 2
     assert "drill:3" in polled, "после удачного шага 2 прогон обязан идти дальше"
     assert "drill:4" in polled, "шаги 3 и 4 — первая пара подряд, четвёртый ещё начинается"
+
+
+# ── курсор идёт за РЕАЛЬНОЙ репликой, а не за счётчиком ─────────────────────
+# Прогон №5: владелец опоздал на первый шаг, и харнесс применял проверки шага N
+# к ходу шага N−1. Теперь шаг опознаётся по тексту.
+
+
+def _scen5(tmp_path):
+    sc = tmp_path / "s.yaml"
+    sc.write_text(
+        "name: x\ncontact: c\nsteps:\n"
+        "  - say: \"перша\"\n  - say: \"друга\"\n  - say: \"третя\"\n",
+        encoding="utf-8")
+    return str(sc)
+
+
+def _messages_db(tmp_path):
+    return _db(tmp_path / "d.db")
+
+
+def test_cursor_jumps_to_the_step_the_owner_actually_sent(tmp_path, capsys, monkeypatch):
+    """Владелец шлёт реплику ТРЕТЬЕГО шага, пока харнесс ждёт первый: прогон
+    обязан признать это третьим шагом, а не судить его проверками первого."""
+    mod = _load()
+    db = _messages_db(tmp_path)
+    out = tmp_path / "drills"
+    log = tmp_path / "run.log"
+    log.write_text("", encoding="utf-8")
+    handled = []
+
+    def _msg(_db_, *, contact, since_ts):
+        if not handled:
+            with log.open("a", encoding="utf-8") as fh:
+                fh.write("process END c\n")
+            handled.append("третя")
+            return "третя"
+        return None
+
+    monkeypatch.setattr(mod, "new_lead_message", _msg)
+    monkeypatch.setattr(mod, "step_signal_seen",
+                        lambda *a, **kw: False)
+    rc = mod.main([_scen5(tmp_path), "--db", db, "--out", str(out), "--log", str(log),
+                   "--yes", "--step-timeout", "0.1", "--first-step-timeout", "0.1"])
+    report = sorted(out.glob("*.md"))[0].read_text(encoding="utf-8")
+    assert rc == 2, "шаги 1 и 2 не выполнялись — прогон не состоялся"
+    assert "курсор" in report or "не тот шаг" in report, "перестановка курсора не отмечена"
+    # шаг 3 обязан быть выполненным, а не пропущенным
+    third = report.split("## ")[-2] if "**Деньги" in report else report.split("## ")[-1]
+    assert "третя" in report
+
+
+def test_foreign_message_is_named_in_the_report(tmp_path, capsys, monkeypatch):
+    """Посторонняя фраза не должна молча притвориться шагом сценария."""
+    mod = _load()
+    db = _messages_db(tmp_path)
+    out = tmp_path / "drills"
+    log = tmp_path / "run.log"
+    log.write_text("", encoding="utf-8")
+    sent = []
+
+    def _msg(_db_, *, contact, since_ts):
+        if not sent:
+            with log.open("a", encoding="utf-8") as fh:
+                fh.write("process END c\n")
+            sent.append(1)
+            return "а де ви знаходитесь?"
+        return None
+
+    monkeypatch.setattr(mod, "new_lead_message", _msg)
+    monkeypatch.setattr(mod, "step_signal_seen", lambda *a, **kw: False)
+    mod.main([_scen5(tmp_path), "--db", db, "--out", str(out), "--log", str(log),
+              "--yes", "--step-timeout", "0.1", "--first-step-timeout", "0.1"])
+    report = sorted(out.glob("*.md"))[0].read_text(encoding="utf-8")
+    assert "не совпал" in report
+
+
+def test_first_step_waits_longer_than_the_rest(tmp_path, monkeypatch):
+    """«Прогон умер, пока человек отходил» — таймер первого шага отдельный и
+    длинный: он взводится приходом первой реплики, а не запуском скрипта."""
+    mod = _load()
+    assert mod.FIRST_STEP_TIMEOUT_SEC > mod.STEP_TIMEOUT_SEC
