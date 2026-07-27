@@ -12,7 +12,12 @@ unit-testable without git or the filesystem. The heuristic is deliberately
 simple and best-effort:
 
 - a changed file that IS an existing test file → run it directly;
-- a changed source file ``…/<stem>.py`` → run ``tests/test_<stem>.py`` if present.
+- a changed source file ``…/<stem>.py`` → run every present ``tests/**/test_<stem>.py``.
+
+Both halves look at ``tests/`` RECURSIVELY: the suite has long lived in packages
+(``tests/chatter/…``), and a flat ``tests/test_*.py`` scan made them invisible —
+task 0f24fd (``/allow``) shipped three ``tests/chatter/`` files and the gate still
+reported "дифф не маппится ни на один тест".
 
 It is intentionally conservative: no fuzzy import-graph analysis. A source file
 whose test isn't name-derivable maps to nothing — the caller must treat an empty
@@ -39,6 +44,9 @@ def map_paths_to_tests(changed_paths: Iterable[str],
     to itself if it still exists (a deleted test can't be run).
     """
     present = {_norm(t) for t in existing_tests}
+    by_name: dict = {}
+    for t in present:
+        by_name.setdefault(PurePosixPath(t).name, []).append(t)
     selected = set()
     for raw in changed_paths:
         c = _norm(raw)
@@ -48,9 +56,10 @@ def map_paths_to_tests(changed_paths: Iterable[str],
             selected.add(c)
             continue
         stem = PurePosixPath(c).stem           # queue.py → queue
-        candidate = f"tests/test_{stem}.py"
-        if candidate in present:
-            selected.add(candidate)
+        # every depth, not just tests/test_<stem>.py: tests/chatter/test_db.py
+        # is as valid a target as tests/test_db.py, and when both exist we run
+        # both (a name collision is not a reason to verify only half).
+        selected.update(by_name.get(f"test_{stem}.py", ()))
     return sorted(selected)
 
 
@@ -91,13 +100,21 @@ def changed_paths(worktree: str, base_head: str, *,
 
 
 def list_test_files(worktree: str) -> List[str]:
-    """Repo-relative paths of every ``tests/test_*.py`` present in the worktree."""
+    """Repo-relative paths of every ``tests/**/test_*.py`` in the worktree.
+
+    Recursive on purpose: most of the suite lives in packages under ``tests/``
+    (``tests/chatter/…``), and a flat scan hid them from the merge gate.
+    ``__pycache__`` is skipped — stale ``.py`` copies there are not runnable
+    targets.
+    """
     root = os.path.join(worktree, "tests")
-    out: List[str] = []
-    try:
-        for name in os.listdir(root):
-            if name.startswith("test_") and name.endswith(".py"):
-                out.append(f"tests/{name}")
-    except OSError:
+    if not os.path.isdir(root):
         return []
+    out: List[str] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d != "__pycache__"]
+        rel = os.path.relpath(dirpath, worktree).replace("\\", "/")
+        for name in filenames:
+            if name.startswith("test_") and name.endswith(".py"):
+                out.append(f"{rel}/{name}")
     return sorted(out)
