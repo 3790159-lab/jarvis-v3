@@ -25,9 +25,9 @@ from chatter.core.config_versions import (
 from chatter.core.classifier import ClassifierResult, classify as _classify
 from chatter.core.console import (
     GLOBAL_COMMANDS, TARGETED_COMMANDS, PauseView, _humanize_gap, cfg_text,
-    console_text, contact_link, display_name, escalation_buttons, format_config,
-    format_escalation_card, format_status, html_link, parse_command,
-    parse_config_command, pause_buttons,
+    console_text, contact_link, display_name, escalation_buttons, escape_html,
+    format_config, format_escalation_card, format_status, html_link,
+    parse_allow_command, parse_command, parse_config_command, pause_buttons,
     safe_snippet,
 )
 
@@ -672,6 +672,8 @@ class TelethonRunner:
             return self._set_funnel_gate(arg, language)
         if name == "honesty":
             return self._set_honesty(arg, language)
+        if name == "allow":
+            return await self._set_allow(arg, language)
         return cfg_text("cfg_unknown", language)
 
     def _set_honesty(self, arg: str, language: str) -> str:
@@ -769,6 +771,115 @@ class TelethonRunner:
             return cfg_text("cfg_gate_fail", language, reason=err)
         return cfg_text("cfg_gate_on_done", language) if enabled \
             else cfg_text("cfg_gate_off_done", language, allow=len(self.allowlist))
+
+    def effective_allowlist(self) -> frozenset[int]:
+        """settings.yaml.allowlist + runtime-оверлей /allow (Store).
+
+        funnel_gate НЕ трогается этой фичей: это тот же allowlist, что
+        admission_decision уже понимает (force-answer override при
+        funnel_gate=True, единственный источник допуска при funnel_gate=False)
+        — просто с ДОПОЛНИТЕЛЬНЫМИ id, добавленными командой без правки
+        settings.yaml и рестарта. reload_configs() перезатирает self.allowlist
+        из YAML и ничего не знает о Store, поэтому оверлей живёт ОТДЕЛЬНО и
+        мёржится здесь, на каждый вызов -- реальному YAML-списку ничего не
+        грозит от простоя/сбоя reload."""
+        return self.allowlist | frozenset(self.primary_store().runtime_allow_ids())
+
+    async def _display_name_for(self, peer_id: int) -> str:
+        """Имя для карточки/списка -- best-effort. Голый id ничем не хуже:
+        Telethon может не знать сущность (владелец никогда не переписывался с
+        этим id), и это НЕ повод отказывать в /allow числовым id (см.
+        _resolve_allow_target)."""
+        try:
+            entity = await self.client.get_entity(peer_id)
+        except Exception:
+            log.warning("allow: get_entity не разрешил id %s, имя -- голый id", peer_id, exc_info=True)
+            return display_name(user_id=peer_id)
+        return display_name(
+            first_name=getattr(entity, "first_name", None),
+            last_name=getattr(entity, "last_name", None),
+            title=getattr(entity, "title", None),
+            username=getattr(entity, "username", None),
+            user_id=peer_id)
+
+    async def _resolve_allow_target(self, target: str) -> tuple[int, str] | None:
+        """(id, имя) для /allow -- @user, id или t.me-ссылка. Числовой id
+        известен буквально (он и есть искомый Telegram user id), поэтому его
+        резолвим ВСЕГДА, даже если get_entity не смог найти сущность
+        (_display_name_for сама фолбэкает на голый id). @username/ссылку без
+        сети не резолвнуть -- если get_entity падает, контакт неизвестен
+        вообще, и добавлять просто нечего."""
+        raw = target.strip().rstrip("/").split("/")[-1].lstrip("@")
+        if raw.isdigit():
+            peer_id = int(raw)
+            return peer_id, await self._display_name_for(peer_id)
+        try:
+            entity = await self.client.get_entity(raw)
+        except Exception:
+            log.warning("allow: не смог разрешить %r", target, exc_info=True)
+            return None
+        return entity.id, display_name(
+            first_name=getattr(entity, "first_name", None),
+            last_name=getattr(entity, "last_name", None),
+            title=getattr(entity, "title", None),
+            username=getattr(entity, "username", None),
+            user_id=entity.id)
+
+    async def _allow_list_text(self, language: str) -> str:
+        store = self.primary_store()
+        runtime_ids = set(store.runtime_allow_ids())
+        ids = sorted(runtime_ids | set(self.allowlist))
+        if not ids:
+            return cfg_text("cfg_allow_list_empty", language)
+        lines = [cfg_text("cfg_allow_list_header", language, n=len(ids))]
+        for uid in ids:
+            name = await self._display_name_for(uid)
+            origin = cfg_text(
+                "cfg_allow_source_runtime" if uid in runtime_ids else "cfg_allow_source_static",
+                language)
+            lines.append(f"• {name} — id {uid} ({origin})")
+        return "\n".join(lines)
+
+    async def _set_allow(self, arg: str, language: str) -> str:
+        """/allow (backlog арки 3C): runtime-оверлей allowlist в Store, БЕЗ
+        правки settings.yaml и БЕЗ рестарта -- funnel_gate и его YAML-ключ
+        не трогаются вовсе, эта команда только читает self.allowlist/
+        self.funnel_gate (через effective_allowlist/admission_decision) и
+        пишет в отдельную таблицу Store."""
+        cmd = parse_allow_command(arg)
+        if cmd.action == "list":
+            return await self._allow_list_text(language)
+        if cmd.target is None:
+            return cfg_text("cfg_allow_usage", language)
+
+        resolved = await self._resolve_allow_target(cmd.target)
+        if resolved is None:
+            return cfg_text("cfg_allow_not_found", language, target=escape_html(cmd.target))
+        peer_id, name = resolved
+
+        store = self.primary_store()
+        runtime_ids = set(store.runtime_allow_ids())
+        already = peer_id in runtime_ids or peer_id in self.allowlist
+
+        if cmd.action == "add" and already:
+            return cfg_text("cfg_allow_already", language, name=name)
+        if cmd.action == "remove" and not already:
+            return cfg_text("cfg_allow_not_in_list", language, name=name)
+        if cmd.action == "remove" and peer_id in self.allowlist and peer_id not in runtime_ids:
+            # Статический id из settings.yaml -- эта команда его убрать не
+            # может (нет yaml-правки/reload в этой фиче), и молчаливый
+            # no-op соврал бы "убрал" (DEV-18).
+            return cfg_text("cfg_allow_static_remove_blocked", language, name=name, id=peer_id)
+
+        if not cmd.confirmed:
+            key = "cfg_allow_confirm_add" if cmd.action == "add" else "cfg_allow_confirm_remove"
+            return cfg_text(key, language, name=name, id=peer_id)
+
+        if cmd.action == "add":
+            store.runtime_allow_add(peer_id, ts=time.time())
+            return cfg_text("cfg_allow_added", language, name=name, id=peer_id)
+        store.runtime_allow_remove(peer_id)
+        return cfg_text("cfg_allow_removed", language, name=name)
 
     def _primary_dir(self) -> Path:
         return self._clients_dir / self.primary_slug
@@ -1262,7 +1373,7 @@ class TelethonRunner:
         # (Telethon User.contact). funnel_gate off → старое поведение (allowlist).
         decision = admission_decision(
             sender_id=sender_id, is_contact=bool(getattr(event.sender, "contact", False)),
-            allowlist=self.allowlist, denylist=self.denylist, funnel_gate=self.funnel_gate)
+            allowlist=self.effective_allowlist(), denylist=self.denylist, funnel_gate=self.funnel_gate)
         if decision == "notify_owner":
             await self._notify_known_contact(event, sender_id)
             return
@@ -1372,7 +1483,7 @@ class TelethonRunner:
             log.exception("catch-up: failed to collect dialogs; skipping catch-up")
             return
         missed = select_missed(
-            dialogs, allowlist=self.allowlist, now=now, max_age_seconds=max_age_seconds,
+            dialogs, allowlist=self.effective_allowlist(), now=now, max_age_seconds=max_age_seconds,
             denylist=self.denylist, funnel_gate=self.funnel_gate)
         log.info("catch-up: %d dialog(s) with missed messages", len(missed))
         for mm in missed:

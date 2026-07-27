@@ -75,6 +75,10 @@ CREATE TABLE IF NOT EXISTS llm_usage (
     cache_creation_5m INTEGER,
     cache_creation_1h INTEGER
 );
+CREATE TABLE IF NOT EXISTS runtime_allow (
+    peer_id INTEGER PRIMARY KEY,
+    ts REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS contact_obligations (
     contact_id     TEXT NOT NULL,
     okey           TEXT NOT NULL,
@@ -397,6 +401,28 @@ class Store:
             row = self._conn.execute(
                 "SELECT ts FROM runtime_flags WHERE key=?", (key,)).fetchone()
         return float(row["ts"]) if row else None
+
+    def runtime_allow_add(self, peer_id: int, *, ts: float) -> None:
+        """/allow (контрол-бот): runtime-оверлей allowlist, ОТДЕЛЬНЫЙ от
+        settings.yaml.telegram.allowlist -- переживает reload_configs (та
+        свопает self.allowlist из свежего YAML и ничего не знает про Store)."""
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO runtime_allow(peer_id, ts) VALUES (?,?) "
+                "ON CONFLICT(peer_id) DO UPDATE SET ts=excluded.ts",
+                (peer_id, ts))
+            self._conn.commit()
+
+    def runtime_allow_remove(self, peer_id: int) -> None:
+        with self._lock:
+            self._conn.execute("DELETE FROM runtime_allow WHERE peer_id=?", (peer_id,))
+            self._conn.commit()
+
+    def runtime_allow_ids(self) -> list[int]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT peer_id FROM runtime_allow ORDER BY peer_id").fetchall()
+        return [r["peer_id"] for r in rows]
 
     def add_event(self, kind: str, *, contact_id: str | None = None,
                   detail: str | None = None, ts: float) -> None:

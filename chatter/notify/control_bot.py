@@ -19,7 +19,9 @@ import asyncio
 import logging
 from dataclasses import dataclass
 
-from chatter.core.console import cfg_text, console_text, contact_link, parse_config_command
+from chatter.core.console import (
+    cfg_text, console_text, contact_link, parse_allow_command, parse_config_command,
+)
 from chatter.core.escalation import esc_active_key
 from chatter.notify.base import Action, Card, CardHandle, Notifier
 
@@ -99,6 +101,24 @@ def route_callback(data: str, *, store, now: float, language: str, snooze_second
         store.set_runtime_flag(esc_active_key(contact_id), "", ts=now)
     return CallbackResult(
         feedback_html=fb, answer=fb, keep_buttons=action is Action.OPEN)
+
+
+def _resolve_allow_arg(arg: str, m: dict) -> str:
+    """/allow как реплай на пересланное сообщение (Bot API кладёт весь
+    объект реплая ПРЯМО в апдейт -- сети/доп. запроса не нужно): если
+    владелец не набрал явную цель (@user/id), а сообщение -- реплай на
+    forward с известным отправителем, подставляем его id. Не-форвард или
+    форвард со скрытым отправителем (только forward_sender_name, без id) --
+    цель остаётся пустой, handle_config_command честно ответит usage/not_found."""
+    probe = parse_allow_command(arg)
+    if probe.action == "list" or probe.target is not None:
+        return arg
+    peer_id = ((m.get("reply_to_message") or {}).get("forward_from") or {}).get("id")
+    if peer_id is None:
+        return arg
+    prefix = "remove " if probe.action == "remove" else ""
+    suffix = " confirm" if probe.confirmed else ""
+    return f"{prefix}{peer_id}{suffix}"
 
 
 def _default_http_post(token: str):
@@ -357,18 +377,24 @@ class ControlBotPoller:
         elif cmd == "/start":
             await self._on_start(chat_id, parts[1] if len(parts) > 1 else None)
         else:
-            await self._maybe_config_command(chat_id, m.get("text") or "")
+            await self._maybe_config_command(chat_id, m)
 
-    async def _maybe_config_command(self, chat_id: int, text: str) -> None:
-        """config-арка: /config /reload /knowledge /rollback — ТОЛЬКО владельцу.
-        Чужой id вообще не видит config-поверхность."""
-        cc = parse_config_command(text)
+    async def _maybe_config_command(self, chat_id: int, m: dict) -> None:
+        """config-арка: /config /reload /knowledge /rollback /allow — ТОЛЬКО
+        владельцу. Чужой id вообще не видит config-поверхность."""
+        cc = parse_config_command(m.get("text") or "")
         if cc is None or self._config_handler is None:
             return
         if chat_id != self._effective_owner():
             log.warning("control-bot: config-команда от НЕ-владельца %s — отказ", chat_id)
             return
         name, arg = cc
+        if name == "allow":
+            # /allow как реплай на пересланное сообщение лида: владелец не
+            # обязан набирать id руками -- берём его из forward_from того
+            # сообщения, на которое отвечает. Только для /allow: остальные
+            # config-команды реплай не используют вовсе.
+            arg = _resolve_allow_arg(arg, m)
         try:
             reply = await self._config_handler(name, arg, language=self._language)
         except Exception:
