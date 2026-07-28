@@ -29,6 +29,21 @@ def test_awaiting_owner_states_handoff_already_happened_uk():
     assert "уточню" not in text.lower()
 
 
+@pytest.mark.parametrize("variant", [0, 1])
+def test_awaiting_owner_uses_owner_ref_in_instrumental_case(variant):
+    """ПАДЕЖ. `owner_ref` в конфигах задан в ТВОРИТЕЛЬНОМ падеже, потому что
+    исходный шаблон был «зв'яжу вас з {ref}» (volska: «керівницею»). Значит и
+    новые шаблоны обязаны ставить его после «з/с/with», иначе получается
+    «передала питання керівницею» — ровно это вылезло на офлайн-смоуке."""
+    text = awaiting_owner_fallback(language="uk", owner_ref="керівницею",
+                                   variant=variant)
+    assert "з керівницею" in text, f"падеж поехал: {text!r}"
+
+    ru = awaiting_owner_fallback(language="ru", owner_ref="владельцем",
+                                 variant=variant)
+    assert "с владельцем" in ru, f"падеж поехал: {ru!r}"
+
+
 def test_awaiting_owner_promises_to_write_back():
     text = awaiting_owner_fallback(language="uk", owner_ref="керівниці")
     assert "напишу" in text.lower()
