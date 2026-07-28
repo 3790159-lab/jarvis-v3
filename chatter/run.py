@@ -31,13 +31,13 @@ from chatter.core.console import (
 )
 from chatter.core.disclosure import honest_disclosure, is_bot_question
 from chatter.core.escalation import (
-    advance_funnel, decide_escalation, deterministic_escalation, esc_active_key,
-    mentions_owner_contact,
-    honest_self_action_fallback, self_action_fallback,
+    advance_funnel, awaiting_owner_fallback, decide_escalation,
+    deterministic_escalation, esc_active_key, mentions_owner_contact,
+    honest_self_action_fallback, pick_non_repeating, self_action_fallback,
     suppressed_fallback,
 )
 from chatter.core.guardrails import (
-    within_daily_cap, within_hourly_limit,
+    redact_unbacked, within_daily_cap, within_hourly_limit,
 )
 from chatter.core.llm import AnthropicLLM, FakeLLM
 from chatter.core.pause import is_attributed, is_muted
@@ -322,6 +322,11 @@ def _escalation_pass(
 
     advance_funnel(store, contact_id, stage_signal=decision.stage_signal, escalated=decision.escalate)
 
+    awaiting_used = False
+    # Запасные формулировки ТОЙ ЖЕ канцелярской заглушки, которую мы подставили.
+    # Нужны анти-самоповтору (P20 в), который работает В САМОМ КОНЦЕ — после
+    # H2-переписывания: иначе его легко обойти, подменив текст уже после проверки.
+    alt_variants: tuple[str, ...] = ()
     if det is not None and det.suppress:
         # Гардрейл-подавление: НЕ отправляем ни выдуманную цену/срок (unbacked_claim),
         # ни запрещённый термин (forbidden_reply, рубли/росбанк), ни безцифровое
@@ -338,13 +343,27 @@ def _escalation_pass(
         else:
             if det.tag == "forbidden_reply" and safe:
                 log.warning("safe_payment_reply сам содержит запрещённый термин — не использую")
-            # Падеж-безопасно (owner_id не склоняем: «позову Дмитрий» → криво):
-            # глагол «свяж»/«зв'яж» держит H2-детекцию, а как назвать владельца
-            # задаёт owner_ref (уже в нужном падеже; пусто → per-language дефолт).
-            # Б2: текст локализован по settings.language — украиноязычный лид не
-            # должен получать русскую аварийную фразу.
-            reply = suppressed_fallback(
-                language=cfg.settings.language, owner_ref=cfg.settings.owner_ref)
+            # P20 (D): СНАЧАЛА пробуем вырезать необеспеченное место, а не весь
+            # ответ. Замер 2026-07-29: одно число («21») убивало ответ вместе с
+            # четырьмя обеспеченными ценами, и лид трижды не увидел прайса.
+            #
+            # ⚠️ ТОЛЬКО для unbacked_claim. Редакция работает по ЧИСЛАМ, а
+            # forbidden_reply (запрещённый термин) и unbacked_promise
+            # (безцифровое «дам скидку») она не видит — пропустить их через неё
+            # значило бы проделать дыру в гардрейле, поэтому им по-прежнему
+            # полное подавление.
+            redacted = (_try_redact(deps, contact_id, reply=reply, now=now)
+                        if det.tag == "unbacked_claim" else None)
+            if redacted is not None:
+                reply = redacted
+            else:
+                # Падеж-безопасно (owner_id не склоняем: «позову Дмитрий» → криво):
+                # глагол «свяж»/«зв'яж» держит H2-детекцию, а как назвать владельца
+                # задаёт owner_ref (уже в нужном падеже; пусто → per-language дефолт).
+                # Б2: текст локализован по settings.language — украиноязычный лид не
+                # должен получать русскую аварийную фразу.
+                reply, awaiting_used, alt_variants = _suppression_fallback(
+                    deps, contact_id, slot_on=slot_on)
 
     delivered = False
     if decision.escalate and deps.notifier is not None:
@@ -366,7 +385,12 @@ def _escalation_pass(
     # free_owner_liability ответ пишет brain — и защита по тегу пропустила бы
     # его недоставленное «свяжу с владельцем» мимо гейта H2. Защищать надо
     # ровно тот текст, который мы САМИ сгенерировали как честное раскрытие.
-    protected = disclosure_sent
+    # P20 (б): «вже передала керівниці» — КОД-проверенный факт (owner_write
+    # закрывается по доставленной карточке), а не обещание за владельца.
+    # Без этой защиты H2-гейт при недоставленной карточке ЭТОГО хода затёр бы
+    # честное состояние обратно в «уточню и вернусь» — ровно ту заглушку,
+    # из-за которой P20 и открыт.
+    protected = disclosure_sent or awaiting_used
     implies_owner = mentions_owner_contact(
         reply, owner_id=cfg.settings.owner_id, owner_ref=cfg.settings.owner_ref)
     if not protected and not delivered and implies_owner:
@@ -377,10 +401,14 @@ def _escalation_pass(
         # из которого следовало, что перед ним человек). Условия «спрашивали ли
         # про личность» тут нет специально — оно совпадает с `disclosure_sent`
         # выше, то есть с уже защищённым множеством, и дыру не закрывает.
-        reply = (
-            honest_self_action_fallback(language=cfg.settings.language)
-            if cfg.settings.honesty_mode == HONESTY_HONEST
-            else self_action_fallback(language=cfg.settings.language))
+        honest = cfg.settings.honesty_mode == HONESTY_HONEST
+        maker = honest_self_action_fallback if honest else self_action_fallback
+        reply = maker(language=cfg.settings.language)
+        # H2 подменяет текст ПОСЛЕ выбора заглушки подавления, поэтому запасные
+        # формулировки тоже надо переставить на это семейство — иначе
+        # анти-самоповтор будет сравнивать не с тем, что реально уйдёт лиду
+        # (замер: два подавления подряд снова давали байт-идентичный текст).
+        alt_variants = (maker(language=cfg.settings.language, variant=1),)
         implies_owner = False   # заменили на само-действие — контакта больше нет
     # Q2 (дрил 07-19): обещание контакта/эскалация не тянет встречный вопрос —
     # лида ПЕРЕДАЛИ, а бот бы продолжал продавать в том же сообщении и сбивал его.
@@ -394,7 +422,101 @@ def _escalation_pass(
     # уведомлён); msg_id — id карточки из esc_active. Только при slot on.
     if slot_on and delivered:
         _close_owner_write_by_card(deps, contact_id, now=now)
-    return reply, delivered
+
+    # P20 (в) — ПОСЛЕДНИЙ шаг: лид не получает ту же реплику дважды подряд.
+    # Стоит здесь, после ВСЕХ подмен (подавление, H2, срез хвостового вопроса),
+    # потому что дважды-идентичным был именно ИТОГОВЫЙ текст (msg 318/320/322).
+    final = pick_non_repeating(
+        reply, previous=_last_assistant_text(deps.store, contact_id),
+        variants=alt_variants)
+    if final is None:
+        # Вариантов нет (обычный ответ brain, а не заглушка) → честная пауза.
+        # Молчание видимо: событие в ленте, иначе пауза выглядит как «бот умер».
+        log.warning("reply repeat: та же реплика подряд, пауза для %s", contact_id)
+        try:
+            deps.store.add_event("reply_repeat_paused", contact_id=contact_id,
+                                 detail="повтор предыдущей реплики", ts=now)
+        except Exception:        # DEV-18: аудит не имеет права ронять ход
+            log.exception("не удалось записать событие анти-повтора")
+        return "", delivered
+    return final, delivered
+
+
+def _last_assistant_text(store, contact_id: str) -> str | None:
+    """Предыдущий ОТВЕТ целиком — то, что реально увидел лид.
+
+    Humanizer режет ответ на баббл(ы), и каждый пишется в `messages` отдельной
+    строкой. Сравнивать надо с ХОДОМ, а не с последним бабблом: иначе длинная
+    заглушка из двух предложений «не совпадает» сама с собой и анти-самоповтор
+    молча ничего не ловит. Берём последний непрерывный ряд assistant-строк."""
+    msgs = list(store.history(contact_id) or ())
+    # Входящее ЭТОГО хода уже лежит в истории (process_batch пишет его до
+    # эскалации), поэтому сначала перешагиваем хвост из user-строк, и только
+    # потом собираем ряд assistant — иначе «предыдущего ответа» не видно вовсе.
+    i = len(msgs) - 1
+    while i >= 0 and msgs[i].get("role") != "assistant":
+        i -= 1
+    run: list[str] = []
+    while i >= 0 and msgs[i].get("role") == "assistant":
+        run.append(msgs[i].get("text") or "")
+        i -= 1
+    if not run:
+        return None
+    return " ".join(reversed(run))
+
+
+def _owner_write_delivered(store, contact_id: str, *, slot_on: bool) -> bool:
+    """Вопрос лида уже лежит у владельца: owner_write закрыт КОДОМ по факту
+    доставленной карточки (спека слота §3), поэтому это надёжный факт, а не
+    мнение модели. Слот выключен → состояния нет, ведём себя как раньше."""
+    if not slot_on:
+        return False
+    return any(o.okey == "owner_write" and o.status == "delivered"
+               for o in store.get_obligations(contact_id))
+
+
+def _try_redact(deps: "Deps", contact_id: str, *, reply: str, now: float) -> str | None:
+    """P20 (D): вырезать необеспеченные числа, сохранив остальной ответ.
+
+    None → редакцией не спаслось (или резать было нечего) ⇒ вызывающий обязан
+    подавить ответ целиком. Лог PII-free: число-причина, правило и длина
+    вырезанного куска — без текста лида и без текста ответа."""
+    cfg = deps.cfg
+    res = redact_unbacked(reply, cfg.knowledge, language=cfg.settings.language)
+    if not res.clean or not res.records:
+        return None
+    for r in res.records:
+        log.info("redaction: rule=%s number=%s clause_chars=%d lang=%s",
+                 r.rule, r.number, r.clause_chars, cfg.settings.language)
+    try:
+        deps.store.add_event(
+            "unbacked_redacted", contact_id=contact_id,
+            detail=",".join(f"{r.rule}:{r.number}" for r in res.records), ts=now)
+    except Exception:            # DEV-18: аудит-запись не имеет права ронять ход
+        log.exception("не удалось записать событие редакции")
+    return res.text
+
+
+def _suppression_fallback(deps: "Deps", contact_id: str, *,
+                          slot_on: bool) -> tuple[str, bool, tuple[str, ...]]:
+    """Какую заглушку получит лид и является ли она «ждём владельца».
+
+    P20 (а): раньше здесь стояла ОДНА константа, и три подавления подряд дали
+    три байт-идентичных сообщения — причём второе было ответом на прямой вопрос
+    «вы уточнили детали?». Теперь: если вопрос уже у владельца — говорим это
+    (состояние), иначе обещаем уточнить (действие); и в обоих случаях не
+    повторяем дословно предыдущую реплику.
+
+    ⚠️ Вариант обязан нести ТОТ ЖЕ факт: «передала» не подставляется вместо
+    «уточню», пока карточка не доставлена, иначе анти-повтор начнёт врать."""
+    cfg = deps.cfg
+    lang, ref = cfg.settings.language, cfg.settings.owner_ref
+    if _owner_write_delivered(deps.store, contact_id, slot_on=slot_on):
+        maker, awaiting = awaiting_owner_fallback, True
+    else:
+        maker, awaiting = suppressed_fallback, False
+    return (maker(language=lang, owner_ref=ref), awaiting,
+            (maker(language=lang, owner_ref=ref, variant=1),))
 
 
 def _card_msg_id(store, contact_id: str) -> int | None:
@@ -726,6 +848,12 @@ def process_batch(
     reply, card_posted = _escalation_pass(
         deps, contact_id, incoming_text=text, reply=reply,
         now=deps.clock(), disclosure_sent=disclosure_sent)
+
+    if not (reply or "").strip():
+        # Честная пауза анти-самоповтора (P20 в) — единственный путь сюда.
+        # Пустой текст в transport.send() был бы ошибкой API, а не молчанием.
+        log.info("нечего отправлять для %s — ход пропущен", contact_id)
+        return
 
     now_hour = _dt.datetime.fromtimestamp(deps.clock()).hour
     actions = H.compose_reply(

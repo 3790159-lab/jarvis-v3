@@ -104,9 +104,15 @@ _FALLBACK_SELF = {
     "en": "Good question — let me check the details and come back to you.",
     "uk": "Гарне питання — уточню деталі та повернуся до вас.",
 }
+_FALLBACK_SELF_ALT = {
+    "ru": "Уточню этот момент и вернусь к вам с ответом.",
+    "en": "Let me check this and get back to you with an answer.",
+    "uk": "Уточню цей момент і повернуся до вас з відповіддю.",
+}
 
 
-def suppressed_fallback(*, language: str = "ru", owner_ref: str | None = None) -> str:
+def suppressed_fallback(*, language: str = "ru", owner_ref: str | None = None,
+                        variant: int = 0) -> str:
     """Что получает ЛИД вместо подавленного ответа: нейтральное «уточню и
     вернусь» + предложение вывести на владельца. Неизвестный язык → ru (тот же
     фолбэк, что console_text/honest_disclosure — лид всегда получает понятный
@@ -117,17 +123,98 @@ def suppressed_fallback(*, language: str = "ru", owner_ref: str | None = None) -
     владельца мимо H2-гейта. Держится глаголом («свяж»/«зв'яж»/«connect») и
     ролевым корнем дефолта; тест это фиксирует."""
     ref = owner_ref or _FALLBACK_OWNER_REF.get(language, _FALLBACK_OWNER_REF["ru"])
-    template = _FALLBACK_WITH_OWNER.get(language, _FALLBACK_WITH_OWNER["ru"])
-    return template.format(ref=ref)
+    table = _FALLBACK_WITH_OWNER_ALT if variant else _FALLBACK_WITH_OWNER
+    return table.get(language, table["ru"]).format(ref=ref)
 
 
-def self_action_fallback(*, language: str = "ru") -> str:
+# P20 (б): вопрос УЖЕ передан владельцу (owner_write delivered — а его закрывает
+# КОД по факту доставленной карточки, не модель). Повторять «уточню деталі та
+# повернуся» здесь — прямая ложь: мы ничего не уточняем, мы ждём человека.
+# Инцидент 2026-07-29: лид спросил «вы уточнили детали?)» и получил в ответ
+# «уточню деталі та повернуся» — третью байт-идентичную копию подряд.
+_FALLBACK_AWAITING_OWNER = {
+    "ru": "Я уже передала ваш вопрос {ref} — как только она ответит, сразу напишу вам.",
+    "en": ("I've already passed your question to {ref} — I'll write back as soon "
+           "as they reply."),
+    "uk": "Я вже передала ваше питання {ref} — щойно вона відповість, одразу напишу вам.",
+}
+_FALLBACK_AWAITING_OWNER_REF = {
+    "ru": "руководителю", "en": "the owner", "uk": "керівниці",
+}
+
+
+# Вторые формулировки того же смысла — сырьё для анти-самоповтора (P20 в).
+# Вариант обязан нести ТОТ ЖЕ факт: «уточню» нельзя подменять на «передала»,
+# пока карточка не доставлена, иначе анти-повтор начнёт врать ради разнообразия.
+_FALLBACK_WITH_OWNER_ALT = {
+    "ru": "Уточню этот момент и вернусь к вам с ответом. Если удобно, могу связать вас с {ref}.",
+    "en": ("Let me check this and get back to you with an answer. If you'd like, "
+           "I can connect you with {ref}."),
+    "uk": ("Уточню цей момент і повернуся до вас з відповіддю. Якщо зручно, можу "
+           "зв'язати вас з {ref}."),
+}
+_FALLBACK_AWAITING_OWNER_ALT = {
+    "ru": "Ваш вопрос уже у {ref} — жду ответа и сразу передам вам.",
+    "en": "Your question is already with {ref} — I'm waiting for a reply and will pass it on.",
+    "uk": "Ваше питання вже у {ref} — чекаю на відповідь і одразу передам вам.",
+}
+
+
+def awaiting_owner_fallback(*, language: str = "ru", owner_ref: str | None = None,
+                            variant: int = 0) -> str:
+    """Что получает лид, когда ответ подавлен, а вопрос УЖЕ у владельца.
+
+    Отличается от `suppressed_fallback` смыслом, а не только словами: там
+    «уточню и вернусь» (обещание действия), здесь «передала, ждём» (состояние).
+    `variant=1` — вторая формулировка ТОГО ЖЕ факта для анти-самоповтора.
+    Неизвестный язык → ru (как и остальные фолбэки — лид получает текст, не
+    KeyError)."""
+    ref = owner_ref or _FALLBACK_AWAITING_OWNER_REF.get(
+        language, _FALLBACK_AWAITING_OWNER_REF["ru"])
+    table = _FALLBACK_AWAITING_OWNER_ALT if variant else _FALLBACK_AWAITING_OWNER
+    return table.get(language, table["ru"]).format(ref=ref)
+
+
+def _norm_reply(text: str | None) -> str:
+    """Нормализация для сравнения «то же самое сообщение».
+
+    Гасит регистр, разбивку пробелами И косметику `humanizer.humanize_typography`
+    (em-dash → дефис, срез «!»). Последнее обязательно: сравнивается СЫРОЙ
+    кандидат с УЖЕ отправленным (humanizer — последний шов перед отправкой), и
+    без этого заглушка «не совпадала сама с собой» из-за одного тире, а
+    анти-самоповтор молча пропускал дубль. Сторож на расхождение с реальным
+    humanizer'ом — test_norm_reply_absorbs_humanizer_typography."""
+    t = (text or "").replace("—", "-").replace("!", ".")
+    return " ".join(t.split()).casefold()
+
+
+def pick_non_repeating(candidate: str, *, previous: str | None,
+                       variants: "tuple[str, ...] | list[str]" = ()) -> str | None:
+    """P20 (в): лид не имеет права получить ту же реплику дважды подряд.
+
+    Дедуп карточек владельцу существует с 07-18 (`_ESCALATION_DEDUP_SECONDS`),
+    у текста ЛИДУ его не было — и подавление печатало константу сколько угодно
+    раз. Возвращает `candidate`, если он отличается от предыдущего исходящего;
+    иначе первый непохожий вариант; иначе None — «честная пауза» (промолчать
+    ход лучше, чем прислать третью копию; владелец уже уведомлён карточкой)."""
+    prev = _norm_reply(previous)
+    if not prev or _norm_reply(candidate) != prev:
+        return candidate
+    for v in variants:
+        if _norm_reply(v) != prev:
+            return v
+    return None
+
+
+def self_action_fallback(*, language: str = "ru", variant: int = 0) -> str:
     """Заглушка БЕЗ обещания контакта владельца — говорим только то, что персона
-    сделает сама. Ставится, когда карточка владельцу не доставлена (H2)."""
-    return _FALLBACK_SELF.get(language, _FALLBACK_SELF["ru"])
+    сделает сама. Ставится, когда карточка владельцу не доставлена (H2).
+    `variant=1` — вторая формулировка того же для анти-самоповтора (P20 в)."""
+    table = _FALLBACK_SELF_ALT if variant else _FALLBACK_SELF
+    return table.get(language, table["ru"])
 
 
-def honest_self_action_fallback(*, language: str = "ru") -> str:
+def honest_self_action_fallback(*, language: str = "ru", variant: int = 0) -> str:
     """То же самое, но с честным фактом впереди — версия для honest-режима.
 
     Условия «а лид точно спрашивал про личность?» здесь НЕТ намеренно. Замер
@@ -138,7 +225,8 @@ def honest_self_action_fallback(*, language: str = "ru") -> str:
     честный факт. Цена — лид, спросивший про цену и попавший на недоставленную
     карточку, увидит лишнюю строку про ассистента; это дёшево по сравнению с
     ответом, из которого следует, что он говорит с человеком."""
-    return f"{honest_prefix(language)} {self_action_fallback(language=language)}"
+    return (f"{honest_prefix(language)} "
+            f"{self_action_fallback(language=language, variant=variant)}")
 
 
 def mentions_owner_contact(reply: str, owner_id: str = "", owner_ref: str | None = None) -> bool:
