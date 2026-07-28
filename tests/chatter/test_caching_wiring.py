@@ -25,7 +25,10 @@ def test_brain_tags_calls_and_passes_note_as_uncached_suffix(tmp_path):
 
     brain.reply([{"role": "user", "text": "привет"}])
     assert llm.calls[0]["tag"] == "brain"
-    assert llm.calls[0]["uncached_suffix"] is None
+    # блок поточного часу тепер їде в suffix ЗАВЖДИ (DEV-таск «бот не знає
+    # часу») — suffix більше не None навіть без profile/context_note.
+    assert llm.calls[0]["uncached_suffix"]
+    assert "ПОТОЧНИЙ ЧАС" in llm.calls[0]["uncached_suffix"]
 
     brain.reply([{"role": "user", "text": "вы тут?"}], context_note="ЗАМЕТКА")
     call = llm.calls[1]

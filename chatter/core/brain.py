@@ -1,12 +1,22 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from chatter.config.loader import HONESTY_HONEST, Config
 from chatter.core.llm import LLMClient
 from chatter.core import prompt_log
 
 log = logging.getLogger("chatter.core.brain")
+
+# Бот раніше не знав поточного часу (Ольга привіталася «Добрий день»
+# ввечері). Єдина таймзона для всіх клієнтів — TODO: per-client timezone,
+# коли з'явиться клієнт поза Europe/Kyiv.
+KYIV_TZ = ZoneInfo("Europe/Kyiv")
+
+_WEEKDAYS_UK = ("понеділок", "вівторок", "середа", "четвер", "п'ятниця",
+               "субота", "неділя")
 
 # М8: бюджет секции примеров в символах (~1.5k токенов при ~4 симв./токен).
 # Пары включаются по порядку, пока влезают; хвост отбрасывается С WARNING.
@@ -95,6 +105,32 @@ def _examples_section(cfg: Config) -> str:
     return header + "".join(parts)
 
 
+def _day_part(hour: int) -> str:
+    """Словесна частина доби за годиною (0-23), Europe/Kyiv."""
+    if 5 <= hour < 11:
+        return "ранок"
+    if 11 <= hour < 17:
+        return "день"
+    if 17 <= hour < 22:
+        return "вечір"
+    return "ніч"
+
+
+def build_time_block(now: datetime | None = None) -> str:
+    """Поточний час — дата, день тижня, час і частина доби. ТІЛЬКИ для
+    uncached_suffix (ПІСЛЯ cache-breakpoint'а): значення міняється щохвилини,
+    а стабільний префікс не можна чіпати ні байтом (регресія 23.07 — мінливе
+    в префіксі вбиває кеш). `now`: інʼєкція для тестів; за замовчуванням —
+    реальний поточний момент."""
+    dt = (now or datetime.now(KYIV_TZ)).astimezone(KYIV_TZ)
+    weekday = _WEEKDAYS_UK[dt.weekday()]
+    return (
+        "=== ПОТОЧНИЙ ЧАС (Europe/Kyiv) ===\n"
+        f"Зараз {weekday}, {dt.strftime('%d.%m.%Y')}, {dt.strftime('%H:%M')} "
+        f"({_day_part(dt.hour)})."
+    )
+
+
 def build_system_prompt(cfg: Config) -> str:
     lang = _LANG_NAME.get(cfg.settings.language, "русском")
     return (
@@ -119,7 +155,8 @@ class Brain:
 
     def reply(self, history: list[dict], *, context_note: str | None = None,
               profile: str | None = None, obligations_block: str = "",
-              obligations=(), log_shape: bool = False, contact_id: str = "") -> str:
+              obligations=(), log_shape: bool = False, contact_id: str = "",
+              now: datetime | None = None) -> str:
         """`context_note`: an optional ONE-OFF instruction for this reply only
         (e.g. "this message waited 20 min, acknowledge the pause in your own
         words"). It rides in the system prompt for this single call but is NOT
@@ -130,12 +167,17 @@ class Brain:
         уже с заголовками. Пусто по умолчанию → поведение как раньше (флаг
         CHATTER_OBLIGATIONS_SLOT off). Едет тем же uncached_suffix-ом, что и
         профиль, но рендерится из ТАБЛИЦЫ (не из окна) → долг доезжает, даже
-        когда ход-источник уехал за окно истории."""
+        когда ход-источник уехал за окно истории.
+
+        `now`: інʼєкція поточного часу для тестів (детермінізм); за
+        замовчуванням — реальний Europe/Kyiv-момент (build_time_block)."""
         # Профиль лида и разовая заметка уходят uncached_suffix-ом: стабильная
         # система кэшируется (cache_control в AnthropicLLM) И ОБЩАЯ для всех
         # контактов; per-contact профиль — отдельным блоком ПОСЛЕ breakpoint'а,
         # кэш не инвалидируется, профиль всегда самый свежий (арка «память»).
-        parts = []
+        # Блок часу — туда ж і з тієї ж причини: міняється щохвилини, у
+        # стабільному префіксі вбив би кеш (регресія 23.07).
+        parts = [build_time_block(now)]
         if profile:
             parts.append(
                 f"=== ПРОФІЛЬ КЛІЄНТА (з минулих розмов; актуальні факти) ===\n{profile}")
