@@ -29,7 +29,7 @@ import sys
 # drop_phantom_obligations.py, и тест-сторож (tests/test_drill_reset.py)
 # требует их совпадения: два разошедшихся списка — это способ однажды
 # стереть переписку живого клиента. Новый тестовый аккаунт добавляется В ОБА.
-DRILL_CONTACTS = frozenset({"237616472:volska"})
+DRILL_CONTACTS = frozenset({"237616472:volska", "8849893367:volska"})
 
 # Что стирается. `facts` и `contact_profile` — то, из-за чего `profile_contains`
 # зеленеет за счёт прошлых прогонов; `console_cards` — карточки, чьи msg_id

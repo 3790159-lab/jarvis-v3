@@ -26,7 +26,7 @@ import time
 # Жёсткое удаление (--delete) разрешено ТОЛЬКО на дрил-контакте. На живом
 # клиенте это стирание истории его обязательств: строка `cancelled` остаётся
 # уликой, а удалённая — нет. Список явный и короткий, менять осознанно.
-DRILL_CONTACTS = frozenset({"237616472:volska"})
+DRILL_CONTACTS = frozenset({"237616472:volska", "8849893367:volska"})
 
 
 def snapshot(conn, contact: str) -> list[tuple]:
