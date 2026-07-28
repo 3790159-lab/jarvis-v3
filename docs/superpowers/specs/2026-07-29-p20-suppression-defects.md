@@ -1,7 +1,7 @@
 # P20 — подавление маркетингового ответа: два дефекта
 
 **Статус:** РЕАЛИЗОВАНО (вариант D + а/б/в), TDD, ветка `arc/p20-suppression`.
-Гейт `tests/chatter` = **1305 passed, 1 skipped** (база 1264 + 41 новый тест).
+Гейт `tests/chatter` = **1307 passed, 1 skipped** (база 1264 + 43 новых теста).
 ЖДЁТ живой приёмки в дрил-чате.
 **Дата:** 2026-07-29. **Улики:** `logs/chatter_volska.stdout.log`, `logs/chatter_volska.log`,
 `.secrets/demo.db` (msg 318/320/322), прогон `scratchpad/p20_forensics.py`.
