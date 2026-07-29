@@ -92,6 +92,41 @@ CREATE TABLE IF NOT EXISTS contact_obligations (
     closed_ts      REAL,
     PRIMARY KEY (contact_id, okey)
 );
+
+-- Фундамент дашборда (CLIENT_SCREENS.md §5.2). Обе таблицы пишутся ТОЛЬКО
+-- вперёд: восстановить прошлое неоткуда, поэтому каждый день без них —
+-- безвозвратно потерянная история.
+
+-- История переходов воронки. `contacts.state` хранит лишь ТЕКУЩЕЕ состояние и
+-- перезаписывается, поэтому вопрос «сколько квалифицировалось за неделю» без
+-- этой таблицы не имеет ответа: контакт, прошедший new→qualifying→hot→closed,
+-- виден только как closed.
+CREATE TABLE IF NOT EXISTS funnel_transitions (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    contact_id TEXT NOT NULL,
+    from_state TEXT NOT NULL,
+    to_state   TEXT NOT NULL,
+    signal     TEXT,
+    ts         REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_funnel_transitions_ts ON funnel_transitions(ts);
+
+-- Оплаты. `amount` NULLABLE намеренно: владелец часто знает «оплатил», но не
+-- хочет вводить сумму; запретить — значит потерять и сам факт оплаты. Число
+-- оплат считается всегда, средний чек — только по строкам с суммой.
+-- UNIQUE(contact_id, card_msg_id) даёт идемпотентность: повторный тап по той
+-- же карточке правит сумму, а не плодит вторую оплату.
+CREATE TABLE IF NOT EXISTS payments (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    contact_id  TEXT NOT NULL,
+    card_msg_id INTEGER,
+    amount      REAL,
+    currency    TEXT NOT NULL DEFAULT 'USD',
+    ts          REAL NOT NULL,
+    source      TEXT NOT NULL,
+    UNIQUE (contact_id, card_msg_id)
+);
+CREATE INDEX IF NOT EXISTS idx_payments_ts ON payments(ts);
 """
 
 # Источники паузы уровня КОНТАКТА. Глобальный kill switch живёт в
@@ -200,6 +235,57 @@ class Store:
         with self._lock:
             self._conn.execute("UPDATE contacts SET state=? WHERE contact_id=?", (state, contact_id))
             self._conn.commit()
+
+    # ---- фундамент дашборда: история воронки + оплаты (CLIENT_SCREENS §5.2)
+
+    def record_transition(self, contact_id: str, *, from_state: str, to_state: str,
+                          signal: str | None, ts: float) -> None:
+        """Записать ПЕРЕХОД воронки. Зовётся рядом с `set_state`, потому что
+        только там известны оба конца и сигнал. Холостой ход (состояние не
+        изменилось) писать нельзя — он раздует метрику «квалифицировано»."""
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO funnel_transitions (contact_id, from_state, to_state, signal, ts)"
+                " VALUES (?,?,?,?,?)",
+                (contact_id, from_state, to_state, signal, ts))
+            self._conn.commit()
+
+    def transitions_between(self, start_ts: float, end_ts: float,
+                            to_state: str | None = None) -> list[dict]:
+        """Переходы за период [start, end). `to_state` — фильтр «во что перешли»
+        (напр. 'hot' для метрики «квалифицировано»)."""
+        sql = ("SELECT * FROM funnel_transitions WHERE ts >= ? AND ts < ?")
+        args: list = [start_ts, end_ts]
+        if to_state is not None:
+            sql += " AND to_state = ?"
+            args.append(to_state)
+        with self._lock:
+            rows = self._conn.execute(sql + " ORDER BY ts", args).fetchall()
+        return [dict(r) for r in rows]
+
+    def add_payment(self, contact_id: str, *, card_msg_id: int | None, amount: float | None,
+                    currency: str = "USD", ts: float, source: str) -> None:
+        """Записать оплату (самоотчёт владельца, не факт из банка).
+
+        Идемпотентно по (contact_id, card_msg_id): повторный тап по той же
+        карточке ПРАВИТ сумму. Это важно для потока «сначала Оплачено, потом
+        уточнил сумму» — иначе получилось бы две оплаты вместо одной."""
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO payments (contact_id, card_msg_id, amount, currency, ts, source)"
+                " VALUES (?,?,?,?,?,?)"
+                " ON CONFLICT(contact_id, card_msg_id) DO UPDATE SET"
+                "   amount=excluded.amount, currency=excluded.currency,"
+                "   ts=excluded.ts, source=excluded.source",
+                (contact_id, card_msg_id, amount, currency, ts, source))
+            self._conn.commit()
+
+    def payments_between(self, start_ts: float, end_ts: float) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM payments WHERE ts >= ? AND ts < ? ORDER BY ts",
+                (start_ts, end_ts)).fetchall()
+        return [dict(r) for r in rows]
 
     def mute(self, contact_id: str, *, source: str, msg_id: int | None = None,
              detail: str | None = None, until: float | None = None, now: float) -> None:

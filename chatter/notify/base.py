@@ -26,6 +26,11 @@ class Action(str, Enum):
     OPEN = "open"       # 💬 Открыть диалог
     STOP = "stop"       # 🔴 Стоп везде
     KEEP = "keep"       # ✅ Оставить Ане
+    # Деньги (CLIENT_SCREENS §3). PAID — факт без суммы, PAID_AMOUNT несёт сумму
+    # ПЕРЕД contact_id ("paidamt:<amount>:<peer>:<slug>"), потому что contact_id
+    # сам содержит двоеточие и хвост разобрать нечем.
+    PAID = "paid"              # 💰 Оплачено (без суммы)
+    PAID_AMOUNT = "paidamt"    # 💰 Оплачено + сумма
 
 
 @dataclass(frozen=True)

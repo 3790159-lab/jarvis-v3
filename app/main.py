@@ -225,6 +225,24 @@ try:
 except Exception as e:
     print(f"WARN: failed to include jarvis_dashboard_router: {e}")
 
+# === Панелі (клієнтський дашборд TAMAPI + панель Джарвіса, фаза 0) ===========
+# Монтуються ТІЛЬКИ якщо заданий JARVIS_PANELS_KEY. «Вимкнено за замовчуванням»
+# надійніше, ніж «увімкнено, але захищено»: панелі показують переписку живих
+# лідів і стан ферми, і випадковий деплой не має права їх відкрити.
+try:
+    from app.routers.panels_auth import panels_enabled
+
+    if panels_enabled():
+        from app.routers.jarvis_panel import router as _jarvis_panel_router
+        from app.routers.tamapi_dashboard import router as _tamapi_router
+        app.include_router(_tamapi_router)
+        app.include_router(_jarvis_panel_router)
+        print("[OK] Included routers: tamapi_dashboard + jarvis_panel")
+    else:
+        print("[skip] panels disabled (JARVIS_PANELS_KEY not set)")
+except Exception as e:
+    print(f"WARN: failed to include panels: {e}")
+
 ROUTER_CANDIDATES = [
     ("app.api.health", "router"),
     ("app.api.ai_router", "router"),

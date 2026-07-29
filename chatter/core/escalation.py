@@ -11,6 +11,8 @@
 """
 from __future__ import annotations
 
+import logging
+import time
 from dataclasses import dataclass
 
 from chatter.core.brand_safety import forbidden_mention
@@ -18,6 +20,8 @@ from chatter.core.conversation import next_state
 from chatter.core.disclosure import honest_prefix, is_bot_question
 from chatter.core.guardrails import contains_unbacked_claim
 from chatter.core.obligations import DEFAULT_PROMISE_TERMS, unbacked_promise
+
+logger = logging.getLogger("chatter.escalation")
 
 # Зеркалит conversation._TERMINAL (приватное там). Завершённый диалог не
 # воскрешаем ни сигналом воронки, ни эскалацией.
@@ -349,7 +353,8 @@ def deterministic_escalation(
     return None
 
 
-def advance_funnel(store, contact_id: str, *, stage_signal: str | None, escalated: bool) -> str:
+def advance_funnel(store, contact_id: str, *, stage_signal: str | None, escalated: bool,
+                   now: float | None = None, bought: bool = False) -> str:
     """Оживляет мёртвый `conversation.next_state` (§5): stage_signal
     классификатора гонит воронку new→qualifying→hot→escalated. Эскалация —
     внешний оверрайд (сильнее переходов воронки): уводит в 'escalated' сразу,
@@ -361,7 +366,13 @@ def advance_funnel(store, contact_id: str, *, stage_signal: str | None, escalate
     current = store.get_or_create_contact(contact_id)["state"]
     if current in _TERMINAL_STATES:
         return current
-    if escalated:
+    if bought:
+        # Оплата — ФАКТ от владельца, а не догадка классификатора, поэтому она
+        # закрывает воронку из ЛЮБОГО состояния. Таблица переходов такого ребра
+        # не знает («new → closed» её нет), и это правильно для сигналов модели,
+        # но неверно для решения человека — как и эскалация, это оверрайд.
+        new = "closed"
+    elif escalated:
         new = "escalated"
     elif stage_signal:
         new = next_state(current, stage_signal)
@@ -369,6 +380,21 @@ def advance_funnel(store, contact_id: str, *, stage_signal: str | None, escalate
         new = current
     if new != current:
         store.set_state(contact_id, new)
+        # Фундамент дашборда (CLIENT_SCREENS §5.2): `set_state` ПЕРЕЗАПИСЫВАЕТ
+        # поле, не оставляя ни ts, ни прошлого значения. Пишем переход здесь —
+        # только здесь известны оба конца и сигнал. Холостой ход не пишем: он
+        # раздул бы метрику «квалифицировано» на пустом месте.
+        # Отсутствие метода (старый Store в чужом тесте) не имеет права ронять
+        # живой ход — воронка это аналитика, а не доставка ответа лиду.
+        rec = getattr(store, "record_transition", None)
+        if rec is not None:
+            try:
+                rec(contact_id, from_state=current, to_state=new,
+                    signal=("bought" if bought else
+                            "escalated" if escalated else stage_signal),
+                    ts=time.time() if now is None else now)
+            except Exception:              # DEV-18: пишем громко, но не падаем
+                logger.exception("не удалось записать переход воронки для %s", contact_id)
     return new
 
 

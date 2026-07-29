@@ -46,6 +46,32 @@ def _peer_of(contact_id: str) -> str:
     return contact_id.split(":", 1)[0]
 
 
+def _esc_card_id(store, contact_id: str) -> int | None:
+    """id активной карточки эскалации из runtime_flag `esc_active` — ключ
+    идемпотентности оплаты. Формат "bot:<chat>:<msg_id>"; неожиданный формат →
+    None (оплата запишется, но без защиты от повторного тапа)."""
+    raw = store.get_runtime_flag(esc_active_key(contact_id))
+    if raw and ":" in raw:
+        try:
+            return int(raw.rsplit(":", 1)[1])
+        except ValueError:
+            pass
+    # Сентинел 0 вместо NULL: в SQLite два NULL в UNIQUE считаются РАЗНЫМИ, и
+    # поток «спочатку Оплачено, потім уточнив суму» дал бы две оплаты вместо
+    # одной. Цена: две отдельные оплаты одного контакта БЕЗ карточки схлопнутся
+    # в одну — в прод-потоке оплата всегда идёт с карточки, а веб передаёт её id.
+    return 0
+
+
+def _close_funnel_as_bought(store, contact_id: str, *, now: float) -> None:
+    """Оплата закрывает воронку сигналом «bought» — через тот же advance_funnel,
+    что и остальной конвейер, чтобы переход попал в funnel_transitions и был
+    виден в «Динамике»."""
+    from chatter.core.escalation import advance_funnel
+    advance_funnel(store, contact_id, stage_signal=None, escalated=False,
+                   bought=True, now=now)
+
+
 def route_callback(data: str, *, store, now: float, language: str, snooze_seconds: float,
                    persona_name_for=None) -> CallbackResult:
     """Тап кнопки → действие над Store + текст обратной связи. ЧИСТАЯ: трогает
@@ -59,6 +85,12 @@ def route_callback(data: str, *, store, now: float, language: str, snooze_second
 
     Битый/неизвестный тап → без мутаций (DEV-18: не притворяемся, что сделали)."""
     action_raw, sep, contact_id = (data or "").partition(":")
+    # Деньги с суммой приходят как "paidamt:<amount>:<peer>:<slug>": сумма стоит
+    # ПЕРЕД contact_id, потому что сам contact_id содержит двоеточие и разобрать
+    # хвост нечем. Отрезаем её здесь, дальше поток обычный.
+    paid_amount_raw: str | None = None
+    if action_raw == Action.PAID_AMOUNT.value and sep:
+        paid_amount_raw, _, contact_id = contact_id.partition(":")
     if not sep or not contact_id:
         return CallbackResult(
             feedback_html=console_text("fb_unknown", language),
@@ -88,6 +120,33 @@ def route_callback(data: str, *, store, now: float, language: str, snooze_second
     elif action is Action.KEEP:
         store.add_event("escalation_kept", contact_id=contact_id, ts=now)
         fb = console_text("fb_kept", language, persona=persona)
+    elif action in (Action.PAID, Action.PAID_AMOUNT):
+        # CLIENT_SCREENS §3: единственный источник денежных метрик. Самоотчёт
+        # владельца, не факт из банка — так и подписывается в дашборде.
+        amount = None
+        if action is Action.PAID_AMOUNT:
+            try:
+                amount = float((paid_amount_raw or "").replace(",", "."))
+            except ValueError:
+                amount = None
+            if amount is None or amount <= 0:
+                # DEV-18: не притворяемся, что записали. Store не тронут.
+                log.warning("route_callback: непарсимая сумма %r", paid_amount_raw)
+                return CallbackResult(
+                    feedback_html=console_text("fb_paid_bad", language),
+                    answer=console_text("fb_paid_bad", language))
+        store.get_or_create_contact(contact_id)
+        # card_msg_id даёт идемпотентность: повторный тап по ТОЙ ЖЕ карточке
+        # правит сумму, а не плодит вторую оплату (поток «спочатку Оплачено,
+        # потім уточнив суму»).
+        store.add_payment(contact_id, card_msg_id=_esc_card_id(store, contact_id),
+                          amount=amount, currency="USD", ts=now, source="card_button")
+        store.add_event("payment", contact_id=contact_id,
+                        detail="" if amount is None else f"{amount:g} USD", ts=now)
+        _close_funnel_as_bought(store, contact_id, now=now)
+        fb = (console_text("fb_paid", language) if amount is None
+              else console_text("fb_paid_amount", language, amount=f"{amount:g}",
+                                currency="USD"))
     elif action is Action.OPEN:
         link = contact_link(user_id=_peer_of(contact_id))
         fb = console_text("fb_open", language, link=link)

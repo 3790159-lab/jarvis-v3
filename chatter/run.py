@@ -320,7 +320,8 @@ def _escalation_pass(
         # Профиль на этом ходу применить было нечем — память отстала на ход.
         _note_profile_miss(deps, contact_id, now=now, why=detail)
 
-    advance_funnel(store, contact_id, stage_signal=decision.stage_signal, escalated=decision.escalate)
+    advance_funnel(store, contact_id, stage_signal=decision.stage_signal,
+                   escalated=decision.escalate, now=now)
 
     awaiting_used = False
     # Запасные формулировки ТОЙ ЖЕ канцелярской заглушки, которую мы подставили.
