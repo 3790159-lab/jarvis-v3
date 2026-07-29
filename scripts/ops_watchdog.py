@@ -59,7 +59,18 @@ LABELS = {
     "cloudflared": "Cloudflared туннель (не Running)",
     "restarts": "Бот рестартит >3/час (restart-storm)",
     "disk": "Мало места на диске C:",
+    # ЛОВУШКА 2 спеки: о смерти раннера при живом гардиане скажут ОБА канала
+    # (chatter_watch_check и этот). Тексты обязаны различаться ИСТОЧНИКОМ,
+    # иначе владелец решит, что упало дважды.
+    "chatter_runner": "CHATTER раннер (независимый сторож)",
+    "chatter_guardian": "CHATTER гардиан (независимый сторож)",
 }
+
+# Порог тот же, что у гардиана (HeartbeatMaxAgeSec=180). Разные пороги = два
+# сторожа, спорящих о том, кто DOWN — инцидент 13:06, когда chatter_watch_check
+# выводил вердикт по своему порогу и противоречил гардиану.
+CHATTER_BEAT_MAX_AGE_S = 180
+CHATTER_RUNNER_MARKER = "chatter.telethon_run"
 
 # Ops sub-checks, probed only when the backend itself answers (they are served
 # BY the backend, so when it is down they are unreachable, not "recovered").
@@ -253,7 +264,80 @@ def parse_token(env_text: str) -> str:
 
 
 # ── probe layer (injectable IO -> probes dict; unit-tested via fakes) ──────
-def probe_all(http_get, disk_usage, min_disk_gb: float = MIN_DISK_GB) -> dict:
+# ── P16-а: chatter под независимым наблюдением ────────────────────────────
+# Мотив: `chatter_watch_check.py` зовёт ЕДИНСТВЕННОЕ место — сам гардиан-скрипт.
+# Умер гардиан → умер и алертер, и тишина неотличима от здоровья (20–22.07
+# раннер пролежал ~44 часа молча). Эти две пробы дают канал, который не
+# является ни раннером, ни гардианом.
+#
+# Обе — ЧИСТЫЕ функции над снимком: дебаунс, алерты и парное ✅ уже реализованы
+# в evaluate() и переиспользуются без единой правки.
+
+def _norm(text: str) -> str:
+    return (text or "").replace("\\", "/").lower()
+
+
+def probe_chatter_runner(processes, *, beat_age, root, semidemo_flag=False):
+    """Раннер жив? Процесс И свежий heartbeat — оба условия обязательны:
+    живой процесс с протухшим beat это зависший раннер, а не здоровье.
+
+    ⚠️ Матч ТОЛЬКО по python-процессу и ТОЛЬКО с нашим ROOT в командной строке.
+    Без первого условия проба ловит того, кто её же и выполняет (строка-маркер
+    попадает в командную строку искателя — ложное «раннер жив», стоило разбора
+    29.07). Без второго — чужой раннер из worktree разработчика сойдёт за
+    боевой, и сторож замолчит на мёртвом проде.
+
+    `semidemo_flag` принимается и НАМЕРЕННО игнорируется (ловушка 4 спеки):
+    проба меряет ПРОЦЕСС; отключённые флагом клиенты — предмет (б)/(г), и
+    алерт по ним превратил бы сторожа в постоянный крик на законное состояние.
+    """
+    # Со СЛЕШЕМ на конце: голая подстрока "c:/jarvis" сидит внутри
+    # "c:/jarvis_worktrees/panels/...", и раннер из чужого worktree сходил за
+    # боевой — сторож замолчал бы на мёртвом проде, пока рядом крутится тест.
+    root_n = _norm(str(root)).rstrip("/") + "/"
+    alive = [
+        p for p in (processes or [])
+        if (p.get("name") or "").lower().startswith("python")
+        and CHATTER_RUNNER_MARKER in _norm(p.get("cmdline"))
+        and root_n in _norm(p.get("cmdline"))
+    ]
+    if not alive:
+        return {"ok": False, "detail": "процес раннера не знайдено"}
+    if beat_age is None:
+        return {"ok": False, "detail": "heartbeat відсутній"}
+    if beat_age > CHATTER_BEAT_MAX_AGE_S:
+        return {"ok": False,
+                "detail": "heartbeat %.0fс тому (поріг %ds)" % (beat_age, CHATTER_BEAT_MAX_AGE_S)}
+    return {"ok": True, "detail": "PID %s, heartbeat %.0fс тому" % (alive[0].get("pid"), beat_age)}
+
+
+def probe_chatter_guardian(processes, *, lock_pid, beat_age):
+    """Гардиан жив? PID из state/locks/chatter_guardian.pid ДОЛЖЕН существовать
+    И быть powershell'ом.
+
+    ⚠️ ЛОВУШКА 3 спеки: PID-файл переживает kill. Если ОС успела выдать тот же
+    номер чужому процессу, «PID существует» не значит «гардиан жив» — поэтому
+    сверяем имя процесса, а не только наличие номера.
+    """
+    if lock_pid is None:
+        return {"ok": False, "detail": "PID-лок відсутній або нечитний"}
+    match = next((p for p in (processes or []) if p.get("pid") == lock_pid), None)
+    if match is None:
+        return {"ok": False, "detail": "PID %s мертвий" % lock_pid}
+    if not (match.get("name") or "").lower().startswith("powershell"):
+        return {"ok": False,
+                "detail": "PID %s зайнятий чужим процесом (%s), лок протух — очікувався powershell"
+                          % (lock_pid, match.get("name"))}
+    if beat_age is None:
+        return {"ok": False, "detail": "heartbeat гардіана відсутній"}
+    if beat_age > CHATTER_BEAT_MAX_AGE_S:
+        return {"ok": False,
+                "detail": "heartbeat %.0fс тому (поріг %ds)" % (beat_age, CHATTER_BEAT_MAX_AGE_S)}
+    return {"ok": True, "detail": "PID %s, heartbeat %.0fс тому" % (lock_pid, beat_age)}
+
+
+def probe_all(http_get, disk_usage, min_disk_gb: float = MIN_DISK_GB,
+              chatter_snapshot: dict | None = None) -> dict:
     """Compose the cycle's probes. ``http_get(path) -> int|None`` (HTTP status,
     or None on connection refused/timeout); ``disk_usage(path) -> (total, used,
     free)`` (shutil.disk_usage-shaped)."""
@@ -279,6 +363,18 @@ def probe_all(http_get, disk_usage, min_disk_gb: float = MIN_DISK_GB) -> dict:
         }
     except Exception as exc:
         probes["disk"] = {"ok": False, "detail": "disk check failed: %s" % exc}
+
+    # Снимок отсутствует → состав проб ПРЕЖНИЙ. Обратная совместимость тут не
+    # вежливость: watchdog на старом окружении не имеет права слать DOWN о том,
+    # чего он не мерил.
+    if chatter_snapshot:
+        cs = chatter_snapshot
+        probes["chatter_runner"] = probe_chatter_runner(
+            cs.get("processes"), beat_age=cs.get("runner_beat_age"),
+            root=cs.get("root", ROOT))
+        probes["chatter_guardian"] = probe_chatter_guardian(
+            cs.get("processes"), lock_pid=cs.get("guardian_lock_pid"),
+            beat_age=cs.get("guardian_beat_age"))
     return probes
 
 
@@ -336,6 +432,54 @@ def _write_state(state: dict) -> None:
         pass
 
 
+def _file_age(path) -> float | None:
+    """Возраст файла. ⚠️ По mtime, а не по размеру: на NTFS размер файла с
+    открытым write-хэндлом показывается нулём, и «пустой heartbeat» — мираж."""
+    try:
+        return time.time() - Path(path).stat().st_mtime
+    except OSError:
+        return None
+
+
+def _read_lock_pid(path) -> int | None:
+    try:
+        return int(Path(path).read_text(encoding="utf-8", errors="ignore").strip())
+    except (OSError, ValueError):
+        return None
+
+
+def _chatter_snapshot() -> dict | None:
+    """Снимок для двух chatter-проб. psutil, а не PowerShell из питона
+    (ловушка 5 спеки): psutil здесь уже используется для boot_time.
+
+    Ошибка сбора → None, то есть пробы просто НЕ выполняются в этом цикле.
+    Это осознанно: `evaluate()` замораживает состояние отсутствующих проб, и
+    сбойный сбор не превращается в ложный DOWN о живом сервисе."""
+    try:
+        import psutil
+    except Exception:
+        return None
+    try:
+        procs = []
+        for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+            try:
+                procs.append({"pid": proc.info["pid"],
+                              "name": proc.info["name"] or "",
+                              "cmdline": " ".join(proc.info["cmdline"] or [])})
+            except Exception:
+                continue
+        return {
+            "processes": procs,
+            "runner_beat_age": _file_age(ROOT / "state" / "chatter_heartbeat.txt"),
+            "guardian_beat_age": _file_age(ROOT / "state" / "chatter_guardian_heartbeat.txt"),
+            "guardian_lock_pid": _read_lock_pid(ROOT / "state" / "locks" / "chatter_guardian.pid"),
+            "root": str(ROOT),
+        }
+    except Exception as exc:
+        print("[ops_watchdog] chatter snapshot failed: %s" % exc, file=sys.stderr)
+        return None
+
+
 def main() -> int:
     state = _read_state()
 
@@ -356,7 +500,8 @@ def main() -> int:
         # boot_id. Подавлять надо всё окно, иначе дедупликация ничего не даст.
         in_boot_grace = within_boot_grace(boot_time, time.time())
 
-    probes = probe_all(_http_get, _disk_usage)
+    probes = probe_all(_http_get, _disk_usage,
+                       chatter_snapshot=_chatter_snapshot())
     alerts, state = evaluate(state, probes, suppress_down=in_boot_grace)
 
     if reboot_text:
