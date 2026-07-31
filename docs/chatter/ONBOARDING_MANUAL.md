@@ -191,13 +191,21 @@ Get-CimInstance Win32_Process -Filter "Name like '%python%'" | Where-Object { $_
 
 ```powershell
 C:\jarvis\.venv\Scripts\python.exe -m chatter.security.recovery export `
-  --root C:\jarvis --slug <slug> --out <файл-на-съёмном>.jrvbak
+  --root C:\jarvis --out <файл-на-съёмном>.jrvbak
 ```
+
+**Без `--slug` берутся ВСЕ сессии root'а — так и надо.** Флаг повторяемый
+(`--slug demo --slug drill_lead`) и нужен только чтобы СУЗИТЬ выбор. Явный
+одиночный слаг на машине с несколькими аккаунтами = бандл без чужой сессии,
+причём выглядящий здоровым. Команда печатает строку `сессии в бандле: ...` —
+сверять её с фактическим составом `.secrets\` ПЕРЕД тем, как унести носитель.
 
 **Как ПРОВЕРЯТЬ (round-trip, «файл есть» — НЕ проверка):**
 
-1. `... recovery restore --root C:\temp\verify_root --slug <slug> --in <бандл>` —
-   restore ТОЛЬКО в чистый пустой root, никогда в `C:\jarvis`.
+1. `... recovery restore --root C:\temp\verify_root --bundle <бандл>` —
+   restore ТОЛЬКО в чистый пустой root, никогда в `C:\jarvis`. Восстановятся
+   все сессии бандла разом; двумя заходами нельзя — второй упрётся в защиту
+   чистого root.
 2. Сверить восстановленное с живым (значения в консоль не выводить!):
    расшифровка `verify_root\.env.enc` == живому env-материалу байт-в-байт;
    session-строка из `verify_root` == строке из живого `<slug>.session.enc`
