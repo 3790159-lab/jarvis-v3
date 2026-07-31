@@ -80,8 +80,13 @@ try {
   Invoke-RestMethod -Uri $target -Method Post -Body $body -TimeoutSec 20 | Out-Null
   if ($healthy) {
     # Позначку читає панель Джарвіса, щоб показати вік останнього пінга.
+    # ⚠️ НЕ `Get-Date -UFormat %s`: у PowerShell 5.1 воно рахує епоху від
+    # ЛОКАЛЬНОГО часу, тому в Києві (UTC+3) давало мітку на 10800 с у
+    # МАЙБУТНЄ, і будь-який споживач діставав ВІД'ЄМНИЙ вік. Спіймано живцем
+    # 2026-07-31: записало 06:03:52 при реальних 03:03:51.
+    # ToUnixTimeSeconds() рахує від UTC за визначенням і зсуву не має.
     $stamp = Join-Path $Root 'state\healthchecks_last.txt'
-    Set-Content -Path $stamp -Value ([int][double]::Parse((Get-Date -UFormat %s))) -Encoding utf8
+    Set-Content -Path $stamp -Value ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()) -Encoding utf8
   }
   Write-Output ("пінг {0}: {1}" -f $(if ($healthy) { 'ok' } else { 'FAIL' }), $body)
 } catch {
