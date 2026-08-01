@@ -27,9 +27,12 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import logging
+import os
 import shutil
 import sqlite3
+import subprocess
 import sys
 import time
 from dataclasses import dataclass
@@ -39,8 +42,8 @@ _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT))
 
 from chatter.core.drill import (  # noqa: E402
-    Facts, StepOutcome, check_step, match_step, owner_action, parse_scenario,
-    plan_lines, run_verdict, vacuous_expectations,
+    CheckResult, Facts, StepOutcome, check_step, match_step, owner_action,
+    parse_scenario, plan_lines, run_verdict, vacuous_expectations,
 )
 
 logger = logging.getLogger("jarvis.drill_runner")
@@ -77,6 +80,89 @@ RATE_IN, RATE_OUT, RATE_CR, RATE_CW5, RATE_CW1H = 3.0, 15.0, 0.30, 3.75, 6.0
 
 def _ro(db: str):
     return sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+
+
+# ── стенд v2: лид как отдельный процесс ─────────────────────────────────────
+
+
+def drill_contacts() -> frozenset[str]:
+    """Список дрил-контактов берём из `drill_reset.py`, а не заводим третий.
+
+    Два списка уже держатся сторожем (`test_drill_contacts_list_matches_...`);
+    третья копия однажды разойдётся с ними, и разойдётся молча — а цена ошибки
+    здесь та же, что у сброса: автомат заговорит с живым клиентом."""
+    path = Path(__file__).resolve().parent / "drill_reset.py"
+    spec = importlib.util.spec_from_file_location("_drill_reset_contacts", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.DRILL_CONTACTS
+
+
+def turn_closed(lines: list[str]) -> bool:
+    """Ход закрыт = в логе есть И `process END`, И хотя бы один `OUT`.
+
+    Одного END мало: ход, который ничего не ответил, тоже кончается END'ом, и
+    считать его закрытым значит слать следующую реплику в молчащего бота —
+    ровно так 26.07 две реплики схлопнулись в один ход."""
+    return (any("process END" in ln for ln in lines)
+            and any(": OUT " in ln for ln in lines))
+
+
+class LeadProcess:
+    """Живой `drill_lead.py`: поднимается на прогон, гасится в `finally`.
+
+    Своя сессия и свой peer-allowlist живут ТАМ — судья не импортирует
+    Telethon вовсе (инвариант v2 §3: боевая и тестовая сессии никогда не
+    оказываются в одном процессе)."""
+
+    def __init__(self, *, session: str, peer: int, max_messages: int,
+                 python: str | None = None, log=say):
+        script = Path(__file__).resolve().parent / "drill_lead.py"
+        cmd = [python or sys.executable, str(script),
+               "--session", session, "--peer", str(peer),
+               "--max-messages", str(max_messages)]
+        self._log = log
+        self._p = subprocess.Popen(
+            cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, text=True, encoding="utf-8",
+            bufsize=1, env={**os.environ, "PYTHONUTF8": "1"})
+        ready = self._readline()
+        if "готов" not in ready:
+            self.close()
+            raise RuntimeError(f"лид не поднялся: {ready.strip() or '(тишина)'}")
+        self._log(f"лид поднят: {ready.strip()}")
+
+    def _readline(self) -> str:
+        line = self._p.stdout.readline()
+        if not line:
+            raise RuntimeError("лид закрыл stdout (упал?)")
+        return line
+
+    def say(self, text: str) -> float:
+        if "\n" in text or "\r" in text:
+            # Протокол построчный: молча склеить строки значит отправить не то,
+            # что записано в сценарии, и сверка текста перестанет что-то значить.
+            raise RuntimeError("реплика сценария многострочная — стенд такое "
+                               "не шлёт")
+        self._p.stdin.write(f"SAY {text}\n")
+        self._p.stdin.flush()
+        while True:
+            line = self._readline()
+            if line.startswith("SENT "):
+                return float(line.split()[1])
+            if "FAIL" in line:
+                raise RuntimeError(f"лид отказал: {line.strip()}")
+            self._log(f"  [lead] {line.rstrip()}")
+
+    def close(self) -> None:
+        try:
+            if self._p.poll() is None:
+                self._p.stdin.write("QUIT\n")
+                self._p.stdin.flush()
+                self._p.wait(timeout=30)
+        except Exception as exc:                      # noqa: BLE001 — DEV-18
+            self._log(f"⚠️ лид не закрылся штатно ({exc}) — убиваю")
+            self._p.kill()
 
 
 def _has_table(conn, name: str) -> bool:
@@ -334,7 +420,7 @@ def _read_log_since(log_path: Path, offset: int) -> tuple[list[str], int]:
     return data[offset:].splitlines(), len(data)
 
 
-def main(argv=None) -> int:
+def main(argv=None, *, lead_factory=None) -> int:
     argv = argv if argv is not None else sys.argv[1:]
     ap = argparse.ArgumentParser()
     ap.add_argument("scenario")
@@ -350,7 +436,20 @@ def main(argv=None) -> int:
                     help="ожидание ПЕРВОЙ реплики (таймер шагов взводится ею); "
                          "по умолчанию час, но при явно укороченном --step-timeout "
                          "равен ему — это прогон-проверка, а не живой дрил")
+    ap.add_argument("--auto-lead", action="store_true",
+                    help="стенд v2: реплики шлёт процесс лида, человек не нужен")
+    ap.add_argument("--lead-session",
+                    default=str(_ROOT / ".secrets" / "drill_lead.session"))
+    ap.add_argument("--lead-peer", type=int, default=None,
+                    help="кому пишет лид (аккаунт клиента); сверяется с "
+                         "allowlist'ом внутри drill_lead")
+    ap.add_argument("--lead-python", default=None)
     a = ap.parse_args(argv)
+    if a.auto_lead:
+        # Часовой таймер первого шага существует ради человека, идущего к
+        # телефону. В авторежиме человека нет — час ожидания лишь маскирует
+        # поломку стенда.
+        a.first_step_timeout = a.step_timeout
     if a.first_step_timeout is None:
         # Живой дрил: первую реплику ждём час (человек идёт к телефону).
         # Явно укороченный --step-timeout = не живой прогон, а проверка самого
@@ -360,6 +459,20 @@ def main(argv=None) -> int:
                                 else a.step_timeout)
 
     sc = parse_scenario(Path(a.scenario).read_text(encoding="utf-8"))
+
+    if a.auto_lead:
+        # Автолид САМ отправляет сообщения. Направить его на контакт живого
+        # клиента — это разговор с клиентом от имени стенда, и он необратим:
+        # сообщение уже увидели. Тот же предохранитель, что на сбросе.
+        if sc.contact not in drill_contacts():
+            say(f"⛔ ОТКАЗ: контакт сценария «{sc.contact}» не дрил-контакт. "
+                f"--auto-lead работает только на {', '.join(sorted(drill_contacts()))}")
+            return 2
+        if a.lead_peer is None:
+            say("⛔ ОТКАЗ: --auto-lead без --lead-peer. Получатель задаётся "
+                "явно и сверяется с allowlist'ом лида")
+            return 2
+
     est = estimate_cost(sc.steps)
     say(format_estimate(sc.steps, est))
 
@@ -417,99 +530,168 @@ def main(argv=None) -> int:
     flush_progress(f"⏳ ПРОГОН ИДЁТ — шаг 1/{len(sc.steps)}, ждём реплику")
     say(f"прогресс пишется в {out_file} (читается на любой стадии)")
 
+    lead = None
+    if a.auto_lead:
+        factory = lead_factory or LeadProcess
+        try:
+            lead = factory(session=a.lead_session, peer=a.lead_peer,
+                           # Потолок = ровно длина сценария: зацикленный
+                           # оркестратор упрётся в него раньше, чем в дефолт.
+                           max_messages=len(sc.steps), python=a.lead_python)
+        except Exception as exc:                      # noqa: BLE001 — DEV-18
+            say(f"⛔ ОТКАЗ: лид не поднялся: {exc}")
+            return 2
+
     cursor = 0
     armed = False   # первая реплика ещё не пришла — таймер шага не взведён
-    while cursor < len(sc.steps):
-        i = cursor + 1
-        step = sc.steps[cursor]
-        hint = owner_action(step)
-        say(f"\n=== ШАГ {i}/{len(sc.steps)} — отправь Ольге: ===\n{step.say}\n"
-            + (f"    ⚠️ {hint}\n" if hint else ""))
-        flush_progress(f"⏳ ПРОГОН ИДЁТ — шаг {i}/{len(sc.steps)}, ждём реплику")
-        step_start = time.time()
-        flag_key = f"drill:{i}"
-        # Пока не пришла ПЕРВАЯ реплика, действует свой (длинный) таймер:
-        # прогон не должен умирать, пока человек идёт к телефону (прогон №5
-        # сгорел ровно так — первый шаг истёк до того, как владелец начал).
-        limit = a.step_timeout if armed else a.first_step_timeout
-        deadline = step_start + limit
-        note = None
-        seen_text = None
-        while time.time() < deadline:
-            seen_text = new_lead_message(a.db, contact=sc.contact, since_ts=step_start)
-            if seen_text is not None:
-                break
-            if step_signal_seen(a.db, contact=sc.contact, since_ts=step_start,
-                                flag_key=flag_key):
-                break
-            time.sleep(POLL_SEC)
-        else:
-            note = f"шаг пропущен: сигнала не было {limit / 60:.1f} мин"
-            say(f"⛔ {note}")
-            outcomes[i - 1] = StepOutcome(say=step.say, skipped=True, note=note)
+    try:
+        while cursor < len(sc.steps):
+            i = cursor + 1
+            step = sc.steps[cursor]
+            hint = owner_action(step)
+            say(f"\n=== ШАГ {i}/{len(sc.steps)} — "
+                + ("стенд отправляет сам: ===" if a.auto_lead else "отправь Ольге: ===")
+                + f"\n{step.say}\n" + (f"    ⚠️ {hint}\n" if hint else ""))
+            flush_progress(f"⏳ ПРОГОН ИДЁТ — шаг {i}/{len(sc.steps)}, ждём реплику")
+            step_start = time.time()
+            flag_key = f"drill:{i}"
+            note = None
+            if a.auto_lead:
+                try:
+                    lead.say(step.say)
+                except Exception as exc:                  # noqa: BLE001 — DEV-18
+                    # Реплика не ушла — шага не было. Красить это в зелёное нельзя,
+                    # и досиживать таймаут бессмысленно.
+                    note = f"стенд не смог отправить реплику: {exc}"
+                    say(f"⛔ {note}")
+                    for j in range(cursor, len(sc.steps)):
+                        outcomes[j] = StepOutcome(say=sc.steps[j].say, skipped=True,
+                                                  note=note)
+                    break
+            # Пока не пришла ПЕРВАЯ реплика, действует свой (длинный) таймер:
+            # прогон не должен умирать, пока человек идёт к телефону (прогон №5
+            # сгорел ровно так — первый шаг истёк до того, как владелец начал).
+            limit = a.step_timeout if armed else a.first_step_timeout
+            deadline = step_start + limit
+            seen_text = None
+            while time.time() < deadline:
+                seen_text = new_lead_message(a.db, contact=sc.contact, since_ts=step_start)
+                if seen_text is not None:
+                    break
+                if step_signal_seen(a.db, contact=sc.contact, since_ts=step_start,
+                                    flag_key=flag_key):
+                    break
+                time.sleep(POLL_SEC)
+            else:
+                note = f"шаг пропущен: сигнала не было {limit / 60:.1f} мин"
+                say(f"⛔ {note}")
+                outcomes[i - 1] = StepOutcome(say=step.say, skipped=True, note=note)
+                cursor += 1
+                skips_in_a_row += 1
+                # Fail-fast. Первый прогон досиживал КАЖДЫЙ таймаут: четыре шага без
+                # человека = час ожидания ради вердикта, известного после второго
+                # пропуска. Владелец вышел — прогон закрываем, а не досиживаем.
+                if skips_in_a_row >= MAX_SKIPS_IN_A_ROW and i < len(sc.steps):
+                    closed = (f"прогон закрыт досрочно: {skips_in_a_row} пропуска "
+                              f"подряд — шаг не выполнялся")
+                    for j in range(i, len(sc.steps)):
+                        outcomes[j] = StepOutcome(say=sc.steps[j].say, skipped=True,
+                                                  note=closed)
+                    say(f"\n🛑 два пропуска подряд — закрываю прогон досрочно "
+                        f"(осталось невыполненных шагов: {len(sc.steps) - i})")
+                    break
+                flush_progress(f"⏳ ПРОГОН ИДЁТ — шаг {i} пропущен")
+                continue
+
+            armed = True
+            # Курсор идёт за РЕАЛЬНОЙ репликой, а не за счётчиком шагов: владелец
+            # мог опоздать или перескочить, и тогда проверки шага N применялись бы
+            # к чужому ходу (прогон №5 разъехался ровно так, весь отчёт стал
+            # нечитаемым). Сопоставление нестрогое — опечатка прогон не рвёт.
+            bench_fail = None
+            if seen_text:
+                idx = match_step(seen_text, sc.steps)
+                if idx is None:
+                    note = (f"текст не совпал ни с одним шагом сценария: "
+                            f"«{seen_text[:60]}» — считаю ходом шага {i}")
+                    say(f"⚠️ {note}")
+                    bench_fail = note
+                elif idx != cursor:
+                    jumped = [j for j in range(cursor, idx)]
+                    for j in jumped:
+                        outcomes[j] = StepOutcome(
+                            say=sc.steps[j].say, skipped=True,
+                            note="не выполнялся: владелец отправил реплику другого шага")
+                    note = (f"курсор переставлен: пришла реплика шага {idx + 1}, "
+                            f"а ждали шаг {i}")
+                    say(f"⚠️ {note}")
+                    bench_fail = note
+                    cursor, i = idx, idx + 1
+                    step = sc.steps[cursor]
+
+            # Ход мог ещё договаривать баббл — дадим ему закрыться по process END.
+            # В авторежиме закрытие хода — ИНВАРИАНТ, а не вежливость: следующая
+            # реплика не уходит, пока ход не закрылся (26.07 две реплики за 46 с
+            # схлопнулись в один ход и ответ на первую отменился).
+            if a.auto_lead:
+                closed_ok = False
+                while time.time() < deadline:
+                    lines, _ = _read_log_since(log_path, offset)
+                    if turn_closed(lines):
+                        closed_ok = True
+                        break
+                    time.sleep(POLL_SEC)
+                if not closed_ok:
+                    note = ("ход не закрылся (нет пары `process END` + `OUT`) за "
+                            f"{limit / 60:.1f} мин")
+                    say(f"⛔ {note}")
+                    _, offset = _read_log_since(log_path, offset)
+                    outcomes[i - 1] = StepOutcome(say=step.say, skipped=True, note=note)
+                    cursor += 1
+                    skips_in_a_row += 1
+                    if skips_in_a_row >= MAX_SKIPS_IN_A_ROW and i < len(sc.steps):
+                        closed = (f"прогон закрыт досрочно: {skips_in_a_row} пропуска "
+                                  f"подряд — шаг не выполнялся")
+                        for j in range(i, len(sc.steps)):
+                            outcomes[j] = StepOutcome(say=sc.steps[j].say, skipped=True,
+                                                      note=closed)
+                        say("\n🛑 два пропуска подряд — закрываю прогон досрочно")
+                        break
+                    flush_progress(f"⏳ ПРОГОН ИДЁТ — шаг {i} пропущен")
+                    continue
+            else:
+                for _ in range(60):
+                    lines, _ = _read_log_since(log_path, offset)
+                    if any("process END" in ln for ln in lines):
+                        break
+                    time.sleep(POLL_SEC)
+            lines, offset = _read_log_since(log_path, offset)
+            facts = collect_facts(a.db, contact=sc.contact, since_ts=step_start,
+                                  log_lines=lines, before=before,
+                                  before_bot=before_bot)
+            checks = check_step(step.expect, facts)
+            if a.auto_lead and bench_fail:
+                # Человек мог опечататься — стенд шлёт РОВНО сценарную строку.
+                # Значит расхождение это не «владелец перескочил», а баг стенда, и
+                # предупреждением его прятать нельзя.
+                checks = [CheckResult(key="bench", ok=False, detail=bench_fail)] + list(checks)
+            for c in checks:
+                say(f"  {'✅' if c.ok else '🔴'} {c.key}: {c.detail}")
+            # Окно шага закрывается ЗДЕСЬ: в счёт дрила идут только ходы дрила,
+            # а не всё, что случилось, пока владелец шёл к телефону.
+            windows.append((step_start, time.time()))
+            outcomes[i - 1] = StepOutcome(say=step.say, checks=tuple(checks),
+                                          note=note or "")
+            skips_in_a_row = 0     # шаг состоялся — считаем подряд идущие заново
             cursor += 1
-            skips_in_a_row += 1
-            # Fail-fast. Первый прогон досиживал КАЖДЫЙ таймаут: четыре шага без
-            # человека = час ожидания ради вердикта, известного после второго
-            # пропуска. Владелец вышел — прогон закрываем, а не досиживаем.
-            if skips_in_a_row >= MAX_SKIPS_IN_A_ROW and i < len(sc.steps):
-                closed = (f"прогон закрыт досрочно: {skips_in_a_row} пропуска "
-                          f"подряд — шаг не выполнялся")
-                for j in range(i, len(sc.steps)):
-                    outcomes[j] = StepOutcome(say=sc.steps[j].say, skipped=True,
-                                              note=closed)
-                say(f"\n🛑 два пропуска подряд — закрываю прогон досрочно "
-                    f"(осталось невыполненных шагов: {len(sc.steps) - i})")
-                break
-            flush_progress(f"⏳ ПРОГОН ИДЁТ — шаг {i} пропущен")
-            continue
-
-        armed = True
-        # Курсор идёт за РЕАЛЬНОЙ репликой, а не за счётчиком шагов: владелец
-        # мог опоздать или перескочить, и тогда проверки шага N применялись бы
-        # к чужому ходу (прогон №5 разъехался ровно так, весь отчёт стал
-        # нечитаемым). Сопоставление нестрогое — опечатка прогон не рвёт.
-        if seen_text:
-            idx = match_step(seen_text, sc.steps)
-            if idx is None:
-                note = (f"текст не совпал ни с одним шагом сценария: "
-                        f"«{seen_text[:60]}» — считаю ходом шага {i}")
-                say(f"⚠️ {note}")
-            elif idx != cursor:
-                jumped = [j for j in range(cursor, idx)]
-                for j in jumped:
-                    outcomes[j] = StepOutcome(
-                        say=sc.steps[j].say, skipped=True,
-                        note="не выполнялся: владелец отправил реплику другого шага")
-                note = (f"курсор переставлен: пришла реплика шага {idx + 1}, "
-                        f"а ждали шаг {i}")
-                say(f"⚠️ {note}")
-                cursor, i = idx, idx + 1
-                step = sc.steps[cursor]
-
-        # Ход мог ещё договаривать баббл — дадим ему закрыться по process END.
-        for _ in range(60):
-            lines, _ = _read_log_since(log_path, offset)
-            if any("process END" in ln for ln in lines):
-                break
-            time.sleep(POLL_SEC)
-        lines, offset = _read_log_since(log_path, offset)
-        facts = collect_facts(a.db, contact=sc.contact, since_ts=step_start,
-                              log_lines=lines, before=before,
-                              before_bot=before_bot)
-        checks = check_step(step.expect, facts)
-        for c in checks:
-            say(f"  {'✅' if c.ok else '🔴'} {c.key}: {c.detail}")
-        # Окно шага закрывается ЗДЕСЬ: в счёт дрила идут только ходы дрила,
-        # а не всё, что случилось, пока владелец шёл к телефону.
-        windows.append((step_start, time.time()))
-        outcomes[i - 1] = StepOutcome(say=step.say, checks=tuple(checks),
-                                      note=note or "")
-        skips_in_a_row = 0     # шаг состоялся — считаем подряд идущие заново
-        cursor += 1
-        before = facts.obligations
-        before_bot = facts.obligations_bot
-        flush_progress("")
+            before = facts.obligations
+            before_bot = facts.obligations_bot
+            flush_progress("")
+    finally:
+        # Долгоживущего демона нет: лид гаснет вместе с прогоном, чем бы тот
+        # ни кончился.
+        if lead is not None:
+            lead.close()
 
     money = Money(estimate=est,
                   drill=measure_spend(a.db, windows=windows),
