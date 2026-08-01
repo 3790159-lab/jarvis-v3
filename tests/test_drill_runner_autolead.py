@@ -110,7 +110,7 @@ def test_auto_lead_refuses_non_drill_contact(tmp_path):
     """Автолид САМ шлёт сообщения. Направить его на контакт живого клиента —
     это разговор с клиентом от имени стенда, необратимо."""
     mod = _load()
-    rc, lead, _ = _run(mod, tmp_path, ["привіт"], contact="545893540:volska")
+    rc, lead, _ = _run(mod, tmp_path, ["привіт"], contact="999999999:volska")
     assert rc == 2
     assert lead.said == [], "на чужом контакте лид не должен быть даже поднят"
 

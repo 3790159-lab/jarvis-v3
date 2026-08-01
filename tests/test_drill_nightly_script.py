@@ -176,7 +176,7 @@ def test_non_drill_contact_refuses(env):
     """Тот же предохранитель, что в сбросе и в автолиде — третьим слоем."""
     mod = _load()
     code, runs, _ = _run(mod, env,
-                         argv=_argv(env, **{"--contact": "545893540:volska"}))
+                         argv=_argv(env, **{"--contact": "999999999:volska"}))
     assert code == 2
     assert runs.cmds == []
 
