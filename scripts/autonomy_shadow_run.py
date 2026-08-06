@@ -58,8 +58,10 @@ def main() -> int:
         conn = ap.connect(args.db)
         for item in args.judge:
             card_id, _, verdict = item.partition("=")
-            print(f"вердикт: {ap.judge(conn, card_id, verdict, now=time.time())}"
-                  f"  {card_id}")
+            given = ap.judge(conn, card_id, verdict, now=time.time())
+            tail = (f" — подавлено {ap.JUNK_TTL_SEC / 86_400:.0f} дн., "
+                    f"потом наблюдение всплывёт снова" if given == "junk" else "")
+            print(f"вердикт: {given}  {card_id}{tail}")
         conn.close()
 
     snapshot = snap.collect(root, now=now)

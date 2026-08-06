@@ -39,6 +39,20 @@ SHADOW = "shadow"
 #: Уровни автономности 0..4 (контракт safety-policy: дефолт fail-closed 4).
 VALID_ACTION_LEVELS = (0, 1, 2, 3, 4)
 
+#: Вердикты владельца при разборе теневого набора. Ничего третьего: «наверное
+#: полезно» — это неоценённая карточка, а не третий вердикт.
+VERDICTS = ("useful", "junk")
+
+#: Гейт теневой недели из спеки: доля мусора выше — детекторы не готовы.
+NOISE_GATE = 0.20
+
+#: СРОК ЖИЗНИ вердикта `junk`, а не вечность. Наблюдение опознаётся по хешу
+#: фактов, а он ОДИНАКОВ у ложной тревоги и у настоящей аварии: у карточки
+#: «сервис мёртв» нет поля «на этот раз по-настоящему». Вечное подавление
+#: означало бы, что одна ошибка разбора делает нас слепыми к реальному падению
+#: НАВСЕГДА. Поэтому мусор молчит N дней, а потом обязан всплыть снова.
+JUNK_TTL_SEC = 7 * 86_400.0
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS proposals (
     id              TEXT PRIMARY KEY,
@@ -112,21 +126,24 @@ def _validate(proposal: Proposal, state: str) -> None:
 
 
 def record(conn: sqlite3.Connection, proposal: Proposal, *, now: float,
-           state: str = SHADOW) -> str:
+           state: str = SHADOW, junk_ttl_sec: float = JUNK_TTL_SEC) -> str:
     """Записывает наблюдение. Возвращает `inserted`, `duplicate` или
     `suppressed`.
 
     Дубликатом считается уже открытое предложение с тем же
-    `(kind, subject, evidence_hash)`. `suppressed` — то же наблюдение уже
-    признано МУСОРОМ: без этого владелец разбирал бы одну и ту же ложную
-    карточку каждый прогон, а показатель шума считал бы её заново.
+    `(kind, subject, evidence_hash)`. `suppressed` — то же наблюдение признано
+    МУСОРОМ и срок подавления ЕЩЁ НЕ ИСТЁК: без подавления владелец разбирал бы
+    одну и ту же ложную карточку каждый прогон, а показатель шума считал бы её
+    заново. Срок конечен (`junk_ttl_sec`) — вечное подавление ослепило бы нас к
+    настоящей аварии, у которой хеш фактов тот же.
 
     Вердикт `useful` подавлением не является: закрытая по делу дыра, если
     открылась снова, обязана снова быть видна.
     """
     _validate(proposal, state)
     digest = evidence_hash(proposal.evidence)
-    if _has_junk_verdict(conn, proposal, digest):
+    judged_at = _latest_junk_verdict_at(conn, proposal, digest)
+    if judged_at is not None and float(now) - judged_at < float(junk_ttl_sec):
         return "suppressed"
     try:
         conn.execute(
@@ -144,21 +161,18 @@ def record(conn: sqlite3.Connection, proposal: Proposal, *, now: float,
     return "inserted"
 
 
-#: Вердикты владельца при разборе теневого набора. Ничего третьего: «наверное
-#: полезно» — это неоценённая карточка, а не третий вердикт.
-VERDICTS = ("useful", "junk")
+def _latest_junk_verdict_at(conn: sqlite3.Connection, proposal: Proposal,
+                            digest: str) -> float | None:
+    """Момент ПОСЛЕДНЕГО вердикта `junk` по этому наблюдению.
 
-#: Гейт теневой недели из спеки: доля мусора выше — детекторы не готовы.
-NOISE_GATE = 0.20
-
-
-def _has_junk_verdict(conn: sqlite3.Connection, proposal: Proposal,
-                      digest: str) -> bool:
+    Берётся ПОСЛЕДНИЙ вердикт: признал мусором снова — окно считается заново,
+    иначе повторно отвергнутый шум полез бы обратно через неделю от первого раза.
+    """
     row = conn.execute(
-        "SELECT 1 FROM proposals WHERE kind = ? AND subject = ?"
-        " AND evidence_hash = ? AND result = 'junk' LIMIT 1",
+        "SELECT MAX(resolved_at) FROM proposals WHERE kind = ? AND subject = ?"
+        " AND evidence_hash = ? AND result = 'junk' AND resolved_at IS NOT NULL",
         (proposal.kind, proposal.subject, digest)).fetchone()
-    return row is not None
+    return None if row is None or row[0] is None else float(row[0])
 
 
 def judge(conn: sqlite3.Connection, proposal_id: str, verdict: str, *,

@@ -84,6 +84,58 @@ def test_junk_verdict_suppresses_the_same_observation_next_run(conn):
     assert ap.list_shadow(conn) == []
 
 
+DAY = 86_400.0
+
+
+def test_junk_suppression_expires_and_the_observation_returns(conn):
+    """🔑 Срок жизни, а не вечность. Хеш наблюдения «сервис мёртв» ОДИНАКОВ у
+    ложной тревоги и у настоящей аварии: вечный `junk` ослепил бы нас к
+    реальному падению навсегда. После срока то же наблюдение обязано всплыть."""
+    junk_id = _record(conn, "cloudflare-tunnel")
+    ap.judge(conn, junk_id, "junk", now=2_000.0)
+
+    within = ap.record(conn, _proposal("cloudflare-tunnel"),
+                       now=2_000.0 + 6 * DAY)
+    after = ap.record(conn, _proposal("cloudflare-tunnel"),
+                      now=2_000.0 + 8 * DAY)
+
+    assert within == "suppressed"
+    assert after == "inserted", "через 8 дней наблюдение должно вернуться"
+
+
+def test_suppression_window_ends_exactly_at_the_ttl(conn):
+    """Граница определена явно: ровно на сроке наблюдение уже видно."""
+    junk_id = _record(conn, "a")
+    ap.judge(conn, junk_id, "junk", now=2_000.0)
+
+    assert ap.record(conn, _proposal("a"),
+                     now=2_000.0 + ap.JUNK_TTL_SEC) == "inserted"
+
+
+def test_default_ttl_is_seven_days(conn):
+    assert ap.JUNK_TTL_SEC == 7 * DAY
+
+
+def test_ttl_is_a_parameter_not_a_hardcode(conn):
+    junk_id = _record(conn, "a")
+    ap.judge(conn, junk_id, "junk", now=2_000.0)
+
+    assert ap.record(conn, _proposal("a"), now=2_000.0 + 2 * DAY,
+                     junk_ttl_sec=1 * DAY) == "inserted"
+
+
+def test_a_repeated_junk_verdict_restarts_the_window(conn):
+    """Признал мусором снова — срок считается от ПОСЛЕДНЕГО вердикта, иначе
+    повторно отвергнутый шум полез бы обратно через неделю от первого раза."""
+    first = _record(conn, "a")
+    ap.judge(conn, first, "junk", now=2_000.0)
+    ap.record(conn, _proposal("a"), now=2_000.0 + 8 * DAY)
+    second = ap.list_shadow(conn)[-1]["id"]
+    ap.judge(conn, second, "junk", now=2_000.0 + 8 * DAY)
+
+    assert ap.record(conn, _proposal("a"), now=2_000.0 + 10 * DAY) == "suppressed"
+
+
 def test_useful_verdict_lets_the_hole_reappear(conn):
     """Закрытая по делу дыра, открывшаяся снова, обязана снова быть видна —
     иначе она станет невидимой навсегда."""
