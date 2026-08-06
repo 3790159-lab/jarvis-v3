@@ -32,7 +32,29 @@ FAIL_CLOSED_LEVEL = 4
 ACTION_TO_POLICY = {
     "register_scheduled_task": "scheduled_task_mutation",
     "register_missing_task": "register_missing_task",
+    "restart_service": "service_restart",
+    "push_branch": "git_push",
 }
+
+#: Пороги детекторов. Конфигом, а не константой в теле: «сколько часов
+#: незапушенная работа — уже дыра» — это решение владельца, а не факт.
+DEFAULT_CONFIG: dict[str, float] = {
+    "unpushed_max_age_sec": 12 * 3600.0,
+    # Контракт из `scripts/register_healthchecks_ping.ps1`: Period 5 / Grace 10
+    # на стороне healthchecks.io => тревога после ~15 минут тишины. Меняешь
+    # интервал таска — меняй и это, иначе окна разъедутся.
+    "healthchecks_period_sec": 300.0,
+    "healthchecks_grace_sec": 600.0,
+}
+
+
+def config_value(config: Mapping[str, Any] | None, key: str) -> float:
+    """Значение порога с дефолтом. Нечисло в конфиге игнорируется молча? Нет —
+    берём дефолт, но конфиг остаётся объявленным местом решения."""
+    value = (config or {}).get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return DEFAULT_CONFIG[key]
+    return float(value)
 
 #: Коды `LastTaskResult`, которые НЕ являются падением. Сняты с живой фермы
 #: 06.08, иначе теневой набор зашумел бы на здоровой системе:
@@ -51,6 +73,12 @@ class RegisterScript:
     (так устроен `register_telegram_webhook.ps1` — он переключает бота на
     webhook через Bot API). `feature_active=False` означает «фича спит»:
     у `ig_schedule_publisher` не существует очереди, публиковать нечего.
+
+    `temporary=True` означает «скрипт временный по замыслу»: `_TEMP` в имени
+    или собственная ветка `-Unregister`. Его таск снят НАМЕРЕННО, и предложить
+    «зарегистрируй обратно» значит отменить решение владельца. Причина хранится
+    словами: признак `-Unregister` слабее имени и однажды исключит постоянный
+    скрипт — пусть это будет видно в снимке, а не выясняется расследованием.
     """
 
     script: str
@@ -58,6 +86,8 @@ class RegisterScript:
     task_present: bool
     feature_active: bool
     inactive_reason: str = ""
+    temporary: bool = False
+    temporary_reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -82,6 +112,31 @@ class TaskSnapshot:
     last_results: tuple[int, ...] = ()
     refusal_codes: tuple[int, ...] = ()
     note: str = ""
+
+
+@dataclass(frozen=True)
+class ServiceSnapshot:
+    """Факты об одном сервисе манифеста на момент снимка.
+
+    `production_enabled=False` — сервис выключен НАМЕРЕННО (в манифесте так у
+    `ollama`); это решение владельца, а не дыра.
+
+    `process_present=None` — пробы под сервис нет (docker-контейнеры
+    `Get-Process` не показывает). «Не проверяли» ≠ «мёртв»: fail-closed в
+    сторону тишины, иначе один прогон родил бы шесть ложных карточек.
+
+    `probe_key` — то, по чему искали (имя скрипта в командной строке или имя
+    службы Windows). Факт стабильный, в отличие от PID.
+    """
+
+    service_id: str
+    owner: str
+    entrypoint: str
+    criticality: str
+    production_enabled: bool
+    probe: str
+    probe_key: str
+    process_present: bool | None
 
 
 def resolve_action_level(action: str, policy_levels: Mapping[str, int]) -> int:
@@ -111,6 +166,8 @@ def detect_register_scripts_without_task(
             continue
         if not item.feature_active:
             continue
+        if item.temporary:
+            continue
         out.append(Proposal(
             kind="register_script_without_task",
             subject=item.task_name,
@@ -128,6 +185,128 @@ def detect_register_scripts_without_task(
             },
         ))
     return out
+
+
+def detect_manifest_service_without_process(
+        snapshot: Mapping[str, Any],
+        policy_levels: Mapping[str, int] | None = None) -> list[Proposal]:
+    """Манифест объявил сервис рабочим, а процесса под него в снимке нет.
+
+    Молчит в двух разных случаях, и различать их обязательно: сервис выключен
+    НАМЕРЕННО (`production_enabled=False`) — решение владельца; пробы под
+    сервис нет (`process_present is None`) — мы просто не знаем, а незнание не
+    повод будить человека.
+    """
+    level = resolve_action_level(
+        ACTION_TO_POLICY["restart_service"],
+        policy_levels if policy_levels is not None else {})
+    out: list[Proposal] = []
+    for service in snapshot.get("services", ()):
+        if not service.production_enabled:
+            continue
+        if service.process_present is not False:
+            continue
+        out.append(Proposal(
+            kind="manifest_service_without_process",
+            subject=service.service_id,
+            evidence={
+                "service": service.service_id,
+                "owner": service.owner,
+                "entrypoint": service.entrypoint,
+                "criticality": service.criticality,
+                "probe": service.probe,
+                "probe_key": service.probe_key,
+                "process_present": False,
+            },
+            action_level=level,
+            proposed_action={
+                "action": "restart_service",
+                "service": service.service_id,
+                "owner": service.owner,
+            },
+        ))
+    return out
+
+
+def detect_unpushed_branch(
+        snapshot: Mapping[str, Any],
+        policy_levels: Mapping[str, int] | None = None,
+        config: Mapping[str, Any] | None = None) -> list[Proposal]:
+    """Незапушенная работа висит дольше порога — она есть в одной копии.
+
+    Молчит на чистом дереве, на свежем ahead (человек ещё работает) и на ветке
+    БЕЗ upstream: там мы не знаем, сколько не уехало, а незнание — не дыра.
+    """
+    git = snapshot.get("git") or {}
+    age = git.get("oldest_unpushed_age_sec")
+    if not git.get("upstream") or not git.get("ahead"):
+        return []
+    if not isinstance(age, (int, float)) or age <= config_value(
+            config, "unpushed_max_age_sec"):
+        return []
+    level = resolve_action_level(
+        ACTION_TO_POLICY["push_branch"],
+        policy_levels if policy_levels is not None else {})
+    hours = round(config_value(config, "unpushed_max_age_sec") / 3600.0, 1)
+    return [Proposal(
+        kind="branch_unpushed_too_long",
+        subject=str(git.get("branch", "")),
+        evidence={
+            "branch": git.get("branch"),
+            "upstream": git.get("upstream"),
+            # Возраст и счётчик ahead СПЕЦИАЛЬНО не попадают сюда: оба меняются
+            # сами по себе и родили бы новую карточку на каждом прогоне.
+            # Тождество наблюдения — самый старый неуехавший коммит.
+            "oldest_unpushed_sha": git.get("oldest_unpushed_sha"),
+            "threshold_hours": hours,
+        },
+        action_level=level,
+        proposed_action={
+            "action": "push_branch",
+            "branch": git.get("branch"),
+            "upstream": git.get("upstream"),
+        },
+    )]
+
+
+def detect_stale_healthcheck(
+        snapshot: Mapping[str, Any],
+        policy_levels: Mapping[str, int] | None = None,
+        config: Mapping[str, Any] | None = None) -> list[Proposal]:
+    """Метка пинга старше окна `period + grace` — дед-ман умер молча.
+
+    Молчит, когда метки нет вовсе («пинг не настроен» — другой класс) и когда
+    возраст отрицательный (метка в БУДУЩЕМ — баг эпохи +3ч, пойманный 31.07;
+    «старой» она от этого не становится).
+    """
+    age = (snapshot.get("stamps") or {}).get("healthchecks_age_sec")
+    threshold = (config_value(config, "healthchecks_period_sec")
+                 + config_value(config, "healthchecks_grace_sec"))
+    if not isinstance(age, (int, float)) or isinstance(age, bool):
+        return []
+    # Метка в БУДУЩЕМ (баг эпохи +3ч, 31.07) молчит сама по себе: сравнение с
+    # порогом её отсекает. Отдельная проверка `age < 0` здесь БЫЛА и оказалась
+    # мёртвой — мутация её снятия выживала. Держит поведение тест, а не ветка.
+    if age <= threshold:
+        return []
+    level = resolve_action_level(
+        "diagnostics", policy_levels if policy_levels is not None else {})
+    return [Proposal(
+        kind="healthcheck_stamp_stale",
+        subject="healthchecks",
+        evidence={
+            # Возраст растёт каждую секунду — в наблюдение он не попадает,
+            # иначе карточка пересоздавалась бы на каждом прогоне.
+            "stamp": "state/healthchecks_last.txt",
+            "stamp_present": True,
+            "threshold_minutes": round(threshold / 60.0, 1),
+        },
+        action_level=level,
+        proposed_action={
+            "action": "investigate_healthcheck_ping",
+            "task": "JarvisHealthchecksPing",
+        },
+    )]
 
 
 def detect_missing_trigger(

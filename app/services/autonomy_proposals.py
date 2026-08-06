@@ -113,13 +113,21 @@ def _validate(proposal: Proposal, state: str) -> None:
 
 def record(conn: sqlite3.Connection, proposal: Proposal, *, now: float,
            state: str = SHADOW) -> str:
-    """Записывает наблюдение. Возвращает `inserted` или `duplicate`.
+    """Записывает наблюдение. Возвращает `inserted`, `duplicate` или
+    `suppressed`.
 
     Дубликатом считается уже открытое предложение с тем же
-    `(kind, subject, evidence_hash)`.
+    `(kind, subject, evidence_hash)`. `suppressed` — то же наблюдение уже
+    признано МУСОРОМ: без этого владелец разбирал бы одну и ту же ложную
+    карточку каждый прогон, а показатель шума считал бы её заново.
+
+    Вердикт `useful` подавлением не является: закрытая по делу дыра, если
+    открылась снова, обязана снова быть видна.
     """
     _validate(proposal, state)
     digest = evidence_hash(proposal.evidence)
+    if _has_junk_verdict(conn, proposal, digest):
+        return "suppressed"
     try:
         conn.execute(
             "INSERT INTO proposals (id, kind, subject, detected_at, evidence,"
@@ -134,6 +142,76 @@ def record(conn: sqlite3.Connection, proposal: Proposal, *, now: float,
         return "duplicate"
     conn.commit()
     return "inserted"
+
+
+#: Вердикты владельца при разборе теневого набора. Ничего третьего: «наверное
+#: полезно» — это неоценённая карточка, а не третий вердикт.
+VERDICTS = ("useful", "junk")
+
+#: Гейт теневой недели из спеки: доля мусора выше — детекторы не готовы.
+NOISE_GATE = 0.20
+
+
+def _has_junk_verdict(conn: sqlite3.Connection, proposal: Proposal,
+                      digest: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM proposals WHERE kind = ? AND subject = ?"
+        " AND evidence_hash = ? AND result = 'junk' LIMIT 1",
+        (proposal.kind, proposal.subject, digest)).fetchone()
+    return row is not None
+
+
+def judge(conn: sqlite3.Connection, proposal_id: str, verdict: str, *,
+          now: float, note: str = "") -> str:
+    """Вердикт владельца по карточке: `useful` или `junk`.
+
+    Непонятный вердикт и неизвестная карточка — явные ошибки (DEV-18), а не
+    тихо проглоченный вызов: показатель шума, посчитанный по молча потерянным
+    вердиктам, хуже отсутствующего.
+    """
+    if verdict not in VERDICTS:
+        raise ProposalError(
+            f"вердикт должен быть одним из {VERDICTS}, получено {verdict!r}")
+    cursor = conn.execute(
+        "UPDATE proposals SET resolved_at = ?, result = ?,"
+        " snooze_until = NULL WHERE id = ? AND resolved_at IS NULL",
+        (float(now), verdict, proposal_id))
+    if cursor.rowcount != 1:
+        raise ProposalError(
+            f"карточка {proposal_id!r} не найдена среди незакрытых")
+    if note:
+        conn.execute("UPDATE proposals SET proposed_action = json_set("
+                     "proposed_action, '$.judge_note', ?) WHERE id = ?",
+                     (note, proposal_id))
+    conn.commit()
+    return verdict
+
+
+def noise_stats(conn: sqlite3.Connection) -> dict[str, Any]:
+    """Показатель шума: доля мусора среди ОЦЕНЁННЫХ карточек.
+
+    Неоценённая карточка не доказана ни полезной, ни мусорной — в знаменатель
+    она не идёт, но показывается отдельно.
+
+    При нуле оценённых показатель НЕ ОПРЕДЕЛЁН (`None`), а не 0.0: «мусора 0
+    из 0» читается как «шума нет», и это самый дешёвый способ соврать себе.
+    """
+    judged = conn.execute(
+        "SELECT COUNT(*) FROM proposals WHERE result IN (?, ?)",
+        VERDICTS).fetchone()[0]
+    junk = conn.execute(
+        "SELECT COUNT(*) FROM proposals WHERE result = 'junk'").fetchone()[0]
+    unjudged = conn.execute(
+        "SELECT COUNT(*) FROM proposals WHERE result IS NULL").fetchone()[0]
+    ratio = None if judged == 0 else junk / judged
+    return {
+        "judged": judged,
+        "junk": junk,
+        "unjudged": unjudged,
+        "ratio": ratio,
+        "gate": NOISE_GATE,
+        "gate_pass": None if ratio is None else ratio <= NOISE_GATE,
+    }
 
 
 def list_shadow(conn: sqlite3.Connection) -> list[dict[str, Any]]:

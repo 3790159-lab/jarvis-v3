@@ -29,6 +29,10 @@ DETECTORS = (
     ("register-скрипт без таска", det.detect_register_scripts_without_task),
     ("пропавший повторяющийся триггер", det.detect_missing_trigger),
     ("два ненулевых кода подряд", det.detect_failing_task),
+    ("сервис манифеста без живого процесса",
+     det.detect_manifest_service_without_process),
+    ("незапушенная работа висит дольше порога", det.detect_unpushed_branch),
+    ("healthcheck-пинг старше grace-окна", det.detect_stale_healthcheck),
 )
 
 
@@ -39,12 +43,25 @@ def main() -> int:
     parser.add_argument("--db", default="state/autonomy.db")
     parser.add_argument("--policy", default=None,
                         help="JSON {действие: уровень}; без него всё fail-closed 4")
+    parser.add_argument("--judge", action="append", default=[], metavar="ID=ВЕРДИКТ",
+                        help="вердикт владельца: useful|junk (можно несколько раз)")
     args = parser.parse_args()
 
     root = Path(args.root).resolve()
     policy = json.loads(Path(args.policy).read_text(encoding="utf-8")) if args.policy else {}
 
     now = time.time()
+
+    # Вердикты — до прогона: помеченный мусор не должен всплыть заново в этом
+    # же запуске (подавление живёт в `record`).
+    if args.judge:
+        conn = ap.connect(args.db)
+        for item in args.judge:
+            card_id, _, verdict = item.partition("=")
+            print(f"вердикт: {ap.judge(conn, card_id, verdict, now=time.time())}"
+                  f"  {card_id}")
+        conn.close()
+
     snapshot = snap.collect(root, now=now)
     print(f"снимок: корень {root}")
     print(f"  тасков фермы .......... {len(snapshot['tasks'])}")
@@ -62,11 +79,25 @@ def main() -> int:
         for proposal in found:
             outcome = ap.record(conn, proposal, now=now)
             total_new += outcome == "inserted"
-            print(f"  {outcome:9} lvl{proposal.action_level}  {proposal.subject}")
+            print(f"  {outcome:10} lvl{proposal.action_level}  {proposal.subject}")
             print(f"            {json.dumps(proposal.evidence, ensure_ascii=False)}")
 
     open_now = ap.list_shadow(conn)
     print(f"\nитого: новых {total_new}, открытых в тени {len(open_now)}; отправлено 0 (Ш1)")
+    for card in open_now:
+        print(f"  {card['id']}  lvl{card['action_level']}  {card['kind']}  {card['subject']}")
+
+    stats = ap.noise_stats(conn)
+    if stats["ratio"] is None:
+        # «Мусора 0 из 0» — это не «шума нет», это «не измеряли».
+        print(f"\nшум: НЕ ИЗМЕРЕН — оценено 0 карточек, ждут вердикта "
+              f"{stats['unjudged']}. Гейт {stats['gate']:.0%} не проверен.")
+    else:
+        verdict = "пройден" if stats["gate_pass"] else "НЕ ПРОЙДЕН"
+        print(f"\nшум: {stats['ratio']:.0%} ({stats['junk']} мусорных из "
+              f"{stats['judged']} оценённых), гейт {stats['gate']:.0%} {verdict}; "
+              f"ждут вердикта {stats['unjudged']}")
+    print("вердикт ставится так: --judge <id>=junk | --judge <id>=useful")
     conn.close()
     return 0
 

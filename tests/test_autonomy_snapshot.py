@@ -30,11 +30,19 @@ MUTATING_VERBS = (
 _CMDLET_RE = re.compile(r"\b([A-Z][a-zA-Z]+)-[A-Z][a-zA-Z]+\b")
 
 #: Единственные команды, которые сборщику разрешено выполнять.
+#: `Get-CimInstance` расширяет допуск осознанно: командные строки процессов
+#: `Get-Process` не отдаёт, а без них все сервисы — одинаковые «python».
+#: Мутация через CIM делается `Invoke-CimMethod`, а глагол `Invoke` остаётся в
+#: MUTATING_VERBS — то есть допуск открыт ровно на чтение класса.
 ALLOWED_CMDLETS = {
     "Get-ScheduledTask", "Get-ScheduledTaskInfo", "Get-Process",
+    "Get-CimInstance", "Get-Service",
     "Where-Object", "ForEach-Object", "Select-Object", "ConvertTo-Json",
 }
-ALLOWED_GIT_SUBCOMMANDS = {"rev-parse", "rev-list"}
+#: `log` добавлен осознанно: возраст неуехавшей работы иначе не узнать.
+#: Все три — читающие; `push`, `commit`, `checkout`, `stash` остаются вне
+#: списка, а список — whitelist (fail-closed на незнакомой подкоманде).
+ALLOWED_GIT_SUBCOMMANDS = {"rev-parse", "rev-list", "log"}
 
 
 def _executed_ps_sources() -> dict[str, str]:
@@ -205,23 +213,53 @@ def test_parse_task_name_ignores_a_script_without_registration():
 
 # --- git и метки -------------------------------------------------------------
 
-def test_git_ahead_behind_is_parsed(tmp_path):
-    class Git:
-        def __init__(self):
-            self.n = 0
+class _LiveGit:
+    """Живые ответы git по подкомандам (порядок вызовов не фиксируем)."""
 
-        def __call__(self, argv, **kwargs):
-            self.n += 1
-            out = "phase-4.0" if self.n == 1 else "0\t2"
-            return SimpleNamespace(stdout=out, stderr="", returncode=0)
+    def __call__(self, argv, **kwargs):
+        joined = " ".join(argv)
+        if "@{upstream}" in joined and "rev-parse" in joined:
+            return SimpleNamespace(stdout="origin/phase-4.0-unified-jarvis",
+                                   stderr="", returncode=0)
+        if "rev-parse" in joined:
+            return SimpleNamespace(stdout="phase-4.0-unified-jarvis",
+                                   stderr="", returncode=0)
+        if "rev-list" in joined:
+            return SimpleNamespace(stdout="0\t2", stderr="", returncode=0)
+        if "log" in joined:
+            return SimpleNamespace(
+                stdout="1754400000 ee8b39a1\n1754300000 dd19cabb\n",
+                stderr="", returncode=0)
+        return SimpleNamespace(stdout="", stderr="", returncode=1)
 
-    assert snap.collect_git(tmp_path, run=Git()) == {
-        "branch": "phase-4.0", "ahead": 2, "behind": 0}
+
+def test_git_ahead_behind_and_upstream_are_parsed(tmp_path):
+    result = snap.collect_git(tmp_path, run=_LiveGit(), now=1_754_400_000.0)
+
+    assert result["branch"] == "phase-4.0-unified-jarvis"
+    assert result["upstream"] == "origin/phase-4.0-unified-jarvis"
+    assert result["ahead"] == 2 and result["behind"] == 0
 
 
-def test_git_without_upstream_reports_zeroes_not_a_crash(tmp_path):
-    """Ветка без origin — обычное дело в worktree; это не повод падать."""
-    assert snap.collect_git(tmp_path, run=RecordingRun(""))["ahead"] == 0
+def test_oldest_unpushed_commit_is_the_last_line_not_the_first(tmp_path):
+    """`git log` отдаёт от нового к старому. Возраст «работы, которая висит»
+    считается по САМОМУ СТАРОМУ — по первому взяли бы возраст свежего
+    коммита и дыра пряталась бы за каждым новым."""
+    now = 1_754_300_000.0 + 20 * 3600
+    result = snap.collect_git(tmp_path, run=_LiveGit(), now=now)
+
+    assert result["oldest_unpushed_sha"] == "dd19cabb"
+    assert abs(result["oldest_unpushed_age_sec"] - 20 * 3600) < 2.0
+
+
+def test_git_without_upstream_reports_unknown_not_zero_age(tmp_path):
+    """Ветка без origin — обычное дело в worktree (сама теневая ветка такая).
+    Возраст неизвестен, и это НЕ ноль: ноль означал бы «только что запушено»."""
+    result = snap.collect_git(tmp_path, run=RecordingRun(""), now=1_000.0)
+
+    assert result["upstream"] is None
+    assert result["ahead"] == 0
+    assert result["oldest_unpushed_age_sec"] is None
 
 
 def test_missing_stamp_is_none_not_infinity(tmp_path):
