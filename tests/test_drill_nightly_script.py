@@ -89,6 +89,22 @@ def _run(mod, env, *, hour=10, runs=None, argv=None, sent=None):
     return code, runs, sent
 
 
+# ── сброс и судья говорят об ОДНОМ контакте ─────────────────────────────────
+
+
+def test_runner_is_told_which_contact_to_judge(env):
+    """06.08: сброс чистил тестовый аккаунт, а судья опрашивал контакт из
+    yaml — прогон «не состоялся» при живом боте и живом лиде. Контакт у
+    ночного прогона один, и он передаётся ОБОИМ подпроцессам."""
+    mod = _load()
+    _, runs, _ = _run(mod, env)
+    run_cmd = [c for c in runs.cmds if any("drill_runner" in x for x in c)][0]
+    assert "--contact" in run_cmd, run_cmd
+    assert run_cmd[run_cmd.index("--contact") + 1] == DRILL
+    reset_cmd = [c for c in runs.cmds if any("drill_reset" in x for x in c)][0]
+    assert reset_cmd[reset_cmd.index("--contact") + 1] == DRILL
+
+
 # ── рабочее окно ─────────────────────────────────────────────────────────────
 
 

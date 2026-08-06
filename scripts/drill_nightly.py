@@ -214,6 +214,11 @@ def main(argv=None, *, run=None, hour=None, send=None) -> int:
     started = time.time()
     code, out = run([sys.executable, str(_ROOT / "scripts" / "drill_runner.py"),
                      a.scenario, "--db", a.db, "--yes", "--auto-lead",
+                     # Контакт передаём ЯВНО: сброс и судья обязаны говорить об
+                     # одном чате. 06.08 сброс чистил тестовый аккаунт, а судья
+                     # читал контакт из yaml — прогон не состоялся при живом
+                     # боте, живом лиде и списанных $0.128.
+                     "--contact", a.contact,
                      "--lead-peer", str(peer),
                      "--lead-session", str(session),
                      "--step-timeout", str(a.step_timeout)])

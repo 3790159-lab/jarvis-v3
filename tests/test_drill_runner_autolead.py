@@ -88,12 +88,16 @@ class _FakeLead:
         self.closed = True
 
 
-def _run(mod, tmp_path, says, *, lead=None, extra=(), contact=DRILL):
+def _run(mod, tmp_path, says, *, lead=None, extra=(), contact=DRILL,
+         lead_contact=None):
+    """`lead_contact` — куда РЕАЛЬНО приходит реплика лида, если это не тот
+    контакт, что записан в сценарии (стенд 06.08 разъехался ровно так)."""
     db = _db(tmp_path / "d.db")
     log = tmp_path / "run.log"
     log.write_text("", encoding="utf-8")
     out = tmp_path / "drills"
-    lead = lead if lead is not None else _FakeLead(db, log, contact=contact)
+    lead = lead if lead is not None else _FakeLead(
+        db, log, contact=lead_contact or contact)
     rc = mod.main([_scenario(tmp_path, says, contact=contact), "--db", db,
                    "--out", str(out), "--log", str(log), "--yes", "--auto-lead",
                    "--lead-peer", "777000", "--step-timeout", "3",
@@ -306,3 +310,86 @@ def test_no_funnel_gate_anywhere_in_the_bench():
     """Приёмка §9 п.5: ни одного обращения к funnel_gate в коде стенда."""
     for path in (_SCRIPT, _SCRIPTS / "drill_lead.py", _SCRIPTS / "drill_reset.py"):
         assert "funnel_gate" not in path.read_text(encoding="utf-8"), path
+
+
+# ── контакт: ОДИН источник правды ───────────────────────────────────────────
+# Ночной прогон 06.08 сгорел ровно здесь. Сценарий Д-10 остался прибит к
+# контакту ручной эпохи, а автолид пишет с тестового аккаунта, заведённого
+# позже. Судья опрашивал один контакт, реплики приходили в другой — два
+# «сигнала не было 10 мин», $0.128 живых денег и вердикт «прогон не
+# состоялся» при полностью исправных боте и лиде.
+
+
+def _other_drill_contact(mod) -> str:
+    """Второй дрил-контакт, взятый из живого списка: id тестового аккаунта в
+    тексте теста — это тот же способ разойтись, что и разъехавшиеся списки."""
+    other = sorted(mod.drill_contacts() - {DRILL})
+    assert other, "в DRILL_CONTACTS нужен второй контакт"
+    return other[0]
+
+
+def test_contact_flag_overrides_the_scenario_contact(tmp_path):
+    """`--contact` перекрывает сценарий: судья ждёт сигнал там, куда реально
+    пишет лид, а не там, где это было записано в ручную эпоху."""
+    mod = _load()
+    target = _other_drill_contact(mod)
+    rc, lead, report = _run(mod, tmp_path, ["крок 1", "крок 2"],
+                            contact=DRILL, lead_contact=target,
+                            extra=["--contact", target])
+    assert rc == 0, report
+    assert lead.said == ["крок 1", "крок 2"]
+
+
+def test_contact_flag_moves_facts_and_snapshot_too(tmp_path):
+    """Мало довести до судьи сигнал: профиль, слот обязательств и снимок ДО
+    читаются у ТОГО ЖЕ контакта. Иначе вердикт судит чужую переписку —
+    ровно то, что случилось бы 06.08, поймайся сигнал."""
+    mod = _load()
+    target = _other_drill_contact(mod)
+    db = _db(tmp_path / "d.db")
+    log = tmp_path / "run.log"
+    log.write_text("", encoding="utf-8")
+    conn = sqlite3.connect(db)
+    conn.execute("INSERT INTO contact_profile (contact_id, text, ts) VALUES (?,?,?)",
+                 (target, "новий лого з нуля", time.time()))
+    conn.commit()
+    conn.close()
+    sc = tmp_path / "s.yaml"
+    sc.write_text(f"name: авто\ncontact: {DRILL}\nsteps:\n"
+                  f"  - say: \"крок 1\"\n    expect:\n"
+                  f"      profile_contains: [\"новий лого\"]\n", encoding="utf-8")
+    lead = _FakeLead(db, log, contact=target)
+    rc = mod.main([str(sc), "--db", db, "--yes", "--auto-lead",
+                   "--lead-peer", "777000", "--contact", target,
+                   "--out", str(tmp_path / "o"), "--log", str(log),
+                   "--step-timeout", "3"],
+                  lead_factory=lambda **kw: lead)
+    report = sorted((tmp_path / "o").glob("*.md"))[0].read_text(encoding="utf-8")
+    assert rc == 0, report
+
+
+def test_reply_landing_in_another_drill_contact_is_named_not_masked(tmp_path):
+    """КЛАСС бага, а не случай: сигнал БЫЛ, но пришёл в другой дрил-контакт.
+    Стенд обязан назвать расхождение адресами, а не отчитаться «сигнала не
+    было» — иначе поломка проводки выглядит как молчащий бот."""
+    mod = _load()
+    target = _other_drill_contact(mod)
+    rc, lead, report = _run(mod, tmp_path, ["крок 1", "крок 2"],
+                            contact=DRILL, lead_contact=target)  # без --contact
+    assert rc == 2
+    assert "ждал" in report, report
+    assert DRILL in report and target in report, report
+    assert "сигнала не было" not in report, report
+    assert lead.said == ["крок 1"], "расхождение адресов — повод оборвать прогон"
+
+
+def test_traffic_in_a_non_drill_contact_does_not_raise_the_alarm(tmp_path):
+    """Обратная сторона: живой клиент, написавший боту во время прогона, —
+    не расхождение стенда. Предохранитель, врущий в эту сторону, обнуляет
+    доверие к вердикту так же надёжно."""
+    mod = _load()
+    rc, lead, report = _run(mod, tmp_path, ["крок 1", "крок 2"],
+                            contact=DRILL, lead_contact="999999999:volska")
+    assert rc == 2
+    assert "сигнала не было" in report, report
+    assert "ждал" not in report, report

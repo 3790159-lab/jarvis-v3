@@ -266,6 +266,33 @@ def new_lead_message(db: str, *, contact: str, since_ts: float) -> str | None:
         conn.close()
 
 
+def signal_in_other_drill_contact(db: str, *, contact: str, since_ts: float,
+                                  contacts) -> str | None:
+    """Куда РЕАЛЬНО прилетела реплика лида, если не туда, куда смотрит судья.
+
+    Ровно этот случай 06.08 отчитался как «сигнала не было 10 мин»: сигнал
+    был, просто в другом чате — сценарий остался прибит к контакту ручной
+    эпохи, а автолид уже писал с тестового аккаунта. Молчащий бот и
+    разъехавшаяся проводка стенда обязаны выглядеть по-разному.
+
+    Смотрим ТОЛЬКО на дрил-контакты: живой клиент, написавший боту во время
+    прогона, — не расхождение стенда, и объявлять его таковым значит врать в
+    обратную сторону."""
+    others = [c for c in contacts if c != contact]
+    if not others:
+        return None
+    conn = _ro(db)
+    try:
+        holes = ",".join("?" * len(others))
+        row = conn.execute(
+            f"SELECT contact_id FROM messages WHERE role='user' AND ts > ? "
+            f"AND contact_id IN ({holes}) ORDER BY ts LIMIT 1",
+            (since_ts, *others)).fetchone()
+        return None if row is None else str(row[0])
+    finally:
+        conn.close()
+
+
 def step_signal_seen(db: str, *, contact: str, since_ts: float, flag_key: str) -> bool:
     """Настоящий сигнал — входящее лида; тап кнопки — запасной путь, если
     сообщение не долетело. Ни один не блокирует другой: забыл тапнуть — прогон
@@ -425,6 +452,12 @@ def main(argv=None, *, lead_factory=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("scenario")
     ap.add_argument("--db", default=str(_ROOT / ".secrets" / "demo.db"))
+    ap.add_argument("--contact", default=None,
+                    help="кого судить: contact_id вида <peer>:<persona>. По "
+                         "умолчанию — контакт из сценария (это дефолт РУЧНОГО "
+                         "прогона). Ночной регресс передаёт свой: сценарий и "
+                         "отправитель разъехались 06.08, и судья 20 минут ждал "
+                         "сигнал в чужом чате при живом боте и живом лиде")
     ap.add_argument("--log", default=str(_ROOT / "logs" / "chatter_volska.log"))
     ap.add_argument("--out", default=str(_ROOT / "state" / "drills"))
     ap.add_argument("--yes", action="store_true",
@@ -459,14 +492,21 @@ def main(argv=None, *, lead_factory=None) -> int:
                                 else a.step_timeout)
 
     sc = parse_scenario(Path(a.scenario).read_text(encoding="utf-8"))
+    # Контакт у прогона ОДИН, и выбирает его вызывающий. Два молча
+    # разъезжающихся дефолта (сценарий ручной эпохи против отправителя
+    # авторежима) уже стоили одного ночного прогона: судья опрашивал контакт
+    # из yaml, реплики приходили в тестовый аккаунт.
+    contact = a.contact or sc.contact
 
+    known_contacts: frozenset[str] = frozenset()
     if a.auto_lead:
         # Автолид САМ отправляет сообщения. Направить его на контакт живого
         # клиента — это разговор с клиентом от имени стенда, и он необратим:
         # сообщение уже увидели. Тот же предохранитель, что на сбросе.
-        if sc.contact not in drill_contacts():
-            say(f"⛔ ОТКАЗ: контакт сценария «{sc.contact}» не дрил-контакт. "
-                f"--auto-lead работает только на {', '.join(sorted(drill_contacts()))}")
+        known_contacts = drill_contacts()
+        if contact not in known_contacts:
+            say(f"⛔ ОТКАЗ: контакт прогона «{contact}» не дрил-контакт. "
+                f"--auto-lead работает только на {', '.join(sorted(known_contacts))}")
             return 2
         if a.lead_peer is None:
             say("⛔ ОТКАЗ: --auto-lead без --lead-peer. Получатель задаётся "
@@ -476,7 +516,7 @@ def main(argv=None, *, lead_factory=None) -> int:
     est = estimate_cost(sc.steps)
     say(format_estimate(sc.steps, est))
 
-    before0, snap_note = snapshot_before(a.db, sc.contact)
+    before0, snap_note = snapshot_before(a.db, contact)
     say(f"\n⚠️ {snap_note}" if snap_note
         else f"\nснимок слота ДО прогона: {before0 or '(пусто)'}")
     for w in vacuous_expectations(sc, before0):
@@ -505,7 +545,7 @@ def main(argv=None, *, lead_factory=None) -> int:
     # Долги бота отдельным снимком: «слот не шевельнулся» судит по ним, а не по
     # клиентским заметкам (P17). Снимок не прочитан — сравнивать не с чем.
     before_bot = {} if snap_note else obligations_snapshot(
-        a.db, sc.contact, only_bot=True)
+        a.db, contact, only_bot=True)
     outcomes: list[StepOutcome] = [StepOutcome(say=s.say) for s in sc.steps]
     skips_in_a_row = 0
     windows: list[tuple[float, float]] = []
@@ -575,14 +615,31 @@ def main(argv=None, *, lead_factory=None) -> int:
             deadline = step_start + limit
             seen_text = None
             while time.time() < deadline:
-                seen_text = new_lead_message(a.db, contact=sc.contact, since_ts=step_start)
+                seen_text = new_lead_message(a.db, contact=contact, since_ts=step_start)
                 if seen_text is not None:
                     break
-                if step_signal_seen(a.db, contact=sc.contact, since_ts=step_start,
+                if step_signal_seen(a.db, contact=contact, since_ts=step_start,
                                     flag_key=flag_key):
                     break
                 time.sleep(POLL_SEC)
             else:
+                # Сигнала нет — но ПОЧЕМУ? «Бот молчит» и «стенд смотрит не в
+                # тот чат» требуют разных действий, и путать их дорого: 06.08
+                # разъехавшаяся проводка 20 минут выглядела как молчание.
+                misrouted = (signal_in_other_drill_contact(
+                    a.db, contact=contact, since_ts=step_start,
+                    contacts=known_contacts) if a.auto_lead else None)
+                if misrouted:
+                    note = (f"стенд ждал реплику в «{contact}», а она пришла в "
+                            f"«{misrouted}» — сценарий и отправитель смотрят на "
+                            f"разные контакты")
+                    say(f"⛔ {note}")
+                    # Досиживать остальные шаги нечего: следующий упрётся в то
+                    # же расхождение, потратив ещё таймаут и ещё живых денег.
+                    for j in range(cursor, len(sc.steps)):
+                        outcomes[j] = StepOutcome(say=sc.steps[j].say, skipped=True,
+                                                  note=note)
+                    break
                 note = f"шаг пропущен: сигнала не было {limit / 60:.1f} мин"
                 say(f"⛔ {note}")
                 outcomes[i - 1] = StepOutcome(say=step.say, skipped=True, note=note)
@@ -666,7 +723,7 @@ def main(argv=None, *, lead_factory=None) -> int:
                         break
                     time.sleep(POLL_SEC)
             lines, offset = _read_log_since(log_path, offset)
-            facts = collect_facts(a.db, contact=sc.contact, since_ts=step_start,
+            facts = collect_facts(a.db, contact=contact, since_ts=step_start,
                                   log_lines=lines, before=before,
                                   before_bot=before_bot)
             checks = check_step(step.expect, facts)
