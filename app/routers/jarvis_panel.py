@@ -21,6 +21,12 @@ router = APIRouter(prefix="/panel/jarvis", tags=["jarvis-panel"],
 
 _DOT = {"ok": "ok", "warn": "warn", "bad": "bad", "off": "off"}
 
+# Ствол в таблицу «Арки в роботі» не идёт: он не арка, а точка отсчёта. Из-за
+# него единственная ✅ в колонке «Змерджена» была тавтологией (ветка всегда
+# смержена сама в себя), и колонка читалась как сломанная. Без ствола ✅ значит
+# ровно одно: смержено, worktree можно сносить.
+TRUNK = "phase-4.0-unified-jarvis"
+
 
 def _rows_html(rows, now: float) -> str:
     out = []
@@ -32,6 +38,17 @@ def _rows_html(rows, now: float) -> str:
             f"<div><span class='dot {_DOT.get(r.state,'off')}'></span>{esc(r.label)}"
             f"<div class='sub' style='margin-left:17px'>{esc(r.detail)}</div></div>{tail}</div>")
     return "".join(out)
+
+
+def _arc_rows(arcs) -> str:
+    rows = "".join(
+        f"<tr><td><b>{esc(a.get('branch', '—'))}</b>"
+        f"<div class='sub mono'>{esc(a.get('path', ''))}</div></td>"
+        f"<td>{'🔴 брудне' if a.get('dirty') else '—'}</td>"
+        f"<td>{'✅' if a.get('merged') else '—'}</td>"
+        f"<td class='sub'>{esc(a.get('age_days'))} дн</td></tr>"
+        for a in arcs if a.get("branch") != TRUNK)
+    return rows or "<tr><td colspan=4 class='empty'>немає даних</td></tr>"
 
 
 @router.get("", response_class=HTMLResponse)
@@ -46,14 +63,7 @@ async def panel():
         f"{'--bad' if ext.state == 'bad' else '--warn' if ext.state == 'warn' else '--ok'})'>"
         f"<b>{esc(ext.label)}:</b> {esc(ext.detail)}</div>")
 
-    arcs = snap["arcs"]
-    arc_rows = "".join(
-        f"<tr><td><b>{esc(a.get('branch', '—'))}</b>"
-        f"<div class='sub mono'>{esc(a.get('path', ''))}</div></td>"
-        f"<td>{'🔴 брудне' if a.get('dirty') else '—'}</td>"
-        f"<td>{'✅' if a.get('merged') else '—'}</td>"
-        f"<td class='sub'>{esc(a.get('age_days'))} дн</td></tr>"
-        for a in arcs) or "<tr><td colspan=4 class='empty'>немає даних</td></tr>"
+    arc_rows = _arc_rows(snap["arcs"])
 
     ev_rows = "".join(
         f"<tr><td class='sub'>{esc(e['src'])}</td><td>{esc(e['kind'])}</td>"

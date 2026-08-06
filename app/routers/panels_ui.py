@@ -11,6 +11,7 @@ CDN (это и приватность, и работоспособность б�
 from __future__ import annotations
 
 import html
+import math
 import time
 
 CSS = """
@@ -144,49 +145,75 @@ def line_chart(series: list, *, width: int = 1000, height: int = 260) -> str:
     left = [s for s in series if not s.money]
     right = [s for s in series if s.money]
 
-    def bounds(group):
+    def axis(group):
+        """Границы и деления оси.
+
+        Пять жёстких делений на диапазоне 0..1 давали подписи «1,1,0,0,0»:
+        шаг 0.25 округлялся до целых, и дубли выглядели багом рендера. Для
+        целочисленных метрик («діалоги», «оплати») шаг берём целым — дубли
+        и дробные «0.2 діалога» исчезают как класс, а не для одного диапазона.
+        """
         vals = [v for s in group for _, v in s.points if v is not None]
         if not vals:
-            return 0.0, 1.0
+            return 0.0, 1.0, [0.0, 1.0]
         lo, hi = min(vals + [0.0]), max(vals)
-        return lo, (hi if hi > lo else lo + 1.0)
+        hi = hi if hi > lo else lo + 1.0
+        span = hi - lo
+        if all(float(v).is_integer() for v in vals):
+            step = float(max(1, math.ceil(span / 4)))
+            k = max(1, math.ceil(span / step))
+            # Верх подтягиваем до последнего деления: иначе оно уезжает за поле.
+            return lo, lo + step * k, [lo + step * i for i in range(k + 1)]
+        return lo, hi, [lo + span * i / 4 for i in range(5)]
 
-    lb = bounds(left)
-    rb = bounds(right)
+    l_lo, l_hi, l_ticks = axis(left)
+    r_lo, r_hi, r_ticks = axis(right)
     n = max((len(s.points) for s in series), default=2)
     colors = ["var(--s1)", "var(--s2)", "var(--s3)"]
     out = [f"<svg viewBox='0 0 {W} {H}' style='width:100%;height:auto'>"]
 
-    for i in range(5):                                   # сетка + левая ось
-        y = pad_t + ih * i / 4
+    def ypos(v, lo, hi):
+        return pad_t + ih - ih * ((v - lo) / (hi - lo) if hi > lo else 0)
+
+    def tick_text(v, span):
+        return f"{v:.1f}" if (span < 8 and not float(v).is_integer()) else f"{v:.0f}"
+
+    for v in l_ticks:                                    # сетка + левая ось
+        y = ypos(v, l_lo, l_hi)
         out.append(f"<line x1='{pad_l}' y1='{y:.1f}' x2='{W-pad_r}' y2='{y:.1f}' "
                    f"stroke='#272c37' stroke-width='1'/>")
-        v = lb[1] - (lb[1] - lb[0]) * i / 4
-        # Мелкий диапазон с шагом 1.25 давал подписи 0,1,2,4,5 — деления
-        # выглядели неравномерными. Ниже 8 по шкале печатаем десятые.
-        fmt = f"{v:.1f}" if (lb[1] - lb[0]) < 8 else f"{v:.0f}"
         out.append(f"<text x='{pad_l-8}' y='{y+4:.1f}' fill='#98a2b3' font-size='11' "
-                   f"text-anchor='end'>{fmt}</text>")
+                   f"text-anchor='end'>{tick_text(v, l_hi - l_lo)}</text>")
     if right:
-        for i in range(5):
-            y = pad_t + ih * i / 4
-            v = rb[1] - (rb[1] - rb[0]) * i / 4
-            rfmt = f"{v:.1f}" if (rb[1] - rb[0]) < 8 else f"{v:.0f}"
+        for v in r_ticks:
+            y = ypos(v, r_lo, r_hi)
             out.append(f"<text x='{W-pad_r+8}' y='{y+4:.1f}' fill='#f0a92c' "
-                       f"font-size='11'>{rfmt}</text>")
+                       f"font-size='11'>{tick_text(v, r_hi - r_lo)}</text>")
 
+    empty_idx = set()
     for idx, s in enumerate(series):
-        lo, hi = rb if s.money else lb
+        lo, hi = (r_lo, r_hi) if s.money else (l_lo, l_hi)
         col = colors[idx % len(colors)]
-        pts, gaps = [], 0
+        pts = []
         for j, (_, v) in enumerate(s.points):
             if v is None:
-                gaps += 1
                 continue
-            x = pad_l + (iw * j / max(n - 1, 1))
-            y = pad_t + ih - ih * ((v - lo) / (hi - lo) if hi > lo else 0)
-            pts.append((x, y))
+            pts.append((pad_l + (iw * j / max(n - 1, 1)), ypos(v, lo, hi)))
         if not pts:
+            # Ни одной точки — не рисуем ничего, но и не молчим: пометка уходит
+            # в легенду, иначе пустое поле читается как «нулевой результат».
+            empty_idx.add(idx)
+            continue
+        if len(pts) == 1:
+            # Одна точка — не тренд. Ломаная по одному значению выглядит как
+            # баг рендера (05: 3 оплаты за месяц), поэтому маркер и слова.
+            x, y = pts[0]
+            out.append(f"<circle cx='{x:.1f}' cy='{y:.1f}' r='4' fill='{col}'/>")
+            right_edge = x > pad_l + iw * 0.66
+            tx = x - 9 if right_edge else x + 9
+            anchor = "end" if right_edge else "start"
+            out.append(f"<text x='{tx:.1f}' y='{y+4:.1f}' fill='{col}' font-size='11' "
+                       f"text-anchor='{anchor}'>недостатньо даних</text>")
             continue
         dash = " stroke-dasharray='6 4'" if s.money else ""
         d = " ".join(f"{'M' if i == 0 else 'L'}{x:.1f},{y:.1f}" for i, (x, y) in enumerate(pts))
@@ -199,6 +226,7 @@ def line_chart(series: list, *, width: int = 1000, height: int = 260) -> str:
 
     legend = "".join(
         f"<span class='legendline'><i class='sw' style='background:{colors[i%3]}'></i>"
-        f"{esc(s.label)}{' (права вісь, $)' if s.money else ''}</span>"
+        f"{esc(s.label)}{' (права вісь, $)' if s.money else ''}"
+        f"{' — немає даних' if i in empty_idx else ''}</span>"
         for i, s in enumerate(series))
     return "".join(out) + f"<div style='margin-top:6px'>{legend}</div>"

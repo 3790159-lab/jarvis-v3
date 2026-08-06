@@ -135,3 +135,69 @@ def test_metric_without_history_is_labelled_not_zeroed(client):
     c, _ = client
     body = c.get("/panel/tamapi/dynamics?m=payments", headers={"X-Panels-Key": KEY}).text
     assert "історія накопичується" in body
+
+
+def test_trunk_is_not_listed_among_arcs():
+    """08: ствол не арка. С ним единственная ✅ в колонке «Змерджена» была
+    тавтологией — ветка всегда смержена сама в себя."""
+    from app.routers.jarvis_panel import TRUNK, _arc_rows
+    rows = _arc_rows([
+        {"branch": TRUNK, "path": "C:/jarvis", "dirty": True, "merged": True, "age_days": 0.0},
+        {"branch": "arc/panels", "path": "C:/wt/panels", "dirty": True,
+         "merged": False, "age_days": 8.0},
+    ])
+    assert TRUNK not in rows
+    assert "arc/panels" in rows
+    assert "✅" not in rows, "галка осталась только у ствола — колонка врёт"
+
+
+def test_merged_arc_still_gets_the_tick():
+    """Ради этого сигнала колонку и оставили: смержено, worktree можно сносить."""
+    from app.routers.jarvis_panel import _arc_rows
+    rows = _arc_rows([{"branch": "arc/done", "path": "C:/wt/done", "dirty": False,
+                       "merged": True, "age_days": 3.0}])
+    assert "✅" in rows
+
+
+# ── графика: панель не имеет права рисовать то, чего в данных нет ──────────────
+
+def _series(points, *, money=False, label="Середній чек", key="avg_check"):
+    from app.services.tamapi_metrics import Series
+    return Series(key=key, label=label, unit="$" if money else "",
+                  money=money, points=points)
+
+
+def test_single_point_series_is_marked_not_drawn_as_line():
+    """Одна точка — не тренд. Ломаная по одному значению читается как баг
+    рендера; честнее маркер и слова (скриншот 05: 3 оплаты за месяц)."""
+    from app.routers.panels_ui import line_chart
+    svg = line_chart([_series([(0.0, None), (1.0, 900.0), (2.0, None)], money=True)])
+    assert "<path" not in svg, "вырожденная линия по одной точке"
+    assert "недостатньо даних" in svg
+    assert "<circle" in svg, "сама точка обязана остаться видимой"
+
+
+def test_series_without_points_says_so_in_legend():
+    from app.routers.panels_ui import line_chart
+    svg = line_chart([_series([(0.0, None), (1.0, None)], money=True)])
+    assert "<path" not in svg and "<circle" not in svg
+    assert "немає даних" in svg
+
+
+def test_two_points_still_draw_a_line():
+    """Сторож против перегиба: с двух точек линия обязана вернуться."""
+    from app.routers.panels_ui import line_chart
+    svg = line_chart([_series([(0.0, 100.0), (1.0, 900.0)], money=True)])
+    assert "<path" in svg
+    assert "недостатньо даних" not in svg
+
+
+def test_integer_axis_has_no_duplicate_labels():
+    """07: на дневном 0/1-графике пять жёстких делений давали «1,1,0,0,0»."""
+    from app.routers.panels_ui import line_chart
+    svg = line_chart([_series([(0.0, 0.0), (1.0, 1.0), (2.0, 0.0), (3.0, 1.0)],
+                              label="Діалоги", key="dialogs")])
+    labels = re.findall(r"text-anchor='end'>([^<]+)</text>", svg)
+    assert labels, "левая ось пропала"
+    assert len(labels) == len(set(labels)), f"дубли на оси: {labels}"
+    assert all("." not in v for v in labels), f"дробные діалоги на оси: {labels}"

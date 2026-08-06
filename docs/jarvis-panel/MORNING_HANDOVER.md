@@ -4,6 +4,7 @@
 Раннер не трогали, `funnel_gate`/`honesty` не трогали, прод-дерево `C:\jarvis` чистое.
 
 Скриншоты — `docs/panels-screens/` (индекс там же в README).
+Отложенные задачи (живой путь, схема, деплой) — `docs/jarvis-panel/BACKLOG.md`.
 
 ---
 

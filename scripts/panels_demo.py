@@ -91,6 +91,13 @@ def seed(path: str, *, now: float | None = None) -> None:
             s.add_payment(cid, card_msg_id=9000 + i, amount=amount, currency="USD",
                           ts=start + 1200, source="card_button")
 
+    # Свежий heartbeat — часть синтетики. Без него демо-стенд рисует «Немає
+    # зв'язку» на ВСЕХ кадрах: живой раннер пишет свой heartbeat в C:\jarvis, а
+    # не в worktree, и нормальное состояние панели на скриншоты не попадает.
+    hb = Path(os.environ.get("TAMAPI_HEARTBEAT", "state/chatter_heartbeat.txt"))
+    hb.parent.mkdir(parents=True, exist_ok=True)
+    hb.write_text(str(now), encoding="utf-8")
+
     s.set_runtime_flag("kill_switch", "0", ts=now)
     for k in ("classifier_error", "resume", "escalation_kept", "payment"):
         s.add_event(k, contact_id=f"{500001}:volska", detail="", ts=now - rnd.uniform(60, 5000))
