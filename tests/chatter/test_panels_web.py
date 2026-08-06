@@ -137,6 +137,40 @@ def test_metric_without_history_is_labelled_not_zeroed(client):
     assert "історія накопичується" in body
 
 
+def test_zero_duration_says_no_data_not_zero_minutes():
+    """Тот же принцип, что у денежной линии: метрика без данных говорит словами.
+    «0 хв» читается как «ведём нуль хвилин» — это неправда, мерить нечего."""
+    from app.routers.tamapi_dashboard import _tile_value
+    from app.services.tamapi_metrics import METRIC_BY_KEY, Series
+    d = METRIC_BY_KEY["duration"]
+    val, show_delta = _tile_value(d, Series(key=d.key, label=d.label, unit=d.unit,
+                                            money=False, total=0.0))
+    assert "немає даних" in val
+    assert "хв" not in val and "дн" not in val
+    assert show_delta is False, "дельта к отсутствующим данным бессмысленна"
+
+
+def test_real_duration_below_a_day_is_still_hours():
+    """Сторож против перегиба: ненулевая длительность обязана остаться числом."""
+    from app.routers.tamapi_dashboard import _tile_value
+    from app.services.tamapi_metrics import METRIC_BY_KEY, Series
+    d = METRIC_BY_KEY["duration"]
+    val, show_delta = _tile_value(d, Series(key=d.key, label=d.label, unit=d.unit,
+                                            money=False, total=0.5))
+    assert "12.0 год" in val and "немає даних" not in val
+    assert show_delta is True
+
+
+def test_zero_is_a_real_value_for_other_metrics():
+    """Ноль оплат — это факт, а не отсутствие данных: плитка обязана дать «0»."""
+    from app.routers.tamapi_dashboard import _tile_value
+    from app.services.tamapi_metrics import METRIC_BY_KEY, Series
+    d = METRIC_BY_KEY["payments"]
+    val, _ = _tile_value(d, Series(key=d.key, label=d.label, unit=d.unit,
+                                   money=False, total=0.0))
+    assert ">0<" in val and "немає даних" not in val
+
+
 def test_trunk_is_not_listed_among_arcs():
     """08: ствол не арка. С ним единственная ✅ в колонке «Змерджена» была
     тавтологией — ветка всегда смержена сама в себя."""

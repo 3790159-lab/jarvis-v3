@@ -276,6 +276,24 @@ def _fmt_value(d, v: float) -> str:
     return f"{v:g}{(' ' + d.unit) if d.unit else ''}"
 
 
+def _tile_value(d, s) -> tuple[str, bool]:
+    """Значение плитки и надо ли рисовать дельту.
+
+    Нулевая длительность — это «мерить нечего», а не «ведём нуль хвилин»:
+    метрика без данных обязана сказать словами, как денежная линия на графике.
+    Для остальных метрик ноль — полноценный факт («0 оплат»), и его мы пишем
+    цифрой: подмена его на «немає даних» была бы такой же ложью, только с
+    другой стороны.
+    """
+    if not s.available:
+        return ("<div class='v' style='font-size:13px;color:var(--dim)'>"
+                "історія накопичується</div>", False)
+    if s.total is None or (d.key == "duration" and not s.total):
+        return ("<div class='v' style='font-size:15px;color:var(--dim)'>"
+                "немає даних</div>", False)
+    return f"<div class='v'>{_fmt_value(d, s.total)}</div>", True
+
+
 def _price_presets() -> list[int]:
     """Пресеты сумм из ЦЕНОВОГО контекста knowledge.md клиента — числа там уже
     разбираются машинно, поэтому пресеты появляются без ручной настройки и без
@@ -307,15 +325,8 @@ async def dynamics(request: Request,
         s = by_key[d.key]
         on = d.key in keys
         sel = colors[keys.index(d.key) % 3] if on else ""
-        if not s.available:
-            val = "<div class='v' style='font-size:13px;color:var(--dim)'>історія накопичується</div>"
-            dl = ""
-        elif s.total is None:
-            val = "<div class='v' style='font-size:15px;color:var(--dim)'>немає даних</div>"
-            dl = ""
-        else:
-            val = f"<div class='v'>{_fmt_value(d, s.total)}</div>"
-            dl = delta_html(s.total, s.prev_total)
+        val, show_delta = _tile_value(d, s)
+        dl = delta_html(s.total, s.prev_total) if show_delta else ""
         nxt = [k for k in keys if k != d.key] if on else keys[:2] + [d.key]
         q = "&".join(f"m={k}" for k in (nxt or ["dialogs"]))
         tiles.append(
