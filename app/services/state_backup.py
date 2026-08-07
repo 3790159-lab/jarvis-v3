@@ -51,6 +51,7 @@ __all__ = [
     "sha256_file",
     "build_manifest",
     "run_backup",
+    "verify_uploaded",
     "list_backup_dates",
     "rotate_old_backups",
     "restore_file",
@@ -105,6 +106,9 @@ class BackupResult:
     failed: list[dict] = field(default_factory=list)
     manifest_key: str | None = None
     total_bytes: int = 0
+    # Второй конец: что реально ВИДНО в бакете листингом после заливки.
+    # ``uploaded`` — это лишь «put_object вернул управление».
+    verified: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -177,11 +181,61 @@ def build_manifest(files: list[Path], state_root: Path, generated_at: str) -> di
     }
 
 
+def verify_uploaded(
+    result: BackupResult,
+    *,
+    list_objects: Callable[..., list[dict]] = r2_storage.list_objects,
+    client: Any | None = None,
+    config: R2Config | None = None,
+) -> list[dict]:
+    """Доказать ДРУГИМ вызовом API, что залитое реально лежит в бакете.
+
+    ``upload_file`` вернувший управление — это ещё не бэкап: объект может не
+    появиться (не тот бакет, политика токена на запись без чтения, ретенция).
+    Здесь мы перечитываем префикс дня листингом и требуем, чтобы каждый
+    ожидаемый ключ присутствовал и имел ненулевой размер.
+
+    Возвращает список проблем (пустой = всё доехало) и наполняет
+    ``result.verified``. Сбой самого листинга — тоже проблема: непроверяемый
+    бэкап считается несостоявшимся (DEV-18, не глотать), иначе мы возвращаемся
+    к молчаливому зелёному, ради которого всё это и делается.
+    """
+    config = config or load_backup_config()
+    prefix = f"{BACKUP_PREFIX}/{result.date}/"
+
+    expected = list(result.uploaded)
+    if result.manifest_key:
+        expected.append(result.manifest_key[len(prefix):]
+                        if result.manifest_key.startswith(prefix) else "manifest.json")
+
+    try:
+        objs = list_objects(prefix, client=client, config=config)
+    except Exception as exc:  # noqa: BLE001 — честный красный, а не тишина
+        logger.error("state backup verification listing failed: %s", exc)
+        return [{"rel_path": "*", "error": f"проверка листингом не удалась: {exc}"}]
+
+    sizes = {o["key"]: o.get("size", 0) for o in objs}
+    problems: list[dict] = []
+    for rel in expected:
+        key = f"{prefix}{rel}"
+        size = sizes.get(key)
+        if size is None:
+            problems.append({"rel_path": rel,
+                             "error": f"нет в листинге бакета: {key}"})
+        elif size <= 0:
+            problems.append({"rel_path": rel,
+                             "error": f"нулевой размер объекта (0 байт): {key}"})
+        else:
+            result.verified.append(rel)
+    return problems
+
+
 def run_backup(
     state_root: Path,
     *,
     now: datetime | None = None,
     upload_file: Callable[..., str] = r2_storage.upload_file,
+    list_objects: Callable[..., list[dict]] = r2_storage.list_objects,
     client: Any | None = None,
     config: R2Config | None = None,
     patterns: tuple[str, ...] = CRITICAL_PATTERNS,
@@ -223,6 +277,10 @@ def run_backup(
         result.failed.append({"rel_path": "manifest.json", "error": str(exc)})
     finally:
         tmp_path.unlink(missing_ok=True)
+
+    # Оба конца: заливка посчитана — теперь докажи листингом, что доехало.
+    result.failed.extend(
+        verify_uploaded(result, list_objects=list_objects, client=client, config=config))
 
     return result
 
@@ -294,6 +352,9 @@ def format_backup_result(result: BackupResult) -> str:
     lines = [f"\U0001f4be Бэкап state/ за {result.date}:"]
     kb = result.total_bytes / 1024.0
     lines.append(f"Загружено: {len(result.uploaded)} файлов ({kb:.1f} KB)")
+    lines.append(f"Подтверждено листингом: {len(result.verified)}")
+    if not result.verified:
+        lines.append("🚨 НИ ОДИН объект не подтверждён листингом бакета — бэкапа НЕТ.")
     if result.failed:
         lines.append(f"⚠️ Ошибки: {len(result.failed)}")
         for f in result.failed[:5]:
