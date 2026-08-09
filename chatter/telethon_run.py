@@ -35,6 +35,7 @@ from chatter.core.console import (
 # которые владелец мог набрать в диалоге лида ДО Fix 3 (см. _on_connected).
 _COMMAND_PREFIXES = sorted("/" + c for c in (GLOBAL_COMMANDS | TARGETED_COMMANDS))
 from chatter.core.escalation import parse_escalation_keywords
+from chatter.telethon_identity import identity_kwargs
 from chatter.core.llm import AnthropicLLM, FakeLLM, LLMClient
 from chatter.core.pause import should_auto_resume
 from chatter.notify.base import Card, Notifier
@@ -187,6 +188,24 @@ def build_session(
     raise SecretLoaderError(
         f"нет ни зашифрованной сессии {enc}, ни legacy {plain} — "
         "залогиниться: python -m chatter.telethon_login")
+
+
+def build_client(session, api_id, api_hash, client_cls=None):
+    """TelegramClient с ПРИБИТЫМ отпечатком устройства.
+
+    Вынесено из main() отдельной функцией не ради красоты: по умолчанию Telethon
+    выводит device_model/system_version/app_version из `platform.uname()` и своей
+    версии, то есть отпечаток менялся сам при переносе хоста, смене архитектуры
+    или `pip upgrade telethon`. Пока конструктор жил внутри main(), проверить пин
+    на ПРОДАКШН-пути было нечем — тест мог подтвердить только login-путь.
+    См. chatter/telethon_identity.py.
+
+    `client_cls` инъектируется (тот же приём, что в telethon_login.make_client):
+    тест проверяет проброс отпечатка на подставном классе, без телефона и сети.
+    Прод оставляет дефолт — отложенный импорт настоящего Telethon."""
+    if client_cls is None:
+        from telethon import TelegramClient as client_cls  # noqa: N806
+    return client_cls(session, int(api_id), api_hash, **identity_kwargs())
 
 
 # Catch-up age cap: on start, don't answer anything older than this. A message
@@ -1942,7 +1961,6 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[telethon_run] {e}", file=sys.stderr)
         return 1
 
-    from telethon import TelegramClient  # deferred: only main() ever constructs a real client
 
     try:
         slugs = resolve_personas(
@@ -1974,7 +1992,7 @@ def main(argv: list[str] | None = None) -> int:
     except SecretLoaderError as e:
         print(f"[telethon_run] {e}", file=sys.stderr)
         return 1
-    client = TelegramClient(session, int(api_id), api_hash)
+    client = build_client(session, api_id, api_hash)
 
     store = Store(db_path)
     runner = build_runner(

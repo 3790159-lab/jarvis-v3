@@ -4,6 +4,8 @@ import sys
 from pathlib import Path
 from typing import Mapping
 
+from chatter.telethon_identity import identity_kwargs
+
 # Repo-root .env, the same file every other jarvis entry point reads from --
 # so `python -m chatter.telethon_login` just works without the user having to
 # `export` TELEGRAM_API_ID/TELEGRAM_API_HASH by hand first (spec S2).
@@ -118,7 +120,10 @@ def make_client(session_path: str, api_id: str, api_hash: str, client_cls=None):
         # un-awaited coroutines (which printed "? (@None) id=?"). Only affects
         # THIS process; telethon_run.py imports plain telethon for its async loop.
         from telethon.sync import TelegramClient as client_cls  # noqa: N806
-    return client_cls(session_path, int(api_id), api_hash)
+    # Отпечаток прибит константами (chatter/telethon_identity.py): по умолчанию
+    # Telethon вывел бы его из platform.uname() и своей версии, и он дрейфовал
+    # бы при смене хоста, архитектуры или апгрейде библиотеки.
+    return client_cls(session_path, int(api_id), api_hash, **identity_kwargs())
 
 
 def main(argv: list[str] | None = None) -> int:

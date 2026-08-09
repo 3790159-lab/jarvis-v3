@@ -151,9 +151,13 @@ class _TelethonSender:
 
         from telethon.sessions import StringSession
         from telethon.sync import TelegramClient
+        from chatter.telethon_identity import identity_kwargs
         api_id, api_hash = load_api_credentials(os.environ, None)
+        # Тот же прибитый отпечаток, что у прод-раннера: аккаунт тестового лида
+        # тоже не должен «переезжать на новое устройство» при смене хоста.
         self._client = TelegramClient(
-            StringSession(load_string_session(enc_path)), int(api_id), api_hash)
+            StringSession(load_string_session(enc_path)), int(api_id), api_hash,
+            **identity_kwargs())
         self._peer = peer
         self._client.connect()
         if not self._client.is_user_authorized():
