@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from chatter.core.obligations_slot import (
+    KINDS,
     Obligation,
     merge_obligations,
     render_slot_block,
@@ -46,6 +47,69 @@ def test_other_kind_keyed_by_slug():
 def test_detail_truncated_to_80():
     out = merge_obligations([], [_open("brief", "x" * 200)], now=1.0, current_msg_id=1)
     assert len(out[0].detail) <= 80
+
+
+# --- merge: валидация kind по KINDS ----------------------------------------
+# Мотив: `status` и `owed_by` валидировались по своим кортежам, а `kind` — только
+# на непустоту, хотя KINDS объявлена рядом. Незнакомый вид молча заводил строку
+# со своим okey: она занимала место в cap ≤5 рендера, а закрыть её было нечем —
+# классификатор знает только канонические виды. Молчаливый дефолт = класс бага
+# (P17). Гейт делает kind симметричным status: неизвестное отбрасывается.
+
+def test_unknown_kind_is_dropped():
+    out = merge_obligations([], [_open("escalation", "передати керівниці")],
+                            now=1.0, current_msg_id=1)
+    assert out == [], f"неизвестный kind создал обязательство: {out}"
+
+
+def test_unknown_kind_is_dropped_symmetrically_with_unknown_status():
+    """Гейт обязан вести себя как гейт статуса — иначе это не правило, а частный
+    случай. Оба мусорных обновления должны исчезнуть одинаково."""
+    bad_status = merge_obligations([], [{"kind": "brief", "owed_by": "bot",
+                                         "status": "погоджено", "detail": "x"}],
+                                   now=1.0, current_msg_id=1)
+    bad_kind = merge_obligations([], [{"kind": "погоджено", "owed_by": "bot",
+                                       "status": "open", "detail": "x"}],
+                                 now=1.0, current_msg_id=1)
+    assert bad_status == [] and bad_kind == []
+
+
+def test_unknown_kind_cannot_close_existing_obligation():
+    """Опаснее создания: мусорный вид не должен трогать ЖИВОЙ долг. okey чужой,
+    так что закрыть brief он и не мог бы — тест держит это явно."""
+    existing = merge_obligations([], [_open("brief", "обіцяний бриф")],
+                                 now=1.0, current_msg_id=1)
+    out = merge_obligations(existing, [{"kind": "brief_v2", "owed_by": "bot",
+                                        "status": "delivered", "detail": "x"}],
+                            now=2.0, current_msg_id=2)
+    assert {o.okey: o.status for o in out} == {"brief": "open"}
+
+
+def test_all_canonical_kinds_still_accepted():
+    """Обратная сторона гейта: он не должен оказаться слишком узким. Каждый член
+    KINDS обязан пройти — иначе фикс тихо выключит рабочий вид."""
+    for kind in KINDS:
+        out = merge_obligations([], [_open(kind, "деталь")],
+                                now=1.0, current_msg_id=1)
+        assert len(out) == 1, f"KINDS-вид {kind!r} отброшен гейтом"
+        assert out[0].kind == kind
+
+
+def test_gate_does_not_silence_legal_other():
+    """Мутационная проверка: `other` — самый похожий на «неизвестный» вид, и
+    именно его гейт мог бы задеть. Полный цикл: создание со slug, ключ
+    other:<slug>, закрытие тем же ключом."""
+    out = merge_obligations([], [_open("other", "надіслати договір", slug="contract")],
+                            now=1.0, current_msg_id=7)
+    assert [o.okey for o in out] == ["other:contract"]
+    assert out[0].status == "open" and out[0].created_msg_id == 7
+
+    closed = merge_obligations(out, [{"kind": "other", "slug": "contract",
+                                      "owed_by": "bot", "status": "delivered",
+                                      "detail": "договір надіслано"}],
+                               now=2.0, current_msg_id=8)
+    assert {o.okey: o.status for o in closed} == {"other:contract": "delivered"}
+    assert closed[0].closed_msg_id == 8
 
 
 # --- merge: переходы -------------------------------------------------------

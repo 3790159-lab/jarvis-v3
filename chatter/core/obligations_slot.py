@@ -90,7 +90,8 @@ def merge_obligations(
     - delivered/cancelled, которого не было → создаётся сразу закрытым (возникло и
       закрылось в одном окне — brain отвечает ДО классификатора, такое бывает).
     - detail обрезается до DETAIL_MAX.
-    Некорректный status/owed_by → обновление игнорируется (защита от мусора).
+    Некорректный kind/status/owed_by → обновление игнорируется (защита от
+    мусора). Все три валидируются по своим кортежам — KINDS/STATUSES/OWED_BY.
     """
     by_okey: dict[str, Obligation] = {o.okey: o for o in existing}
 
@@ -110,7 +111,14 @@ def merge_obligations(
                            _clean_detail(upd.get("detail", "")))
             continue
         owed_by = stated or "bot"
-        if status not in STATUSES or owed_by not in OWED_BY or not kind:
+        # kind валидируется по KINDS так же, как status по STATUSES: раньше
+        # здесь стояла лишь проверка на непустоту, и незнакомый вид заводил
+        # строку со своим okey. Закрыть её было нечем — классификатор знает
+        # только канонические виды, — а место в cap ≤5 рендера она занимала.
+        if (status not in STATUSES or owed_by not in OWED_BY
+                or kind not in KINDS):
+            logger.warning("obligations: обновление отброшено "
+                           "(kind=%r status=%r owed_by=%r)", kind, status, owed_by)
             continue
         detail = _clean_detail(upd.get("detail", ""))
         slug = upd.get("slug")
