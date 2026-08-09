@@ -5,7 +5,9 @@ from __future__ import annotations
 import logging
 
 from chatter.core.obligations_slot import Obligation, merge_obligations
-from chatter.core.prompt_log import log_prompt_shape, obligations_digest
+from chatter.core.prompt_log import (
+    log_funnel_signal, log_prompt_shape, obligations_digest,
+)
 
 
 def _obs():
@@ -69,3 +71,48 @@ def test_full_dump_only_when_flag_on(monkeypatch, tmp_path):
     log_prompt_shape(system="SYS-текст", suffix="СЕКРЕТ-профіль", tag="brain")
     dump = (tmp_path / "prompt_dump.log").read_text(encoding="utf-8")
     assert "SYS-текст" in dump and "СЕКРЕТ-профіль" in dump   # полный промпт целиком
+
+
+# --- воронка: снятие слепой зоны stage_signal --------------------------------
+# Мотив: stage_signal не логировался НИГДЕ. В БД (`funnel_transitions`) намеренно
+# пишется только РЕАЛЬНАЯ смена состояния — холостой ход пропускается, чтобы не
+# раздувать метрику. Значит проглоченный сигнал не оставлял следа ни там, ни в
+# логе: ровно так дыра `new + interested` и прожила незамеченной.
+
+def test_funnel_line_logs_a_real_transition(caplog):
+    with caplog.at_level(logging.INFO, logger="chatter.core.prompt_log"):
+        log_funnel_signal(contact_id="12345", signal="interested",
+                          from_state="new", to_state="hot", escalated=False)
+    line = caplog.text
+    assert "funnel" in line
+    assert "signal=interested" in line
+    assert "new->hot" in line
+    assert "changed=yes" in line
+
+
+def test_funnel_line_logs_swallowed_signal_as_changed_no(caplog):
+    """Главный случай: сигнал пришёл, состояние не изменилось. В БД такого хода
+    нет по дизайну — лог остаётся единственным местом, где это видно."""
+    with caplog.at_level(logging.INFO, logger="chatter.core.prompt_log"):
+        log_funnel_signal(contact_id="12345", signal="engaged",
+                          from_state="hot", to_state="hot", escalated=False)
+    assert "changed=no" in caplog.text
+    assert "signal=engaged" in caplog.text
+
+
+def test_funnel_line_is_pii_free(caplog):
+    """Тот же стандарт, что у prompt-shape: сырой contact_id в лог не попадает."""
+    with caplog.at_level(logging.INFO, logger="chatter.core.prompt_log"):
+        log_funnel_signal(contact_id="237616472", signal="interested",
+                          from_state="new", to_state="hot", escalated=False)
+    assert "237616472" not in caplog.text
+
+
+def test_funnel_line_marks_escalation_override(caplog):
+    """Оверрайд эскалации обгоняет карту переходов — в логе это должно быть
+    отличимо от обычного перехода по сигналу."""
+    with caplog.at_level(logging.INFO, logger="chatter.core.prompt_log"):
+        log_funnel_signal(contact_id="1", signal=None,
+                          from_state="new", to_state="escalated", escalated=True)
+    assert "escalated=yes" in caplog.text
+    assert "signal=-" in caplog.text

@@ -17,6 +17,7 @@ from dataclasses import dataclass
 
 from chatter.core.brand_safety import forbidden_mention
 from chatter.core.conversation import next_state
+from chatter.core.prompt_log import log_funnel_signal
 from chatter.core.disclosure import honest_prefix, is_bot_question
 from chatter.core.guardrails import contains_unbacked_claim
 from chatter.core.obligations import DEFAULT_PROMISE_TERMS, unbacked_promise
@@ -378,6 +379,16 @@ def advance_funnel(store, contact_id: str, *, stage_signal: str | None, escalate
         new = next_state(current, stage_signal)
     else:
         new = current
+    # Лог — ДО записи и БЕЗ условия `new != current`: холостой ход в БД не
+    # попадает по дизайну, поэтому лог остаётся единственным следом сигнала,
+    # который воронка проглотила (дыра `new + interested`, закрыта 2026-08-09).
+    try:
+        log_funnel_signal(contact_id=contact_id,
+                          signal="bought" if bought else stage_signal,
+                          from_state=current, to_state=new, escalated=escalated)
+    except Exception:              # DEV-18: наблюдаемость не роняет ход лиду
+        logger.exception("не удалось залогировать сигнал воронки для %s", contact_id)
+
     if new != current:
         store.set_state(contact_id, new)
         # Фундамент дашборда (CLIENT_SCREENS §5.2): `set_state` ПЕРЕЗАПИСЫВАЕТ

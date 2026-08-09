@@ -79,6 +79,25 @@ def log_usage_shape(rec: dict) -> None:
              cr, cw, ttl, "hit" if cr > 0 else "miss")
 
 
+def log_funnel_signal(*, contact_id: str, signal: str | None,
+                      from_state: str, to_state: str, escalated: bool) -> None:
+    """Строка на КАЖДУЮ оценку воронки — включая холостую (§слепая зона).
+
+    Мотив: `stage_signal` не логировался нигде. В БД (`funnel_transitions`)
+    намеренно пишется только РЕАЛЬНАЯ смена состояния — холостой ход
+    пропускается, чтобы не раздувать метрику «квалифицировано». Значит
+    проглоченный сигнал не оставлял следа ни в БД, ни в логе, и дыра
+    `new + interested` (закрыта 2026-08-09) прожила незамеченной именно здесь.
+    `changed=no` — тот самый второй конец: сигнал пришёл, воронка не сдвинулась.
+
+    ПДн: contact_id хешируется тем же `_contact_tag`, что и в prompt-shape;
+    остальное — служебные enum'ы. Стоимость нулевая, сети нет."""
+    log.info("funnel contact=%s signal=%s %s->%s changed=%s escalated=%s",
+             _contact_tag(contact_id), signal or "-", from_state, to_state,
+             "yes" if to_state != from_state else "no",
+             "yes" if escalated else "no")
+
+
 def _dump_dir() -> Path:
     return Path(os.getenv("CHATTER_PROMPT_DUMP_DIR", "logs"))
 
