@@ -63,40 +63,45 @@ class NeedsOwner:
     reasons: tuple[str, ...] = field(default=())
 
 
-def _ordered(found: set[str]) -> tuple[str, ...]:
-    """Порядок — по объявлению в REASONS, а не по обходу входа: карточка
-    владельцу и тесты не должны зависеть от порядка перечисления услуг."""
+def _ordered(found: list[str]) -> tuple[str, ...]:
+    """Порядок — по объявлению в REASONS, а не по порядку ОБНАРУЖЕНИЯ: карточка
+    владельцу и тесты не должны зависеть от того, в каком порядке лид перечислил
+    услуги. Заодно снимает дубли.
+
+    `found` — список, а не множество, намеренно: у множества порядок обхода
+    зависит от хешей, и тест, сравнивающий два прогона внутри одного процесса,
+    оказался бы слепым к потере сортировки (поймано мутацией DEV-26)."""
     return tuple(r for r in REASONS if r in found)
 
 
 def assess_complexity(req: QuoteRequest, pricing: Pricing) -> Simple | NeedsOwner:
     """Чистая функция. Возвращает ровно одну из двух форм — вызыватель не должен
     уметь получить None или строку и додумать за неё."""
-    found: set[str] = set()
+    found: list[str] = []
 
     if not req.parsed or not req.items:
         # Пустой разбор — это не «клиент ничего не просил», это «мы не поняли».
-        found.add("no_parse")
+        found.append("no_parse")
 
     if len(req.items) > 1:
-        found.add("multiple_services")
+        found.append("multiple_services")
 
     for item in req.items:
         if item.qty > 1:
-            found.add("multiple_units")
+            found.append("multiple_units")
         elif item.qty < 1:
-            found.add("bad_quantity")
+            found.append("bad_quantity")
         if item.position_id is None:
-            found.add("unknown_service")
+            found.append("unknown_service")
         elif item.position_id not in pricing.positions:
-            found.add("unknown_position")
+            found.append("unknown_position")
 
     if req.unknown_services:
-        found.add("unknown_service")
+        found.append("unknown_service")
     if req.volume_note:
-        found.add("volume_out_of_norm")
+        found.append("volume_out_of_norm")
     if req.deadline_note:
-        found.add("deadline_out_of_norm")
+        found.append("deadline_out_of_norm")
 
     if found:
         return NeedsOwner(_ordered(found))

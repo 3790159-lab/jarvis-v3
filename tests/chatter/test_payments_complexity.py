@@ -109,13 +109,32 @@ def test_all_reasons_are_reported_not_just_the_first():
     assert set(got.reasons) == {"multiple_services", "multiple_units", "deadline_out_of_norm"}
 
 
-def test_reasons_are_deterministically_ordered():
-    """Карточка владельцу и тесты не должны зависеть от порядка обхода."""
+def test_reasons_are_ordered_by_declaration_not_by_discovery():
+    """Порядок причин — по объявлению в REASONS.
+
+    Вход подобран так, что порядок ОБНАРУЖЕНИЯ обратен объявленному:
+    `bad_quantity` находится в цикле раньше, чем `unknown_position`, а в REASONS
+    стоит позже. Сравнение двух прогонов между собой здесь было бы слепым —
+    мутация «отдавать в порядке обхода» его не роняла (DEV-26)."""
+    got = assess_complexity(_req(items=(RequestedItem("smm", 0, "SMM"),)), PRICING)
+    assert isinstance(got, NeedsOwner)
+    assert got.reasons == ("unknown_position", "bad_quantity")
+
+
+def test_order_does_not_depend_on_how_the_lead_listed_services():
     a = assess_complexity(_req(items=(RequestedItem("logo_create", 2, "x"),
                                       RequestedItem("packaging", 1, "y"))), PRICING)
     b = assess_complexity(_req(items=(RequestedItem("packaging", 1, "y"),
                                       RequestedItem("logo_create", 2, "x"))), PRICING)
     assert a.reasons == b.reasons
+
+
+def test_reasons_carry_no_duplicates():
+    """Две неопознанные услуги не должны давать `unknown_service` дважды —
+    владелец читает список причин глазами."""
+    got = assess_complexity(_req(items=(RequestedItem(None, 1, "щось"),),
+                                 unknown_services=("сайт", "додаток")), PRICING)
+    assert got.reasons.count("unknown_service") == 1
 
 
 def test_result_is_one_of_two_shapes_only():

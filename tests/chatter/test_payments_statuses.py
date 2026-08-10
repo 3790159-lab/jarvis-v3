@@ -83,9 +83,14 @@ def test_terminal_states_have_no_way_back_to_money():
 
 
 def test_unknown_status_or_actor_is_an_error_not_a_silent_no():
-    with pytest.raises(TransitionError):
+    """Сообщение проверяется намеренно: без него тест слеп.
+
+    Убери проверку актора — `assert_transition("issued","paid","client")` всё
+    равно упадёт, но по ДРУГОЙ причине («нет в списке допустимых для ребра»), и
+    зелёный тест соврал бы, что неизвестный актор отсекается (DEV-26)."""
+    with pytest.raises(TransitionError, match="неизвестный статус"):
         assert_transition("issued", "teleported", "system")
-    with pytest.raises(TransitionError):
+    with pytest.raises(TransitionError, match="неизвестный актор"):
         assert_transition("issued", "paid", "client")
 
 
