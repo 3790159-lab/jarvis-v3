@@ -162,14 +162,27 @@ def test_bundle_location_is_the_offsite_mirror():
 
 def test_snapshot_touches_nothing(tmp_path):
     """Сторож не имеет права трогать секреты: ни создать, ни продлить mtime.
-    Иначе он сам испортит то, что сторожит."""
+    Иначе он сам испортит то, что сторожит — и заодно навсегда обнулит
+    отставание, которое должен был показывать.
+
+    Файлам ЗАРАНЕЕ проставляется старое время. Без этого тест был слеп:
+    системные часы Windows тикают раз в ~15 мс, только что созданный файл и
+    его `touch()` попадают в один тик, mtime не меняется и мутация
+    «сторож пишет» проходила зелёной (поймано DEV-26)."""
+    import os
     live = tmp_path / "tree"
     (live / ".secrets").mkdir(parents=True)
     (live / ".env").write_text("X=1", encoding="utf-8")
     (live / ".secrets" / "entropy.bin").write_bytes(b"0" * 32)
+    (live / ".secrets" / "volska.session.enc").write_bytes(b"s")
     vault = tmp_path / "vault"
     vault.mkdir()
     (vault / "b.jrvbak").write_bytes(b"blob")
+
+    old = NOW - 100 * DAY
+    for f in tmp_path.rglob("*"):
+        if f.is_file():
+            os.utime(f, (old, old))
 
     def fingerprint():
         return sorted((str(p.relative_to(tmp_path)), p.stat().st_mtime_ns, p.stat().st_size)
