@@ -103,6 +103,75 @@ MUTATIONS = [
      "    return tuple(r for r in REASONS if r in found)",
      "    return tuple(found)",
      "tests/chatter/test_payments_complexity.py::test_reasons_are_ordered_by_declaration_not_by_discovery"),
+
+    # ── утечка тестовых активов: самый дорогой класс ошибки арки ────────────
+    ("gate: пропускает кого угодно", "chatter/payments/drill_gate.py",
+     "    if not is_drill_contact(contact_id):",
+     "    if False:",
+     "tests/chatter/test_payments_drill_gate.py::test_gate_refuses_live_contact_loudly"),
+
+    ("gate: пустой contact_id считается своим", "chatter/payments/drill_gate.py",
+     "    return contact_id in DRILL_CONTACTS",
+     "    return contact_id is None or contact_id in DRILL_CONTACTS",
+     "tests/chatter/test_payments_drill_gate.py::test_gate_refuses_empty_or_unknown_contact"),
+
+    ("gate: список расширен живым контактом", "chatter/payments/drill_gate.py",
+     '    "8849893367:volska",',
+     '    "8849893367:volska",\n    "555000111:volska",',
+     "tests/chatter/test_payments_instructions.py::test_test_requisites_never_leak_to_a_live_contact"),
+
+    ("gate: список разошёлся с каноном scripts/", "chatter/payments/drill_gate.py",
+     '    "237616472:volska",',
+     '    "237616472:volska",\n    "999:volska",',
+     "tests/chatter/test_payments_drill_gate.py::test_canonical_list_is_the_same_as_the_scripts_one"),
+
+    ("реквизиты: живой контакт заглядывает в test_templates",
+     "chatter/payments/instructions.py",
+     "    if is_drill_contact(contact_id):",
+     "    if True:",
+     "tests/chatter/test_payments_instructions.py::test_test_requisites_never_leak_to_a_live_contact"),
+
+    ("реквизиты: тестовые как фоллбэк при отсутствии клиентских",
+     "chatter/payments/instructions.py",
+     '    body = book.templates.get(key, "")',
+     '    body = book.templates.get(key, "") or book.test_templates.get(key, "")',
+     "tests/chatter/test_payments_instructions.py::test_test_requisites_never_leak_to_a_live_contact"),
+
+    ("реквизиты: живому отдаются клиентские, но подписаны как test",
+     "chatter/payments/instructions.py",
+     '                body_text=test_body, requisites_ref=key, source="test")',
+     '                body_text=test_body, requisites_ref=key, source="config")',
+     "tests/chatter/test_payments_instructions.py::test_drill_contact_gets_the_test_requisites"),
+
+    ("реквизиты: пустое тело считается выданным", "chatter/payments/instructions.py",
+     "    if not body:",
+     "    if body is None:",
+     "tests/chatter/test_payments_instructions.py::test_empty_body_counts_as_absent"),
+
+    ("реквизиты: mode=auto тихо деградирует в manual", "chatter/payments/instructions.py",
+     '    if channel.mode == "auto":',
+     "    if False:",
+     "tests/chatter/test_payments_instructions.py::test_channel_mode_auto_is_declared_but_not_implemented_in_phase0"),
+
+    ("объём: заглушка уходит живому контакту", "chatter/payments/scope.py",
+     "    if entry.placeholder:\n        guard_test_asset",
+     "    if False:\n        guard_test_asset",
+     "tests/chatter/test_payments_scope.py::test_placeholder_refuses_live_contact"),
+
+    ("объём: конфиг с заглушками проходит валидацию", "chatter/payments/scope.py",
+     "    if stubs:",
+     "    if False:",
+     "tests/chatter/test_payments_scope.py::test_full_config_with_stubs_fails_validation_for_a_live_contact"),
+
+    ("объём: ступень без текста не замечается", "chatter/payments/scope.py",
+     "    if missing:",
+     "    if False:",
+     "tests/chatter/test_payments_scope.py::test_missing_text_for_a_declared_step_is_caught_by_the_same_check"),
+
+    ("объём: заглушка угадывается по виду строки", "chatter/payments/scope.py",
+     '            placeholder = bool(entry.get("placeholder", False))',
+     '            placeholder = bool(entry.get("placeholder", False)) or text.startswith("TODO")',
+     "tests/chatter/test_payments_scope.py::test_marker_must_be_explicit_not_guessed"),
 ]
 
 
