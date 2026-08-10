@@ -95,28 +95,65 @@ def test_stub_scopes_are_allowed_for_the_drill_contact(volska):
     assert_pricing_usable(pay.pricing, pay.scope_texts, contact_id=DRILL_CONTACT)
 
 
-# ── реквизитов ещё нет: это состояние, а не поломка ────────────────────────
+# ── книга реквизитов: ИНВАРИАНТЫ, а не сегодняшнее состояние ───────────────
+#
+# `requisites.yaml` untracked (в нём чужие банковские данные), поэтому его
+# содержимое зависит от машины: на машине владельца книга заполнена, в свежем
+# клоне файла нет вовсе. Тест, утверждающий «книга сегодня пуста», ловил бы не
+# дефект, а факт заполнения — и краснел бы ровно в тот момент, когда всё
+# сделано правильно. Такие три теста здесь были и переписаны на инварианты,
+# которые верны в ОБОИХ состояниях.
 
-def test_requisites_book_is_empty_today(volska):
+
+def test_test_requisites_never_reach_a_live_contact(volska):
+    """Инвариант §8.3-бис, перебором по всем каналам: `source == "test"`
+    влечёт, что контакт дрил-овый. Ловит любую будущую правку резолвера,
+    открывающую утечку, — включая те, о которых сейчас никто не думает."""
     pay = volska.settings.payments
-    assert pay.requisites.templates == {} and pay.requisites.test_templates == {}
-    assert usable_channels(pay) == () and client_ready_channels(pay) == ()
+    for channel in pay.channels:
+        try:
+            instruction = resolve_instruction(
+                channel=channel, book=pay.requisites, contact_id=LIVE_CONTACT)
+        except RequisitesUnavailable:
+            continue          # выдать нечего — штатный отказ
+        assert instruction.source != "test", \
+            f"канал {channel.id}: живой лид получил ТЕСТОВЫЕ реквизиты"
 
 
-def test_nobody_gets_requisites_while_the_book_is_empty(volska):
-    """Отказ, а не пустая строка: подставлять что-либо вместо реквизитов
-    запрещено (правило №4). Дрил-контакт тоже не исключение."""
+def test_a_body_that_is_handed_out_is_never_blank(volska):
+    """Правило №4: отказ, а не пустая строка. «Реквізити: » в живом диалоге —
+    это полуотрендеренный ответ, который запрещён (§8.3)."""
     pay = volska.settings.payments
-    for contact in (LIVE_CONTACT, DRILL_CONTACT):
-        with pytest.raises(RequisitesUnavailable):
-            resolve_instruction(channel=pay.channels[0], book=pay.requisites,
-                                contact_id=contact)
+    for channel in pay.channels:
+        for contact in (LIVE_CONTACT, DRILL_CONTACT):
+            try:
+                instruction = resolve_instruction(
+                    channel=channel, book=pay.requisites, contact_id=contact)
+            except RequisitesUnavailable:
+                continue
+            assert instruction.body_text.strip(), \
+                f"канал {channel.id}: выдано пустое тело вместо отказа"
 
 
-def test_payments_cannot_be_turned_on_before_requisites_exist(volska):
-    """Главный сторож этого конфига. Включение сегодня обязано ПАДАТЬ: фича,
-    которой нечего сказать, — это ровно тот сломанный дефолт, который назвал
-    владелец (§5.1)."""
+def test_turning_on_is_allowed_exactly_when_there_is_something_to_answer(volska):
+    """Сторож самого правила, а не его сегодняшнего исхода: старт проходит
+    ТОГДА И ТОЛЬКО ТОГДА, когда есть хотя бы один канал, которым можно
+    ответить. Пустая книга → включение падает; заполненная → проходит."""
+    pay = volska.settings.payments
+    enabled = load_payments({**_raw_payments(), "enabled": True},
+                            requisites_raw=_raw_requisites(),
+                            knowledge=volska.knowledge)
+    if usable_channels(pay):
+        assert_startable(enabled, slug="volska")
+    else:
+        with pytest.raises(Exception, match="iban"):
+            assert_startable(enabled, slug="volska")
+
+
+def test_an_empty_book_always_blocks_the_switch(volska):
+    """Половина инварианта, не зависящая от машины вовсе: с пустой книгой
+    включение обязано падать ВСЕГДА. Это тот сломанный дефолт, который назвал
+    владелец, — «включено, а сказать нечего» (§5.1)."""
     enabled = load_payments(
         {**_raw_payments(), "enabled": True},
         requisites_raw={"templates": {}, "test_templates": {}},
@@ -125,17 +162,22 @@ def test_payments_cannot_be_turned_on_before_requisites_exist(volska):
         assert_startable(enabled, slug="volska")
 
 
-def test_the_live_file_itself_refuses_to_start_when_switched_on(tmp_path):
-    """То же самое, но на РЕАЛЬНОМ файле, а не на собранном в тесте словаре:
-    здесь ловится расхождение между конфигом volska и тем, что мы о нём думаем."""
-    import shutil
-    dst = tmp_path / "clients"
-    shutil.copytree(CLIENTS, dst, ignore=shutil.ignore_patterns(".versions"))
-    p = dst / "volska" / "settings.yaml"
-    p.write_text(set_payments_enabled(p.read_text(encoding="utf-8"), True),
-                 encoding="utf-8")
-    with pytest.raises(ConfigError, match="iban"):
-        load_config(dst, "volska")
+def test_client_channels_stay_unready_until_client_requisites_arrive(volska):
+    """Тестовые реквизиты НЕ делают канал готовым к живому лиду: `usable` и
+    `client_ready` — разные множества, и путать их нельзя (иначе дрил-состояние
+    выглядело бы рабочим)."""
+    pay = volska.settings.payments
+    ready = {c.id for c in client_ready_channels(pay)}
+    assert ready == {c.id for c in pay.channels
+                     if pay.requisites.templates.get(c.requisites_template, "").strip()}
+
+
+def _raw_requisites() -> dict:
+    import yaml
+    path = CLIENTS / "volska" / "requisites.yaml"
+    if not path.exists():
+        return {}
+    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
 
 def _raw_payments() -> dict:
