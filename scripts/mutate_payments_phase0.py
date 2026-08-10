@@ -183,16 +183,13 @@ MUTATIONS = [
      "tests/chatter/test_payments_store.py::test_legacy_empty_table_is_rebuilt"),
 
     ("миграция: бэкап не делается", "chatter/storage/db.py",
-     "                if pre_existing:
-                    self._backup(path, tag=\"payments\")",
-     "                if False:
-                    self._backup(path, tag=\"payments\")",
+     '                if pre_existing:\n                    self._backup(path, tag="payments")',
+     '                if False:\n                    self._backup(path, tag="payments")',
      "tests/chatter/test_payments_store.py::test_rebuild_makes_a_backup_first"),
 
     ("payments: UNIQUE снят со схемы", "chatter/storage/db.py",
-     "    UNIQUE (contact_id, dedup_key)
-);", "    x_unused INTEGER
-);",
+     "    UNIQUE (contact_id, dedup_key)\n);",
+     "    x_unused INTEGER\n);",
      "tests/chatter/test_payments_store.py::test_unique_index_exists_in_the_database_itself"),
 
     ("payments: повтор не правит сумму, а игнорируется", "chatter/storage/db.py",
@@ -229,10 +226,9 @@ MUTATIONS = [
      "tests/chatter/test_payments_model.py::test_more_than_total_is_overpaid_not_paid"),
 
     ("проекция: отменённый счёт воскресает от поступления",
-     "chatter/payments/model.py", "    if current in _NOT_MONEY:
-        return current",
-     "    if False:
-        return current",
+     "chatter/payments/model.py",
+     "    if current in _NOT_MONEY:\n        return current",
+     "    if False:\n        return current",
      "tests/chatter/test_payments_model.py::test_projection_does_not_touch_non_money_states"),
 
     ("ключ: пустая личность превращается в сентинел", "chatter/payments/model.py",
@@ -242,8 +238,7 @@ MUTATIONS = [
     ("пульт: оплата без личности пишется сентинелом",
      "chatter/notify/control_bot.py",
      '            log.warning("route_callback: оплата без личности события (%s)", contact_id)',
-     '            dedup_key = "panel:0"
-            log.warning("x", contact_id)',
+     '            dedup_key = "panel:0"\n            log.warning("x", contact_id)',
      "tests/chatter/test_paid_action.py::test_payment_without_identity_is_refused_and_writes_nothing"),
 
     ("пульт: токен панели игнорируется", "chatter/notify/control_bot.py",
@@ -255,6 +250,32 @@ MUTATIONS = [
      'amount = from_major((paid_amount_raw or "").replace(",", ".").strip(), "USD")',
      'amount = Money(int(float((paid_amount_raw or "0")) * 100), "USD")',
      "tests/chatter/test_paid_action.py::test_money_is_stored_in_minor_units"),
+    # ── пункт 2: versioned-кодек callback'ов ───────────────────────────────
+    ("кодек: legacy-формат выпал из реестра", "chatter/payments/callbacks.py",
+     '    "paidamt": _parse_paidamt_v1,', '    "paidamtX": _parse_paidamt_v1,',
+     "tests/chatter/test_payments_callbacks.py::test_legacy_paid_with_dollar_amount"),
+
+    ("кодек: строитель снова выпускает v1", "chatter/payments/callbacks.py",
+     'return _guard_limit(f"paidamt2:{amount.minor}:{amount.ccy}:{contact_id}")',
+     'return _guard_limit(f"paidamt:{amount.minor // 100}:{contact_id}")',
+     "tests/chatter/test_payments_callbacks.py::test_builder_emits_the_current_version_not_legacy"),
+
+    ("кодек: лимит 64 байта не проверяется", "chatter/payments/callbacks.py",
+     "    if len(data.encode(\"utf-8\")) > CALLBACK_LIMIT:", "    if False:",
+     "tests/chatter/test_payments_callbacks.py::test_builder_refuses_to_emit_oversized_data"),
+
+    ("кодек: действие по счёту принимает contact_id", "chatter/payments/callbacks.py",
+     '        if not rest.startswith("INV-"):', "        if False:",
+     "tests/chatter/test_payments_callbacks.py::test_invoice_actions_are_not_addressed_by_contact"),
+
+    ("кодек: мусорная сумма становится нулём", "chatter/payments/callbacks.py",
+     "    if amount.minor <= 0:\n        return None",
+     "    if False:\n        return None",
+     "tests/chatter/test_payments_callbacks.py::test_broken_amount_is_none_not_zero"),
+
+    ("кодек: неизвестная валюта принимается", "chatter/payments/callbacks.py",
+     "or ccy not in MINOR_EXPONENT:", "or False:",
+     "tests/chatter/test_payments_callbacks.py::test_unknown_currency_is_rejected"),
 ]
 
 
@@ -269,7 +290,25 @@ def revert(rel: str) -> None:
     subprocess.run(["git", "checkout", "--", rel], cwd=ROOT, check=True)
 
 
+def assert_clean() -> None:
+    """Отказ работать на грязном дереве.
+
+    Откат мутаций идёт через `git checkout --`, то есть НЕЗАКОММИЧЕННЫЕ правки
+    он сотрёт. Один раз этого хватило, чтобы потерять готовую проводку: харнесс
+    честно вернул файл к последнему коммиту. Теперь он сначала проверяет, что
+    терять нечего."""
+    out = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"],
+                         cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    if out:
+        raise SystemExit(
+            "ОТКАЗ: рабочее дерево грязное — откат мутаций сотрёт эти правки.
+"
+            "Закоммить их и повтори прогон:
+" + out)
+
+
 def main() -> int:
+    assert_clean()
     blind = []
     for name, rel, old, new, test in MUTATIONS:
         path = ROOT / rel
