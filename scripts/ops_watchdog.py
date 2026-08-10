@@ -22,6 +22,11 @@ Each cycle probes:
   * free disk on C:    — local shutil.disk_usage, threshold 10GB (worktrees
                          have filled C: before; checked locally so it works even
                          when the backend is down)
+  * secrets bundle     — .jrvbak не отстал от материала (.env/сессии/entropy)
+                         больше чем на 7 суток. Экспорт РУЧНОЙ (пароль вводит
+                         владелец) — сторож лишь напоминает, что копия
+                         отстала; без бандла смерть диска = потеря сессий
+                         всех клиентов
   * live tree state    — C:/jarvis на транке и чисто по tracked-файлам. Дерево
                          это деплой-путь гардиана: `git checkout` в нём = тихий
                          деплой. 2026-08-10 оно дважды осталось не в том
@@ -62,6 +67,22 @@ TRUNK_BRANCH = "phase-4.0-unified-jarvis"
 # артефакты и отчёты (на момент внедрения — 12 записей). Без этого флага
 # проверка была бы красной ВСЕГДА, а вечно красную лампу перестают читать.
 GIT_STATUS_ARGS = ("status", "--porcelain", "--untracked-files=no")
+
+# Копия секретов. Бандл .jrvbak — ЕДИНСТВЕННЫЙ путь восстановления после смерти
+# диска или профиля: DPAPI привязан к учётке+машине, и без бандла теряются
+# сессии ВСЕХ клиентов (ONBOARDING_MANUAL §12). Экспорт ручной — пароль вводит
+# владелец, — поэтому сторож ничего не копирует, а напоминает, что копия отстала.
+#
+# Мануал требует держать бандл ВНЕ машины. Смотрим на локальное зеркало
+# OneDrive: файл там — свидетельство, что экспорт БЫЛ, а синхронизация унесла
+# копию за пределы диска.
+BUNDLE_DIRS = (Path("C:/Users/Admin/OneDrive/jarvis-recovery"),)
+BUNDLE_GLOB = "*.jrvbak"
+BUNDLE_MAX_LAG_DAYS = 7.0
+# Что реально едет в бандл (collect_secrets): .env/.env.enc, сессии клиентов,
+# entropy.bin. Сравнивать только с `.env` было бы мало: логин НОВОГО клиента
+# без переэкспорта — незакрытый онбординг, и он остался бы невидимым.
+BUNDLE_MATERIAL_GLOBS = ("*.session.enc", "*.session", "entropy.bin")
 GIT_TIMEOUT_S = 10
 DIRTY_SHOWN = 3              # сколько файлов называть в алерте
 MIN_DISK_GB = 10.0
@@ -82,6 +103,7 @@ LABELS = {
     "chatter_runner": "CHATTER раннер (независимый сторож)",
     "chatter_guardian": "CHATTER гардиан (независимый сторож)",
     "worktree": "ЖИВОЕ ДЕРЕВО C:/jarvis (не транк или грязное)",
+    "secrets_bundle": "КОПИЯ СЕКРЕТОВ (.jrvbak отстал или его нет)",
 }
 
 # Порог тот же, что у гардиана (HeartbeatMaxAgeSec=180). Разные пороги = два
@@ -392,9 +414,60 @@ def probe_worktree(snapshot: dict, *, trunk: str = TRUNK_BRANCH) -> dict:
     return {"ok": True, "detail": "%s, чисто" % trunk}
 
 
+def probe_secrets_bundle(snapshot: dict, *,
+                         max_lag_days: float = BUNDLE_MAX_LAG_DAYS) -> dict:
+    """Девятая проверка: копия секретов не отстала от материала.
+
+    Красное, если бандла нет вовсе, если материал новее бандла больше чем на
+    `max_lag_days`, или если каталог с бандлами не удалось прочитать. Обе
+    причины называются В ОДНОМ алерте — тем же принципом, что у worktree-чека:
+    узнав одну из двух, починишь её и решишь, что закрыл вопрос.
+
+    Граница строгая (`>`): ровно на седьмые сутки владелец ещё в графике, а
+    сторож, загорающийся на самой границе, приучает к тому, что он слегка врёт.
+
+    Порог — напоминание, а не SLA: экспорт ручной, пароль вводит владелец, и
+    сторож не может и не должен делать копию сам."""
+    error = (snapshot or {}).get("error")
+    if error:
+        return {"ok": False, "detail": "не удалось проверить копию секретов: %s" % error}
+
+    material = list((snapshot or {}).get("material") or [])
+    bundle = (snapshot or {}).get("bundle")
+    searched = list((snapshot or {}).get("searched") or [])
+    problems = []
+
+    if not material:
+        # Не «нечего бэкапить», а «мы ничего не увидели»: зелёное здесь было бы
+        # слепой зоной вокруг единственного пути восстановления.
+        problems.append("материал секретов не найден — сравнивать не с чем")
+
+    if bundle is None:
+        where = ", ".join(searched) if searched else "каталоги не заданы"
+        problems.append("бандла %s нет (искали: %s)" % (BUNDLE_GLOB, where))
+
+    if problems:
+        return {"ok": False, "detail": "; ".join(problems)}
+
+    newest = max(material, key=lambda m: m.get("mtime") or 0.0)
+    lag_days = ((newest.get("mtime") or 0.0) - (bundle.get("mtime") or 0.0)) / 86400.0
+    lag_days = max(lag_days, 0.0)          # бандл свежее материала — не «минус дней»
+
+    if lag_days > max_lag_days:
+        others = len(material) - 1
+        tail = "" if others <= 0 else " и ещё %d файл(ов)" % others
+        return {"ok": False, "detail":
+                "бандл %s отстал на %.1f сут (порог %.0f): новее всего «%s»%s" % (
+                    bundle.get("name"), lag_days, max_lag_days, newest.get("name"), tail)}
+
+    return {"ok": True, "detail": "бандл %s, отставание %.1f сут (порог %.0f)" % (
+        bundle.get("name"), lag_days, max_lag_days)}
+
+
 def probe_all(http_get, disk_usage, min_disk_gb: float = MIN_DISK_GB,
               chatter_snapshot: dict | None = None,
-              worktree_snapshot: dict | None = None) -> dict:
+              worktree_snapshot: dict | None = None,
+              secrets_snapshot: dict | None = None) -> dict:
     """Compose the cycle's probes. ``http_get(path) -> int|None`` (HTTP status,
     or None on connection refused/timeout); ``disk_usage(path) -> (total, used,
     free)`` (shutil.disk_usage-shaped)."""
@@ -434,6 +507,8 @@ def probe_all(http_get, disk_usage, min_disk_gb: float = MIN_DISK_GB,
             beat_age=cs.get("guardian_beat_age"))
     if worktree_snapshot:
         probes["worktree"] = probe_worktree(worktree_snapshot)
+    if secrets_snapshot:
+        probes["secrets_bundle"] = probe_secrets_bundle(secrets_snapshot)
     return probes
 
 
@@ -566,6 +641,57 @@ def _worktree_snapshot() -> dict | None:
     return {"branch": branch.stdout.strip(), "dirty": dirty, "error": None}
 
 
+def _secrets_bundle_snapshot(live_tree: Path = LIVE_TREE,
+                             bundle_dirs=BUNDLE_DIRS) -> dict | None:
+    """Снимок: mtime материала бандла и самого свежего .jrvbak.
+
+    ТОЛЬКО ЧТЕНИЕ — `stat` и `glob`, ни одной записи: сторож, трогающий
+    секреты, портит ровно то, что сторожит.
+
+    Отсутствующего каталога с бандлами достаточно, чтобы вернуть `bundle=None`
+    — это и есть повод для алерта. `error` — другое: каталог ЕСТЬ, но не
+    читается, и тогда мы не знаем, а не знаем-что-нет."""
+    if not live_tree.exists():
+        return None
+    try:
+        material = []
+        # ОБА env-файла, а не «.env.enc, иначе .env». `collect_secrets`
+        # предпочитает .enc, потому что его и экспортирует, — но проверка не о
+        # том, что уедет в бандл, а о том, что УЖЕ изменилось. Живой прогон
+        # 2026-08-10 показал цену разницы: .env от 08.08, .env.enc от 23.07,
+        # бандл от 05.08 — версия «предпочесть .enc» рапортовала отставание
+        # 0.0 суток, хотя рабочий .env ушёл вперёд бандла на двое суток.
+        for name in (".env", ".env.enc"):
+            f = live_tree / name
+            if f.exists():
+                material.append({"name": f.name, "mtime": f.stat().st_mtime})
+        secrets_dir = live_tree / ".secrets"
+        if secrets_dir.is_dir():
+            for pattern in BUNDLE_MATERIAL_GLOBS:
+                for f in secrets_dir.glob(pattern):
+                    if f.is_file():
+                        material.append({"name": f.name, "mtime": f.stat().st_mtime})
+
+        newest = None
+        searched = []
+        for d in bundle_dirs:
+            d = Path(d)
+            searched.append(str(d))
+            if not d.is_dir():
+                continue
+            for f in d.glob(BUNDLE_GLOB):
+                if not f.is_file():
+                    continue
+                m = f.stat().st_mtime
+                if newest is None or m > newest["mtime"]:
+                    newest = {"name": f.name, "mtime": m}
+        return {"material": material, "bundle": newest, "searched": searched, "error": None}
+    except Exception as exc:
+        return {"material": [], "bundle": None,
+                "searched": [str(d) for d in bundle_dirs],
+                "error": "%s: %s" % (type(exc).__name__, exc)}
+
+
 def main() -> int:
     state = _read_state()
 
@@ -588,7 +714,8 @@ def main() -> int:
 
     probes = probe_all(_http_get, _disk_usage,
                        chatter_snapshot=_chatter_snapshot(),
-                       worktree_snapshot=_worktree_snapshot())
+                       worktree_snapshot=_worktree_snapshot(),
+                       secrets_snapshot=_secrets_bundle_snapshot())
     alerts, state = evaluate(state, probes, suppress_down=in_boot_grace)
 
     if reboot_text:
