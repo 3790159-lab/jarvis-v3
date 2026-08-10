@@ -15,7 +15,8 @@ from telethon.errors import AuthKeyError, UnauthorizedError
 
 from chatter.config.active import ActiveClientsError, resolve_personas
 from chatter.config.loader import Config, ConfigError, ControlConfig, load_config
-from chatter.config.yaml_edit import YamlEditError, set_funnel_gate, set_honesty_mode
+from chatter.config.yaml_edit import (
+    YamlEditError, set_funnel_gate, set_honesty_mode, set_payments_enabled)
 from chatter.core import humanizer as H
 from chatter.core.admission import admission_decision
 from chatter.core.brain import Brain
@@ -693,7 +694,56 @@ class TelethonRunner:
             return self._set_honesty(arg, language)
         if name == "allow":
             return await self._set_allow(arg, language)
+        if name == "payments":
+            return self._set_payments(arg, language)
         return cfg_text("cfg_unknown", language)
+
+    def _set_payments(self, arg: str, language: str) -> str:
+        """Тумблер оплаты (§5.1) — ЕДИНСТВЕННЫЙ, и он команда, а не правка файла.
+
+        Значение в yaml — факт, а не цель: гардиан деплоит из рабочего дерева, и
+        включённая в файле фича встала бы на ребуте без команды владельца.
+
+        Направление несимметрично, как у /funnel_gate и /honesty: включение
+        требует `confirm` (бот начнёт сам называть суммы и слать реквизиты),
+        выключение исполняется сразу — аварию чинят быстро, а не через второй
+        экран.
+
+        Валидатор старта здесь не дублируется: правка → `reload_configs()` →
+        `load_config` с `assert_startable`. Конфиг, которым нечего ответить, не
+        включится ни командой, ни правкой файла, и владелец увидит ПРИЧИНУ."""
+        tokens = arg.strip().casefold().split()
+        action = tokens[0] if tokens else ""
+        confirmed = len(tokens) > 1 and tokens[1] in ("confirm", "да", "yes", "так")
+        slug = self.primary_slug
+        current = self.personas[slug].cfg.settings.payments.enabled
+
+        if not action:
+            return cfg_text("cfg_pay_status_on" if current else "cfg_pay_status_off",
+                            language, client=slug)
+        if action not in ("on", "off"):
+            return cfg_text("cfg_pay_usage", language)
+        if action == "on" and not confirmed:
+            return cfg_text("cfg_pay_confirm", language)
+
+        enabled = action == "on"
+        path = self._primary_dir() / "settings.yaml"
+        old = path.read_text(encoding="utf-8")
+        try:
+            path.write_text(set_payments_enabled(old, enabled), encoding="utf-8")
+        except (YamlEditError, OSError) as e:
+            log.warning("payments: правка settings.yaml не удалась", exc_info=True)
+            return cfg_text("cfg_pay_fail", language, reason=str(e))
+
+        ok, err = self.reload_configs()
+        if not ok:
+            path.write_text(old, encoding="utf-8")   # вернуть заведомо рабочий файл
+            self.reload_configs()
+            return cfg_text("cfg_pay_fail", language, reason=err)
+        # Имя клиента обязательно: на volska-раннере безымянное подтверждение
+        # однажды убедило владельца, что тумблер лёг в ЧУЖОЙ конфиг (дрил 22.07).
+        return cfg_text("cfg_pay_on_done" if enabled else "cfg_pay_off_done",
+                        language, client=slug)
 
     def _set_honesty(self, arg: str, language: str) -> str:
         """Тумблер честности командой пульта — но ТОЛЬКО через confirm.

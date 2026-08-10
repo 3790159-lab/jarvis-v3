@@ -280,6 +280,73 @@ MUTATIONS = [
     ("кодек: неизвестная валюта принимается", "chatter/payments/callbacks.py",
      "or ccy not in MINOR_EXPONENT:", "or False:",
      "tests/chatter/test_payments_callbacks.py::test_unknown_currency_is_rejected"),
+
+    # --- п.3: тумблер и валидатор конфига на СТАРТЕ (§5.1) -------------------
+
+    ("settings: тумблер приводится bool()-ом", "chatter/payments/settings.py",
+     "    if not isinstance(val, bool):", "    if False:",
+     "tests/chatter/test_payments_settings.py::test_enabled_must_be_a_real_bool_not_a_truthy_string"),
+
+    ("settings: кап 0 проходит (фича выключена молча)", "chatter/payments/settings.py",
+     "    if val <= 0:", "    if False:",
+     "tests/chatter/test_payments_settings.py::test_caps_and_due_hours_must_be_positive"),
+
+    ("settings: порог принимает голое число", "chatter/payments/settings.py",
+     '    if not isinstance(val, dict) or set(val) != {"amount", "currency"}:',
+     "    if False:",
+     "tests/chatter/test_payments_settings.py::test_owner_approval_above_bare_number_is_an_error"),
+
+    ("settings: дубль id канала проходит", "chatter/payments/settings.py",
+     "    if cid in seen:", "    if False:",
+     "tests/chatter/test_payments_settings.py::test_duplicate_channel_id_is_an_error"),
+
+    ("settings: неизвестный ключ блока молчит", "chatter/payments/settings.py",
+     "    unknown = sorted(set(raw) - _ALLOWED_KEYS)", "    unknown = []",
+     "tests/chatter/test_payments_settings.py::test_unknown_key_in_the_block_is_loud"),
+
+    ("settings: пустое тело реквизитов считается реквизитами",
+     "chatter/payments/settings.py",
+     '    return bool((book.get(key) or "").strip())', "    return key in book",
+     "tests/chatter/test_payments_settings.py::test_enabled_with_empty_requisites_body_fails_start"),
+
+    ("settings: auto-канал считается рабочим в Ф0", "chatter/payments/settings.py",
+     '        if c.mode == "manual"\n        and (_has_body(payments.requisites.templates, c.requisites_template)',
+     '        if c.mode in CHANNEL_MODES\n        and (_has_body(payments.requisites.templates, c.requisites_template)',
+     "tests/chatter/test_payments_settings.py::test_auto_channel_alone_fails_start"),
+
+    ("settings: валидатор старта молчит всегда", "chatter/payments/settings.py",
+     "    if not payments.enabled:\n        return", "    if True:\n        return",
+     "tests/chatter/test_payments_settings.py::test_enabled_without_channels_fails_start"),
+
+    ("settings: дрил-состояние проходит молча", "chatter/payments/settings.py",
+     "    if not client_ready:", "    if False:",
+     "tests/chatter/test_payments_settings.py::test_test_only_requisites_start_but_shout"),
+
+    ("settings: ступень без текста объёма не ловится на старте",
+     "chatter/payments/settings.py", "        if orphan:", "        if False:",
+     "tests/chatter/test_payments_settings.py::test_ladder_step_without_scope_text_fails_start"),
+
+    ("yaml_edit: правится закомментированный образец, а не живой ключ",
+     "chatter/config/yaml_edit.py",
+     "    target = live if live is not None else commented",
+     "    target = commented if commented is not None else live",
+     "tests/chatter/test_payments_toggle_command.py::test_live_key_wins_over_the_commented_sample"),
+
+    ("loader: валидатор старта не зовётся", "chatter/config/loader.py",
+     "        assert_startable(payments, slug=slug)", "        pass",
+     "tests/chatter/test_payments_toggle_command.py::test_enabled_without_requisites_is_a_start_error"),
+
+    ("пульт: включение без confirm", "chatter/telethon_run.py",
+     '        if action == "on" and not confirmed:\n            return cfg_text("cfg_pay_confirm", language)',
+     "        if False:\n            pass",
+     "tests/chatter/test_payments_toggle_command.py::test_on_without_confirm_only_warns"),
+
+    ("пульт: файл не откатывается на упавшей валидации", "chatter/telethon_run.py",
+     '            path.write_text(old, encoding="utf-8")   # вернуть заведомо рабочий файл\n'
+     '            self.reload_configs()\n'
+     '            return cfg_text("cfg_pay_fail", language, reason=err)',
+     '            return cfg_text("cfg_pay_fail", language, reason=err)',
+     "tests/chatter/test_payments_toggle_command.py::test_toggle_is_guarded_by_the_same_validator_as_start"),
 ]
 
 

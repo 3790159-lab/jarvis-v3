@@ -15,29 +15,31 @@ class YamlEditError(Exception):
     pass
 
 
-_TELEGRAM_BLOCK_RE = re.compile(r"^telegram:\s*$")
-# Ключ может быть живым ("  funnel_gate: false") или закомментированным
-# ("  # funnel_gate: true   # ← подтверждение") — в demo он именно закомментирован.
-_GATE_RE = re.compile(r"^(?P<indent>\s+)(?P<hash>#\s*)?funnel_gate\s*:\s*(?P<val>\S+)(?P<tail>.*)$")
-
-
 def _is_top_level_key(line: str) -> bool:
     return bool(line.strip()) and not line[0].isspace() and not line.lstrip().startswith("#")
 
 
-def set_funnel_gate(text: str, enabled: bool) -> str:
-    """Вернуть settings.yaml с telegram.funnel_gate = enabled.
+def _set_bool_in_block(text: str, *, block: str, key: str, enabled: bool) -> str:
+    """Вернуть settings.yaml с `<block>.<key>` = enabled.
 
-    Существующий ключ (в т.ч. закомментированный) — переписываем на месте,
-    чтобы не плодить второй. Отсутствующий — вставляем в конец блока telegram.
-    Нет блока telegram — ошибка: гейт без блока бессмыслен (некому задавать
-    allowlist), и молча создавать его мы не будем."""
+    Существующий ключ (в т.ч. закомментированный) — переписываем НА МЕСТЕ, чтобы
+    не плодить второй: рядом лежащие живой и закомментированный означают, что
+    неизвестно, который читает loader. Отсутствующий — вставляем в конец блока.
+    Нет блока — ошибка: молча сочинять блок мы не будем.
+
+    Ключ ищется ТОЛЬКО внутри границ блока. Для `enabled` это не педантизм:
+    короткое имя встречается и в других секциях."""
     lines = text.splitlines()
     value = "true" if enabled else "false"
+    block_re = re.compile(rf"^{re.escape(block)}:\s*$")
+    # Ключ может быть живым ("  enabled: false") или закомментированным
+    # ("  # funnel_gate: true   # ← подтверждение") — в demo он именно такой.
+    key_re = re.compile(
+        rf"^(?P<indent>\s+)(?P<hash>#\s*)?{re.escape(key)}\s*:\s*(?P<val>\S+)(?P<tail>.*)$")
 
-    start = next((i for i, l in enumerate(lines) if _TELEGRAM_BLOCK_RE.match(l)), None)
+    start = next((i for i, l in enumerate(lines) if block_re.match(l)), None)
     if start is None:
-        raise YamlEditError("в settings.yaml нет блока 'telegram:'")
+        raise YamlEditError(f"в settings.yaml нет блока '{block}:'")
 
     # Границы блока: до следующего ключа нулевого уровня.
     end = len(lines)
@@ -48,19 +50,52 @@ def set_funnel_gate(text: str, enabled: bool) -> str:
 
     indent = "  "
     last_content = start          # куда вставлять, если ключа нет
+    live: int | None = None
+    commented: int | None = None
     for i in range(start + 1, end):
-        m = _GATE_RE.match(lines[i])
+        m = key_re.match(lines[i])
         if m:
-            # Комментарий-пояснение справа сохраняем: он объясняет ЗАЧЕМ флаг.
-            tail = m.group("tail") if not m.group("hash") else ""
-            lines[i] = f"{m.group('indent')}funnel_gate: {value}{tail}"
-            return "\n".join(lines) + ("\n" if text.endswith("\n") else "")
+            if m.group("hash"):
+                commented = i if commented is None else commented
+            else:
+                live = i if live is None else live
         if lines[i].strip() and not lines[i].lstrip().startswith("#"):
             indent = lines[i][:len(lines[i]) - len(lines[i].lstrip())]
             last_content = i
 
-    lines.insert(last_content + 1, f"{indent}funnel_gate: {value}")
+    # Живой ключ имеет приоритет над закомментированным образцом: править надо
+    # тот, который действительно читает loader.
+    target = live if live is not None else commented
+    if target is not None:
+        m = key_re.match(lines[target])
+        # Комментарий-пояснение справа сохраняем: он объясняет ЗАЧЕМ флаг.
+        tail = m.group("tail") if not m.group("hash") else ""
+        lines[target] = f"{m.group('indent')}{key}: {value}{tail}"
+        return "\n".join(lines) + ("\n" if text.endswith("\n") else "")
+
+    lines.insert(last_content + 1, f"{indent}{key}: {value}")
     return "\n".join(lines) + ("\n" if text.endswith("\n") else "")
+
+
+def set_funnel_gate(text: str, enabled: bool) -> str:
+    """Вернуть settings.yaml с telegram.funnel_gate = enabled.
+
+    Нет блока telegram — ошибка: гейт без блока бессмыслен (некому задавать
+    allowlist)."""
+    return _set_bool_in_block(text, block="telegram", key="funnel_gate", enabled=enabled)
+
+
+def set_payments_enabled(text: str, enabled: bool) -> str:
+    """Вернуть settings.yaml с payments.enabled = enabled (§5.1).
+
+    ЕДИНСТВЕННЫЙ тумблер фичи. Значение в файле — ФАКТ, а не цель: гардиан
+    деплоит из рабочего дерева, и включённая в файле фича поднялась бы на ребуте
+    без команды владельца. Поэтому переключает команда пульта, а этот редактор —
+    её руки.
+
+    Нет блока payments — ошибка: включать было бы нечего (ни каналов, ни
+    реквизитов), а сочинять конфиг про деньги за владельца мы не станем."""
+    return _set_bool_in_block(text, block="payments", key="enabled", enabled=enabled)
 
 
 # honesty_mode — ключ ВЕРХНЕГО уровня (в отличие от funnel_gate внутри telegram:).

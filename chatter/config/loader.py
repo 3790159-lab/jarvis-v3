@@ -5,6 +5,9 @@ import re
 from pathlib import Path
 import yaml
 
+from chatter.payments.settings import (
+    PaymentsConfig, PaymentsConfigError, assert_startable, load_payments)
+
 log = logging.getLogger(__name__)
 
 LANGUAGES = {"ru", "en", "uk"}
@@ -129,6 +132,9 @@ class Settings:
     honesty_mode: str = HONESTY_HONEST
     telegram: TelegramConfig | None = None
     control: ControlConfig = field(default_factory=ControlConfig)
+    # Секция payments (§5.1). Блока нет → выключено с рабочими дефолтами:
+    # клиент, не писавший про оплату, обязан стартовать как раньше.
+    payments: PaymentsConfig = field(default_factory=PaymentsConfig)
 
 @dataclass(frozen=True)
 class Config:
@@ -351,6 +357,32 @@ def load_config(clients_dir: Path, slug: str) -> Config:
             auto_reload=bool(c_raw.get("auto_reload", default_control.auto_reload)),
         )
 
+    # Оплата (§5.1). Книга реквизитов — ОТДЕЛЬНЫЙ файл: реквизиты клиента живут
+    # не в общем settings.yaml, который правят командой пульта, а рядом, чтобы
+    # правка тумблера и правка платёжных данных не смешивались в одном файле.
+    payments_raw = raw.get("payments")
+    req_path = client_dir / "requisites.yaml"
+    requisites_raw = None
+    if req_path.exists():
+        try:
+            requisites_raw = yaml.safe_load(req_path.read_text(encoding="utf-8"))
+        except yaml.YAMLError as exc:
+            raise ConfigError(f"requisites.yaml: invalid YAML ({exc})") from exc
+        if requisites_raw is not None and not isinstance(requisites_raw, dict):
+            raise ConfigError("requisites.yaml: top-level must be a mapping")
+    try:
+        payments = load_payments(payments_raw, requisites_raw=requisites_raw,
+                                 knowledge=knowledge)
+        # Валидатор СТАРТА, а не документация: включённая фича, которой нечего
+        # сказать, роняет клиента здесь и сейчас. Тихое «включено, но реквизитов
+        # нет» — ровно тот сломанный дефолт, который назвал владелец (§5.1).
+        assert_startable(payments, slug=slug)
+    except PaymentsConfigError as exc:
+        # Тип наружу один (ConfigError): вызыватели — старт раннера и
+        # `reload_configs` тумблера — обязаны обрабатывать ошибку конфига
+        # одинаково, откуда бы она ни пришла.
+        raise ConfigError(f"settings.yaml/requisites.yaml: {exc}") from exc
+
     return Config(
         slug=slug, persona=persona, knowledge=knowledge, playbook=playbook,
         examples=examples,
@@ -363,5 +395,5 @@ def load_config(clients_dir: Path, slug: str) -> Config:
                           safe_payment_reply=(str(raw["safe_payment_reply"]) if raw.get("safe_payment_reply") is not None else None),
                           strict_knowledge=strict_knowledge, honesty_mode=honesty_mode,
                           work_hours=work_hours, timings=timings, limits=limits,
-                          telegram=telegram, control=control),
+                          telegram=telegram, control=control, payments=payments),
     )

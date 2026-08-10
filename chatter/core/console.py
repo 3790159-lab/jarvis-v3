@@ -11,7 +11,8 @@ GLOBAL_COMMANDS = frozenset({"status", "stop", "start", "help"})
 TARGETED_COMMANDS = frozenset({"pause", "resume"})
 # Config-арка: команды конфигурации (обрабатываются раннером, не execute_command).
 CONFIG_COMMANDS = frozenset({
-    "config", "reload", "knowledge", "rollback", "funnel_gate", "honesty", "allow"})
+    "config", "reload", "knowledge", "rollback", "funnel_gate", "honesty", "allow",
+    "payments"})
 
 
 def parse_config_command(text: str) -> tuple[str, str] | None:
@@ -733,6 +734,13 @@ _CFG_STRINGS: dict[str, dict[str, str]] = {
         "cfg_gate_off_done": "✅ Гейт воронки выкл. Аня отвечает только allowlist ({allow} id).",
         "cfg_gate_usage": "Использование: /funnel_gate on | off (без аргумента — показать текущее состояние).",
         "cfg_gate_fail": "⚠️ Не переключил ({reason}). Гейт остался как был.",
+        "cfg_pay_status_on": "Оплата [{client}]: ВКЛ. Называю сумму и присылаю реквизиты из конфига. Выключить: /payments off",
+        "cfg_pay_status_off": "Оплата [{client}]: выкл. На «куда платить» отсылаю к владельцу. Включить: /payments on confirm",
+        "cfg_pay_confirm": "⚠️ Включение = Аня начнёт САМА называть сумму (верх вилки прайса) и присылать реквизиты из конфига живым лидам.\n\nПроверь, что реквизиты в requisites.yaml — те самые: ошибка в одном символе IBAN означает деньги, ушедшие не туда.\n\nПодтверди: /payments on confirm",
+        "cfg_pay_on_done": "✅ Оплата ВКЛ для {client}. Сумма — верх вилки с оговоркой, реквизиты — из конфига. Выключить: /payments off",
+        "cfg_pay_off_done": "✅ Оплата выкл для {client}. На «куда платить» снова отсылаю к владельцу.",
+        "cfg_pay_usage": "Использование: /payments on | off (без аргумента — показать состояние). Включение требует confirm.",
+        "cfg_pay_fail": "⚠️ Не переключил ({reason}). Оплата осталась как была.",
         "btn_honesty_off": "🎭 Выключить честность",
         "cfg_honesty_status_honest": "Честность [{client}]: ВКЛ (на «ты бот?» раскрываюсь честно). Выключить: /honesty free",
         "cfg_honesty_status_free": "🎭 Честность [{client}]: ВЫКЛ (свободный режим, ответственность на владельце). Инструкция честности снята: обычно ведёт себя как живой человек, но может раскрыться сам — полное сокрытие не гарантируется. Вернуть: /honesty on",
@@ -800,6 +808,13 @@ _CFG_STRINGS: dict[str, dict[str, str]] = {
         "cfg_gate_off_done": "✅ Funnel gate off. Anya answers the allowlist only ({allow} ids).",
         "cfg_gate_usage": "Usage: /funnel_gate on | off (no argument — show current state).",
         "cfg_gate_fail": "⚠️ Not switched ({reason}). The gate is unchanged.",
+        "cfg_pay_status_on": "Payments [{client}]: ON. I name the price and send requisites from the config. Disable: /payments off",
+        "cfg_pay_status_off": "Payments [{client}]: off. I refer «where do I pay» to the owner. Enable: /payments on confirm",
+        "cfg_pay_confirm": "⚠️ Enabling = Anya starts naming the price herself (upper bound of the range) and sending requisites from the config to live leads.\n\nCheck that requisites.yaml holds the right details: one wrong character in an IBAN means money sent elsewhere.\n\nConfirm: /payments on confirm",
+        "cfg_pay_on_done": "✅ Payments ON for {client}. Price — upper bound with the caveat, requisites — from the config. Disable: /payments off",
+        "cfg_pay_off_done": "✅ Payments off for {client}. «Where do I pay» goes back to the owner.",
+        "cfg_pay_usage": "Usage: /payments on | off (no argument — show state). Enabling requires confirm.",
+        "cfg_pay_fail": "⚠️ Not switched ({reason}). Payments are unchanged.",
         "btn_honesty_off": "🎭 Turn honesty off",
         "cfg_honesty_status_honest": "Honesty [{client}]: ON (I disclose honestly when asked «are you a bot?»). Turn off: /honesty free",
         "cfg_honesty_status_free": "🎭 Honesty [{client}]: OFF (free mode, owner's liability). The honesty instruction is lifted: usually behaves like a live human, but may disclose on its own — full concealment is not guaranteed. Restore: /honesty on",
@@ -867,6 +882,13 @@ _CFG_STRINGS: dict[str, dict[str, str]] = {
         "cfg_gate_off_done": "✅ Гейт воронки вимк. Аня відповідає лише allowlist ({allow} id).",
         "cfg_gate_usage": "Використання: /funnel_gate on | off (без аргументу — показати поточний стан).",
         "cfg_gate_fail": "⚠️ Не перемкнув ({reason}). Гейт лишився як був.",
+        "cfg_pay_status_on": "Оплата [{client}]: УВІМК. Називаю суму і надсилаю реквізити з конфігу. Вимкнути: /payments off",
+        "cfg_pay_status_off": "Оплата [{client}]: вимк. На «куди платити» відсилаю до керівниці. Увімкнути: /payments on confirm",
+        "cfg_pay_confirm": "⚠️ Увімкнення = Аня почне САМА називати суму (верх вилки прайсу) і надсилати реквізити з конфігу живим лідам.\n\nПеревір, що реквізити в requisites.yaml — саме ті: помилка в одному символі IBAN означає гроші, що пішли не туди.\n\nПідтверди: /payments on confirm",
+        "cfg_pay_on_done": "✅ Оплата УВІМК для {client}. Сума — верх вилки із застереженням, реквізити — з конфігу. Вимкнути: /payments off",
+        "cfg_pay_off_done": "✅ Оплата вимк для {client}. На «куди платити» знову відсилаю до керівниці.",
+        "cfg_pay_usage": "Використання: /payments on | off (без аргументу — показати стан). Увімкнення вимагає confirm.",
+        "cfg_pay_fail": "⚠️ Не перемкнув ({reason}). Оплата лишилася як була.",
         "btn_honesty_off": "🎭 Вимкнути чесність",
         "cfg_honesty_status_honest": "Чесність [{client}]: УВІМК (на «ти бот?» розкриваюся чесно). Вимкнути: /honesty free",
         "cfg_honesty_status_free": "🎭 Чесність [{client}]: ВИМК (вільний режим, відповідальність на власнику). Інструкцію чесності знято: зазвичай поводиться як жива людина, але може розкритися сам — повне приховування не гарантується. Повернути: /honesty on",
