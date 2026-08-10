@@ -246,10 +246,10 @@ MUTATIONS = [
      'dedup_key = make_dedup_key("panel", "fixed")',
      "tests/chatter/test_paid_action.py::test_two_panel_payments_with_different_tokens_are_two_rows"),
 
-    ("пульт: сумма снова через float", "chatter/notify/control_bot.py",
-     'amount = from_major((paid_amount_raw or "").replace(",", ".").strip(), "USD")',
-     'amount = Money(int(float((paid_amount_raw or "0")) * 100), "USD")',
-     "tests/chatter/test_paid_action.py::test_money_is_stored_in_minor_units"),
+    ("кодек: legacy-сумма снова через float", "chatter/payments/callbacks.py",
+     '        amount = from_major(raw.replace(",", ".").strip(), "USD")',
+     '        amount = Money(int(float(raw.replace(",", ".").strip()) * 100), "USD")',
+     "tests/chatter/test_payments_callbacks.py::test_legacy_fractional_amount"),
     # ── пункт 2: versioned-кодек callback'ов ───────────────────────────────
     ("кодек: legacy-формат выпал из реестра", "chatter/payments/callbacks.py",
      '    "paidamt": _parse_paidamt_v1,', '    "paidamtX": _parse_paidamt_v1,',
