@@ -237,8 +237,12 @@ MUTATIONS = [
 
     ("пульт: оплата без личности пишется сентинелом",
      "chatter/notify/control_bot.py",
-     '            log.warning("route_callback: оплата без личности события (%s)", contact_id)',
-     '            dedup_key = "panel:0"\n            log.warning("x", contact_id)',
+     '    else:\n'
+     '        log.warning("route_callback: оплата без личности события (%s)", contact_id)\n'
+     '        return CallbackResult(\n'
+     '            feedback_html=console_text("fb_paid_no_identity", language),\n'
+     '            answer=console_text("fb_paid_no_identity", language))',
+     '    else:\n        dedup_key = "panel:0"',
      "tests/chatter/test_paid_action.py::test_payment_without_identity_is_refused_and_writes_nothing"),
 
     ("пульт: токен панели игнорируется", "chatter/notify/control_bot.py",

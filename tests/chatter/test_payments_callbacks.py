@@ -41,6 +41,10 @@ def test_legacy_paid_with_dollar_amount():
 
 
 def test_legacy_fractional_amount():
+    """750.29 выбрано не случайно: float(\"750.29\") * 100 == 75028.999…, и
+    разбор через float дал бы 75028 — цент, потерянный молча. На 750.50 тест
+    был бы слеп (проверено мутацией DEV-26)."""
+    assert parse_callback(f"paidamt:750.29:{CID}").amount == Money(75029, "USD")
     assert parse_callback(f"paidamt:750.50:{CID}").amount == Money(75050, "USD")
 
 
