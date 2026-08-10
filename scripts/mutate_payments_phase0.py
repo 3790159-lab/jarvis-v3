@@ -402,6 +402,34 @@ MUTATIONS = [
      '                "   invoice_id=excluded.invoice_id,"',
      "tests/chatter/test_payments_run_wiring.py::test_two_taps_on_one_card_stay_one_payment"),
 
+    # --- п.5: боевой конфиг volska. Конфиг проверяется как КОД ---------------
+
+    ("volska: сетка торга уходит ниже опубликованного пола",
+     "chatter/clients/volska/settings.yaml",
+     "          - {amount: 750, scope_key: smm_floor}",
+     "          - {amount: 700, scope_key: smm_floor}",
+     "tests/chatter/test_payments_volska_config.py::test_volska_loads_with_payments_off"),
+
+    ("volska: верх вилки не опубликован в knowledge",
+     "chatter/clients/volska/settings.yaml",
+     "        price_range: [750, 900]", "        price_range: [750, 950]",
+     "tests/chatter/test_payments_volska_config.py::test_price_bounds_are_literals_from_knowledge"),
+
+    ("volska: заглушка потеряла пометку placeholder",
+     "chatter/clients/volska/settings.yaml",
+     '    smm_full: {text: "ЗАГЛУШКА: повний обсяг ведення", placeholder: true}',
+     '    smm_full: {text: "ЗАГЛУШКА: повний обсяг ведення", placeholder: false}',
+     "tests/chatter/test_payments_volska_config.py::test_all_scope_texts_are_marked_as_stubs_today"),
+
+    ("volska: канал объявлен merchant'ским (mode: auto) в Ф0",
+     "chatter/clients/volska/settings.yaml",
+     "      mode: manual", "      mode: auto",
+     "tests/chatter/test_payments_volska_config.py::test_only_manual_channels_are_declared"),
+
+    ("volska: фича включена прямо в файле", "chatter/clients/volska/settings.yaml",
+     "  enabled: false", "  enabled: true",
+     "tests/chatter/test_payments_volska_config.py::test_volska_loads_with_payments_off"),
+
     ("пульт: файл не откатывается на упавшей валидации", "chatter/telethon_run.py",
      '            path.write_text(old, encoding="utf-8")   # вернуть заведомо рабочий файл\n'
      '            self.reload_configs()\n'
