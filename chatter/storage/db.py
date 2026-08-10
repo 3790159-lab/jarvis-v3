@@ -430,7 +430,14 @@ class Store:
                 "   amount_received=excluded.amount_received,"
                 "   currency=excluded.currency,"
                 "   currency_received=excluded.currency_received,"
-                "   invoice_id=excluded.invoice_id, stage_no=excluded.stage_no,"
+                # Привязка к счёту НЕ снимается повтором: второй тап по той же
+                # карточке приходит уже тогда, когда счёт закрыт и «открытого»
+                # для привязки нет. Голое `excluded.invoice_id` обнуляло бы
+                # ссылку, и `received_minor` по счёту падал бы в ноль при
+                # статусе `paid` — деньги «исчезали» от лишнего тапа.
+                # Перепривязка к ДРУГОМУ счёту остаётся возможной (не-NULL).
+                "   invoice_id=COALESCE(excluded.invoice_id, payments.invoice_id),"
+                "   stage_no=COALESCE(excluded.stage_no, payments.stage_no),"
                 "   channel_id=excluded.channel_id,"
                 "   confirmed_by=excluded.confirmed_by,"
                 "   external_event_id=excluded.external_event_id, ts=excluded.ts",

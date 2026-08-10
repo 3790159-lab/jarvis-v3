@@ -156,7 +156,7 @@ class Brain:
     def reply(self, history: list[dict], *, context_note: str | None = None,
               profile: str | None = None, obligations_block: str = "",
               obligations=(), log_shape: bool = False, contact_id: str = "",
-              now: datetime | None = None) -> str:
+              now: datetime | None = None, invoice_block: str = "") -> str:
         """`context_note`: an optional ONE-OFF instruction for this reply only
         (e.g. "this message waited 20 min, acknowledge the pause in your own
         words"). It rides in the system prompt for this single call but is NOT
@@ -183,6 +183,13 @@ class Brain:
                 f"=== ПРОФІЛЬ КЛІЄНТА (з минулих розмов; актуальні факти) ===\n{profile}")
         if obligations_block:
             parts.append(obligations_block)
+        if invoice_block:
+            # ОТДЕЛЬНЫЙ блок, а не строка слота: слот инъектит только
+            # `owed_by=bot`, а долг оплаты лежит на КЛИЕНТЕ — без своего блока
+            # модель о неоплаченном счёте не узнала бы вовсе (§14 п.13). Едет
+            # тем же uncached_suffix-ом: статус счёта меняется, а изменчивое в
+            # стабильном префиксе убивает кэш.
+            parts.append(invoice_block)
         if context_note:
             parts.append(
                 f"=== КОНТЕКСТ ОТВЕТА (разовая заметка, не часть персоны) ===\n{context_note}")

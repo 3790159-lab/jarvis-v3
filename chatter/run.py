@@ -36,6 +36,15 @@ from chatter.core.escalation import (
     honest_self_action_fallback, pick_non_repeating, self_action_fallback,
     suppressed_fallback,
 )
+from chatter.payments.drill_gate import NotForProduction
+from chatter.payments.instructions import (
+    RequisitesError, RequisitesUnavailable, resolve_instruction)
+from chatter.payments.money import Money, format_major
+from chatter.payments.prompt import (
+    UnsubstitutedPlaceholder, finalize, find_placeholders, format_due,
+    pick_open_invoice, render_invoice_block,
+)
+from chatter.payments.settings import usable_channels
 from chatter.core.guardrails import (
     redact_unbacked, within_daily_cap, within_hourly_limit,
 )
@@ -216,6 +225,49 @@ def _muted_now(deps: Deps, contact_id: str) -> bool:
         print(f"  [BUG] paused without a source: {contact_id}")
     kill = deps.store.get_runtime_flag("kill_switch") == "1"
     return is_muted(row, kill_switch=kill, now=deps.clock())
+
+
+def _payment_context(deps: "Deps", contact_id: str) -> tuple[str, dict[str, str]]:
+    """Блок счёта для промпта и значения подстановки (§8.2, §8.3, §14 п.13).
+
+    Возвращает ДВЕ вещи, потому что они уходят в разные концы хода: блок — в
+    модель ДО ответа, значения — в текст ПОСЛЕ guardrails. Разъехаться они не
+    могут: собраны из одного снимка счёта.
+
+    Реквизитов в блоке нет: модель их не видит вовсе (§8.3). Ошибка в одном
+    символе IBAN — это деньги, ушедшие не туда (риск 10.5)."""
+    pay = deps.cfg.settings.payments
+    if not pay.enabled:
+        return "", {}
+
+    invoice = pick_open_invoice(deps.store.invoices_for(contact_id=contact_id))
+    block = render_invoice_block(invoice, now=deps.clock())
+    values: dict[str, str] = {}
+
+    channels = usable_channels(pay)
+    if channels:
+        # Ф0: один канал. Перечисление нескольких — операция А, отдельный шаг.
+        try:
+            instruction = resolve_instruction(
+                channel=channels[0], book=pay.requisites, contact_id=contact_id)
+            values["REQUISITES"] = instruction.body_text
+        except RequisitesUnavailable as exc:
+            # Штатный отказ: клиентских реквизитов нет. Фича молчит, но не
+            # молча — иначе «бот перестал отвечать про оплату» останется без
+            # объяснения (DEV-18).
+            log.info("реквизиты для %s не выданы: %s", contact_id, exc)
+        except (RequisitesError, NotForProduction) as exc:
+            log.warning("реквизиты для %s не выданы: %s", contact_id, exc)
+
+    if invoice is not None:
+        total = invoice.get("amount_total")
+        if total is not None:
+            money = Money(int(total), invoice["currency"])
+            values["AMOUNT"] = f"{format_major(money)} {invoice['currency']}"
+        if invoice.get("due_ts") is not None:
+            values["DUE"] = format_due(invoice["due_ts"],
+                                       language=deps.cfg.settings.language)
+    return block, values
 
 
 def _escalation_pass(
@@ -791,6 +843,8 @@ def process_batch(
         print(f"  [muted] {contact_id}: входящее записано, ответа не будет")
         return
 
+    pay_block, pay_values = _payment_context(deps, contact_id)
+
     limits = deps.cfg.settings.limits
     if not within_hourly_limit(deps.store, contact_id, now=deps.clock(), limit=limits.per_contact_hourly):
         print(f"  [rate limit] hourly limit hit for {contact_id}; skipping")
@@ -840,6 +894,7 @@ def process_batch(
             profile=deps.store.get_profile(contact_id),
             obligations_block=obl_block,
             obligations=obl_list, log_shape=slot_on, contact_id=contact_id,
+            invoice_block=pay_block,
         )
 
     # Арка 3B: единый проход эскалации (детерминированный слой + классификатор),
@@ -849,6 +904,25 @@ def process_batch(
     reply, card_posted = _escalation_pass(
         deps, contact_id, incoming_text=text, reply=reply,
         now=deps.clock(), disclosure_sent=disclosure_sent)
+
+    # ПОДСТАНОВКА — ПОСЛЕ guardrails и ТОЛЬКО здесь (§14 п.16). Сделай её до
+    # редакции — и `large_number` вырежет подставленную сумму как необеспеченную:
+    # промежуточных ступеней торга в knowledge нет по определению.
+    #
+    # Проверка идёт и при выключенной фиче: служебное «{REQUISITES}» в лицо
+    # клиенту — дефект независимо от тумблера, а значений тогда просто нет.
+    try:
+        reply = finalize(reply, pay_values)
+    except UnsubstitutedPlaceholder as exc:
+        # §8.3: подавляется ВЕСЬ ответ, а не вырезается плейсхолдер.
+        # Полуотрендеренные реквизиты хуже молчания: ошибка в одном символе
+        # IBAN — это деньги, ушедшие не туда. Молча не глотаем (DEV-18):
+        # событие + лог, чтобы «бот замолчал» имело объяснение в БД.
+        log.error("ответ для %s подавлен: %s (плейсхолдеры: %s)",
+                  contact_id, exc, ", ".join(find_placeholders(reply)))
+        deps.store.add_event("payments_placeholder_unresolved",
+                             contact_id=contact_id, detail=str(exc), ts=deps.clock())
+        return
 
     if not (reply or "").strip():
         # Честная пауза анти-самоповтора (P20 в) — единственный путь сюда.

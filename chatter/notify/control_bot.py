@@ -26,6 +26,7 @@ from chatter.core.escalation import esc_active_key
 from chatter.notify.base import Action, Card, CardHandle, Notifier
 from chatter.payments.callbacks import InvoiceAction, PaidAction, parse_callback
 from chatter.payments.model import PaymentRecord, make_dedup_key
+from chatter.payments.prompt import pick_open_invoice
 from chatter.payments.money import format_major
 
 log = logging.getLogger("chatter.notify.control_bot")
@@ -82,9 +83,20 @@ def _route_payment(money, *, store, now: float, language: str,
             answer=console_text("fb_paid_no_identity", language))
 
     store.get_or_create_contact(contact_id)
-    store.record_payment(PaymentRecord(
+    # Оплата привязывается к ОТКРЫТОМУ счёту, если он есть, и уходит через
+    # apply_payment — единственную дверь, которая пересчитывает статус (§14 п.4).
+    # Без этого блок счёта в промпте продолжал бы твердить «оплати ще немає»
+    # после того, как владелица оплату подтвердила.
+    #
+    # Счёта нет — путь прежний: ручное подтверждение УЖЕ в проде и остаётся
+    # рабочим. Счёт — новая возможность, а не новое условие.
+    invoice = pick_open_invoice(store.invoices_for(contact_id=contact_id))
+    invoice_id = None if invoice is None else invoice["invoice_id"]
+    store.apply_payment(PaymentRecord(
         contact_id=contact_id, dedup_key=dedup_key, ts=now,
-        confirmed_by="owner", amount=money.amount))
+        confirmed_by="owner", amount=money.amount,
+        invoice_id=invoice_id, stage_no=None if invoice_id is None else 1,
+    ), now=now)
     store.add_event("payment", contact_id=contact_id,
                     detail="" if money.amount is None else f"{format_major(money.amount)} USD",
                     ts=now)

@@ -341,6 +341,67 @@ MUTATIONS = [
      "        if False:\n            pass",
      "tests/chatter/test_payments_toggle_command.py::test_on_without_confirm_only_warns"),
 
+    # --- п.4: блок счёта в промпте и порядок модель → guardrails → подстановка -
+
+    ("prompt: оплаченный счёт продолжает висеть в промпте", "chatter/payments/prompt.py",
+     '    if invoice is None or invoice.get("status") in _SILENT_STATUSES:',
+     "    if invoice is None:",
+     "tests/chatter/test_payments_prompt.py::test_paid_invoice_does_not_hang_in_the_prompt"),
+
+    ("prompt: неизвестный плейсхолдер не считается нехваткой",
+     "chatter/payments/prompt.py",
+     '            if not str(values.get(name, "")).strip()]',
+     "            if name in PLACEHOLDERS and not str(values.get(name, '')).strip()]",
+     "tests/chatter/test_payments_prompt.py::test_unknown_placeholder_counts_as_missing"),
+
+    ("prompt: плейсхолдером считается любая фигурная скобка",
+     "chatter/payments/prompt.py",
+     r'PLACEHOLDER_RE = re.compile(r"\{([A-Z][A-Z_]*)\}")',
+     r'PLACEHOLDER_RE = re.compile(r"\{([A-Za-z][A-Za-z_]*)\}")',
+     "tests/chatter/test_payments_prompt.py::test_lowercase_braces_are_not_placeholders"),
+
+    ("prompt: срока нет → тихая пустая строка", "chatter/payments/prompt.py",
+     '        raise UnsubstitutedPlaceholder("срок оплаты не задан — подставить нечего")',
+     '        return ""',
+     "tests/chatter/test_payments_prompt.py::test_due_without_timestamp_is_an_error_not_an_empty_string"),
+
+    ("prompt: awaiting_owner обещает срок и сумму", "chatter/payments/prompt.py",
+     '    if invoice.get("status") == "awaiting_owner" or invoice.get("amount_total") is None:',
+     "    if False:",
+     "tests/chatter/test_payments_prompt.py::test_awaiting_owner_invoice_does_not_promise_a_deadline"),
+
+    ("brain: блок счёта не доезжает до модели", "chatter/core/brain.py",
+     "        if invoice_block:", "        if False:",
+     "tests/chatter/test_payments_run_wiring.py::test_invoice_block_rides_after_the_cache_breakpoint"),
+
+    ("run: подстановка ДО guardrails (§14 п.16)", "chatter/run.py",
+     "            invoice_block=pay_block,\n        )",
+     "            invoice_block=pay_block,\n        )\n        reply = finalize(reply, pay_values)",
+     "tests/chatter/test_payments_run_wiring.py::test_substituted_amount_survives_the_guardrail"),
+
+    ("run: неподставленный плейсхолдер уходит лиду", "chatter/run.py",
+     '        deps.store.add_event("payments_placeholder_unresolved",\n'
+     "                             contact_id=contact_id, detail=str(exc), ts=deps.clock())\n"
+     "        return",
+     '        deps.store.add_event("payments_placeholder_unresolved",\n'
+     "                             contact_id=contact_id, detail=str(exc), ts=deps.clock())",
+     "tests/chatter/test_payments_run_wiring.py::test_reply_with_an_unsubstitutable_placeholder_is_suppressed_whole"),
+
+    ("run: проверка плейсхолдеров только при включённой фиче", "chatter/run.py",
+     "        reply = finalize(reply, pay_values)",
+     "        reply = finalize(reply, pay_values) if pay_values else reply",
+     "tests/chatter/test_payments_run_wiring.py::test_placeholder_never_reaches_the_lead_even_with_payments_off"),
+
+    ("control_bot: оплата не привязывается к счёту", "chatter/notify/control_bot.py",
+     "        invoice_id=invoice_id, stage_no=None if invoice_id is None else 1,",
+     "        invoice_id=None, stage_no=None,",
+     "tests/chatter/test_payments_run_wiring.py::test_owner_tap_attaches_the_payment_to_the_open_invoice"),
+
+    ("db: повтор тапа отвязывает оплату от счёта", "chatter/storage/db.py",
+     '                "   invoice_id=COALESCE(excluded.invoice_id, payments.invoice_id),"',
+     '                "   invoice_id=excluded.invoice_id,"',
+     "tests/chatter/test_payments_run_wiring.py::test_two_taps_on_one_card_stay_one_payment"),
+
     ("пульт: файл не откатывается на упавшей валидации", "chatter/telethon_run.py",
      '            path.write_text(old, encoding="utf-8")   # вернуть заведомо рабочий файл\n'
      '            self.reload_configs()\n'
