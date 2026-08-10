@@ -22,6 +22,10 @@ Each cycle probes:
   * free disk on C:    — local shutil.disk_usage, threshold 10GB (worktrees
                          have filled C: before; checked locally so it works even
                          when the backend is down)
+  * live tree state    — C:/jarvis на транке и чисто по tracked-файлам. Дерево
+                         это деплой-путь гардиана: `git checkout` в нём = тихий
+                         деплой. 2026-08-10 оно дважды осталось не в том
+                         состоянии, и оба раза это поймало внимание, а не сторож
 
 Dedup/recovery: per-check state (consecutive-fail count + an ``alerted`` flag)
 persists in ``state/ops_watchdog_state.json``. A check alerts once on the
@@ -47,6 +51,19 @@ ENV_PATH = ROOT / ".env"
 ADMIN_CHAT_ID = "237616472"
 
 BASE_URL = "http://127.0.0.1:8010"
+
+# Живое дерево — ДЕПЛОЙ-ПУТЬ гардиана: он поднимает раннер из того, что здесь
+# лежит, поэтому `git checkout` в этом каталоге = тихий деплой через ~90 с.
+# Путь задан ЯВНО, а не через ROOT: ROOT — это каталог скрипта, и в worktree он
+# указывал бы на worktree, то есть проверка следила бы не за тем деревом.
+LIVE_TREE = Path("C:/jarvis")
+TRUNK_BRANCH = "phase-4.0-unified-jarvis"
+# `--untracked-files=no` не оптимизация: в живом дереве постоянно лежат
+# артефакты и отчёты (на момент внедрения — 12 записей). Без этого флага
+# проверка была бы красной ВСЕГДА, а вечно красную лампу перестают читать.
+GIT_STATUS_ARGS = ("status", "--porcelain", "--untracked-files=no")
+GIT_TIMEOUT_S = 10
+DIRTY_SHOWN = 3              # сколько файлов называть в алерте
 MIN_DISK_GB = 10.0
 DISK_PATH = "C:/"
 DEBOUNCE = 2                 # consecutive failed cycles before a DOWN alert
@@ -64,6 +81,7 @@ LABELS = {
     # иначе владелец решит, что упало дважды.
     "chatter_runner": "CHATTER раннер (независимый сторож)",
     "chatter_guardian": "CHATTER гардиан (независимый сторож)",
+    "worktree": "ЖИВОЕ ДЕРЕВО C:/jarvis (не транк или грязное)",
 }
 
 # Порог тот же, что у гардиана (HeartbeatMaxAgeSec=180). Разные пороги = два
@@ -336,8 +354,47 @@ def probe_chatter_guardian(processes, *, lock_pid, beat_age):
     return {"ok": True, "detail": "PID %s, heartbeat %.0fс тому" % (lock_pid, beat_age)}
 
 
+def probe_worktree(snapshot: dict, *, trunk: str = TRUNK_BRANCH) -> dict:
+    """Восьмая проверка: живое дерево на транке и чисто по tracked-файлам.
+
+    Почему это вообще сторож, а не дисциплина: дерево — деплой-путь гардиана.
+    2026-08-10 оно дважды оказалось не в том состоянии (осталось на ветке арки
+    после сессии; откат мутационного харнесса стёр незакоммиченную правку) —
+    оба раза это поймало ВНИМАНИЕ, то есть ночью не поймало бы ничто.
+
+    Обе причины называются вместе: узнав только про ветку, вернёшь её и решишь,
+    что починил, — а грязные файлы останутся и уедут в деплой.
+
+    Невозможность спросить git — тоже КРАСНОЕ. На машине, где git и есть
+    механизм деплоя, «не смогли посмотреть» это аномалия, а зелёное здесь
+    означало бы слепую зону ровно там, где мы её и закрываем."""
+    error = (snapshot or {}).get("error")
+    if error:
+        return {"ok": False, "detail": "не удалось определить состояние дерева: %s" % error}
+
+    branch = ((snapshot or {}).get("branch") or "").strip()
+    dirty = list((snapshot or {}).get("dirty") or [])
+    problems = []
+
+    if not branch:
+        problems.append("ветка не определена")
+    elif branch != trunk:
+        # Обе ветки в тексте: иначе непонятно, куда возвращать.
+        problems.append("HEAD на «%s», ожидался «%s»" % (branch, trunk))
+
+    if dirty:
+        shown = ", ".join(line.strip() for line in dirty[:DIRTY_SHOWN])
+        tail = "" if len(dirty) <= DIRTY_SHOWN else " и ещё %d" % (len(dirty) - DIRTY_SHOWN)
+        problems.append("модифицировано tracked-файлов: %d (%s%s)" % (len(dirty), shown, tail))
+
+    if problems:
+        return {"ok": False, "detail": "; ".join(problems)}
+    return {"ok": True, "detail": "%s, чисто" % trunk}
+
+
 def probe_all(http_get, disk_usage, min_disk_gb: float = MIN_DISK_GB,
-              chatter_snapshot: dict | None = None) -> dict:
+              chatter_snapshot: dict | None = None,
+              worktree_snapshot: dict | None = None) -> dict:
     """Compose the cycle's probes. ``http_get(path) -> int|None`` (HTTP status,
     or None on connection refused/timeout); ``disk_usage(path) -> (total, used,
     free)`` (shutil.disk_usage-shaped)."""
@@ -375,6 +432,8 @@ def probe_all(http_get, disk_usage, min_disk_gb: float = MIN_DISK_GB,
         probes["chatter_guardian"] = probe_chatter_guardian(
             cs.get("processes"), lock_pid=cs.get("guardian_lock_pid"),
             beat_age=cs.get("guardian_beat_age"))
+    if worktree_snapshot:
+        probes["worktree"] = probe_worktree(worktree_snapshot)
     return probes
 
 
@@ -480,6 +539,33 @@ def _chatter_snapshot() -> dict | None:
         return None
 
 
+def _worktree_snapshot() -> dict | None:
+    """Снимок живого дерева: ветка + модифицированные tracked-файлы.
+
+    `None` возвращается ТОЛЬКО когда дерева нет на этой машине — тогда
+    watchdog просто не на деплой-хосте и мерить ему нечего. Сбой самого git
+    отдаётся как `error`, то есть проба будет КРАСНОЙ, а не пропущенной: это
+    разные вещи, и вторую нельзя выдавать за первую."""
+    if not LIVE_TREE.exists():
+        return None
+    import subprocess
+    try:
+        branch = subprocess.run(
+            ["git", "-C", str(LIVE_TREE), "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True, text=True, timeout=GIT_TIMEOUT_S)
+        status = subprocess.run(
+            ["git", "-C", str(LIVE_TREE), *GIT_STATUS_ARGS],
+            capture_output=True, text=True, timeout=GIT_TIMEOUT_S)
+    except Exception as exc:
+        return {"branch": None, "dirty": [], "error": "%s: %s" % (type(exc).__name__, exc)}
+    if branch.returncode != 0 or status.returncode != 0:
+        return {"branch": None, "dirty": [],
+                "error": "git rc=%s/%s: %s" % (branch.returncode, status.returncode,
+                                               (branch.stderr or status.stderr).strip()[:120])}
+    dirty = [line for line in status.stdout.splitlines() if line.strip()]
+    return {"branch": branch.stdout.strip(), "dirty": dirty, "error": None}
+
+
 def main() -> int:
     state = _read_state()
 
@@ -501,7 +587,8 @@ def main() -> int:
         in_boot_grace = within_boot_grace(boot_time, time.time())
 
     probes = probe_all(_http_get, _disk_usage,
-                       chatter_snapshot=_chatter_snapshot())
+                       chatter_snapshot=_chatter_snapshot(),
+                       worktree_snapshot=_worktree_snapshot())
     alerts, state = evaluate(state, probes, suppress_down=in_boot_grace)
 
     if reboot_text:
