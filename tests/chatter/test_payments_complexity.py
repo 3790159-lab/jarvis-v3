@@ -1,0 +1,124 @@
+"""Гейт эскалации — СЛОЖНОСТЬ, а не сумма (спека §2.4, решение владельца 2).
+
+Владельца зовём там, где ошибается понимание запроса, а не калькулятор.
+Решение принимает КОД: модель лишь фиксирует факты в `QuoteRequest`.
+
+Дефолт закрыт ОТКАЗОМ (урок P17): нет разбора — зовём владельца, а не
+«наверное простой заказ».
+"""
+from __future__ import annotations
+
+import pytest
+
+from chatter.payments.complexity import (
+    NeedsOwner, QuoteRequest, RequestedItem, Simple, assess_complexity,
+)
+from chatter.payments.pricing import load_pricing
+
+KNOWLEDGE = "- Створення логотипа — 300–400 $\n- Упаковка — 300–400 $\n"
+
+PRICING = load_pricing({
+    "amount_source": "price_upper",
+    "positions": {
+        "logo_create": {"title": "Логотип", "currency": "USD", "price_range": [300, 400],
+                        "ladder": [{"amount": 400, "scope_key": "full"},
+                                   {"amount": 300, "scope_key": "floor"}]},
+        "packaging": {"title": "Упаковка", "currency": "USD", "price_range": [300, 400],
+                      "ladder": [{"amount": 400, "scope_key": "p_full"},
+                                 {"amount": 300, "scope_key": "p_floor"}]},
+    },
+}, knowledge=KNOWLEDGE)
+
+
+def _req(**over):
+    base = dict(items=(RequestedItem("logo_create", 1, "логотип"),),
+                unknown_services=(), volume_note=None, deadline_note=None, parsed=True)
+    base.update(over)
+    return QuoteRequest(**base)
+
+
+def test_simple_single_service_bot_prices_it_itself():
+    """Решение владельца: простая одиночная услуга — считает сам."""
+    got = assess_complexity(_req(), PRICING)
+    assert got == Simple("logo_create", 1)
+
+
+def test_more_than_one_service_goes_to_owner():
+    got = assess_complexity(_req(items=(RequestedItem("logo_create", 1, "лого"),
+                                        RequestedItem("packaging", 1, "упаковка"))), PRICING)
+    assert isinstance(got, NeedsOwner)
+    assert "multiple_services" in got.reasons
+
+
+def test_one_service_several_units_goes_to_owner():
+    """«Три логотипи» — масштаб меняет и цену, и производственный план."""
+    got = assess_complexity(_req(items=(RequestedItem("logo_create", 3, "три лого"),)), PRICING)
+    assert isinstance(got, NeedsOwner)
+    assert "multiple_units" in got.reasons
+
+
+def test_service_absent_from_price_list_goes_to_owner():
+    got = assess_complexity(_req(unknown_services=("розробка сайту",)), PRICING)
+    assert isinstance(got, NeedsOwner)
+    assert "unknown_service" in got.reasons
+
+
+def test_position_id_not_in_pricing_goes_to_owner():
+    """Классификатор может прислать ключ, которого в конфиге нет (позицию
+    убрали, а промпт помнит). Это не «просто», это рассинхрон."""
+    got = assess_complexity(_req(items=(RequestedItem("smm", 1, "SMM"),)), PRICING)
+    assert isinstance(got, NeedsOwner)
+    assert "unknown_position" in got.reasons
+
+
+@pytest.mark.parametrize("field,reason", [
+    ("volume_note", "volume_out_of_norm"),
+    ("deadline_note", "deadline_out_of_norm"),
+])
+def test_volume_or_deadline_out_of_norm_goes_to_owner(field, reason):
+    got = assess_complexity(_req(**{field: "на завтра, 5 мовами"}), PRICING)
+    assert isinstance(got, NeedsOwner)
+    assert reason in got.reasons
+
+
+def test_no_parse_defaults_to_owner_not_to_simple():
+    """Дефолт закрыт отказом. Молчаливый оптимистичный дефолт = класс бага."""
+    got = assess_complexity(_req(parsed=False), PRICING)
+    assert got == NeedsOwner(("no_parse",))
+
+
+def test_empty_request_is_not_a_simple_order():
+    got = assess_complexity(_req(items=()), PRICING)
+    assert isinstance(got, NeedsOwner)
+    assert "no_parse" in got.reasons
+
+
+def test_non_positive_quantity_is_not_silently_one():
+    got = assess_complexity(_req(items=(RequestedItem("logo_create", 0, "лого"),)), PRICING)
+    assert isinstance(got, NeedsOwner)
+    assert "bad_quantity" in got.reasons
+
+
+def test_all_reasons_are_reported_not_just_the_first():
+    """Владельцу нужен весь список: карточка с одной причиной из трёх вводит
+    в заблуждение сильнее, чем отсутствие карточки."""
+    got = assess_complexity(_req(items=(RequestedItem("logo_create", 2, "два лого"),
+                                        RequestedItem("packaging", 1, "упаковка")),
+                                 deadline_note="до п'ятниці"), PRICING)
+    assert isinstance(got, NeedsOwner)
+    assert set(got.reasons) == {"multiple_services", "multiple_units", "deadline_out_of_norm"}
+
+
+def test_reasons_are_deterministically_ordered():
+    """Карточка владельцу и тесты не должны зависеть от порядка обхода."""
+    a = assess_complexity(_req(items=(RequestedItem("logo_create", 2, "x"),
+                                      RequestedItem("packaging", 1, "y"))), PRICING)
+    b = assess_complexity(_req(items=(RequestedItem("packaging", 1, "y"),
+                                      RequestedItem("logo_create", 2, "x"))), PRICING)
+    assert a.reasons == b.reasons
+
+
+def test_result_is_one_of_two_shapes_only():
+    """Ни None, ни строка, ни bool: вызыватель не должен уметь ошибиться."""
+    for req in (_req(), _req(parsed=False)):
+        assert isinstance(assess_complexity(req, PRICING), (Simple, NeedsOwner))
