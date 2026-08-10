@@ -18,7 +18,7 @@
 | Запись оплаты | `chatter/storage/db.py:266` `add_payment(...)` | работает |
 | Таблица `payments` | `db.py:119` — `id, contact_id, card_msg_id, amount, currency, ts, source` | **0 строк, в бою не срабатывала** |
 | Закрытие воронки оплатой | `control_bot.py:67` `_close_funnel_as_bought` → `advance_funnel(bought=True)` | работает |
-| Идемпотентность тапа | `_esc_card_id` + UNIQUE, сентинел `0` вместо NULL | работает |
+| Идемпотентность тапа | `card_msg_id` из `callback_query.message.message_id` + UNIQUE, сентинел `0` вместо NULL | работает **с 2026-08-10**; до фикса ключ брался из `esc_active` и в проде не работал (§7.1) |
 | Отчётность | `db.py:283` `payments_between(start, end)` | работает |
 
 **Вывод:** «владелец отмечает оплату руками» — это НЕ задача арки. Задача арки —
