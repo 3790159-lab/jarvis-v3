@@ -54,11 +54,19 @@ def test_detached_head_is_down():
     assert ow.probe_worktree(_snap(branch="HEAD"))["ok"] is False
 
 
-def test_unknown_branch_is_down_not_assumed_ok():
+def test_unknown_branch_is_down_and_says_so_readably():
     """Пустая ветка — это «не смогли определить», а не «наверное транк».
-    Молчаливый оптимистичный дефолт на деплой-пути = класс бага."""
+
+    Проверяется ТЕКСТ, а не только красный цвет: без явной ветки пустая строка
+    всё равно не равна транку и алерт бы загорелся — но с сообщением
+    «HEAD на «», ожидался …», которое в три часа ночи читается как поломка
+    самого сторожа. Мутация «снять обработку» этот тест переживала, пока он
+    смотрел только на ok (DEV-26)."""
     for branch in (None, "", "   "):
-        assert ow.probe_worktree(_snap(branch=branch))["ok"] is False
+        got = ow.probe_worktree(_snap(branch=branch))
+        assert got["ok"] is False
+        assert "не определена" in got["detail"], got["detail"]
+        assert "«»" not in got["detail"], "в алерте пустые кавычки вместо причины"
 
 
 # ── красное: грязные tracked-файлы ─────────────────────────────────────────
