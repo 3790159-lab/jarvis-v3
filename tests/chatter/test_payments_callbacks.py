@@ -41,10 +41,13 @@ def test_legacy_paid_with_dollar_amount():
 
 
 def test_legacy_fractional_amount():
-    """750.29 выбрано не случайно: float(\"750.29\") * 100 == 75028.999…, и
-    разбор через float дал бы 75028 — цент, потерянный молча. На 750.50 тест
-    был бы слеп (проверено мутацией DEV-26)."""
-    assert parse_callback(f"paidamt:750.29:{CID}").amount == Money(75029, "USD")
+    """0.29 выбрано не случайно: `float("0.29") * 100 == 28.999999999999996`, и
+    разбор через float дал бы 28 — цент, потерянный молча.
+
+    На «круглых» 750.50 и даже 750.29 тест был бы СЛЕП: там float случайно
+    попадает в правильное значение. Проверено мутацией DEV-26 — обе прежние
+    редакции этого теста мутацию «считать через float» пережили."""
+    assert parse_callback(f"paidamt:0.29:{CID}").amount == Money(29, "USD")
     assert parse_callback(f"paidamt:750.50:{CID}").amount == Money(75050, "USD")
 
 
