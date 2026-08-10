@@ -20,8 +20,17 @@ def store():
 
 
 def _route(store, data):
+    """Вызов БЕЗ личности события. После снятия сентинела `0` такие оплаты
+    отвергаются — остаётся только для проверки самого отказа."""
     return route_callback(data, store=store, now=1000.0, language="ru",
                           snooze_seconds=3600.0)
+
+
+def _route_panel(store, data, *, token="tok-1"):
+    """Веб-панель: личность события приходит СВОИМ токеном, сгенерированным
+    браузером в момент клика."""
+    return route_callback(data, store=store, now=1000.0, language="ru",
+                          snooze_seconds=3600.0, event_token=token)
 
 
 def _route_card(store, data, *, card_msg_id):
@@ -37,36 +46,36 @@ def test_paid_action_exists_in_the_shared_enum():
 
 
 def test_paid_without_amount_records_the_fact(store):
-    _route(store, "paid:777:demo")
+    _route_panel(store, "paid:777:demo")
 
     rows = store.payments_between(0.0, 1e12)
     assert len(rows) == 1
     assert rows[0]["contact_id"] == "777:demo"
-    assert rows[0]["amount"] is None
+    assert rows[0]["amount_minor"] is None
 
 
 def test_paid_with_amount_records_the_sum(store):
-    _route(store, "paidamt:750:777:demo")
+    _route_panel(store, "paidamt:750:777:demo")
 
     rows = store.payments_between(0.0, 1e12)
     assert len(rows) == 1
-    assert rows[0]["amount"] == 750.0
+    assert rows[0]["amount_minor"] == 75000
     assert rows[0]["contact_id"] == "777:demo"
 
 
 def test_amount_then_correction_updates_same_payment(store):
     """Поток «спочатку Оплачено, потім уточнив суму» не имеет права дать две
     оплаты: карточка одна — оплата одна."""
-    _route(store, "paid:777:demo")
-    _route(store, "paidamt:900:777:demo")
+    _route_card(store, "paid:777:demo", card_msg_id=151)
+    _route_card(store, "paidamt:900:777:demo", card_msg_id=151)
 
     rows = store.payments_between(0.0, 1e12)
     assert len(rows) == 1, f"дубль оплаты: {rows}"
-    assert rows[0]["amount"] == 900.0
+    assert rows[0]["amount_minor"] == 90000
 
 
 def test_payment_closes_the_funnel_as_bought(store):
-    _route(store, "paidamt:750:777:demo")
+    _route_panel(store, "paidamt:750:777:demo")
 
     assert store.get_or_create_contact("777:demo")["state"] == "closed"
     trans = store.transitions_between(0.0, 1e12)
@@ -88,7 +97,7 @@ def test_negative_amount_is_rejected(store):
 
 
 def test_paid_writes_a_control_event(store):
-    _route(store, "paid:777:demo")
+    _route_panel(store, "paid:777:demo")
     kinds = [e["kind"] for e in store.recent_events(50)] \
         if hasattr(store, "recent_events") else None
     if kinds is not None:
@@ -124,23 +133,23 @@ def store_with_open_card():
 
 def test_repeat_tap_on_the_same_card_does_not_double_revenue(store_with_open_card):
     """Повтор тапа по ОДНОЙ карточке не имеет права удвоить выручку."""
-    _route(store_with_open_card, "paidamt:900:777:demo")
-    _route(store_with_open_card, "paidamt:900:777:demo")
+    _route_card(store_with_open_card, "paidamt:900:777:demo", card_msg_id=_ESC_CARD)
+    _route_card(store_with_open_card, "paidamt:900:777:demo", card_msg_id=_ESC_CARD)
 
     rows = store_with_open_card.payments_between(0.0, 1e12)
     assert len(rows) == 1, f"дубль оплаты: {rows}"
-    assert sum(r["amount"] or 0 for r in rows) == 900.0
+    assert sum(r["amount_minor"] or 0 for r in rows) == 90000
 
 
 def test_paid_then_amount_on_open_card_updates_one_payment(store_with_open_card):
     """Документированный поток «спочатку Оплачено, потім уточнив суму» —
     при живой карточке, как в проде."""
-    _route(store_with_open_card, "paid:777:demo")
-    _route(store_with_open_card, "paidamt:900:777:demo")
+    _route_card(store_with_open_card, "paid:777:demo", card_msg_id=_ESC_CARD)
+    _route_card(store_with_open_card, "paidamt:900:777:demo", card_msg_id=_ESC_CARD)
 
     rows = store_with_open_card.payments_between(0.0, 1e12)
     assert len(rows) == 1, f"дубль оплаты: {rows}"
-    assert rows[0]["amount"] == 900.0
+    assert rows[0]["amount_minor"] == 90000
 
 
 def test_payment_identity_comes_from_the_card_message_id(store_with_open_card):
@@ -163,7 +172,7 @@ def test_different_cards_are_different_payments(store):
 
     rows = store.payments_between(0.0, 1e12)
     assert len(rows) == 2
-    assert sum(r["amount"] for r in rows) == 700.0
+    assert sum(r["amount_minor"] for r in rows) == 70000
 
 
 def test_esc_active_flag_does_not_influence_payment_identity(store_with_open_card):
@@ -179,3 +188,59 @@ def test_esc_active_flag_does_not_influence_payment_identity(store_with_open_car
 
     rows = store_with_open_card.payments_between(0.0, 1e12)
     assert len(rows) == 1, f"флаг протёк в ключ оплаты: {rows}"
+
+
+# ── личность события: сентинел `0` снят ─────────────────────────────────────
+#
+# Прежде вызыватель без карточки писал оплату с card_msg_id=0. Ключ был
+# стабилен ровно до ВТОРОГО такого вызывателя: все оплаты веб-панели по одному
+# контакту схлопывались в одну строку — цена, признанная в коде и молча
+# оплачиваемая выручкой.
+
+
+def test_payment_without_identity_is_refused_and_writes_nothing(store):
+    res = _route(store, "paidamt:900:777:demo")
+
+    assert store.payments_between(0.0, 1e12) == [], "оплата без личности записалась"
+    assert res.feedback_html, "отказ обязан быть слышен (DEV-18)"
+
+
+def test_two_panel_payments_with_different_tokens_are_two_rows(store):
+    """СЕГОДНЯШНИЙ ДЕФЕКТ, закрытый: два разных нажатия в панели — две оплаты."""
+    _route_panel(store, "paidamt:300:777:demo", token="tok-a")
+    _route_panel(store, "paidamt:400:777:demo", token="tok-b")
+
+    rows = store.payments_between(0.0, 1e12)
+    assert len(rows) == 2
+    assert sum(r["amount_minor"] for r in rows) == 70000
+
+
+def test_retry_of_the_same_panel_click_stays_one_payment(store):
+    """Токен генерируется в момент КЛИКА, поэтому повтор запроса (сеть, двойной
+    тап) несёт тот же токен и оплата остаётся одной."""
+    _route_panel(store, "paidamt:900:777:demo", token="tok-same")
+    _route_panel(store, "paidamt:900:777:demo", token="tok-same")
+
+    rows = store.payments_between(0.0, 1e12)
+    assert len(rows) == 1
+    assert rows[0]["dedup_key"] == "panel:tok-same"
+
+
+def test_card_and_panel_keys_never_collide(store):
+    """Разные источники с одинаковой «личностью» — разные оплаты: префикс
+    источника входит в ключ."""
+    _route_card(store, "paidamt:100:777:demo", card_msg_id=7)
+    _route_panel(store, "paidamt:200:777:demo", token="7")
+
+    rows = store.payments_between(0.0, 1e12)
+    assert len(rows) == 2
+    assert {r["dedup_key"] for r in rows} == {"tap:7", "panel:7"}
+
+
+def test_money_is_stored_in_minor_units(store):
+    """Риск 10.1: на float центы копятся и счёт не закрывается никогда."""
+    _route_panel(store, "paidamt:750.50:777:demo")
+
+    rows = store.payments_between(0.0, 1e12)
+    assert rows[0]["amount_minor"] == 75050
+    assert isinstance(rows[0]["amount_minor"], int)

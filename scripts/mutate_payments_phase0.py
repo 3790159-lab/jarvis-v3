@@ -10,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(r"C:\jarvis")
+ROOT = Path(__file__).resolve().parents[1]   # работает и в worktree
 
 # (имя, файл, что заменить, на что, какой тест ОБЯЗАН покраснеть)
 MUTATIONS = [
@@ -172,6 +172,89 @@ MUTATIONS = [
      '            placeholder = bool(entry.get("placeholder", False))',
      '            placeholder = bool(entry.get("placeholder", False)) or text.startswith("TODO")',
      "tests/chatter/test_payments_scope.py::test_marker_must_be_explicit_not_guessed"),
+
+    # ── пункт 1: модель счёта и перестройка payments ───────────────────────
+    ("миграция: окно не проверяется, строки конвертируются молча",
+     "chatter/storage/db.py", "        if n:", "        if False:",
+     "tests/chatter/test_payments_store.py::test_rebuild_refuses_when_rows_exist"),
+
+    ("миграция: старая схема не распознаётся", "chatter/storage/db.py",
+     'return bool(cols) and "dedup_key" not in cols', "return False",
+     "tests/chatter/test_payments_store.py::test_legacy_empty_table_is_rebuilt"),
+
+    ("миграция: бэкап не делается", "chatter/storage/db.py",
+     "                if pre_existing:
+                    self._backup(path, tag=\"payments\")",
+     "                if False:
+                    self._backup(path, tag=\"payments\")",
+     "tests/chatter/test_payments_store.py::test_rebuild_makes_a_backup_first"),
+
+    ("payments: UNIQUE снят со схемы", "chatter/storage/db.py",
+     "    UNIQUE (contact_id, dedup_key)
+);", "    x_unused INTEGER
+);",
+     "tests/chatter/test_payments_store.py::test_unique_index_exists_in_the_database_itself"),
+
+    ("payments: повтор не правит сумму, а игнорируется", "chatter/storage/db.py",
+     " ON CONFLICT(contact_id, dedup_key) DO UPDATE SET",
+     " ON CONFLICT(contact_id, dedup_key) DO NOTHING --",
+     "tests/chatter/test_payments_store.py::test_two_taps_on_the_same_card_are_one_payment"),
+
+    ("счёт: идемпотентность выставления снята", "chatter/storage/db.py",
+     "            if origin_msg_id is not None:", "            if False:",
+     "tests/chatter/test_payments_store.py::test_invoice_issuing_is_idempotent_on_origin_msg_id"),
+
+    ("счёт: сумма не обязательна для issued", "chatter/storage/db.py",
+     '        if total is None and status not in ("draft", "awaiting_owner"):',
+     "        if False:",
+     "tests/chatter/test_payments_store.py::test_issued_invoice_cannot_exist_without_an_amount"),
+
+    ("счёт: first_payment_ts берёт последнюю оплату", "chatter/storage/db.py",
+     '"SELECT MIN(ts) AS t FROM payments WHERE invoice_id=?"',
+     '"SELECT MAX(ts) AS t FROM payments WHERE invoice_id=?"',
+     "tests/chatter/test_payments_store.py::test_first_payment_ts_records_the_first_not_the_last"),
+
+    ("котировка: прежняя не становится superseded", "chatter/storage/db.py",
+     "                \"UPDATE quotes SET status='superseded'\"",
+     "                \"UPDATE quotes SET status='active'\"",
+     "tests/chatter/test_payments_store.py::test_quote_history_is_append_only"),
+
+    ("проекция: недоплата считается оплатой", "chatter/payments/model.py",
+     '        target = "overdue" if overdue else "partially_paid"',
+     '        target = "paid"',
+     "tests/chatter/test_payments_model.py::test_partial_is_not_paid"),
+
+    ("проекция: переплата считается оплатой", "chatter/payments/model.py",
+     '        target = "overpaid"', '        target = "paid"',
+     "tests/chatter/test_payments_model.py::test_more_than_total_is_overpaid_not_paid"),
+
+    ("проекция: отменённый счёт воскресает от поступления",
+     "chatter/payments/model.py", "    if current in _NOT_MONEY:
+        return current",
+     "    if False:
+        return current",
+     "tests/chatter/test_payments_model.py::test_projection_does_not_touch_non_money_states"),
+
+    ("ключ: пустая личность превращается в сентинел", "chatter/payments/model.py",
+     "    if not text:", "    if False:",
+     "tests/chatter/test_payments_model.py::test_empty_identity_is_rejected"),
+
+    ("пульт: оплата без личности пишется сентинелом",
+     "chatter/notify/control_bot.py",
+     '            log.warning("route_callback: оплата без личности события (%s)", contact_id)',
+     '            dedup_key = "panel:0"
+            log.warning("x", contact_id)',
+     "tests/chatter/test_paid_action.py::test_payment_without_identity_is_refused_and_writes_nothing"),
+
+    ("пульт: токен панели игнорируется", "chatter/notify/control_bot.py",
+     'dedup_key = make_dedup_key("panel", event_token)',
+     'dedup_key = make_dedup_key("panel", "fixed")',
+     "tests/chatter/test_paid_action.py::test_two_panel_payments_with_different_tokens_are_two_rows"),
+
+    ("пульт: сумма снова через float", "chatter/notify/control_bot.py",
+     'amount = from_major((paid_amount_raw or "").replace(",", ".").strip(), "USD")',
+     'amount = Money(int(float((paid_amount_raw or "0")) * 100), "USD")',
+     "tests/chatter/test_paid_action.py::test_money_is_stored_in_minor_units"),
 ]
 
 

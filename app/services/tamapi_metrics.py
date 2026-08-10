@@ -128,9 +128,11 @@ def _avg_check(conn, a: float, b: float) -> float | None:
     if not _table_exists(conn, "payments"):
         return None
     row = conn.execute(
-        "SELECT AVG(amount) AS a FROM payments "
-        "WHERE amount IS NOT NULL AND ts >= ? AND ts < ?", (a, b)).fetchone()
-    return round(row["a"], 1) if row and row["a"] is not None else None
+        # Минорные целые (арка payments): в мажорные переводим только здесь,
+        # на границе показа, и результат никуда не сохраняем.
+        "SELECT AVG(amount_minor) AS a FROM payments "
+        "WHERE amount_minor IS NOT NULL AND ts >= ? AND ts < ?", (a, b)).fetchone()
+    return round(row["a"] / 100.0, 1) if row and row["a"] is not None else None
 
 
 def _duration_days(conn, a: float, b: float) -> float | None:
@@ -194,9 +196,12 @@ def summary(db_path, *, now: float, period: str = "week") -> dict:
         handed = _handed(conn, start, now)
         pays = _payments(conn, start, now)
         paid_rows = (conn.execute(
-            "SELECT amount FROM payments WHERE ts >= ? AND ts < ?", (start, now)
+            "SELECT amount_minor FROM payments WHERE ts >= ? AND ts < ?", (start, now)
         ).fetchall() if _table_exists(conn, "payments") else [])
-        with_amount = [r["amount"] for r in paid_rows if r["amount"] is not None]
+        # Суммы хранятся в МИНОРНЫХ целых (арка payments): делим на 100 только
+        # здесь, на границе показа, и никогда не храним результат.
+        with_amount = [r["amount_minor"] / 100.0 for r in paid_rows
+                       if r["amount_minor"] is not None]
         out_today = conn.execute(
             "SELECT COUNT(*) AS n FROM messages WHERE role='assistant' AND ts >= ?",
             (now - now % 86400.0,)).fetchone()["n"]

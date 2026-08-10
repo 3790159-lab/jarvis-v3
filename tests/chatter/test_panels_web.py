@@ -105,14 +105,31 @@ def test_jarvis_panel_states_external_watchdog_is_absent(client, monkeypatch):
 def test_action_goes_through_shared_command_layer(client):
     """Веб не пишет в БД напрямую — только через route_callback."""
     c, db = client
-    r = c.post("/panel/tamapi/action", data={"data": "paidamt:750:777:volska"},
+    r = c.post("/panel/tamapi/action",
+               data={"data": "paidamt:750:777:volska", "event_token": "tok-web-1"},
                headers={"X-Panels-Key": KEY})
     assert r.status_code == 200
 
     s = Store(db)
     pays = s.payments_between(0.0, 1e12)
-    assert len(pays) == 1 and pays[0]["amount"] == 750.0
+    assert len(pays) == 1 and pays[0]["amount_minor"] == 75000
+    assert pays[0]["dedup_key"] == "panel:tok-web-1"
     assert s.get_or_create_contact("777:volska")["state"] == "closed"
+
+
+def test_panel_payment_without_a_token_is_refused(client):
+    """Личность события — обязанность вызывателя. Прежде панель её не слала, и
+    все её оплаты по одному контакту схлопывались на сентинеле `0` в одну
+    строку. Отказ громкий: тихая запись «как-нибудь» стоила бы выручки."""
+    c, db = client
+    r = c.post("/panel/tamapi/action", data={"data": "paidamt:750:777:volska"},
+               headers={"X-Panels-Key": KEY})
+    assert r.status_code == 200
+
+    s = Store(db)
+    assert s.payments_between(0.0, 1e12) == []
+    assert s.get_or_create_contact("777:volska")["state"] != "closed", (
+        "воронка закрыта оплатой, которой не было")
 
 
 def test_pause_and_resume_both_work_from_web(client):

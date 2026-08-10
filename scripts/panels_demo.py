@@ -47,6 +47,8 @@ def seed(path: str, *, now: float | None = None) -> None:
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from chatter.storage.db import Store
+from chatter.payments.model import PaymentRecord, make_dedup_key
+from chatter.payments.money import from_major
 
     now = now or time.time()
     p = Path(path)
@@ -88,8 +90,10 @@ def seed(path: str, *, now: float | None = None) -> None:
             s.record_transition(cid, from_state="escalated", to_state="closed",
                                 signal="bought", ts=start + 1200)
             s.set_state(cid, "closed")
-            s.add_payment(cid, card_msg_id=9000 + i, amount=amount, currency="USD",
-                          ts=start + 1200, source="card_button")
+            s.record_payment(PaymentRecord(
+                contact_id=cid, dedup_key=make_dedup_key("tap", 9000 + i),
+                ts=start + 1200, confirmed_by="owner",
+                amount=from_major(str(amount), "USD")))
 
     s.set_runtime_flag("kill_switch", "0", ts=now)
     for k in ("classifier_error", "resume", "escalation_kept", "payment"):

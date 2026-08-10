@@ -6,6 +6,8 @@ import sqlite3
 import pytest
 
 from app.services import tamapi_metrics as M
+from chatter.payments.model import PaymentRecord, make_dedup_key
+from chatter.payments.money import from_major
 from chatter.storage.db import Store
 
 NOW = 1_800_000_000.0
@@ -26,10 +28,12 @@ def db(tmp_path):
     s.record_transition("100:demo", from_state="qualifying", to_state="hot",
                         signal="interested", ts=NOW - DAY)
     s.add_card(msg_id=101, contact_id="101:demo", kind="escalation", ts=NOW - DAY)
-    s.add_payment("102:demo", card_msg_id=5, amount=750.0, currency="USD",
-                  ts=NOW - DAY, source="card_button")
-    s.add_payment("101:demo", card_msg_id=6, amount=None, currency="USD",
-                  ts=NOW - DAY, source="card_button")
+    s.record_payment(PaymentRecord(
+        contact_id="102:demo", dedup_key=make_dedup_key("tap", 5), ts=NOW - DAY,
+        confirmed_by="owner", amount=from_major("750", "USD")))
+    s.record_payment(PaymentRecord(
+        contact_id="101:demo", dedup_key=make_dedup_key("tap", 6), ts=NOW - DAY,
+        confirmed_by="owner", amount=None))
     del s
     return str(p)
 

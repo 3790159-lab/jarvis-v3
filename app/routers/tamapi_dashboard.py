@@ -153,10 +153,18 @@ def _feed_html(feed: list[dict]) -> str:
 
 
 _JS = """
-async function act(data){
+function evtToken(){
+  // Личность события. Генерируется В МОМЕНТ КЛИКА, а не на сервере: при
+  // повторе запроса (сеть, двойной тап по кнопке) токен тот же, и оплата
+  // остаётся одной. Серверный токен на каждый запрос давал бы дубли.
+  try { if (crypto && crypto.randomUUID) return crypto.randomUUID(); } catch(e){}
+  return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+}
+async function act(data, token){
+  const tok = token || evtToken();
   const r = await fetch('/panel/tamapi/action',{method:'POST',
     headers:{'Content-Type':'application/x-www-form-urlencoded'},
-    body:'data='+encodeURIComponent(data)});
+    body:'data='+encodeURIComponent(data)+'&event_token='+encodeURIComponent(tok)});
   const j = await r.json(); alert(j.feedback || 'ок'); location.reload();
 }
 function paid(cid){
@@ -350,7 +358,8 @@ async def dynamics(request: Request,
 # ------------------------------------------------------------------ действия
 
 @router.post("/action")
-async def action(request: Request, data: str = Form(...)):
+async def action(request: Request, data: str = Form(...),
+                 event_token: str = Form(None)):
     """ЕДИНСТВЕННАЯ мутирующая ручка дашборда — и та проксирует в общий
     командный слой. Веб не пишет в contacts/runtime_flags напрямую."""
     from chatter.notify.control_bot import route_callback
@@ -373,8 +382,11 @@ async def action(request: Request, data: str = Form(...)):
         store.add_event("kill_off", ts=now)
         return JSONResponse({"feedback": "Ольгу увімкнено"})
 
+    # event_token — личность события, сгенерированная браузером в момент клика.
+    # Без неё оплата будет отвергнута: панель не имеет права писать деньги,
+    # которые нельзя отличить от следующей такой же (сентинел `0` снят).
     res = route_callback(data, store=store, now=now, language=lang,
-                         snooze_seconds=snooze)
+                         snooze_seconds=snooze, event_token=event_token)
     return JSONResponse({"feedback": res.answer})
 
 

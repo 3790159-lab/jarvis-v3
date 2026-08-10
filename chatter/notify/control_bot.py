@@ -24,6 +24,8 @@ from chatter.core.console import (
 )
 from chatter.core.escalation import esc_active_key
 from chatter.notify.base import Action, Card, CardHandle, Notifier
+from chatter.payments.model import PaymentRecord, make_dedup_key
+from chatter.payments.money import MoneyError, format_major, from_major
 
 log = logging.getLogger("chatter.notify.control_bot")
 
@@ -56,7 +58,8 @@ def _close_funnel_as_bought(store, contact_id: str, *, now: float) -> None:
 
 
 def route_callback(data: str, *, store, now: float, language: str, snooze_seconds: float,
-                   persona_name_for=None, card_msg_id: int | None = None) -> CallbackResult:
+                   persona_name_for=None, card_msg_id: int | None = None,
+                   event_token: str | None = None) -> CallbackResult:
     """Тап кнопки → действие над Store + текст обратной связи. ЧИСТАЯ: трогает
     только store. callback_data = "<action>:<contact_id>", где contact_id сам
     содержит двоеточие ("<peer>:<slug>"), поэтому режем ПО ПЕРВОМУ двоеточию.
@@ -72,8 +75,12 @@ def route_callback(data: str, *, store, now: float, language: str, snooze_second
     закрытие карточки), то есть ключ уничтожался тем же вызовом, который его
     читал: второй тап падал на сентинел и плодил вторую оплату. Ключ обязан
     приходить из САМОГО события, а не из изменяемого состояния, которым владеет
-    другая механика. Вызыватели без карточки (веб-панель шлёт только `data`)
-    оставляют None → сентинел 0, стабильный между тапами.
+    другая механика.
+
+    event_token: личность события для вызывателей БЕЗ карточки (веб-панель).
+    Прежде такие вызыватели получали сентинел `0`, и все панельные оплаты
+    одного контакта схлопывались в одну строку. Теперь панель присылает свой
+    токен, а вызыватель без всякой личности получает ОТКАЗ.
 
     Битый/неизвестный тап → без мутаций (DEV-18: не притворяемся, что сделали)."""
     action_raw, sep, contact_id = (data or "").partition(":")
@@ -115,32 +122,48 @@ def route_callback(data: str, *, store, now: float, language: str, snooze_second
     elif action in (Action.PAID, Action.PAID_AMOUNT):
         # CLIENT_SCREENS §3: единственный источник денежных метрик. Самоотчёт
         # владельца, не факт из банка — так и подписывается в дашборде.
+        # Сумма разбирается СРАЗУ в минорные целые, минуя float: плавающая
+        # точка на деньгах даёт ошибку, которая при ступенях накапливается
+        # (риск 10.1). `from_major` отвергает и мусор, и лишнюю точность.
         amount = None
         if action is Action.PAID_AMOUNT:
             try:
-                amount = float((paid_amount_raw or "").replace(",", "."))
-            except ValueError:
+                amount = from_major((paid_amount_raw or "").replace(",", ".").strip(), "USD")
+            except MoneyError:
                 amount = None
-            if amount is None or amount <= 0:
+            if amount is None or amount.minor <= 0:
                 # DEV-18: не притворяемся, что записали. Store не тронут.
                 log.warning("route_callback: непарсимая сумма %r", paid_amount_raw)
                 return CallbackResult(
                     feedback_html=console_text("fb_paid_bad", language),
                     answer=console_text("fb_paid_bad", language))
+        # Личность денежной записи приходит ИЗ САМОГО СОБЫТИЯ: id карточки для
+        # TG-тапа, собственный токен для веб-панели. Сентинел `0` снят: он был
+        # стабилен ровно до второго бескарточного источника, и веб-панель уже
+        # схлопывала свои оплаты одного контакта в одну строку.
+        #
+        # Вызыватель без личности получает ОТКАЗ, а не запись с сентинелом:
+        # оплата, которую нельзя отличить от следующей, — это будущая потеря
+        # выручки, а не удобство (DEV-18: не притворяемся, что записали).
+        if card_msg_id is not None:
+            dedup_key = make_dedup_key("tap", card_msg_id)
+        elif (event_token or "").strip():
+            dedup_key = make_dedup_key("panel", event_token)
+        else:
+            log.warning("route_callback: оплата без личности события (%s)", contact_id)
+            return CallbackResult(
+                feedback_html=console_text("fb_paid_no_identity", language),
+                answer=console_text("fb_paid_no_identity", language))
+
         store.get_or_create_contact(contact_id)
-        # Идемпотентность: повторный тап по ТОЙ ЖЕ карточке правит сумму, а не
-        # плодит вторую оплату (поток «спочатку Оплачено, потім уточнив суму»).
-        # Ключ — id карточки ИЗ САМОГО ТАПА. Сентинел 0 вместо None: в SQLite
-        # два NULL в UNIQUE считаются РАЗНЫМИ, и вызыватель без карточки
-        # (веб-панель) плодил бы дубли. Цена сентинела прежняя: две отдельные
-        # оплаты одного контакта БЕЗ карточки схлопнутся в одну.
-        store.add_payment(contact_id, card_msg_id=0 if card_msg_id is None else card_msg_id,
-                          amount=amount, currency="USD", ts=now, source="card_button")
+        store.record_payment(PaymentRecord(
+            contact_id=contact_id, dedup_key=dedup_key, ts=now,
+            confirmed_by="owner", amount=amount))
         store.add_event("payment", contact_id=contact_id,
-                        detail="" if amount is None else f"{amount:g} USD", ts=now)
+                        detail="" if amount is None else f"{format_major(amount)} USD", ts=now)
         _close_funnel_as_bought(store, contact_id, now=now)
         fb = (console_text("fb_paid", language) if amount is None
-              else console_text("fb_paid_amount", language, amount=f"{amount:g}",
+              else console_text("fb_paid_amount", language, amount=format_major(amount),
                                 currency="USD"))
     elif action is Action.OPEN:
         link = contact_link(user_id=_peer_of(contact_id))

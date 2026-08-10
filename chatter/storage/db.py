@@ -6,6 +6,17 @@ import time
 from pathlib import Path
 
 from chatter.core.obligations_slot import Obligation
+from chatter.payments.model import PaymentRecord, project_status, validate_dedup_key
+from chatter.payments.money import Money
+
+
+class PaymentsMigrationBlocked(RuntimeError):
+    """Перестройка `payments` в минорные INTEGER невозможна или не удалась.
+
+    Отдельный громкий тип, а не тихий пропуск: база с двумя разными схемами
+    денег хуже, чем не поднявшийся раннер, — второе видно сразу, первое
+    обнаружится враньём в отчётности через месяц."""
+
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS contacts (
@@ -111,22 +122,100 @@ CREATE TABLE IF NOT EXISTS funnel_transitions (
 );
 CREATE INDEX IF NOT EXISTS idx_funnel_transitions_ts ON funnel_transitions(ts);
 
--- Оплаты. `amount` NULLABLE намеренно: владелец часто знает «оплатил», но не
--- хочет вводить сумму; запретить — значит потерять и сам факт оплаты. Число
--- оплат считается всегда, средний чек — только по строкам с суммой.
--- UNIQUE(contact_id, card_msg_id) даёт идемпотентность: повторный тап по той
--- же карточке правит сумму, а не плодит вторую оплату.
+-- Оплаты (арка payments, Ф0 — перестроена). `amount_minor` NULLABLE намеренно:
+-- владелец часто знает «оплатил», но не хочет вводить сумму; запретить — значит
+-- потерять и сам факт оплаты.
+--
+-- Суммы — ЦЕЛЫЕ В МИНОРНЫХ единицах. Прежнее `amount REAL` снято, а не оставлено
+-- «для истории»: на 2026-08-10 в боевой БД 0 строк, и это единственное окно,
+-- когда замену можно сделать без дуального чтения в отчётности навсегда.
+--
+-- `dedup_key` — ОДИН ключ идемпотентности с префиксом источника
+-- (`tap:` / `panel:` / `evt:`) вместо прежнего card_msg_id с сентинелом `0`.
+-- Сентинел был стабилен ровно до второго бескарточного источника: веб-панель
+-- уже сегодня схлопывала свои оплаты в одну, а в Ф2 то же случилось бы со
+-- всеми webhook'ами провайдера.
+--
+-- `channel_id` и `confirmed_by` — две РАЗНЫЕ оси вместо прежнего `source`:
+-- «через что пришли деньги» и «кто это подтвердил» перестают путаться.
 CREATE TABLE IF NOT EXISTS payments (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    contact_id  TEXT NOT NULL,
-    card_msg_id INTEGER,
-    amount      REAL,
-    currency    TEXT NOT NULL DEFAULT 'USD',
-    ts          REAL NOT NULL,
-    source      TEXT NOT NULL,
-    UNIQUE (contact_id, card_msg_id)
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    contact_id        TEXT NOT NULL,
+    dedup_key         TEXT NOT NULL,
+    invoice_id        TEXT,
+    stage_no          INTEGER,
+    amount_minor      INTEGER,
+    amount_received   INTEGER,
+    currency          TEXT NOT NULL DEFAULT 'USD',
+    currency_received TEXT,
+    channel_id        TEXT,
+    confirmed_by      TEXT NOT NULL,
+    external_event_id TEXT,
+    ts                REAL NOT NULL,
+    UNIQUE (contact_id, dedup_key)
 );
 CREATE INDEX IF NOT EXISTS idx_payments_ts ON payments(ts);
+CREATE INDEX IF NOT EXISTS idx_payments_invoice ON payments(invoice_id);
+
+-- Котировка: что назвали лиду. APPEND-ONLY — каждая уступка это новая строка,
+-- предыдущая становится `superseded`. Без истории торга бот на повторный заход
+-- назовёт другую цену тому же лиду (§2.3).
+CREATE TABLE IF NOT EXISTS quotes (
+    quote_id          TEXT PRIMARY KEY,
+    contact_id        TEXT NOT NULL,
+    position_id       TEXT NOT NULL,
+    step_idx          INTEGER NOT NULL,
+    amount_minor      INTEGER NOT NULL,
+    currency          TEXT NOT NULL,
+    scope_key         TEXT NOT NULL,
+    amount_source     TEXT NOT NULL,
+    knowledge_version TEXT,
+    status            TEXT NOT NULL,
+    origin_msg_id     INTEGER,
+    created_ts        REAL NOT NULL,
+    UNIQUE (contact_id, origin_msg_id)
+);
+CREATE INDEX IF NOT EXISTS idx_quotes_contact ON quotes(contact_id);
+
+-- Счёт. `amount_total` NULL допустим ТОЛЬКО в draft/awaiting_owner: счёт без
+-- суммы — нормальный случай гейта сложности, а не край.
+-- UNIQUE(contact_id, origin_msg_id) — идемпотентность ВЫСТАВЛЕНИЯ: ретрай
+-- пайплайна не имеет права породить второй счёт.
+CREATE TABLE IF NOT EXISTS invoices (
+    invoice_id           TEXT PRIMARY KEY,
+    contact_id           TEXT NOT NULL,
+    quote_id             TEXT,
+    channel_id           TEXT,
+    amount_total         INTEGER,
+    currency             TEXT NOT NULL,
+    amount_source        TEXT,
+    status               TEXT NOT NULL,
+    created_ts           REAL NOT NULL,
+    created_by           TEXT NOT NULL,
+    origin_msg_id        INTEGER,
+    issued_ts            REAL,
+    due_ts               REAL,
+    price_source         TEXT,
+    requisites_ref       TEXT,
+    instruction_snapshot TEXT,
+    owner_approved_ts    REAL,
+    external_ref         TEXT,
+    first_payment_ts     REAL,
+    cancelled_reason     TEXT,
+    UNIQUE (contact_id, origin_msg_id)
+);
+CREATE INDEX IF NOT EXISTS idx_invoices_contact ON invoices(contact_id);
+
+-- Ступени. Ф0 пишет РОВНО ОДНУ (stage_no=1): тогда Ф1 — это «строк больше
+-- одной», а не бэкфилл и вечная ветка «счета без ступеней».
+CREATE TABLE IF NOT EXISTS invoice_stages (
+    invoice_id TEXT NOT NULL,
+    stage_no   INTEGER NOT NULL,
+    amount_due INTEGER NOT NULL,
+    due_ts     REAL,
+    status     TEXT NOT NULL,
+    PRIMARY KEY (invoice_id, stage_no)
+);
 """
 
 # Источники паузы уровня КОНТАКТА. Глобальный kill switch живёт в
@@ -177,8 +266,20 @@ class Store:
         self._conn.row_factory = sqlite3.Row
         self._lock = threading.Lock()
         with self._lock:
+            # Перестройка payments проверяется ДО любого DDL: отказ обязан
+            # оставить базу нетронутой, а не «почти мигрированной».
+            legacy = self._payments_is_legacy()
+            if legacy:
+                self._assert_payments_rebuild_window(path)
+                if pre_existing:
+                    self._backup(path, tag="payments")
+                # Снести ДО executescript: индекс по invoice_id не создастся на
+                # старой таблице, где такой колонки нет.
+                self._conn.execute("DROP TABLE payments")
             self._conn.executescript(_SCHEMA)
             self._conn.commit()
+            if legacy:
+                self._assert_payments_rebuilt()
             missing = self._missing_columns()
             if missing:
                 # Бэкап ТОЛЬКО когда реально мигрируем существующую базу:
@@ -196,9 +297,45 @@ class Store:
                 out[table] = gap
         return out
 
-    def _backup(self, path: Path) -> None:
-        dest = path.with_name(f"{path.name}.pre-3a-{int(time.time())}.bak")
+    def _backup(self, path: Path, *, tag: str = "3a") -> None:
+        dest = path.with_name(f"{path.name}.pre-{tag}-{int(time.time())}.bak")
         shutil.copy2(path, dest)
+
+    # ── перестройка payments (арка payments, Ф0) ───────────────────────────
+
+    def _payments_is_legacy(self) -> bool:
+        """Старая схема — та, где нет `dedup_key`. Отсутствие таблицы вообще
+        (новая база) старой схемой не считается."""
+        cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(payments)")}
+        return bool(cols) and "dedup_key" not in cols
+
+    def _assert_payments_rebuild_window(self, path: Path) -> None:
+        """Окно перестройки открыто, только пока в таблице 0 строк.
+
+        Появилась хоть одна — СТОП. Конвертировать чужие деньги из float в
+        центы втихую нельзя: округление невидимо, а ошибка в разряде — нет.
+        Падение здесь громкое и его увидит ops-watchdog; молча разъехавшаяся
+        схема не видна никому, пока не начнёт врать отчётность."""
+        n = self._conn.execute("SELECT COUNT(*) FROM payments").fetchone()[0]
+        if n:
+            raise PaymentsMigrationBlocked(
+                f"{path}: в payments {n} строк — окно перестройки в минорные "
+                f"INTEGER закрыто. Миграция остановлена, база не тронута. "
+                f"Нужен явный план конвертации сумм и решение владельца")
+
+    def _assert_payments_rebuilt(self) -> None:
+        """Проверка ПОСЛЕ перестройки. Миграция, о результате которой не
+        спросили, — это надежда, а не миграция.
+
+        Идемпотентность держится на ФАКТЕ схемы (`_payments_is_legacy`), а не на
+        ловле исключения: гардиан перезапускает раннер постоянно, и миграция,
+        падающая на втором прогоне, — краш-петля, которую он будет вечно
+        поддерживать."""
+        cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(payments)")}
+        n = self._conn.execute("SELECT COUNT(*) FROM payments").fetchone()[0]
+        if "dedup_key" not in cols or "amount" in cols or n:
+            raise PaymentsMigrationBlocked(
+                f"перестройка payments не удалась: колонки={sorted(cols)}, строк={n}")
 
     def _apply_migration(self, missing: dict[str, dict[str, str]]) -> None:
         # Идемпотентность через ПРОВЕРКУ наличия колонки, а не через ловлю
@@ -263,31 +400,204 @@ class Store:
             rows = self._conn.execute(sql + " ORDER BY ts", args).fetchall()
         return [dict(r) for r in rows]
 
-    def add_payment(self, contact_id: str, *, card_msg_id: int | None, amount: float | None,
-                    currency: str = "USD", ts: float, source: str) -> None:
-        """Записать оплату (самоотчёт владельца, не факт из банка).
+    # ── деньги: запись, счета, котировки (арка payments, Ф0) ──────────────
 
-        Идемпотентно по (contact_id, card_msg_id): повторный тап по той же
-        карточке ПРАВИТ сумму. Это важно для потока «сначала Оплачено, потом
-        уточнил сумму» — иначе получилось бы две оплаты вместо одной.
+    def record_payment(self, rec: PaymentRecord) -> None:
+        """Записать оплату (самоотчёт владельца или подтверждение провайдера).
 
-        ⚠️ Обещание держится ТОЛЬКО если вызыватель передаёт стабильный
-        `card_msg_id`. До 2026-08-10 `route_callback` брал его из runtime-флага
-        `esc_active`, который сам же и затирал после действия, — и обещанная
-        здесь идемпотентность в проде не работала: второй тап приходил с другим
-        ключом и плодил вторую оплату (выручка 900 → 1800). Сейчас ключ берётся
-        из `callback_query.message.message_id`, то есть из самого события.
-        Вызыватель без карточки обязан передавать стабильный сентинел `0`, а не
-        None: два NULL в UNIQUE считаются РАЗНЫМИ и дубли вернутся."""
+        Идемпотентно по (contact_id, dedup_key): повторное событие с тем же
+        ключом ПРАВИТ сумму, а не плодит вторую оплату. Это нужно потоку
+        «сначала Оплачено, потом уточнил сумму» — и это же не даёт ретраю
+        webhook'а удвоить выручку (риск 10.2).
+
+        Личность события приходит ИЗ САМОГО СОБЫТИЯ (`tap:<msg_id>`,
+        `panel:<token>`, `evt:<provider>:<id>`) — не из изменяемого состояния,
+        которым владеет другая механика. Ровно на этом ломалась прежняя схема:
+        ключ брали из runtime-флага, который сам же вызов и затирал (§7.1)."""
+        validate_dedup_key(rec.dedup_key)
+        amount = rec.amount.minor if rec.amount is not None else None
+        received = rec.amount_received.minor if rec.amount_received is not None else None
+        ccy = (rec.amount or rec.amount_received)
+        ccy = ccy.ccy if ccy is not None else "USD"
         with self._lock:
             self._conn.execute(
-                "INSERT INTO payments (contact_id, card_msg_id, amount, currency, ts, source)"
-                " VALUES (?,?,?,?,?,?)"
-                " ON CONFLICT(contact_id, card_msg_id) DO UPDATE SET"
-                "   amount=excluded.amount, currency=excluded.currency,"
-                "   ts=excluded.ts, source=excluded.source",
-                (contact_id, card_msg_id, amount, currency, ts, source))
+                "INSERT INTO payments (contact_id, dedup_key, invoice_id, stage_no,"
+                "   amount_minor, amount_received, currency, currency_received,"
+                "   channel_id, confirmed_by, external_event_id, ts)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+                " ON CONFLICT(contact_id, dedup_key) DO UPDATE SET"
+                "   amount_minor=excluded.amount_minor,"
+                "   amount_received=excluded.amount_received,"
+                "   currency=excluded.currency,"
+                "   currency_received=excluded.currency_received,"
+                "   invoice_id=excluded.invoice_id, stage_no=excluded.stage_no,"
+                "   channel_id=excluded.channel_id,"
+                "   confirmed_by=excluded.confirmed_by,"
+                "   external_event_id=excluded.external_event_id, ts=excluded.ts",
+                (rec.contact_id, rec.dedup_key, rec.invoice_id, rec.stage_no,
+                 amount, received, ccy, ccy, rec.channel_id, rec.confirmed_by,
+                 rec.external_event_id, rec.ts))
             self._conn.commit()
+
+    def apply_payment(self, rec: PaymentRecord, *, now: float) -> str:
+        """Записать оплату и ПЕРЕСЧИТАТЬ статус счёта.
+
+        Единственная дверь, через которую деньги влияют на счёт. Статус — всегда
+        проекция от сумм (§14 п.4): будь он тем, что пишет обработчик тапа, в Ф1
+        частичная оплата закрыла бы счёт целиком."""
+        self.record_payment(rec)
+        if rec.invoice_id is None:
+            return ""
+        return self.recompute_status(rec.invoice_id, now=now)
+
+    def received_minor(self, invoice_id: str) -> int:
+        """Сколько ЗАЧИСЛЕНО по счёту. Остаток считается отсюда, а не от
+        выставленного: иначе комиссия конверсии оставит вечную недоплату и счёт
+        не закроется никогда (риск 10.4)."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COALESCE(SUM(amount_received), 0) AS s FROM payments"
+                " WHERE invoice_id=?", (invoice_id,)).fetchone()
+        return int(row["s"] or 0)
+
+    def remaining_minor(self, invoice_id: str) -> int | None:
+        """Остаток. None = сумма счёта ещё не зафиксирована (awaiting_owner)."""
+        inv = self.get_invoice(invoice_id)
+        if inv is None or inv["amount_total"] is None:
+            return None
+        return int(inv["amount_total"]) - self.received_minor(invoice_id)
+
+    def recompute_status(self, invoice_id: str, *, now: float) -> str:
+        inv = self.get_invoice(invoice_id)
+        if inv is None:
+            raise KeyError(f"счёт {invoice_id!r} не найден")
+        received = self.received_minor(invoice_id)
+        status = project_status(
+            amount_total_minor=inv["amount_total"], received_minor=received,
+            current=inv["status"], due_ts=inv["due_ts"], now=now)
+        with self._lock:
+            # first_payment_ts — МИНИМУМ по строкам с зачислением, а не «если
+            # пусто, то поставить»: при upsert'ах минимум остаётся верным.
+            first = self._conn.execute(
+                "SELECT MIN(ts) AS t FROM payments WHERE invoice_id=?"
+                "  AND COALESCE(amount_received,0) > 0", (invoice_id,)).fetchone()["t"]
+            self._conn.execute(
+                "UPDATE invoices SET status=?, first_payment_ts=? WHERE invoice_id=?",
+                (status, first, invoice_id))
+            if received:
+                self._conn.execute(
+                    "UPDATE invoice_stages SET status=? WHERE invoice_id=? AND stage_no=1",
+                    (status, invoice_id))
+            self._conn.commit()
+        return status
+
+    def _next_seq(self, table: str, id_col: str, prefix: str) -> str:
+        row = self._conn.execute(
+            f"SELECT COUNT(*) AS n FROM {table} WHERE {id_col} LIKE ?",
+            (f"{prefix}%",)).fetchone()
+        return f"{prefix}{int(row['n']) + 1:06d}"
+
+    @staticmethod
+    def _slug(contact_id: str) -> str:
+        _, _, slug = (contact_id or "").partition(":")
+        return slug or "unknown"
+
+    def create_quote(self, *, contact_id: str, position_id: str, step_idx: int,
+                     amount: Money, scope_key: str, amount_source: str,
+                     knowledge_version: str | None, origin_msg_id: int | None,
+                     now: float) -> dict:
+        """Новая котировка. Прежние по контакту становятся `superseded`:
+        активной может быть только одна, иначе «что мы ему называли» перестаёт
+        иметь ответ."""
+        with self._lock:
+            qid = self._next_seq("quotes", "quote_id", f"Q-{self._slug(contact_id)}-")
+            self._conn.execute(
+                "UPDATE quotes SET status='superseded'"
+                " WHERE contact_id=? AND status='active'", (contact_id,))
+            self._conn.execute(
+                "INSERT INTO quotes (quote_id, contact_id, position_id, step_idx,"
+                "   amount_minor, currency, scope_key, amount_source,"
+                "   knowledge_version, status, origin_msg_id, created_ts)"
+                " VALUES (?,?,?,?,?,?,?,?,?,'active',?,?)",
+                (qid, contact_id, position_id, step_idx, amount.minor, amount.ccy,
+                 scope_key, amount_source, knowledge_version, origin_msg_id, now))
+            self._conn.commit()
+            row = self._conn.execute(
+                "SELECT * FROM quotes WHERE quote_id=?", (qid,)).fetchone()
+        return dict(row)
+
+    def quotes_for(self, contact_id: str) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM quotes WHERE contact_id=? ORDER BY created_ts",
+                (contact_id,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def create_invoice(self, *, contact_id: str, origin_msg_id: int | None,
+                       amount: Money | None, channel_id: str | None, due_ts: float | None,
+                       created_by: str, amount_source: str | None, status: str,
+                       now: float, quote_id: str | None = None,
+                       price_source: str | None = None, requisites_ref: str | None = None,
+                       instruction_snapshot: str | None = None,
+                       currency: str = "USD") -> dict:
+        """Выставить счёт. Идемпотентно по (contact_id, origin_msg_id).
+
+        `origin_msg_id` — сообщение лида, породившее счёт. Без него ретрай
+        пайплайна выставит второй счёт на то же намерение, и фантомы съедят
+        `per_contact_invoice_cap` (§14 п.15). None допустим (счёт завёл
+        владелец руками), но тогда идемпотентности нет — и это осознанно.
+
+        Ф0 пишет РОВНО ОДНУ ступень: Ф1 — это «строк больше одной»."""
+        ccy = amount.ccy if amount is not None else currency
+        total = amount.minor if amount is not None else None
+        if total is None and status not in ("draft", "awaiting_owner"):
+            raise ValueError(
+                f"счёт без суммы допустим только в draft/awaiting_owner, не в {status!r}")
+        with self._lock:
+            if origin_msg_id is not None:
+                row = self._conn.execute(
+                    "SELECT * FROM invoices WHERE contact_id=? AND origin_msg_id=?",
+                    (contact_id, origin_msg_id)).fetchone()
+                if row is not None:
+                    return dict(row)
+            iid = self._next_seq("invoices", "invoice_id", f"INV-{self._slug(contact_id)}-")
+            self._conn.execute(
+                "INSERT INTO invoices (invoice_id, contact_id, quote_id, channel_id,"
+                "   amount_total, currency, amount_source, status, created_ts,"
+                "   created_by, origin_msg_id, issued_ts, due_ts, price_source,"
+                "   requisites_ref, instruction_snapshot)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (iid, contact_id, quote_id, channel_id, total, ccy, amount_source,
+                 status, now, created_by, origin_msg_id,
+                 now if status == "issued" else None, due_ts, price_source,
+                 requisites_ref, instruction_snapshot))
+            self._conn.execute(
+                "INSERT INTO invoice_stages (invoice_id, stage_no, amount_due, due_ts, status)"
+                " VALUES (?,1,?,?,?)", (iid, total or 0, due_ts, status))
+            self._conn.commit()
+            row = self._conn.execute(
+                "SELECT * FROM invoices WHERE invoice_id=?", (iid,)).fetchone()
+        return dict(row)
+
+    def get_invoice(self, invoice_id: str) -> dict | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM invoices WHERE invoice_id=?", (invoice_id,)).fetchone()
+        return dict(row) if row is not None else None
+
+    def invoices_for(self, *, contact_id: str) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM invoices WHERE contact_id=? ORDER BY created_ts",
+                (contact_id,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def invoice_stages(self, invoice_id: str) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM invoice_stages WHERE invoice_id=? ORDER BY stage_no",
+                (invoice_id,)).fetchall()
+        return [dict(r) for r in rows]
 
     def payments_between(self, start_ts: float, end_ts: float) -> list[dict]:
         with self._lock:
