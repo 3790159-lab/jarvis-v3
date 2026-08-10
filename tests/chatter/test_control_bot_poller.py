@@ -74,6 +74,48 @@ def test_owner_callback_routes_edits_answers_and_advances_offset():
     assert poller._offset == 11
 
 
+def test_poller_passes_the_card_message_id_into_the_payment_key():
+    """ШОВ: личность оплаты приезжает из `callback_query.message.message_id`.
+
+    Раньше `route_callback` брал ключ из runtime-флага `esc_active`, который
+    сам же и затирал, — повторный тап плодил вторую оплату. Ключ обязан
+    приходить из события; этот тест держит проводку поллера, а не только
+    чистую функцию."""
+    store = Store(":memory:")
+    store.get_or_create_contact("42:demo")
+    api = FakeApi([[_callback_update(10, data="paidamt:900:42:demo",
+                                     from_id=237616472, message_id=777)]])
+
+    asyncio.run(_poller(api, store=store).poll_once())
+
+    rows = store.payments_between(0.0, 1e12)
+    assert len(rows) == 1
+    assert rows[0]["card_msg_id"] == 777, (
+        f"ключ оплаты не из message_id: {rows[0]}")
+
+
+def test_repeated_delivery_of_the_same_tap_does_not_double_the_payment():
+    """Telegram переспрашивает неподтверждённые апдейты. Повторная доставка
+    ОДНОГО тапа обязана дать одну оплату, а не две."""
+    store = Store(":memory:")
+    store.get_or_create_contact("42:demo")
+    store.set_runtime_flag("esc_active:42:demo", "bot:1:777", ts=1.0)
+    tap = dict(data="paidamt:900:42:demo", from_id=237616472, message_id=777)
+    api = FakeApi([[_callback_update(10, **tap)], [_callback_update(11, **tap)]])
+    poller = _poller(api, store=store)
+
+    asyncio.run(poller.poll_once())
+    asyncio.run(poller.poll_once())
+
+    rows = store.payments_between(0.0, 1e12)
+    assert len(rows) == 1, f"повторная доставка удвоила оплату: {rows}"
+    assert sum(r["amount"] or 0 for r in rows) == 900.0
+    # Схлопнулось по ИДЕНТИЧНОСТИ КАРТОЧКИ, а не случайно по сентинелу: без
+    # этой строки тест переживает снятие проводки message_id (проверено
+    # мутацией) и перестаёт что-либо доказывать.
+    assert rows[0]["card_msg_id"] == 777
+
+
 def test_non_owner_callback_is_rejected_without_mutation():
     store = Store(":memory:")
     store.get_or_create_contact("42:demo")

@@ -46,23 +46,6 @@ def _peer_of(contact_id: str) -> str:
     return contact_id.split(":", 1)[0]
 
 
-def _esc_card_id(store, contact_id: str) -> int | None:
-    """id активной карточки эскалации из runtime_flag `esc_active` — ключ
-    идемпотентности оплаты. Формат "bot:<chat>:<msg_id>"; неожиданный формат →
-    None (оплата запишется, но без защиты от повторного тапа)."""
-    raw = store.get_runtime_flag(esc_active_key(contact_id))
-    if raw and ":" in raw:
-        try:
-            return int(raw.rsplit(":", 1)[1])
-        except ValueError:
-            pass
-    # Сентинел 0 вместо NULL: в SQLite два NULL в UNIQUE считаются РАЗНЫМИ, и
-    # поток «спочатку Оплачено, потім уточнив суму» дал бы две оплаты вместо
-    # одной. Цена: две отдельные оплаты одного контакта БЕЗ карточки схлопнутся
-    # в одну — в прод-потоке оплата всегда идёт с карточки, а веб передаёт её id.
-    return 0
-
-
 def _close_funnel_as_bought(store, contact_id: str, *, now: float) -> None:
     """Оплата закрывает воронку сигналом «bought» — через тот же advance_funnel,
     что и остальной конвейер, чтобы переход попал в funnel_transitions и был
@@ -73,7 +56,7 @@ def _close_funnel_as_bought(store, contact_id: str, *, now: float) -> None:
 
 
 def route_callback(data: str, *, store, now: float, language: str, snooze_seconds: float,
-                   persona_name_for=None) -> CallbackResult:
+                   persona_name_for=None, card_msg_id: int | None = None) -> CallbackResult:
     """Тап кнопки → действие над Store + текст обратной связи. ЧИСТАЯ: трогает
     только store. callback_data = "<action>:<contact_id>", где contact_id сам
     содержит двоеточие ("<peer>:<slug>"), поэтому режем ПО ПЕРВОМУ двоеточию.
@@ -82,6 +65,15 @@ def route_callback(data: str, *, store, now: float, language: str, snooze_second
     фидбека. Имя было захардкожено «Аня» — на volska-раннере тап отвечал
     «✅ Залишено Ані», и владелец решил, что действие ушло чужому клиенту
     (дрил 2026-07-22). Без резолвера — нейтральное «бот», не чужое имя.
+
+    card_msg_id: id сообщения-карточки, ПРИШЕДШИЙ С ТАПОМ
+    (`callback_query.message.message_id`) — личность оплаты. Раньше ключ брался
+    из runtime-флага `esc_active`, но его затирает эта же функция (Fix 2,
+    закрытие карточки), то есть ключ уничтожался тем же вызовом, который его
+    читал: второй тап падал на сентинел и плодил вторую оплату. Ключ обязан
+    приходить из САМОГО события, а не из изменяемого состояния, которым владеет
+    другая механика. Вызыватели без карточки (веб-панель шлёт только `data`)
+    оставляют None → сентинел 0, стабильный между тапами.
 
     Битый/неизвестный тап → без мутаций (DEV-18: не притворяемся, что сделали)."""
     action_raw, sep, contact_id = (data or "").partition(":")
@@ -136,10 +128,13 @@ def route_callback(data: str, *, store, now: float, language: str, snooze_second
                     feedback_html=console_text("fb_paid_bad", language),
                     answer=console_text("fb_paid_bad", language))
         store.get_or_create_contact(contact_id)
-        # card_msg_id даёт идемпотентность: повторный тап по ТОЙ ЖЕ карточке
-        # правит сумму, а не плодит вторую оплату (поток «спочатку Оплачено,
-        # потім уточнив суму»).
-        store.add_payment(contact_id, card_msg_id=_esc_card_id(store, contact_id),
+        # Идемпотентность: повторный тап по ТОЙ ЖЕ карточке правит сумму, а не
+        # плодит вторую оплату (поток «спочатку Оплачено, потім уточнив суму»).
+        # Ключ — id карточки ИЗ САМОГО ТАПА. Сентинел 0 вместо None: в SQLite
+        # два NULL в UNIQUE считаются РАЗНЫМИ, и вызыватель без карточки
+        # (веб-панель) плодил бы дубли. Цена сентинела прежняя: две отдельные
+        # оплаты одного контакта БЕЗ карточки схлопнутся в одну.
+        store.add_payment(contact_id, card_msg_id=0 if card_msg_id is None else card_msg_id,
                           amount=amount, currency="USD", ts=now, source="card_button")
         store.add_event("payment", contact_id=contact_id,
                         detail="" if amount is None else f"{amount:g} USD", ts=now)
@@ -397,11 +392,12 @@ class ControlBotPoller:
                 "text": cfg_text("cfg_honesty_confirm", self._language)})
             await self._post("answerCallbackQuery", {"callback_query_id": cq.get("id")})
             return
+        msg = cq.get("message", {})
         result = route_callback(
             cq.get("data", ""), store=self._store, now=self._clock(),
             language=self._language, snooze_seconds=self._snooze,
-            persona_name_for=self._persona_name_for)
-        msg = cq.get("message", {})
+            persona_name_for=self._persona_name_for,
+            card_msg_id=msg.get("message_id"))
         edit = {
             "chat_id": msg.get("chat", {}).get("id"),
             "message_id": msg.get("message_id"),
