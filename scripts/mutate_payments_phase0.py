@@ -301,10 +301,8 @@ def assert_clean() -> None:
                          cwd=ROOT, capture_output=True, text=True).stdout.strip()
     if out:
         raise SystemExit(
-            "ОТКАЗ: рабочее дерево грязное — откат мутаций сотрёт эти правки.
-"
-            "Закоммить их и повтори прогон:
-" + out)
+            "ОТКАЗ: рабочее дерево грязное — откат мутаций сотрёт эти правки.\n"
+            "Закоммить их и повтори прогон:\n" + out)
 
 
 def main() -> int:
