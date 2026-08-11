@@ -63,6 +63,23 @@ def _db(path: Path) -> str:
             INTEGER NOT NULL, output_tokens INTEGER NOT NULL,
             cache_read_input_tokens INTEGER NOT NULL,
             cache_creation_input_tokens INTEGER NOT NULL);
+        CREATE TABLE quotes (quote_id TEXT PRIMARY KEY, contact_id TEXT NOT NULL,
+            position_id TEXT NOT NULL, step_idx INTEGER NOT NULL, amount_minor
+            INTEGER NOT NULL, currency TEXT NOT NULL, scope_key TEXT,
+            amount_source TEXT, knowledge_version TEXT, status TEXT NOT NULL,
+            origin_msg_id INTEGER, created_ts REAL NOT NULL);
+        CREATE TABLE invoices (invoice_id TEXT PRIMARY KEY, contact_id TEXT NOT
+            NULL, quote_id TEXT, channel_id TEXT, amount_total INTEGER,
+            currency TEXT, amount_source TEXT, status TEXT NOT NULL,
+            created_ts REAL NOT NULL);
+        -- contact_id тут НЕТ: ступени принадлежат счёту, а не контакту.
+        CREATE TABLE invoice_stages (invoice_id TEXT NOT NULL, stage_no INTEGER
+            NOT NULL, amount_due INTEGER, due_ts REAL, status TEXT NOT NULL,
+            PRIMARY KEY (invoice_id, stage_no));
+        CREATE TABLE payments (id INTEGER PRIMARY KEY AUTOINCREMENT, contact_id
+            TEXT NOT NULL, dedup_key TEXT NOT NULL, invoice_id TEXT, stage_no
+            INTEGER, amount_minor INTEGER, currency TEXT, confirmed_by TEXT,
+            ts REAL NOT NULL);
     """)
     for contact in (DRILL, CLIENT):
         conn.execute(
@@ -83,6 +100,25 @@ def _db(path: Path) -> str:
                      " VALUES (?,'lead',1.0)", (contact,))
         conn.execute("INSERT INTO control_events (kind, contact_id, detail, ts)"
                      " VALUES ('pause',?,'d',1.0)", (contact,))
+        inv = f"INV-{contact}"
+        conn.execute(
+            "INSERT INTO quotes (quote_id, contact_id, position_id, step_idx,"
+            " amount_minor, currency, scope_key, amount_source,"
+            " knowledge_version, status, origin_msg_id, created_ts)"
+            " VALUES (?,?,'logo',0,40000,'USD','logo_full','price_upper','k',"
+            "'active',1,1.0)", (f"Q-{contact}", contact))
+        conn.execute(
+            "INSERT INTO invoices (invoice_id, contact_id, quote_id, channel_id,"
+            " amount_total, currency, amount_source, status, created_ts)"
+            " VALUES (?,?,?,'iban_usd',40000,'USD','price_upper','issued',1.0)",
+            (inv, contact, f"Q-{contact}"))
+        conn.execute(
+            "INSERT INTO invoice_stages (invoice_id, stage_no, amount_due,"
+            " due_ts, status) VALUES (?,1,40000,9.0,'issued')", (inv,))
+        conn.execute(
+            "INSERT INTO payments (contact_id, dedup_key, invoice_id, stage_no,"
+            " amount_minor, currency, confirmed_by, ts)"
+            " VALUES (?,'tap:1',?,1,40000,'USD','owner',1.0)", (contact, inv))
     conn.execute("INSERT INTO llm_usage (ts, tag, model, input_tokens,"
                  " output_tokens, cache_read_input_tokens,"
                  " cache_creation_input_tokens) VALUES (1.0,'brain','m',1,1,0,0)")
@@ -208,3 +244,74 @@ def test_drill_contacts_list_matches_drop_phantom_script():
     reset = _mod()
     drop = _load(_SCRIPTS / "drop_phantom_obligations.py", "drop_phantom_for_reset")
     assert reset.DRILL_CONTACTS == drop.DRILL_CONTACTS
+
+
+# ── деньги дрил-контакта: остаток чуть не дал ложный прогон 12.08 ──────────
+# `_with_quote_fallback` берёт позицию из АКТИВНОЙ котировки, когда лид услугу
+# не назвал. Пережившая сброс котировка означала счёт за работу, которой в
+# сброшенном диалоге никто не упоминал.
+
+def _money(db: str, contact: str) -> dict:
+    conn = sqlite3.connect(db)
+    try:
+        out = {}
+        for table in ("quotes", "invoices", "payments"):
+            out[table] = conn.execute(
+                f"SELECT COUNT(*) FROM {table} WHERE contact_id=?",
+                (contact,)).fetchone()[0]
+        out["invoice_stages"] = conn.execute(
+            "SELECT COUNT(*) FROM invoice_stages WHERE invoice_id IN"
+            " (SELECT invoice_id FROM invoices WHERE contact_id=?)",
+            (contact,)).fetchone()[0]
+        return out
+    finally:
+        conn.close()
+
+
+def test_money_tables_are_wiped_for_the_drill_contact(tmp_path):
+    db = _db(tmp_path / "m.db")
+    assert _money(db, DRILL) == {"quotes": 1, "invoices": 1,
+                                 "payments": 1, "invoice_stages": 1}
+    assert _mod().main([db, "--contact", DRILL, "--apply"]) == 0
+    assert _money(db, DRILL) == {"quotes": 0, "invoices": 0,
+                                 "payments": 0, "invoice_stages": 0}
+
+
+def test_invoice_stages_are_wiped_through_their_invoice(tmp_path):
+    """У ступеней нет `contact_id` — чистить их можно только по счёту. Забыть
+    это значит оставить ступени сиротами: счёт удалён, долг по ступени жив."""
+    db = _db(tmp_path / "s.db")
+    _mod().main([db, "--contact", DRILL, "--apply"])
+    conn = sqlite3.connect(db)
+    try:
+        left = conn.execute(
+            "SELECT COUNT(*) FROM invoice_stages WHERE invoice_id=?",
+            (f"INV-{DRILL}",)).fetchone()[0]
+    finally:
+        conn.close()
+    assert left == 0
+
+
+def test_money_of_another_contact_survives_the_reset(tmp_path):
+    """Тот же контракт, что и у переписки: сброс идёт по contact_id и чужие
+    деньги не трогает НИКОГДА."""
+    db = _db(tmp_path / "o.db")
+    _mod().main([db, "--contact", DRILL, "--apply"])
+    assert _money(db, CLIENT) == {"quotes": 1, "invoices": 1,
+                                 "payments": 1, "invoice_stages": 1}
+
+
+def test_plan_without_apply_does_not_touch_money(tmp_path):
+    db = _db(tmp_path / "p.db")
+    assert _mod().main([db, "--contact", DRILL]) == 0
+    assert _money(db, DRILL)["quotes"] == 1
+
+
+def test_plan_names_the_money_tables(tmp_path, capsys):
+    """План — это то, по чему принимают решение стереть. Таблица, которой в нём
+    нет, стирается втихую."""
+    db = _db(tmp_path / "n.db")
+    _mod().main([db, "--contact", DRILL])
+    out = capsys.readouterr().out
+    for table in ("quotes", "invoices", "invoice_stages", "payments"):
+        assert table in out, f"{table} стирается, но в плане не назван"

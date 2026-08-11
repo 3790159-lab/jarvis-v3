@@ -11,8 +11,13 @@
     вернуть, удалённую переписку — нет;
   · без `--apply` не меняется НИЧЕГО, печатается только план;
   · чужие контакты не задеваются (всё по contact_id);
-  · `llm_usage` (деньги) и `control_events` (улики действий владельца)
+  · `llm_usage` (расходы на LLM) и `control_events` (улики действий владельца)
     переживают сброс: подготовка сценария не переписывает бухгалтерию;
+  · а вот СОСТОЯНИЕ сделки (`quotes`, `invoices`, `invoice_stages`, `payments`)
+    стирается вместе с перепиской — это тот же осадок, а не бухгалтерия.
+    Прогон 12.08: диалог сброшен, активная котировка осталась, и следующий
+    «готовий замовити» дал бы счёт за работу, которой в этом диалоге никто не
+    упоминал (`_with_quote_fallback` берёт позицию из активной котировки);
   · контакта нет в БД — это код 1, а не тихий ноль (опечатка в id или не та
     БД, DEV-18);
   · повтор — no-op с кодом 0.
@@ -35,7 +40,20 @@ DRILL_CONTACTS = frozenset({"237616472:volska", "8849893367:volska"})
 # зеленеет за счёт прошлых прогонов; `console_cards` — карточки, чьи msg_id
 # после сброса ведут в никуда.
 _WIPE_TABLES = ("messages", "contact_profile", "contact_obligations",
-                "facts", "console_cards")
+                "facts", "console_cards",
+                # Деньги дрил-контакта — тоже осадок. Прогон 12.08: сброшенный
+                # диалог, но пережившая сброс АКТИВНАЯ котировка, а
+                # `_with_quote_fallback` берёт позицию именно из неё, когда лид
+                # услугу не назвал. Следующий «готовий замовити» дал бы счёт за
+                # работу, которой в этом диалоге никто не упоминал.
+                "quotes", "invoices", "payments")
+
+# Ступени счёта: своего `contact_id` у них НЕТ, они принадлежат счёту. Чистятся
+# подзапросом и СТРОГО ДО `invoices` — иначе счёт удалён, а ступени осиротели.
+_WIPE_BY_INVOICE = ("invoice_stages",)
+
+_BY_INVOICE_WHERE = ("WHERE invoice_id IN (SELECT invoice_id FROM invoices"
+                     " WHERE contact_id=?)")
 
 # Что переживает сброс намеренно (см. контракт в docstring).
 _KEEP_TABLES = ("llm_usage", "control_events")
@@ -55,6 +73,10 @@ def counts(conn, contact: str) -> dict:
     for table in _WIPE_TABLES:
         out[table] = conn.execute(
             f"SELECT COUNT(*) FROM {table} WHERE contact_id=?", (contact,)).fetchone()[0]
+    for table in _WIPE_BY_INVOICE:
+        out[table] = conn.execute(
+            f"SELECT COUNT(*) FROM {table} {_BY_INVOICE_WHERE}",
+            (contact,)).fetchone()[0]
     row = conn.execute(
         "SELECT state, paused, human_took_over FROM contacts WHERE contact_id=?",
         (contact,)).fetchone()
@@ -70,11 +92,14 @@ def _print_counts(title: str, c: dict) -> None:
     else:
         state, paused, took_over = row
         print(f"  воронка: state={state}, paused={paused}, human_took_over={took_over}")
-    for table in _WIPE_TABLES:
+    for table in (*_WIPE_TABLES, *_WIPE_BY_INVOICE):
         print(f"  {table}: {c[table]}")
 
 
 def reset(conn, contact: str) -> None:
+    # Сначала то, что опознаётся ЧЕРЕЗ счёт, и только потом сами счета.
+    for table in _WIPE_BY_INVOICE:
+        conn.execute(f"DELETE FROM {table} {_BY_INVOICE_WHERE}", (contact,))
     for table in _WIPE_TABLES:
         conn.execute(f"DELETE FROM {table} WHERE contact_id=?", (contact,))
     conn.execute(_CONTACT_RESET_SQL, (contact,))
@@ -108,7 +133,8 @@ def main(argv=None) -> int:
                   f"опечатка в id или не та БД, сброс не выполнен")
             return 1
 
-        print(f"\nсбрасываю: {', '.join(_WIPE_TABLES)} + стадия воронки")
+        print(f"\nсбрасываю: {', '.join((*_WIPE_TABLES, *_WIPE_BY_INVOICE))}"
+              f" + стадия воронки")
         print(f"не трогаю: {', '.join(_KEEP_TABLES)}")
         if not a.apply:
             print("\nэто ПЛАН. Применить: добавь --apply")
