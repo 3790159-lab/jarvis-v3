@@ -6,11 +6,35 @@
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
+from itertools import count
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]   # работает и в worktree
+
+# Python признаёт кэш байткода актуальным по паре (mtime исходника в ЦЕЛЫХ
+# секундах, его размер). Две соседние мутации ОДНОГО файла, дающие одинаковый
+# размер и попавшие в одну секунду, для этой проверки неотличимы — вторая
+# исполняется байткодом первой.
+#
+# Это не теория: 11.08 пара мутаций в prompt.py (обе дают 17304 байта) дала
+# ложное [СЛЕП] на живом стороже. Обратная сторона дороже — мутация, которая
+# не исполнялась ни разу, отчитывается как [ok], и гейт из 120 проверок
+# уверенно подтверждает то, чего не проверял.
+#
+# Лечим в источнике: каждой записи — свой уникальный mtime, который не
+# повторится. Тогда ни один .pyc не может совпасть с чужой мутацией.
+_MTIME_BASE = 2_000_000_000          # заведомо в будущем: с реальными не пересечётся
+_mtime_seq = count()
+
+
+def write_mutant(path: Path, text: str) -> None:
+    """Записать мутацию так, чтобы её НЕЛЬЗЯ было спутать с предыдущей."""
+    path.write_text(text, encoding="utf-8")
+    stamp = _MTIME_BASE + next(_mtime_seq)
+    os.utime(path, (stamp, stamp))
 
 # (имя, файл, что заменить, на что, какой тест ОБЯЗАН покраснеть)
 MUTATIONS = [
@@ -639,6 +663,17 @@ MUTATIONS = [
      "        return",
      "tests/chatter/test_payments_path_e2e.py::test_a_rate_limited_turn_creates_no_money_object"),
 
+    # --- гейт сторожит сам себя -------------------------------------------
+    # Единственная мутация, которая ломает не продукт, а проверку продукта.
+    # Без неё возврат к «просто write_text» прошёл бы незамеченным, и гейт
+    # снова начал бы подтверждать то, чего не проверял.
+
+    ("гейт: мутация пишется без уникального mtime (исполнится чужой байткод)",
+     "scripts/mutate_payments_phase0.py",
+     "    stamp = _MTIME_BASE + next(_mtime_seq)\n    os.utime(path, (stamp, stamp))",
+     "    return",
+     "tests/test_mutation_harness.py::test_every_write_gets_its_own_mtime"),
+
     ("пульт: файл не откатывается на упавшей валидации", "chatter/telethon_run.py",
      '            path.write_text(old, encoding="utf-8")   # вернуть заведомо рабочий файл\n'
      '            self.reload_configs()\n'
@@ -684,7 +719,7 @@ def main() -> int:
             print(f"[!] МУТАЦИЯ НЕ ПРИМЕНИЛАСЬ: {name} — искомый фрагмент не найден")
             blind.append((name, "фрагмент не найден"))
             continue
-        path.write_text(text.replace(old, new, 1), encoding="utf-8")
+        write_mutant(path, text.replace(old, new, 1))
         try:
             green = run(test)
         finally:
