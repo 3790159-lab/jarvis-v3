@@ -403,3 +403,21 @@ def test_an_exhausted_package_does_not_mute_the_bot(client, monkeypatch):
     assert (Store(db).get_runtime_flag("kill_switch") or "0") != "1", (
         "исчерпание пакета само взвело заглушку")
     assert "На паузі" not in body
+
+
+def test_the_login_route_itself_is_dead_while_panels_are_disabled(tmp_path, monkeypatch):
+    """Мало проверить флаг `panels_enabled` — надо ДЁРНУТЬ ручку. Открытая
+    дверь в выключенной панели хуже, чем отсутствие двери (поймано мутацией:
+    гейт снимался, а тест этого не видел, потому что ключ в фикстуре задан)."""
+    import importlib
+
+    monkeypatch.delenv("JARVIS_PANELS_KEY", raising=False)
+    import app.routers.panels_auth as pa
+    importlib.reload(pa)
+
+    api = FastAPI()
+    api.include_router(pa.router)
+    c = TestClient(api)
+    r = c.get("/panel/login", params={"key": "что угодно"}, follow_redirects=False)
+    assert r.status_code == 503
+    assert "set-cookie" not in {k.lower() for k in r.headers}

@@ -880,7 +880,8 @@ MUTATIONS = [
      "        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,\n"
      '                            "panels disabled: JARVIS_PANELS_KEY not set")',
      '    expected = _expected() or "любой сойдёт"',
-     "tests/chatter/test_panels_web.py::test_a_wrong_key_is_refused_and_sets_nothing"),
+     "tests/chatter/test_panels_web.py"
+     "::test_the_login_route_itself_is_dead_while_panels_are_disabled"),
 
     ("панель: сравнение ключа вернулось на строки (не-ASCII = 500)",
      "app/routers/panels_auth.py",
@@ -891,8 +892,16 @@ MUTATIONS = [
 
     ("панель: одиночный POST снова взводит глобальную заглушку",
      "app/routers/tamapi_dashboard.py",
-     '    if data == "stop_all":\n        return JSONResponse({',
-     '    if data == "stop_all_никогда":\n        return JSONResponse({',
+     # Возвращаем ИМЕННО прежнее поведение: снимаем и гард, и требование
+     # подтверждения. Мутация, ломающая только маршрут, оставила бы тест
+     # зелёным по другой причине — «неизвестное действие ничего не делает».
+     '    if data == "stop_all":\n'
+     "        return JSONResponse({\n"
+     '            "confirm": True,\n'
+     '            "feedback": "Зупинити Ольгу ВСІМ лідам? Підтвердіть ще раз.",\n'
+     "        })\n"
+     '    if data == "stop_all confirm":',
+     '    if data == "stop_all":',
      "tests/chatter/test_panels_web.py::test_a_single_post_does_not_arm_the_global_mute"),
 
     ("панель: подтверждение stop_all требуется и на возврат из паузы",
