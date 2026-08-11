@@ -430,6 +430,55 @@ MUTATIONS = [
      "  enabled: false", "  enabled: true",
      "tests/chatter/test_payments_volska_config.py::test_volska_loads_with_payments_off"),
 
+    # --- пульт коммитит тумблер (решение владельца 11.08) -------------------
+    # Дороже всего здесь ТИШИНА: тумблер уже применён, и неудавшийся коммит,
+    # о котором промолчали, возвращает ровно то состояние, из которого выходим.
+
+    ("коммит: предупреждение о провале не доходит до владельца",
+     "chatter/telethon_run.py",
+     '        if out.ok:\n            return ""',
+     '        if True:\n            return ""',
+     "tests/chatter/test_toggle_commit_wiring.py::test_a_failed_commit_is_said_out_loud_in_the_reply"),
+
+    ("коммит: причина провала не названа", "chatter/config/config_commit.py",
+     "        return CommitOutcome(False, False, _tail(res))",
+     '        return CommitOutcome(False, False, "коммит не прошёл")',
+     "tests/chatter/test_config_commit.py::test_a_failing_hook_is_loud_and_names_the_hook_output"),
+
+    ("коммит: вывод хука читается только из stdout", "chatter/config/config_commit.py",
+     '    text = ((proc.stdout or "") + "\\n" + (proc.stderr or "")).strip()',
+     '    text = (proc.stdout or "").strip()',
+     "tests/chatter/test_config_commit.py::test_a_failing_hook_is_loud_and_names_the_hook_output"),
+
+    ("коммит: забирает чужую незаконченную работу", "chatter/config/config_commit.py",
+     '    res = _git_run(["commit", "-m", message, "--", str(path)], cwd=cwd)',
+     '    res = _git_run(["commit", "-a", "-m", message], cwd=cwd)',
+     "tests/chatter/test_config_commit.py::test_only_the_named_file_is_committed"),
+
+    ("коммит: ложится в чужую ветку", "chatter/config/config_commit.py",
+     "    if current != trunk:", "    if False:",
+     "tests/chatter/test_config_commit.py::test_a_tree_off_the_trunk_refuses_to_commit"),
+
+    ("коммит: незавершённый merge не замечается", "chatter/config/config_commit.py",
+     "        if (gd / marker).exists():", "        if False:",
+     "tests/chatter/test_config_commit.py::test_an_unfinished_merge_is_loud_and_leaves_the_tree_dirty"),
+
+    ("коммит: «нечего коммитить» считается провалом (ложная тревога)",
+     "chatter/config/config_commit.py",
+     "        if any(marker in blob for marker in _NOTHING):", "        if False:",
+     "tests/chatter/test_config_commit.py::test_no_change_is_success_and_silence"),
+
+    ("коммит: копия папки вне репозитория считается провалом",
+     "chatter/config/config_commit.py",
+     "        if any(marker in err for marker in _NOT_A_REPO):", "        if False:",
+     "tests/chatter/test_config_commit.py::test_a_config_outside_any_repository_is_silent_success"),
+
+    ("коммит: пропавший git проглатывается как успех",
+     "chatter/config/config_commit.py",
+     '        return CommitOutcome(False, False, "git не запустился (нет бинаря или таймаут)")',
+     "        return CommitOutcome(True, False)",
+     "tests/chatter/test_config_commit.py::test_git_missing_is_loud_not_silent"),
+
     ("пульт: файл не откатывается на упавшей валидации", "chatter/telethon_run.py",
      '            path.write_text(old, encoding="utf-8")   # вернуть заведомо рабочий файл\n'
      '            self.reload_configs()\n'

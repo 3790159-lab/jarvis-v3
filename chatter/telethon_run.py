@@ -17,6 +17,7 @@ from chatter.config.active import ActiveClientsError, resolve_personas
 from chatter.config.loader import Config, ConfigError, ControlConfig, load_config
 from chatter.config.yaml_edit import (
     YamlEditError, set_funnel_gate, set_honesty_mode, set_payments_enabled)
+from chatter.config.config_commit import commit_config_file
 from chatter.core import humanizer as H
 from chatter.core.admission import admission_decision
 from chatter.core.brain import Brain
@@ -743,7 +744,9 @@ class TelethonRunner:
         # Имя клиента обязательно: на volska-раннере безымянное подтверждение
         # однажды убедило владельца, что тумблер лёг в ЧУЖОЙ конфиг (дрил 22.07).
         return cfg_text("cfg_pay_on_done" if enabled else "cfg_pay_off_done",
-                        language, client=slug)
+                        language, client=slug) + self._commit_toggle(
+            path, language=language,
+            what="chore(%s): payments.enabled=%s командой пульта" % (slug, str(enabled).lower()))
 
     def _set_honesty(self, arg: str, language: str) -> str:
         """Тумблер честности командой пульта — но ТОЛЬКО через confirm.
@@ -803,7 +806,29 @@ class TelethonRunner:
         # «Чесність ВИМКНЕНА» рядом с хардкодом «Залишено Ані» убедило владельца,
         # что тумблер лёг в ЧУЖОЙ конфиг (дрил 2026-07-22).
         return cfg_text("cfg_honesty_on_done" if honest else "cfg_honesty_free_done",
-                        language, client=self.primary_slug)
+                        language, client=self.primary_slug) + self._commit_toggle(
+            path, language=language,
+            what="chore(%s): honesty_mode=%s командой пульта"
+                 % (self.primary_slug, "honest" if honest else "free_owner_liability"))
+
+    def _commit_toggle(self, path, *, what: str, language: str) -> str:
+        """Записать переключённый тумблер в историю. Возвращает ПРЕДУПРЕЖДЕНИЕ
+        для владельца или пустую строку.
+
+        Значение тумблера в файле — ФАКТ состояния прода, и место ему в истории:
+        иначе живое дерево остаётся грязным навсегда, а проверка worktree в
+        ops_watchdog краснеет на законном действии (11.08 она простояла так
+        ~14 часов и ослепла к настоящему недеплоенному коду).
+
+        Предупреждение возвращается, а не логируется: к этому моменту тумблер
+        УЖЕ применён и уже работает, так что «не получилось» — неправда. Правда
+        в том, что дерево грязное, и знать это обязан владелец, а не лог."""
+        out = commit_config_file(path, message=what)
+        if out.ok:
+            return ""
+        log.warning("тумблер не закоммичен (%s): %s", what, out.detail)
+        return "\n\n" + cfg_text("cfg_commit_failed", language,
+                                  reason=out.detail, path=path.name)
 
     def _set_funnel_gate(self, arg: str, language: str) -> str:
         """Онбординг-дырка №2: переключатель гейта — команда, а не правка yaml.
@@ -838,8 +863,12 @@ class TelethonRunner:
             path.write_text(old, encoding="utf-8")   # вернуть заведомо рабочий файл
             self.reload_configs()
             return cfg_text("cfg_gate_fail", language, reason=err)
-        return cfg_text("cfg_gate_on_done", language) if enabled \
+        done = cfg_text("cfg_gate_on_done", language) if enabled \
             else cfg_text("cfg_gate_off_done", language, allow=len(self.allowlist))
+        return done + self._commit_toggle(
+            path, language=language,
+            what="chore(%s): funnel_gate=%s командой пульта"
+                 % (self.primary_slug, str(enabled).lower()))
 
     def effective_allowlist(self) -> frozenset[int]:
         """settings.yaml.allowlist + runtime-оверлей /allow (Store).

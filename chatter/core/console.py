@@ -741,6 +741,10 @@ _CFG_STRINGS: dict[str, dict[str, str]] = {
         "cfg_pay_off_done": "✅ Оплата выкл для {client}. На «куда платить» снова отсылаю к владельцу.",
         "cfg_pay_usage": "Использование: /payments on | off (без аргумента — показать состояние). Включение требует confirm.",
         "cfg_pay_fail": "⚠️ Не переключил ({reason}). Оплата осталась как была.",
+        # Тумблер УЖЕ применён и уже работает — это не «не получилось».
+        # Не сказать здесь значит оставить владельца с грязным деревом, о
+        # котором он не знает: ровно то состояние, из которого мы выходим.
+        "cfg_commit_failed": "⚠️ Тумблер ПРИМЕНЁН и работает, но НЕ ЗАКОММИЧЕН: {reason}\n\nЖивое дерево осталось грязным — сторож даст красное, и «грязное = недеплоенный код» перестанет быть правдой.\nЗакоммить руками: git commit -- {path}",
         "btn_honesty_off": "🎭 Выключить честность",
         "cfg_honesty_status_honest": "Честность [{client}]: ВКЛ (на «ты бот?» раскрываюсь честно). Выключить: /honesty free",
         "cfg_honesty_status_free": "🎭 Честность [{client}]: ВЫКЛ (свободный режим, ответственность на владельце). Инструкция честности снята: обычно ведёт себя как живой человек, но может раскрыться сам — полное сокрытие не гарантируется. Вернуть: /honesty on",
@@ -815,6 +819,7 @@ _CFG_STRINGS: dict[str, dict[str, str]] = {
         "cfg_pay_off_done": "✅ Payments off for {client}. «Where do I pay» goes back to the owner.",
         "cfg_pay_usage": "Usage: /payments on | off (no argument — show state). Enabling requires confirm.",
         "cfg_pay_fail": "⚠️ Not switched ({reason}). Payments are unchanged.",
+        "cfg_commit_failed": "⚠️ The toggle IS applied and live, but NOT committed: {reason}\n\nThe live tree stayed dirty — the watchdog will go red, and «dirty = undeployed code» stops being true.\nCommit by hand: git commit -- {path}",
         "btn_honesty_off": "🎭 Turn honesty off",
         "cfg_honesty_status_honest": "Honesty [{client}]: ON (I disclose honestly when asked «are you a bot?»). Turn off: /honesty free",
         "cfg_honesty_status_free": "🎭 Honesty [{client}]: OFF (free mode, owner's liability). The honesty instruction is lifted: usually behaves like a live human, but may disclose on its own — full concealment is not guaranteed. Restore: /honesty on",
@@ -889,6 +894,7 @@ _CFG_STRINGS: dict[str, dict[str, str]] = {
         "cfg_pay_off_done": "✅ Оплата вимк для {client}. На «куди платити» знову відсилаю до керівниці.",
         "cfg_pay_usage": "Використання: /payments on | off (без аргументу — показати стан). Увімкнення вимагає confirm.",
         "cfg_pay_fail": "⚠️ Не перемкнув ({reason}). Оплата лишилася як була.",
+        "cfg_commit_failed": "⚠️ Тумблер ЗАСТОСОВАНО і він працює, але НЕ ЗАКОМІЧЕНО: {reason}\n\nЖиве дерево лишилося брудним — сторож дасть червоне, і «брудне = незадеплоєний код» перестане бути правдою.\nЗакомітити руками: git commit -- {path}",
         "btn_honesty_off": "🎭 Вимкнути чесність",
         "cfg_honesty_status_honest": "Чесність [{client}]: УВІМК (на «ти бот?» розкриваюся чесно). Вимкнути: /honesty free",
         "cfg_honesty_status_free": "🎭 Чесність [{client}]: ВИМК (вільний режим, відповідальність на власнику). Інструкцію чесності знято: зазвичай поводиться як жива людина, але може розкритися сам — повне приховування не гарантується. Повернути: /honesty on",
