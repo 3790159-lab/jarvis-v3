@@ -25,6 +25,7 @@ REASONS: tuple[str, ...] = (
     "multiple_units",          # одна услуга, но единиц больше одной
     "unknown_service",         # услуги нет в прайсе
     "unknown_position",        # ключ позиции не найден в конфиге (рассинхрон)
+    "unknown_tier",            # объём назван, но такой ступени у позиции нет
     "bad_quantity",            # количество ≤ 0 — не «наверное один»
     "volume_out_of_norm",      # объём вне обычного
     "deadline_out_of_norm",    # срок вне обычного
@@ -36,6 +37,10 @@ class RequestedItem:
     position_id: str | None
     qty: int
     raw: str = ""              # как это звучало у лида — для карточки владельцу
+    # Выбранная ПУБЛИЧНАЯ ступень объёма (решение владельца 12.08). None —
+    # «объём не назван», и это рабочий случай: политика price_upper с оговоркой,
+    # как до ярусов. Идентификатор, а не текст: ступень едет в счёт.
+    tier_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -53,6 +58,8 @@ class Simple:
     """Простая одиночная услуга: бот считает и называет сумму сам."""
     position_id: str
     qty: int = 1
+    # Какой объём выбран. None — не выбран, счёт пойдёт по политике price_upper.
+    tier_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -95,6 +102,12 @@ def assess_complexity(req: QuoteRequest, pricing: Pricing) -> Simple | NeedsOwne
             found.append("unknown_service")
         elif item.position_id not in pricing.positions:
             found.append("unknown_position")
+        # Ступень названа, но её нет в конфиге (или у позиции ярусов нет вовсе)
+        # — разбор разошёлся с прайсом. Подставить вместо неузнанной ступени
+        # верхнюю значило бы выставить счёт за объём, которого лид не выбирал.
+        elif (item.tier_id is not None
+              and pricing.positions[item.position_id].tier(item.tier_id) is None):
+            found.append("unknown_tier")
 
     if req.unknown_services:
         found.append("unknown_service")
@@ -109,4 +122,4 @@ def assess_complexity(req: QuoteRequest, pricing: Pricing) -> Simple | NeedsOwne
     only = req.items[0]
     # position_id уже проверен выше; сузить тип для читателя.
     assert only.position_id is not None
-    return Simple(only.position_id, only.qty)
+    return Simple(only.position_id, only.qty, tier_id=only.tier_id)

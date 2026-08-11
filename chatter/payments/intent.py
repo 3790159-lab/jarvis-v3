@@ -162,9 +162,34 @@ def _items(tokens: list[str], pricing: Pricing | None) -> tuple[RequestedItem, .
             if any(token.startswith(alias) for alias in position.aliases):
                 found[position.position_id] = RequestedItem(
                     position_id=position.position_id,
-                    qty=_qty_before(tokens, i), raw=token)
+                    qty=_qty_before(tokens, i), raw=token,
+                    tier_id=_tier_of(tokens, position))
                 break
     return tuple(found.values())
+
+
+def read_tier(text: str, position) -> str | None:
+    """Ступень, названная в ЭТОМ ходу, для УЖЕ известной позиции.
+
+    Нужна отдельно от `read_intent`, потому что позиция и объём приходят
+    разными путями: «давайте повний варіант» не называет услугу вовсе — она
+    берётся из активной котировки, — но объём называет вполне."""
+    return _tier_of(_tokens(text), position)
+
+
+def _tier_of(tokens: list[str], position) -> str | None:
+    """Выбранная ступень объёма, если лид её НАЗВАЛ.
+
+    `None` — «объём не назван», и это рабочий исход: политика price_upper с
+    оговоркой. Угадывать нельзя ровно по той же причине, что и позицию:
+    угаданный объём — это счёт за не ту работу, только ступенью мельче.
+
+    Две названные ступени в одном ходу («базовий чи повний?») — тоже `None`:
+    это ВОПРОС о разнице, а не выбор, и отвечать на него надо перечнем."""
+    hits = {t.id for t in position.tiers
+            for token in tokens
+            if any(token.startswith(alias) for alias in t.aliases)}
+    return hits.pop() if len(hits) == 1 else None
 
 
 def _volume_note(tokens: list[str]) -> str | None:

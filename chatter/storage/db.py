@@ -169,6 +169,10 @@ CREATE TABLE IF NOT EXISTS quotes (
     currency          TEXT NOT NULL,
     scope_key         TEXT NOT NULL,
     amount_source     TEXT NOT NULL,
+    -- Выбранная ПУБЛИЧНАЯ ступень объёма (решение владельца 12.08). NULL —
+    -- объём не назван, сумма по политике price_upper. Идентификатор, а не
+    -- текст: по нему счёт узнаёт, за какой объём он выставлен.
+    tier_id           TEXT,
     knowledge_version TEXT,
     status            TEXT NOT NULL,
     origin_msg_id     INTEGER,
@@ -233,6 +237,11 @@ _ADDED_COLUMNS = {
     "llm_usage": {
         "cache_creation_5m": "INTEGER",
         "cache_creation_1h": "INTEGER",
+    },
+    # Ступень объёма у котировки (решение владельца 12.08). NULL у исторических
+    # строк честен: ярусов тогда не существовало, и «базовый» им не дописать.
+    "quotes": {
+        "tier_id": "TEXT",
     },
     "contacts": {
         "paused_at": "REAL",
@@ -512,7 +521,7 @@ class Store:
     def create_quote(self, *, contact_id: str, position_id: str, step_idx: int,
                      amount: Money, scope_key: str, amount_source: str,
                      knowledge_version: str | None, origin_msg_id: int | None,
-                     now: float) -> dict:
+                     now: float, tier_id: str | None = None) -> dict:
         """Новая котировка. Прежние по контакту становятся `superseded`:
         активной может быть только одна, иначе «что мы ему называли» перестаёт
         иметь ответ."""
@@ -523,11 +532,12 @@ class Store:
                 " WHERE contact_id=? AND status='active'", (contact_id,))
             self._conn.execute(
                 "INSERT INTO quotes (quote_id, contact_id, position_id, step_idx,"
-                "   amount_minor, currency, scope_key, amount_source,"
+                "   amount_minor, currency, scope_key, amount_source, tier_id,"
                 "   knowledge_version, status, origin_msg_id, created_ts)"
-                " VALUES (?,?,?,?,?,?,?,?,?,'active',?,?)",
+                " VALUES (?,?,?,?,?,?,?,?,?,?,'active',?,?)",
                 (qid, contact_id, position_id, step_idx, amount.minor, amount.ccy,
-                 scope_key, amount_source, knowledge_version, origin_msg_id, now))
+                 scope_key, amount_source, tier_id, knowledge_version,
+                 origin_msg_id, now))
             self._conn.commit()
             row = self._conn.execute(
                 "SELECT * FROM quotes WHERE quote_id=?", (qid,)).fetchone()

@@ -14,7 +14,7 @@ import sqlite3
 import pytest
 
 from chatter.payments.model import PaymentRecord, make_dedup_key
-from chatter.payments.money import Money
+from chatter.payments.money import Money, from_major
 from chatter.storage.db import PaymentsMigrationBlocked, Store
 
 USD = "USD"
@@ -310,3 +310,66 @@ def test_issued_invoice_cannot_exist_without_an_amount(tmp_path):
                                channel_id="iban_eur", due_ts=100.0, created_by="bot",
                                amount_source=None, status="awaiting_owner", now=1.0)
     assert inv["amount_total"] is None
+
+
+# ── выбранная ступень объёма едет в котировку идентификатором ──────────────
+
+def test_a_quote_carries_the_chosen_tier_id(tmp_path):
+    """Идентификатор, а не текст: по нему счёт узнаёт, за какой объём выставлен.
+    Восстанавливать ступень из scope_key значило бы завести второй способ
+    узнать то же самое — заготовку следующего расхождения."""
+    s = Store(str(tmp_path / "q.db"))
+    row = s.create_quote(
+        contact_id="1:demo", position_id="logo", step_idx=0,
+        amount=from_major(300, "USD"), scope_key="tier_basic",
+        amount_source="tier_selected", tier_id="basic",
+        knowledge_version="k", origin_msg_id=1, now=1.0)
+    assert row["tier_id"] == "basic"
+    assert row["amount_source"] == "tier_selected"
+
+
+def test_a_quote_without_a_tier_keeps_it_null(tmp_path):
+    """Объём не назван — ступени нет. NULL здесь честнее любого дефолта: он
+    отличим от «выбрали базовый»."""
+    s = Store(str(tmp_path / "q2.db"))
+    row = s.create_quote(
+        contact_id="1:demo", position_id="logo", step_idx=0,
+        amount=from_major(400, "USD"), scope_key="full",
+        amount_source="price_upper", knowledge_version="k",
+        origin_msg_id=1, now=1.0)
+    assert row["tier_id"] is None
+
+
+def test_choosing_another_tier_supersedes_the_previous_quote(tmp_path):
+    """Смена ступени вверх = новая котировка, старая superseded (решение
+    владельца). Две активные означали бы, что «что мы ему называли» перестало
+    иметь ответ."""
+    s = Store(str(tmp_path / "q3.db"))
+    s.create_quote(contact_id="1:demo", position_id="logo", step_idx=0,
+                   amount=from_major(300, "USD"), scope_key="tier_basic",
+                   amount_source="tier_selected", tier_id="basic",
+                   knowledge_version="k", origin_msg_id=1, now=1.0)
+    s.create_quote(contact_id="1:demo", position_id="logo", step_idx=0,
+                   amount=from_major(400, "USD"), scope_key="tier_std",
+                   amount_source="tier_selected", tier_id="standard",
+                   knowledge_version="k", origin_msg_id=2, now=2.0)
+    rows = s.quotes_for("1:demo")
+    assert [(r["tier_id"], r["status"]) for r in rows] == [
+        ("basic", "superseded"), ("standard", "active")]
+
+
+def test_tier_id_is_migrated_into_an_existing_base(tmp_path):
+    """Гардиан перезапускает раннер постоянно: миграция обязана быть
+    идемпотентной, а не падать на втором прогоне."""
+    path = str(tmp_path / "old.db")
+    Store(path).close()
+    import sqlite3
+    conn = sqlite3.connect(path)
+    conn.execute("ALTER TABLE quotes DROP COLUMN tier_id")
+    conn.commit()
+    conn.close()
+
+    s = Store(path)
+    cols = {r[1] for r in s._conn.execute("PRAGMA table_info(quotes)")}
+    assert "tier_id" in cols
+    Store(path).close()          # второй прогон не падает

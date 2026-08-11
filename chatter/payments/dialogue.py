@@ -34,12 +34,15 @@ from chatter.payments.complexity import (
 from chatter.payments.drill_gate import NotForProduction
 from chatter.payments.instructions import (
     PaymentInstruction, RequisitesError, RequisitesUnavailable, resolve_instruction)
-from chatter.payments.intent import read_intent
+from chatter.payments.intent import read_intent, read_tier
 from chatter.payments.money import Money, format_major
 from chatter.payments.prompt import (
     due_at, format_due, pick_open_invoice, render_invoice_block,
-    render_no_price_block, render_quote_block, render_requisites_block)
+    render_no_price_block, render_quote_block, render_requisites_block,
+    render_tiers_block)
 from chatter.payments.scope import ScopeConfigError, assert_pricing_usable
+from chatter.payments.tier_texts import (
+    TierTextsError, assert_tier_texts_usable, render_tiers_value)
 from chatter.payments.settings import PaymentsConfig, usable_channels
 
 log = logging.getLogger(__name__)
@@ -91,20 +94,56 @@ def _instruction(payments: PaymentsConfig, contact_id: str) -> PaymentInstructio
     return None
 
 
-def _with_quote_fallback(request: QuoteRequest, store, contact_id: str) -> QuoteRequest:
+def _with_quote_fallback(request: QuoteRequest, store, contact_id: str, *,
+                         payments: PaymentsConfig, text: str) -> QuoteRequest:
     """«Ок, давайте почнемо» без названия услуги — это про то, что уже
     котировали. Позиция берётся из АКТИВНОЙ котировки, а не угадывается: у
-    догадки здесь цена — счёт за не ту работу."""
+    догадки здесь цена — счёт за не ту работу.
+
+    Объём при этом читается из ТЕКУЩЕГО хода, а не наследуется от котировки:
+    «давайте повний варіант» услугу не называет, но объём называет вполне, и
+    унаследованная ступень означала бы счёт по прежнему объёму."""
     if request.items:
         return request
     active = [q for q in store.quotes_for(contact_id) if q["status"] == "active"]
     if not active:
         return request
+    position_id = active[-1]["position_id"]
+    position = (payments.pricing.positions.get(position_id)
+                if payments.pricing is not None else None)
+    tier_id = read_tier(text, position) if position is not None else None
+    # Ступень не названа в этом ходу — берём ту, что уже выбрана в котировке:
+    # «давайте оформлювати» после выбора базового не имеет права поднять счёт
+    # до верхней ступени.
+    if tier_id is None:
+        tier_id = active[-1].get("tier_id")
     return QuoteRequest(
-        items=(RequestedItem(position_id=active[-1]["position_id"], qty=1,
-                             raw="(з попередньої котировки)"),),
+        items=(RequestedItem(position_id=position_id, qty=1,
+                             raw="(з попередньої котировки)", tier_id=tier_id),),
         volume_note=request.volume_note, deadline_note=request.deadline_note,
         parsed=True)
+
+
+def _tier_named_now(payments: PaymentsConfig, store, contact_id: str, text: str,
+                    request: QuoteRequest) -> bool:
+    """Назвал ли лид объём ИМЕННО в этом ходу.
+
+    Выбор объёма — денежный ход не хуже вопроса цены: «давайте повний варіант»
+    не содержит ни слова про цену и ни слова про услугу, но меняет сумму. Без
+    этого признака ветка денег на такой ход не запускается вовсе.
+
+    Важно именно «в этом ходу», а не «есть в котировке»: унаследованная ступень
+    сделала бы денежным КАЖДЫЙ следующий ход диалога."""
+    if payments.pricing is None:
+        return False
+    ids = [i.position_id for i in request.items if i.position_id]
+    if not ids:
+        ids = [q["position_id"] for q in store.quotes_for(contact_id)
+               if q["status"] == "active"]
+    return any(
+        read_tier(text, pos) is not None
+        for pid in ids
+        if (pos := payments.pricing.positions.get(pid)) is not None)
 
 
 def _verdict(payments: PaymentsConfig, request: QuoteRequest, contact_id: str):
@@ -119,9 +158,19 @@ def _verdict(payments: PaymentsConfig, request: QuoteRequest, contact_id: str):
         # шаге торга — значит оборвать диалог в самом дорогом месте.
         assert_pricing_usable(payments.pricing, payments.scope_texts,
                               contact_id=contact_id)
-    except (ScopeConfigError, NotForProduction) as exc:
+        # Публичные описания объёма — та же проверка и то же «до разговора»:
+        # заглушка «ЗАГЛУШКА: базовий обсяг» в лицо живому лиду хуже молчания.
+        assert_tier_texts_usable(payments.pricing, payments.tier_texts,
+                                 contact_id=contact_id)
+    except (ScopeConfigError, TierTextsError, NotForProduction) as exc:
         return _Blocked(str(exc))
     return outcome
+
+
+def _tiered(payments: PaymentsConfig, position_id: str) -> bool:
+    pos = (payments.pricing.positions.get(position_id)
+           if payments.pricing is not None else None)
+    return bool(pos is not None and pos.tiers)
 
 
 def _money_value(amount: Money) -> str:
@@ -166,26 +215,43 @@ def payment_turn(*, store, payments: PaymentsConfig, contact_id: str, text: str,
 
     # Операция Б. Счёта без реквизитов не бывает: «заплати невідомо куди до
     # четверга» — это идущий срок и записанный долг при неоплатимом счёте.
+    # Выбор объёма — такой же денежный ход, как вопрос цены: он меняет сумму,
+    # не называя ни цены, ни услуги.
+    tier_now = _tier_named_now(payments, store, contact_id, text, intent.request)
     if invoice is None and instruction is not None and (
-            intent.wants_invoice or intent.asks_price):
-        request = _with_quote_fallback(intent.request, store, contact_id)
+            intent.wants_invoice or intent.asks_price or tier_now):
+        request = _with_quote_fallback(intent.request, store, contact_id,
+                                           payments=payments, text=text)
         outcome = _verdict(payments, request, contact_id)
 
         if isinstance(outcome, Simple):
             position = payments.pricing.positions[outcome.position_id]
-            step = position.top          # price_upper: верх вилки (§2.1)
+            # Ступень объёма меняет ТРИ вещи разом: сумму, её источник и то,
+            # нужна ли оговорка. Разводим их здесь, одним решением, а не тремя
+            # разбросанными условиями — разъехавшись, они дадут счёт по одной
+            # цене и текст про другую.
+            chosen = (position.tier(outcome.tier_id)
+                      if outcome.tier_id is not None else None)
+            if chosen is not None:
+                amount, scope_key = chosen.amount, chosen.tier_text_key
+                source = "tier_selected"
+            else:
+                top = position.top       # price_upper: верх вилки (§2.1)
+                amount, scope_key = top.amount, top.scope_key
+                source = "price_upper"
             quote = store.create_quote(
                 contact_id=contact_id, position_id=position.position_id,
-                step_idx=0, amount=step.amount, scope_key=step.scope_key,
-                amount_source="price_upper", knowledge_version=knowledge_version,
+                step_idx=0, amount=amount, scope_key=scope_key,
+                amount_source=source, tier_id=outcome.tier_id,
+                knowledge_version=knowledge_version,
                 origin_msg_id=msg_id, now=now)
             if intent.wants_invoice:
                 invoice = store.create_invoice(
                     contact_id=contact_id, origin_msg_id=msg_id,
-                    amount=step.amount, channel_id=instruction.channel_id,
+                    amount=amount, channel_id=instruction.channel_id,
                     due_ts=due_at(now, due_hours=payments.due_hours,
                                   work_hours=work_hours),
-                    created_by="bot", amount_source="price_upper",
+                    created_by="bot", amount_source=source,
                     status="issued", now=now, quote_id=quote["quote_id"],
                     price_source=f"{position.position_id}@{knowledge_version}",
                     requisites_ref=instruction.requisites_ref,
@@ -196,7 +262,10 @@ def payment_turn(*, store, payments: PaymentsConfig, contact_id: str, text: str,
                 _record_obligation(store, contact_id, invoice["invoice_id"],
                                    now=now, msg_id=msg_id)
             else:
-                requires_disclaimer = True
+                # Оговорка нужна ровно там, где сумма ОЦЕНОЧНАЯ. Выбранная
+                # ступень — опубликованная цена за названный объём: «орієнтовно»
+                # рядом с ней было бы ложью и приглашало спорить о решённом.
+                requires_disclaimer = chosen is None
 
         elif intent.wants_invoice:
             # Лид готов платить, а мы не знаем за что либо не имеем права
@@ -223,6 +292,15 @@ def payment_turn(*, store, payments: PaymentsConfig, contact_id: str, text: str,
             values["AMOUNT"] = _money_value(Money(int(total), invoice["currency"]))
         if invoice.get("due_ts") is not None:
             values["DUE"] = format_due(invoice["due_ts"], language=language)
+    elif quote is not None and quote.get("tier_id") is None and _tiered(
+            payments, quote["position_id"]):
+        # Позиция с ярусами, объём НЕ назван: называем варианты, а не один верх.
+        # Лид, которому подошёл бы меньший объём, иначе уходит, не начав
+        # разговор о деньгах, — ради этого ярусы и заводились.
+        position = payments.pricing.positions[quote["position_id"]]
+        sections.append(render_tiers_block())
+        values["TIERS"] = render_tiers_value(position, payments.tier_texts,
+                                             contact_id=contact_id)
     elif quote is not None:
         sections.append(render_quote_block())
         values["AMOUNT"] = _money_value(

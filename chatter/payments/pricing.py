@@ -44,6 +44,11 @@ class Tier:
     id: str
     amount: Money
     tier_text_key: str      # ключ текста «що входить» в книге tier_texts
+    # Слова КЛИЕНТА, которыми он выбирает объём («базовий», «повний»). Пусто —
+    # ступень не выбирается словами НИКОГДА, и такой запрос уходит владельцу.
+    # Тот же контракт, что у алиасов позиции: угаданный объём — это счёт за не
+    # ту работу, только на ступень мельче.
+    aliases: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -263,7 +268,8 @@ def _load_tiered_position(pid: str, raw: dict, ccy: str, title: str,
         seen_ids.add(tid)
         seen_keys.add(key)
         prev = amount.minor
-        tiers.append(Tier(tid, amount, key))
+        tiers.append(Tier(tid, amount, key,
+                          _aliases(f"{pid}:{tid}", t.get("aliases"))))
 
     return Position(pid, title, ccy, tiers[0].amount, tiers[-1].amount, (),
                     _aliases(pid, raw.get("aliases")), tuple(tiers))

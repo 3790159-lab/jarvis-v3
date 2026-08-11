@@ -37,7 +37,8 @@ from chatter.core.escalation import (
     suppressed_fallback,
 )
 from chatter.payments.dialogue import OwnerNote, PaymentTurn, payment_turn
-from chatter.payments.prompt import (
+from chatter.payments.prompt import (  # noqa: F401
+    needs_caveat,
     UnsubstitutedPlaceholder, finalize, find_placeholders, has_disclaimer,
 )
 from chatter.core.guardrails import (
@@ -928,7 +929,7 @@ def process_batch(
     #
     # Проверка идёт и при выключенной фиче: служебное «{REQUISITES}» в лицо
     # клиенту — дефект независимо от тумблера, а значений тогда просто нет.
-    if pay.requires_disclaimer and "{AMOUNT}" in reply and not has_disclaimer(reply):
+    if pay.requires_disclaimer and needs_caveat(reply) and not has_disclaimer(reply):
         # §2.2 и приёмка §8.5 п.4. Сумма без оговорки — это оферта, а не оценка:
         # клиент вправе считать её ценой и требовать её же после пересчёта.
         # Подавляется ВЕСЬ ответ, как и полуотрендеренные реквизиты: «почти

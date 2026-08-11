@@ -141,3 +141,56 @@ def test_result_is_one_of_two_shapes_only():
     """Ни None, ни строка, ни bool: вызыватель не должен уметь ошибиться."""
     for req in (_req(), _req(parsed=False)):
         assert isinstance(assess_complexity(req, PRICING), (Simple, NeedsOwner))
+
+
+# ── выбранный объём доезжает до вердикта (решение владельца 12.08) ─────────
+
+TIER_KNOWLEDGE = "- Створення логотипа — 300 $ або 400 $ залежно від обсягу\n"
+TIER_PRICING = load_pricing({
+    "amount_source": "price_upper",
+    "positions": {
+        "logo_create": {
+            "title": "Логотип", "currency": "USD",
+            "tiers": [
+                {"id": "basic", "amount": 300, "tier_text_key": "t_basic"},
+                {"id": "standard", "amount": 400, "tier_text_key": "t_std"},
+            ]},
+    },
+}, knowledge=TIER_KNOWLEDGE)
+
+
+def _tier_req(tier_id):
+    return QuoteRequest(items=(RequestedItem("logo_create", 1, "логотип",
+                                             tier_id=tier_id),))
+
+
+def test_the_chosen_tier_reaches_the_verdict():
+    """Без ступени в вердикте счёт не знает, за какой объём он выставлен —
+    и выставит его по верхней ступени, которую лид не выбирал."""
+    assert assess_complexity(_tier_req("basic"), TIER_PRICING) == Simple(
+        "logo_create", tier_id="basic", qty=1)
+
+
+def test_no_tier_chosen_is_still_simple():
+    """Лид объёма не назвал — политика прежняя (price_upper с оговоркой), и это
+    рабочий исход, а не повод звать владельца."""
+    assert assess_complexity(_tier_req(None), TIER_PRICING) == Simple(
+        "logo_create", tier_id=None, qty=1)
+
+
+def test_an_unknown_tier_calls_the_owner():
+    """Дефолт закрыт отказом (P17): подставить вместо неузнанной ступени
+    верхнюю — значит выставить счёт за объём, которого лид не выбирал."""
+    assert assess_complexity(_tier_req("люкс"), TIER_PRICING) == NeedsOwner(
+        ("unknown_tier",))
+
+
+def test_a_tier_named_for_a_position_without_tiers_calls_the_owner():
+    """Ярусов у позиции нет, а объём назван — разбор разошёлся с конфигом."""
+    req = QuoteRequest(items=(RequestedItem("logo_create", 1, "логотип",
+                                            tier_id="basic"),))
+    assert assess_complexity(req, PRICING) == NeedsOwner(("unknown_tier",))
+
+
+def test_a_plain_position_still_needs_no_tier():
+    assert assess_complexity(_req(), PRICING) == Simple("logo_create", qty=1)

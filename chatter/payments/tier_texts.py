@@ -71,6 +71,25 @@ def resolve_tier_text(tier_text_key: str, texts: dict[str, TierText], *,
     return entry.text
 
 
+def render_tiers_value(position, texts: dict[str, TierText], *,
+                       contact_id: str) -> str:
+    """ТЕКСТ, который код подставит вместо `{TIERS}` — уже для глаз лида.
+
+    Собирается здесь, а не в промпте: цифры не имеют права попасть к модели, и
+    подстановка идёт ПОСЛЕ guardrails, иначе `large_number` вырежет суммы как
+    необеспеченные (§14 п.16).
+
+    Порядок — от меньшего к большему, как в конфиге: первым лид видит вариант,
+    который ему по карману, а не тот, от которого он уйдёт."""
+    from chatter.payments.money import format_major
+
+    lines = []
+    for tier in position.tiers:
+        text = resolve_tier_text(tier.tier_text_key, texts, contact_id=contact_id)
+        lines.append(f"• {format_major(tier.amount)} {tier.amount.ccy} — {text}")
+    return "\n".join(lines)
+
+
 def assert_tier_texts_usable(pricing: Pricing, texts: dict[str, TierText], *,
                              contact_id: str) -> None:
     """Проверить ВСЕ ярусы прайса ДО разговора.
