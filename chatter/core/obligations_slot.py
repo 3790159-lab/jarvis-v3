@@ -35,6 +35,10 @@ CODE_BOT_OWNED_KINDS = frozenset({"brief", "examples", "recalc"})
 STATUSES = ("open", "delivered", "cancelled")
 _CLOSED = ("delivered", "cancelled")
 
+# Префикс ключа долга ПО СЧЁТУ. Его строит `invoice_okey`, и по нему же
+# `filter_model_updates` узнаёт, что деньги уже под кодом.
+_INVOICE_OKEY_PREFIX = "other:inv-"
+
 DETAIL_MAX = 80          # §5: detail ≤ ~80 симв
 RENDER_CAP = 5           # §5: ≤5 открытых + ≤5 недавно-закрытых
 RECENT_DAYS = 7          # §5: «ЗАКРИТО НЕДАВНО» — delivered за 7 дней
@@ -68,8 +72,35 @@ def okey_for(kind: str, slug: str | None = None) -> str:
     return kind
 
 
+def invoice_slug(invoice_id: str) -> str:
+    """Slug долга по счёту. Один вывод на всех: `dialogue._record_obligation`
+    заводит строку этим slug'ом, `filter_model_updates` по нему же узнаёт, что
+    деньги под кодом. Разъехавшись, они дали бы дубль 12.08 второй раз."""
+    return f"inv-{invoice_id}"
+
+
+def invoice_okey(invoice_id: str) -> str:
+    """Ключ долга ПО СЧЁТУ. Владелец этой строки — КОД: он её заводит при
+    выставлении и закрывает по факту оплаты."""
+    return okey_for("other", invoice_slug(invoice_id))
+
+
 def _clean_detail(detail: str) -> str:
     return (detail or "").strip()[:DETAIL_MAX]
+
+
+def model_okey(upd) -> str:
+    """Ключ, который обновление модели получит в `merge_obligations`.
+
+    Вывод ключа живёт ЗДЕСЬ и больше нигде. Прогон Ф0 12.08 показал цену второго
+    места: `filter_model_updates` не знал, как merge лепит slug из свободного
+    текста, и долг по счёту оказался записан дважды — кодовым ключом
+    `other:inv-<id>` и текстовым `other:оплата рахунку INV-volsk`."""
+    kind = (upd.get("kind") or "").strip()
+    slug = upd.get("slug")
+    if kind == "other" and not slug:
+        slug = _clean_detail(upd.get("detail", ""))[:24] or "misc"
+    return okey_for(kind, slug)
 
 
 def merge_obligations(
@@ -121,10 +152,7 @@ def merge_obligations(
                            "(kind=%r status=%r owed_by=%r)", kind, status, owed_by)
             continue
         detail = _clean_detail(upd.get("detail", ""))
-        slug = upd.get("slug")
-        if kind == "other" and not slug:
-            slug = detail[:24] or "misc"
-        okey = okey_for(kind, slug)
+        okey = model_okey(upd)
 
         cur = by_okey.get(okey)
         if cur is None:
@@ -183,12 +211,27 @@ def filter_model_updates(updates, existing=()):
       что бы модель ни прислала (client / пусто) — нормализуем в bot, иначе
       обязательство не отрендерится в brain (render_slot_block — только bot)."""
     existing_okeys = {o.okey for o in existing}
+    # Долг по счёту — денежная сущность, а у денег один хозяин, и это КОД. Тот
+    # же принцип, что с реквизитами: модель их не видит, чтобы не «поправила».
+    # Здесь — не видит и повода завести свою копию долга (дубль 12.08).
+    invoice_debt_open = any(
+        o.status == "open" and o.okey.startswith(_INVOICE_OKEY_PREFIX)
+        for o in existing)
     out = []
     for u in updates or ():
         if not isinstance(u, dict):
             out.append(u)          # merge отбросит по валидации
             continue
         kind = u.get("kind")
+        # Запрет узкий НАМЕРЕННО: не «модель молчит про other», а «не заводит
+        # НОВЫЙ, пока счёт не закрыт». Вести уже заведённое (закрыть свой
+        # долг про референсы) она вправе — иначе он стал бы незакрываемым.
+        if (kind == "other" and invoice_debt_open
+                and model_okey(u) not in existing_okeys):
+            logger.info("obligations: other от модели отброшен — по контакту "
+                        "открыт долг по счёту (владелец строки — код): %r",
+                        _clean_detail(u.get("detail", "")))
+            continue
         if kind == "owner_write":
             status = (u.get("status") or "").strip()
             if status != "open" or "owner_write" in existing_okeys:

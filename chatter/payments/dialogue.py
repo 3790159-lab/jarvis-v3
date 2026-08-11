@@ -28,7 +28,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Mapping
 
-from chatter.core.obligations_slot import merge_obligations
+from chatter.core.obligations_slot import invoice_slug, merge_obligations
 from chatter.payments.complexity import (
     NeedsOwner, QuoteRequest, RequestedItem, Simple, assess_complexity)
 from chatter.payments.drill_gate import NotForProduction
@@ -138,7 +138,8 @@ def _record_obligation(store, contact_id: str, invoice_id: str, *, now: float,
     store.save_obligations(contact_id, merge_obligations(
         store.get_obligations(contact_id),
         [{"kind": "other", "owed_by": "client", "status": "open",
-          "slug": f"inv-{invoice_id}", "detail": f"оплата рахунку {invoice_id}"}],
+          "slug": invoice_slug(invoice_id),
+          "detail": f"оплата рахунку {invoice_id}"}],
         now=now, current_msg_id=msg_id))
 
 

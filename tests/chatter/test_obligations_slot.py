@@ -329,3 +329,79 @@ def test_filter_owner_write_backward_compatible_without_existing():
     out = filter_model_updates(
         [{"kind": "owner_write", "owed_by": "bot", "status": "open", "detail": "x"}])
     assert [(u["kind"], u["status"]) for u in out] == [("owner_write", "open")]
+
+
+# --- деньги: у долга по счёту ОДИН хозяин, и это КОД -----------------------
+# Живой прогон Ф0 12.08 дал на один счёт ДВА открытых client-долга:
+# `other:inv-INV-volska-000001` от кода и `other:оплата рахунку INV-volsk` от
+# классификатора — тот вывел slug из свободного текста (detail[:24]), и с
+# кодовым ключом он не совпал. Оплата закрыла бы первый, второй висел бы вечно.
+
+def _invoice_debt(invoice_id="INV-volska-000001", status="open"):
+    return Obligation(
+        okey=f"other:inv-{invoice_id}", kind="other", owed_by="client",
+        status=status, detail=f"оплата рахунку {invoice_id}",
+        created_msg_id=1, closed_msg_id=None if status == "open" else 2,
+        created_ts=1.0, closed_ts=None if status == "open" else 2.0)
+
+
+def test_model_may_not_open_other_while_an_invoice_debt_is_open():
+    """Ровно вчерашний дубль. Модель видит в диалоге долг по счёту и заводит
+    СВОЙ «other» про то же самое — ключ другой, смысл тот же."""
+    from chatter.core.obligations_slot import filter_model_updates
+    out = filter_model_updates(
+        [{"kind": "other", "owed_by": "client", "status": "open",
+          "detail": "оплата рахунку INV-volska-000001"}],
+        existing=[_invoice_debt()])
+    assert out == [], (
+        "классификатор завёл второй долг по тому же счёту — оплата закроет "
+        "кодовый ключ, а этот останется открытым навсегда")
+
+
+def test_a_settled_invoice_debt_no_longer_blocks_the_model():
+    """Запрет живёт ровно пока долг ОТКРЫТ. Счёт оплачен — свободная корзина
+    снова работает, иначе один давний счёт заглушил бы модель насовсем."""
+    from chatter.core.obligations_slot import filter_model_updates
+    out = filter_model_updates(
+        [{"kind": "other", "owed_by": "client", "status": "open",
+          "detail": "обіцяв прислати логотип у векторі", "slug": "vector"}],
+        existing=[_invoice_debt(status="delivered")])
+    assert len(out) == 1
+
+
+def test_other_debts_unrelated_to_money_still_work():
+    """Проверка обратной стороны: гард не должен глушить свободную корзину там,
+    где счёта нет вовсе."""
+    from chatter.core.obligations_slot import filter_model_updates
+    out = filter_model_updates(
+        [{"kind": "other", "owed_by": "client", "status": "open",
+          "detail": "лід обіцяв прислати референси", "slug": "refs"}],
+        existing=[])
+    assert len(out) == 1
+
+
+def test_model_may_still_close_an_other_it_already_owns():
+    """Гард запрещает ЗАВОДИТЬ новое, а не вести уже заведённое. Иначе долг,
+    открытый моделью ДО счёта, стал бы незакрываемым."""
+    from chatter.core.obligations_slot import filter_model_updates
+    existing = merge_obligations(
+        [], [_open("other", "обіцяв референси", owed_by="client", slug="refs")],
+        now=1.0, current_msg_id=1) + [_invoice_debt()]
+    out = filter_model_updates(
+        [{"kind": "other", "owed_by": "client", "status": "delivered",
+          "detail": "референси надіслані", "slug": "refs"}],
+        existing=existing)
+    assert [(u["kind"], u["status"]) for u in out] == [("other", "delivered")]
+
+
+def test_the_filter_derives_the_same_key_as_merge():
+    """Корень вчерашнего дубля: ключ выводился в ДВУХ местах по-разному. Гард
+    обязан считать ключ ровно так же, как merge, иначе он промахнётся мимо той
+    самой строки, которую сторожит."""
+    from chatter.core.obligations_slot import filter_model_updates, model_okey
+    upd = {"kind": "other", "owed_by": "client", "status": "open",
+           "detail": "оплата рахунку INV-volska-000001"}
+    merged = merge_obligations([], [upd], now=1.0, current_msg_id=1)
+    assert model_okey(upd) == merged[0].okey
+    # и та же функция должна отличать кодовый ключ счёта
+    assert filter_model_updates([upd], existing=[_invoice_debt()]) == []

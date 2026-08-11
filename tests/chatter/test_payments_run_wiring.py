@@ -22,6 +22,7 @@ from pathlib import Path
 from chatter.config.loader import load_config
 from chatter.core.brain import Brain
 from chatter.core.llm import FakeLLM
+from chatter.core.obligations_slot import invoice_slug, merge_obligations
 from chatter.notify.control_bot import route_callback
 from chatter.payments.money import from_major
 from chatter.run import Deps, process_batch
@@ -231,3 +232,49 @@ def test_paid_invoice_disappears_from_the_prompt(tmp_path):
     _tap(deps.store)
     process_batch(CONTACT, ["привет"], RecordingTransport(), deps)
     assert BLOCK_HEAD not in (llm.calls[0]["uncached_suffix"] or "")
+
+
+# ── долг по счёту: заводит КОД, закрывает КОД (дубль 12.08) ────────────────
+
+def _debt(store, invoice_id):
+    from chatter.core.obligations_slot import invoice_okey
+    key = invoice_okey(invoice_id)
+    return next((o for o in store.get_obligations(CONTACT) if o.okey == key), None)
+
+
+def test_payment_closes_the_code_owned_invoice_debt(tmp_path):
+    """Долг на клиенте должен ЗАКРЫВАТЬСЯ деньгами, иначе запрет модели трогать
+    `other` оставил бы его открытым навсегда: завести некому, закрыть нечем."""
+    deps, _ = _deps(tmp_path, ["ок"])
+    row = _invoice(deps.store)
+    deps.store.save_obligations(CONTACT, merge_obligations(
+        deps.store.get_obligations(CONTACT),
+        [{"kind": "other", "owed_by": "client", "status": "open",
+          "slug": invoice_slug(row["invoice_id"]),
+          "detail": f"оплата рахунку {row['invoice_id']}"}],
+        now=NOW, current_msg_id=1))
+    assert _debt(deps.store, row["invoice_id"]).status == "open"
+
+    _tap(deps.store)
+
+    closed = _debt(deps.store, row["invoice_id"])
+    assert closed is not None, "строка долга исчезла — её положено ЗАКРЫТЬ, не стереть"
+    assert closed.status == "delivered", (
+        "счёт оплачен, а долг на клиенте всё ещё открыт — блок обязательств "
+        "будет дожимать оплату, которая уже пришла")
+
+
+def test_a_partially_paid_invoice_keeps_the_debt_open(tmp_path):
+    """Закрывают деньги, а не сам факт тапа: недоплата долг не снимает."""
+    deps, _ = _deps(tmp_path, ["ок"])
+    row = _invoice(deps.store)
+    deps.store.save_obligations(CONTACT, merge_obligations(
+        deps.store.get_obligations(CONTACT),
+        [{"kind": "other", "owed_by": "client", "status": "open",
+          "slug": invoice_slug(row["invoice_id"]),
+          "detail": f"оплата рахунку {row['invoice_id']}"}],
+        now=NOW, current_msg_id=1))
+
+    _tap(deps.store, "paidamt2:50000:USD:lead:demo", card_msg_id=79)
+
+    assert _debt(deps.store, row["invoice_id"]).status == "open"

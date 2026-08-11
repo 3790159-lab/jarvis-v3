@@ -23,10 +23,12 @@ from chatter.core.console import (
     cfg_text, console_text, contact_link, parse_allow_command, parse_config_command,
 )
 from chatter.core.escalation import esc_active_key
+from chatter.core.obligations_slot import invoice_slug, merge_obligations
 from chatter.notify.base import Action, Card, CardHandle, Notifier
 from chatter.payments.callbacks import InvoiceAction, PaidAction, parse_callback
 from chatter.payments.model import PaymentRecord, make_dedup_key
 from chatter.payments.prompt import pick_open_invoice
+from chatter.payments.statuses import is_settled
 from chatter.payments.money import format_major
 
 log = logging.getLogger("chatter.notify.control_bot")
@@ -97,6 +99,20 @@ def _route_payment(money, *, store, now: float, language: str,
         confirmed_by="owner", amount=money.amount,
         invoice_id=invoice_id, stage_no=None if invoice_id is None else 1,
     ), now=now)
+    # Долг оплаты на КЛИЕНТЕ закрывается ДЕНЬГАМИ, и закрывает его код — он же
+    # эту строку и завёл (`dialogue._record_obligation`). Модели путь к ней
+    # закрыт (`filter_model_updates`), так что незакрытый здесь долг не закроет
+    # уже никто: блок обязательств продолжал бы дожимать пришедшую оплату.
+    # Условие — `is_settled`, а не сам факт тапа: недоплата долг не снимает.
+    if invoice_id is not None:
+        settled = store.get_invoice(invoice_id)
+        if settled is not None and is_settled(settled["status"]):
+            store.save_obligations(contact_id, merge_obligations(
+                store.get_obligations(contact_id),
+                [{"kind": "other", "owed_by": "client", "status": "delivered",
+                  "slug": invoice_slug(invoice_id),
+                  "detail": f"оплата рахунку {invoice_id}"}],
+                now=now, current_msg_id=card_msg_id))
     store.add_event("payment", contact_id=contact_id,
                     detail="" if money.amount is None else f"{format_major(money.amount)} USD",
                     ts=now)
