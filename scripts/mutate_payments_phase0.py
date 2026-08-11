@@ -408,7 +408,7 @@ MUTATIONS = [
      "chatter/clients/volska/settings.yaml",
      "          - {amount: 750, scope_key: smm_floor}",
      "          - {amount: 700, scope_key: smm_floor}",
-     "tests/chatter/test_payments_volska_config.py::test_volska_loads_with_payments_off"),
+     "tests/chatter/test_payments_volska_config.py::test_the_ladder_never_goes_below_the_published_floor"),
 
     ("volska: верх вилки не опубликован в knowledge",
      "chatter/clients/volska/settings.yaml",
@@ -426,9 +426,16 @@ MUTATIONS = [
      "      mode: manual", "      mode: auto",
      "tests/chatter/test_payments_volska_config.py::test_only_manual_channels_are_declared"),
 
-    ("volska: фича включена прямо в файле", "chatter/clients/volska/settings.yaml",
-     "  enabled: false", "  enabled: true",
-     "tests/chatter/test_payments_volska_config.py::test_volska_loads_with_payments_off"),
+    # Прежняя мутация здесь подменяла `enabled: false` на `enabled: true` в
+    # боевом yaml. Она замолчала 11.08, когда владелец законно включил оплату:
+    # искомого фрагмента в файле не стало, и харнесс печатал «НЕ ПРИМЕНИЛАСЬ»
+    # — то есть сторож не проверялся ВООБЩЕ, а выглядело это как одна строка
+    # шума среди 92 зелёных. Мутация, привязанная к сегодняшнему значению,
+    # обязана была протухнуть; эта привязана к правилу.
+    ("volska: загрузка теряет значение тумблера", "chatter/payments/settings.py",
+     '        enabled=_bool(raw, "enabled", False),',
+     "        enabled=False,",
+     "tests/chatter/test_payments_volska_config.py::test_the_config_loads_at_either_toggle_value"),
 
     # --- пульт коммитит тумблер (решение владельца 11.08) -------------------
     # Дороже всего здесь ТИШИНА: тумблер уже применён, и неудавшийся коммит,

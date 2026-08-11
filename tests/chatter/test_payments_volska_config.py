@@ -6,13 +6,16 @@
 Одна опечатка в разряде означала бы цену, которой клиент нигде не публиковал
 (риск 10.11), и узнали бы мы об этом от клиента.
 
-Состояние на сегодня названо явно и закреплено тестами:
-  * реквизитов Ольги ещё НЕТ — книга пуста, и оплата ВКЛЮЧИТЬСЯ НЕ МОЖЕТ;
-  * тексты объёма — заглушки с явной пометкой, и они обслуживают только
-    дрил-контакты.
+Закрепляются ПРАВИЛА, а не сегодняшний снимок прода:
+  * включение проходит тогда и только тогда, когда есть чем ответить — пустая
+    книга реквизитов роняет старт при любом значении тумблера;
+  * тексты объёма, помеченные заглушками, обслуживают только дрил-контакты;
+  * загрузка конфига от значения тумблера не зависит вовсе.
 
-Оба факта — не «недоделка, которую забыли», а предохранители: они держат фичу
-выключенной ровно до того момента, когда её станет чем наполнить.
+Разница не косметическая. Тест, утверждающий «сегодня выключено» или «сегодня
+книга пуста», краснеет в тот момент, когда работу ДОДЕЛАЛИ, — и приучает
+пролистывать красное. Такие тесты здесь уже были и переписаны (см. блок ниже
+про requisites.yaml); тумблер `enabled` был последним из них.
 """
 from __future__ import annotations
 
@@ -39,10 +42,32 @@ def volska():
     return load_config(CLIENTS, "volska")
 
 
-def test_volska_loads_with_payments_off(volska):
-    """Значение в файле — ФАКТ, не цель: гардиан деплоит из рабочего дерева, и
-    включённая в файле фича встала бы на ребуте без команды владельца."""
-    assert volska.settings.payments.enabled is False
+def test_the_config_loads_at_either_toggle_value(volska):
+    """Инвариант вместо снимка: конфиг обязан грузиться И при выключенной, И
+    при включённой оплате, и загрузка обязана донести значение без потерь.
+
+    Прежде здесь стояло `enabled is False`, то есть СЕГОДНЯШНЕЕ состояние прода.
+    Тест покраснел ровно в тот момент, когда владелец законно включил оплату
+    командой пульта (7e5e47eb) — красное на правильном действии учит не верить
+    сторожу. Ровно этот разбор уже записан ниже (см. блок про requisites.yaml),
+    и этот тест его пропустил.
+
+    Чего здесь НЕТ намеренно: утверждения, что тумблер нельзя поднять «пустым».
+    Это держит `assert_startable` — два теста ниже; смешивать два инварианта в
+    одном стороже значит потерять оба при первой же правке."""
+    raw = _raw_payments()
+    for value in (False, True):
+        loaded = load_payments({**raw, "enabled": value},
+                               requisites_raw=_raw_requisites(),
+                               knowledge=volska.knowledge)
+        assert loaded.enabled is value, \
+            f"загрузка потеряла тумблер: просили {value}, получили {loaded.enabled}"
+
+    # Боевой файл — какое бы значение в нём ни стояло сегодня. Строгий bool, а
+    # не «правдоподобное»: `enabled: "no"` это строка, и она означала бы
+    # включённую оплату (см. _bool в chatter/payments/settings.py).
+    assert volska.settings.payments.enabled is True or \
+        volska.settings.payments.enabled is False
 
 
 def test_only_manual_channels_are_declared(volska):
@@ -62,6 +87,27 @@ def test_price_bounds_are_literals_from_knowledge(volska):
     for pos in positions.values():
         for bound in (pos.low, pos.high):
             assert str(bound.minor // 100) in volska.knowledge
+
+
+def test_the_ladder_never_goes_below_the_published_floor(volska):
+    """Правило №6 на БОЕВОМ конфиге: пол сетки торга совпадает с нижней границей
+    опубликованной вилки, верх — с верхней. Ниже пола не спускаются никогда.
+
+    Сторож именной намеренно. Валидатор ловит это на загрузке, поэтому до сих
+    пор мутация «опустить ступень» краснела ПОБОЧНО — падала фикстура, а в
+    списке мутаций сторожем был записан вообще посторонний тест про тумблер.
+    Такая связка держится лишь до первой правки валидатора, после чего дыра
+    молчит."""
+    for pos in volska.settings.payments.pricing.positions.values():
+        assert pos.steps[-1].amount == pos.low, \
+            f"{pos.position_id}: пол сетки {pos.steps[-1].amount.minor} ≠ " \
+            f"опубликованному полу {pos.low.minor}"
+        assert pos.steps[0].amount == pos.high, \
+            f"{pos.position_id}: верх сетки {pos.steps[0].amount.minor} ≠ " \
+            f"опубликованному верху {pos.high.minor}"
+        for step in pos.steps:
+            assert pos.low.minor <= step.amount.minor <= pos.high.minor, \
+                f"{pos.position_id}: ступень {step.amount.minor} вне вилки"
 
 
 def test_every_ladder_step_has_a_scope_text(volska):
