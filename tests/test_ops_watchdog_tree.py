@@ -166,3 +166,44 @@ def test_it_is_the_eighth_check():
                                             "guardian_lock_pid": None, "root": "x"},
                           worktree_snapshot=_snap())
     assert len(probes) == 8, sorted(probes)
+
+
+# ── причина, а не только факт (дефект alerted, 2026-08-11) ─────────────────
+
+def test_a_second_dirty_file_is_a_different_reason():
+    """Ровно тот случай, ради которого чек написан. 11.08 дерево было красным
+    ~14 часов из-за законной правки тумблера пультом; приехавший следом
+    недеплоенный код второго алерта не дал бы — alerted уже стоял."""
+    one = ow.probe_worktree(_snap(dirty=[" M chatter/clients/volska/settings.yaml"]))
+    two = ow.probe_worktree(_snap(dirty=[" M chatter/clients/volska/settings.yaml",
+                                         " M chatter/run.py"]))
+    assert one["reason"] != two["reason"]
+    assert "run.py" in two["detail"]
+
+
+def test_the_same_dirty_file_keeps_the_same_reason():
+    """Обратная сторона: дерево, стоящее в одном и том же состоянии, не имеет
+    права алертить каждые 30 секунд."""
+    a = ow.probe_worktree(_snap(dirty=[" M settings.yaml"]))
+    b = ow.probe_worktree(_snap(dirty=["M  settings.yaml"]))
+    assert a["reason"] == b["reason"], "статус-буквы git сделали причину нестабильной"
+
+
+def test_the_file_count_alone_is_not_the_reason():
+    """Один файл сменился другим — количество то же, авария другая."""
+    a = ow.probe_worktree(_snap(dirty=[" M settings.yaml"]))
+    b = ow.probe_worktree(_snap(dirty=[" M chatter/run.py"]))
+    assert a["reason"] != b["reason"]
+
+
+def test_wrong_branch_and_dirty_tree_are_different_reasons():
+    assert (ow.probe_worktree(_snap(branch="feat/x"))["reason"]
+            != ow.probe_worktree(_snap(dirty=[" M a.py"]))["reason"])
+
+
+def test_the_reason_survives_more_files_than_the_alert_shows():
+    """DIRTY_SHOWN=3 режет ТЕКСТ. Если резать ещё и причину, четвёртый файл
+    станет невидимым — а именно он и будет недеплоенным кодом."""
+    base = [" M a.py", " M b.py", " M c.py"]
+    assert (ow.probe_worktree(_snap(dirty=base))["reason"]
+            != ow.probe_worktree(_snap(dirty=base + [" M d.py"]))["reason"])

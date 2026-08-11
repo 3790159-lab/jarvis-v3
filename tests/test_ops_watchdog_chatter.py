@@ -187,3 +187,25 @@ def test_probe_all_without_snapshot_keeps_old_behaviour():
     probes = ow.probe_all(lambda p: 200, lambda p: (100 * 2**30, 0, 50 * 2**30))
     assert "chatter_runner" not in probes
     assert "chatter_guardian" not in probes
+
+
+# ── причина, а не только факт (дефект alerted, 2026-08-11) ─────────────────
+
+def test_runner_gone_and_runner_frozen_are_different_reasons():
+    """Процесса нет и процесс жив-но-замёрз — разные аварии: первую чинит
+    гардиан сам, вторая означает, что чинить некому."""
+    gone = ow.probe_chatter_runner([_proc(1, "explorer.exe", "explorer")],
+                                   beat_age=5.0, root=ROOT)
+    frozen = ow.probe_chatter_runner([_proc(111, "python.exe", RUNNER_CMD)],
+                                     beat_age=9999.0, root=ROOT)
+    assert gone["reason"] != frozen["reason"]
+
+
+def test_runner_reason_is_stable_while_the_beat_age_grows():
+    """В detail секунды, и они растут каждый цикл. Причина обязана стоять."""
+    a = ow.probe_chatter_runner([_proc(111, "python.exe", RUNNER_CMD)],
+                                beat_age=9999.0, root=ROOT)
+    b = ow.probe_chatter_runner([_proc(111, "python.exe", RUNNER_CMD)],
+                                beat_age=19999.0, root=ROOT)
+    assert a["detail"] != b["detail"], "предпосылка теста сломана"
+    assert a["reason"] == b["reason"]

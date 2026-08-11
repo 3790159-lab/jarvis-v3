@@ -303,3 +303,23 @@ def test_it_is_the_ninth_check():
                                              "dirty": [], "error": None},
                           secrets_snapshot=_snap())
     assert len(probes) == 9, sorted(probes)
+
+
+# ── причина, а не только факт (дефект alerted, 2026-08-11) ─────────────────
+
+def test_missing_bundle_and_stale_bundle_are_different_reasons():
+    """«копии нет вовсе» и «копия отстала» чинятся по-разному, и вторая новость
+    не имеет права утонуть в дедупе первой."""
+    missing = ow.probe_secrets_bundle(_snap(bundle=None))
+    stale = ow.probe_secrets_bundle(
+        _snap(bundle=("jarvis-secrets-2026-07-01.jrvbak", NOW - 40 * DAY)))
+    assert missing["reason"] != stale["reason"]
+
+
+def test_stale_reason_is_stable_while_the_lag_grows():
+    a = ow.probe_secrets_bundle(
+        _snap(bundle=("b.jrvbak", NOW - 40 * DAY)))
+    b = ow.probe_secrets_bundle(
+        _snap(bundle=("b.jrvbak", NOW - 60 * DAY)))
+    assert a["detail"] != b["detail"], "предпосылка теста сломана"
+    assert a["reason"] == b["reason"]

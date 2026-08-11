@@ -32,11 +32,19 @@ Each cycle probes:
                          деплой. 2026-08-10 оно дважды осталось не в том
                          состоянии, и оба раза это поймало внимание, а не сторож
 
-Dedup/recovery: per-check state (consecutive-fail count + an ``alerted`` flag)
-persists in ``state/ops_watchdog_state.json``. A check alerts once on the
-DOWN transition (after ``DEBOUNCE`` consecutive failures, so a legitimate ~45s
-deploy restart never pages) and once more with ✅ when it recovers — never
-repeatedly while it stays in the same state.
+Dedup/recovery: per-check state (consecutive-fail count, an ``alerted`` flag and
+the ``alerted_reason`` already announced) persists in
+``state/ops_watchdog_state.json``. A check alerts once on the DOWN transition
+(after ``DEBOUNCE`` consecutive failures, so a legitimate ~45s deploy restart
+never pages), once more with ✅ when it recovers, и ещё раз — если, оставаясь
+красной, она сменила ПРИЧИНУ.
+
+Дедуп по причине введён 2026-08-11 по факту: чек worktree простоял красным 1669
+циклов из-за законной правки тумблера пультом. `alerted` был одним булевым, и
+недеплоенный код, приехавший следом, второго алерта уже не дал бы — сторож,
+поставленный ровно на это, был выключен собственным законным срабатыванием.
+Сравнивается грубый стабильный ``reason`` от пробы, а НЕ ``detail``: в тексте
+живут гигабайты и секунды, и дедуп по нему давал бы алерт раз в 30 секунд.
 
 failed-dev_task and failed-IG-publish already have their own bot-side Telegram
 alerts (DEV-17), fired by the live bot; they are intentionally NOT duplicated
@@ -123,10 +131,16 @@ _OPS_ENDPOINTS = {
 
 # ── pure decision / text functions (unit-tested) ───────────────────────────
 def build_alert(check: str, kind: str, detail: str) -> str:
-    """kind in {"down", "recovered"}."""
+    """kind in {"down", "recovered", "changed"}.
+
+    `changed` отличается от `down` текстом НАМЕРЕННО: второе 🚨 по той же
+    проверке иначе читается как «упало ещё раз», хотя оно не падало — у него
+    добавилась вторая причина."""
     label = LABELS.get(check, check)
     if kind == "recovered":
         return "✅ Восстановлено: %s. %s" % (label, detail)
+    if kind == "changed":
+        return "🚨 Новая причина: %s. %s" % (label, detail)
     return "🚨 DOWN: %s. %s" % (label, detail)
 
 
@@ -135,30 +149,60 @@ def evaluate(prev_state: dict, probes: dict, debounce: int = DEBOUNCE,
     """Pure core: fold this cycle's probe results into per-check state and emit
     the alerts the transitions warrant.
 
-    ``probes``     : {check_key: {"ok": bool, "detail": str}} — only the checks
-                     actually run this cycle (down backend omits its sub-checks).
-    ``prev_state`` : {check_key: {"fail": int, "alerted": bool}}
+    ``probes``     : {check_key: {"ok": bool, "detail": str, "reason": str}} —
+                     only the checks actually run this cycle (down backend omits
+                     its sub-checks).
+    ``prev_state`` : {check_key: {"fail": int, "alerted": bool,
+                                  "alerted_reason": str}}
     Returns ``(alerts: list[str], new_state: dict)``. Checks absent from
     ``probes`` keep their prior state verbatim (frozen, never spuriously
     recovered).
+
+    ДЕДУП ПО ПРИЧИНЕ, а не по факту (дефект найден фактом 2026-08-11). `alerted`
+    был одним булевым на проверку: чек worktree простоял красным 1669 циклов
+    из-за законной правки тумблера пультом, и приехавший следом недеплоенный
+    код второго алерта уже НЕ дал бы — сторож, поставленный ровно на это, был
+    выключен собственным законным срабатыванием. Теперь запоминается ПРИЧИНА, и
+    вторая, другая причина звучит отдельно.
+
+    Сравнивается `reason`, а НЕ `detail`: в тексте живут гигабайты и секунды,
+    они меняются каждый цикл, и дедуп по тексту превратил бы починку в шторм
+    раз в 30 секунд. Причина — грубый стабильный ключ от самой пробы; проба,
+    не объявившая его, ведёт себя ровно как раньше (один алерт на падение).
     """
     new_state = {k: dict(v) for k, v in prev_state.items()}
     alerts = []
     for check, res in probes.items():
         st = dict(new_state.get(check, {"fail": 0, "alerted": False}))
+        reason = str(res.get("reason") or check)
         if res.get("ok"):
             if st.get("alerted"):
                 alerts.append(build_alert(check, "recovered", res.get("detail", "")))
+            # Причина забывается вместе с алертом: оставить её значило бы
+            # промолчать о следующем падении по той же причине.
             st = {"fail": 0, "alerted": False}
         else:
             st["fail"] = st.get("fail", 0) + 1
-            if st["fail"] >= debounce and not st.get("alerted") and not suppress_down:
-                alerts.append(build_alert(check, "down", res.get("detail", "")))
-                st["alerted"] = True
-            # suppress_down: считаем, но молчим. `alerted` НЕ ставим — поэтому
-            # (а) после окна загрузки не поднявшийся сервис немедленно даст
-            # 🚨 (debounce уже набран), (б) поднявшийся не даст ✅ о том, о чём
-            # владельцу не сообщали.
+            if suppress_down:
+                # Окно загрузки: считаем, но молчим. Ни `alerted`, ни причину не
+                # ставим — поэтому (а) после окна не поднявшийся сервис немедленно
+                # даст 🚨 (debounce уже набран), (б) поднявшийся не даст ✅ о том,
+                # о чём владельцу не сообщали, и (в) причина, о которой не
+                # сказали, не считается объявленной.
+                pass
+            elif not st.get("alerted"):
+                if st["fail"] >= debounce:
+                    alerts.append(build_alert(check, "down", res.get("detail", "")))
+                    st["alerted"] = True
+                    st["alerted_reason"] = reason
+            elif "alerted_reason" not in st:
+                # Стейт с диска старого формата. Причину принимаем МОЛЧА: иначе
+                # первый же цикл после выкатки разошлёт 🚨 по каждой красной
+                # проверке — шторм ровно за то, что мы здесь чиним.
+                st["alerted_reason"] = reason
+            elif st["alerted_reason"] != reason:
+                alerts.append(build_alert(check, "changed", res.get("detail", "")))
+                st["alerted_reason"] = reason
         new_state[check] = st
     return alerts, new_state
 
@@ -342,11 +386,15 @@ def probe_chatter_runner(processes, *, beat_age, root, semidemo_flag=False):
         and root_n in _norm(p.get("cmdline"))
     ]
     if not alive:
-        return {"ok": False, "detail": "процес раннера не знайдено"}
+        return {"ok": False, "detail": "процес раннера не знайдено",
+                "reason": "no_process"}
     if beat_age is None:
-        return {"ok": False, "detail": "heartbeat відсутній"}
+        return {"ok": False, "detail": "heartbeat відсутній",
+                "reason": "no_heartbeat"}
     if beat_age > CHATTER_BEAT_MAX_AGE_S:
-        return {"ok": False,
+        # Причина БЕЗ секунд: возраст растёт каждый цикл, и текст в ключе
+        # дедупа означал бы алерт раз в 30 секунд.
+        return {"ok": False, "reason": "stale_heartbeat",
                 "detail": "heartbeat %.0fс тому (поріг %ds)" % (beat_age, CHATTER_BEAT_MAX_AGE_S)}
     return {"ok": True, "detail": "PID %s, heartbeat %.0fс тому" % (alive[0].get("pid"), beat_age)}
 
@@ -360,18 +408,21 @@ def probe_chatter_guardian(processes, *, lock_pid, beat_age):
     сверяем имя процесса, а не только наличие номера.
     """
     if lock_pid is None:
-        return {"ok": False, "detail": "PID-лок відсутній або нечитний"}
+        return {"ok": False, "detail": "PID-лок відсутній або нечитний",
+                "reason": "no_lock"}
     match = next((p for p in (processes or []) if p.get("pid") == lock_pid), None)
     if match is None:
-        return {"ok": False, "detail": "PID %s мертвий" % lock_pid}
+        return {"ok": False, "detail": "PID %s мертвий" % lock_pid,
+                "reason": "dead_pid"}
     if not (match.get("name") or "").lower().startswith("powershell"):
-        return {"ok": False,
+        return {"ok": False, "reason": "stale_lock",
                 "detail": "PID %s зайнятий чужим процесом (%s), лок протух — очікувався powershell"
                           % (lock_pid, match.get("name"))}
     if beat_age is None:
-        return {"ok": False, "detail": "heartbeat гардіана відсутній"}
+        return {"ok": False, "detail": "heartbeat гардіана відсутній",
+                "reason": "no_heartbeat"}
     if beat_age > CHATTER_BEAT_MAX_AGE_S:
-        return {"ok": False,
+        return {"ok": False, "reason": "stale_heartbeat",
                 "detail": "heartbeat %.0fс тому (поріг %ds)" % (beat_age, CHATTER_BEAT_MAX_AGE_S)}
     return {"ok": True, "detail": "PID %s, heartbeat %.0fс тому" % (lock_pid, beat_age)}
 
@@ -392,25 +443,37 @@ def probe_worktree(snapshot: dict, *, trunk: str = TRUNK_BRANCH) -> dict:
     означало бы слепую зону ровно там, где мы её и закрываем."""
     error = (snapshot or {}).get("error")
     if error:
-        return {"ok": False, "detail": "не удалось определить состояние дерева: %s" % error}
+        return {"ok": False, "reason": "unreadable",
+                "detail": "не удалось определить состояние дерева: %s" % error}
 
     branch = ((snapshot or {}).get("branch") or "").strip()
     dirty = list((snapshot or {}).get("dirty") or [])
     problems = []
+    reasons = []
 
     if not branch:
         problems.append("ветка не определена")
+        reasons.append("no_branch")
     elif branch != trunk:
         # Обе ветки в тексте: иначе непонятно, куда возвращать.
         problems.append("HEAD на «%s», ожидался «%s»" % (branch, trunk))
+        reasons.append("branch:%s" % branch)
 
     if dirty:
         shown = ", ".join(line.strip() for line in dirty[:DIRTY_SHOWN])
         tail = "" if len(dirty) <= DIRTY_SHOWN else " и ещё %d" % (len(dirty) - DIRTY_SHOWN)
         problems.append("модифицировано tracked-файлов: %d (%s%s)" % (len(dirty), shown, tail))
+        # Причина — ПУТИ, и все, а не количество и не первые DIRTY_SHOWN.
+        # Счётчик не различал бы «один файл сменился другим», а обрезка
+        # сделала бы невидимым четвёртый файл — ровно тот, который и
+        # окажется недеплоенным кодом. Статус-буквы git снимаем: « M x» и
+        # «M  x» — одно состояние, алерт на смену пробелов был бы шумом.
+        reasons.append("dirty:" + "|".join(sorted(
+            line.strip().split(None, 1)[-1] for line in dirty)))
 
     if problems:
-        return {"ok": False, "detail": "; ".join(problems)}
+        return {"ok": False, "detail": "; ".join(problems),
+                "reason": "; ".join(reasons)}
     return {"ok": True, "detail": "%s, чисто" % trunk}
 
 
@@ -435,24 +498,29 @@ def probe_secrets_bundle(snapshot: dict, *,
     открывает бандл паролем; гонять его после каждого экспорта."""
     error = (snapshot or {}).get("error")
     if error:
-        return {"ok": False, "detail": "не удалось проверить копию секретов: %s" % error}
+        return {"ok": False, "reason": "unreadable",
+                "detail": "не удалось проверить копию секретов: %s" % error}
 
     material = list((snapshot or {}).get("material") or [])
     bundle = (snapshot or {}).get("bundle")
     searched = list((snapshot or {}).get("searched") or [])
     problems = []
 
+    reasons = []
     if not material:
         # Не «нечего бэкапить», а «мы ничего не увидели»: зелёное здесь было бы
         # слепой зоной вокруг единственного пути восстановления.
         problems.append("материал секретов не найден — сравнивать не с чем")
+        reasons.append("no_material")
 
     if bundle is None:
         where = ", ".join(searched) if searched else "каталоги не заданы"
         problems.append("бандла %s нет (искали: %s)" % (BUNDLE_GLOB, where))
+        reasons.append("no_bundle")
 
     if problems:
-        return {"ok": False, "detail": "; ".join(problems)}
+        return {"ok": False, "detail": "; ".join(problems),
+                "reason": "; ".join(reasons)}
 
     newest = max(material, key=lambda m: m.get("mtime") or 0.0)
     lag_days = ((newest.get("mtime") or 0.0) - (bundle.get("mtime") or 0.0)) / 86400.0
@@ -461,7 +529,8 @@ def probe_secrets_bundle(snapshot: dict, *,
     if lag_days > max_lag_days:
         others = len(material) - 1
         tail = "" if others <= 0 else " и ещё %d файл(ов)" % others
-        return {"ok": False, "detail":
+        # Причина без числа дней: отставание растёт само по себе.
+        return {"ok": False, "reason": "stale", "detail":
                 "бандл %s отстал на %.1f сут (порог %.0f): новее всего «%s»%s" % (
                     bundle.get("name"), lag_days, max_lag_days, newest.get("name"), tail)}
 
@@ -483,11 +552,15 @@ def probe_all(http_get, disk_usage, min_disk_gb: float = MIN_DISK_GB,
     probes["backend"] = {
         "ok": backend_ok,
         "detail": "HTTP %s" % status if status is not None else "no response (refused/timeout)",
+        # «Не отвечает» и «отвечает 500» — разные аварии: первая про процесс,
+        # вторая про код внутри живого процесса, и чинятся они по-разному.
+        "reason": "no_response" if status is None else "http:%s" % status,
     }
     if backend_ok:
         for key, path in _OPS_ENDPOINTS.items():
             s = http_get(path)
-            probes[key] = {"ok": s == 200, "detail": "HTTP %s" % s}
+            probes[key] = {"ok": s == 200, "detail": "HTTP %s" % s,
+                           "reason": "no_response" if s is None else "http:%s" % s}
 
     try:
         _total, _used, free = disk_usage(DISK_PATH)
@@ -495,9 +568,12 @@ def probe_all(http_get, disk_usage, min_disk_gb: float = MIN_DISK_GB,
         probes["disk"] = {
             "ok": free_gb >= min_disk_gb,
             "detail": "%.1fGB free (min %.1fGB)" % (free_gb, min_disk_gb),
+            # Гигабайтам в ключе дедупа не место: они дрейфуют каждый цикл.
+            "reason": "low_space",
         }
     except Exception as exc:
-        probes["disk"] = {"ok": False, "detail": "disk check failed: %s" % exc}
+        probes["disk"] = {"ok": False, "detail": "disk check failed: %s" % exc,
+                          "reason": "unreadable"}
 
     # Снимок отсутствует → состав проб ПРЕЖНИЙ. Обратная совместимость тут не
     # вежливость: watchdog на старом окружении не имеет права слать DOWN о том,
