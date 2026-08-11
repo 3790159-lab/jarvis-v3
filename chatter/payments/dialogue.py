@@ -160,10 +160,14 @@ def _upsell_verdict(store, invoice, new_amount: Money) -> str:
 
     `not_issued` — счёт в любом другом статусе: черновик, ждёт владелицу, уже
     закрыт. Трогать его бот тем более не вправе."""
-    if invoice["status"] != "issued":
-        return "not_issued"
+    # Деньги проверяются ПЕРВЫМИ, хотя пришедшая оплата обычно уже увела статус
+    # из `issued`. Порядок решает не «сработает ли отказ» — сработал бы и так, —
+    # а какую ПРИЧИНУ увидит владелица на карточке: «not_issued» вместо «есть
+    # деньги» отправило бы её разбираться не туда.
     if store.received_minor(invoice["invoice_id"]) > 0:
         return "money_received"
+    if invoice["status"] != "issued":
+        return "not_issued"
     total = invoice.get("amount_total")
     if total is None or new_amount.minor <= int(total):
         return "tier_downgrade"

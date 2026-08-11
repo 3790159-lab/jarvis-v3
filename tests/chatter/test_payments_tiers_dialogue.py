@@ -256,3 +256,65 @@ def test_a_cancelled_invoice_is_not_the_open_one(store, pay):
     _turn(store, pay, "А давайте краще повний варіант", msg_id=2)
     open_inv = pick_open_invoice(store.invoices_for(contact_id=DRILL))
     assert open_inv["amount_total"] == 40000
+
+
+# ── предохранители замены поштучно (каждый пойман мутацией DEV-26) ─────────
+
+def test_the_reason_shown_to_the_owner_is_the_money_not_the_status(store, pay):
+    """Пришедшая оплата обычно уже уводит статус из `issued`, поэтому отказ
+    сработал бы и по статусу. Но владелице нужна ПРИЧИНА: «not_issued» вместо
+    «есть деньги» отправило бы её разбираться не туда."""
+    from chatter.payments.dialogue import _upsell_verdict
+    from chatter.payments.money import from_major
+
+    class _Paid:
+        @staticmethod
+        def received_minor(_):
+            return 10000
+
+    inv = {"invoice_id": "INV-1", "status": "issued", "amount_total": 30000}
+    assert _upsell_verdict(_Paid(), inv, from_major(400, "USD")) == "money_received"
+
+
+def test_an_invoice_awaiting_the_owner_is_not_replaced_by_the_bot(store, pay):
+    """Счёт, который ждёт владелицу, бот тем более не трогает."""
+    from chatter.payments.dialogue import _upsell_verdict
+    from chatter.payments.money import from_major
+
+    class _Clean:
+        @staticmethod
+        def received_minor(_):
+            return 0
+
+    inv = {"invoice_id": "INV-1", "status": "awaiting_owner", "amount_total": None}
+    assert _upsell_verdict(_Clean(), inv, from_major(400, "USD")) == "not_issued"
+
+
+def test_cancelling_without_a_reason_is_refused(store, pay):
+    """«Отменён» без причины — дыра в разборе спора о деньгах через месяц."""
+    old = _issued(store, pay)
+    with pytest.raises(ValueError):
+        store.cancel_invoice(old["invoice_id"], reason="  ", actor="upsell",
+                             now=NOW)
+    assert store.get_invoice(old["invoice_id"])["status"] == "issued"
+
+
+def test_cancelling_checks_the_right_by_the_transition_map(store, pay):
+    """Право проверяет карта, а не вызыватель: иначе `system` снял бы счёт,
+    просто попросив об этом."""
+    from chatter.payments.statuses import TransitionError
+    old = _issued(store, pay)
+    with pytest.raises(TransitionError):
+        store.cancel_invoice(old["invoice_id"], reason="бо так", actor="system",
+                             now=NOW)
+    assert store.get_invoice(old["invoice_id"])["status"] == "issued"
+
+
+def test_a_lone_cancelled_invoice_leaves_no_open_one(store, pay):
+    """Проверка именно на ОДНОМ счёте: пока рядом есть живой, «последний
+    незакрытый» вернёт его и при сломанном фильтре — тест был бы слеп."""
+    from chatter.payments.prompt import pick_open_invoice
+    old = _issued(store, pay)
+    store.cancel_invoice(old["invoice_id"], reason="перевірка", actor="upsell",
+                         now=NOW)
+    assert pick_open_invoice(store.invoices_for(contact_id=DRILL)) is None

@@ -64,7 +64,7 @@ MUTATIONS = [
      "tests/chatter/test_payments_statuses.py::test_money_statuses_are_a_projection_not_an_owner_write"),
 
     ("statuses: отмена доступна системе", "chatter/payments/statuses.py",
-     '    ("issued", "cancelled", _OWNER),',
+     '    ("issued", "cancelled", _OWNER | _UPSELL),',
      '    ("issued", "cancelled", frozenset({"owner", "system", "provider"})),',
      "tests/chatter/test_payments_statuses.py::test_cancel_is_owner_only"),
 
@@ -804,14 +804,14 @@ MUTATIONS = [
      '            raise ValueError("отмена счёта без причины запрещена")',
      "        reason = reason or \"\"",
      "tests/chatter/test_payments_tiers_dialogue.py"
-     "::test_the_replaced_invoice_names_why_it_was_cancelled"),
+     "::test_cancelling_without_a_reason_is_refused"),
 
     ("апселл: право отмены не проверяется по карте переходов",
      "chatter/storage/db.py",
      '        assert_transition(inv["status"], "cancelled", actor)',
      "        pass",
-     "tests/chatter/test_payments_statuses.py"
-     "::test_the_upsell_actor_may_not_do_anything_else_with_money"),
+     "tests/chatter/test_payments_tiers_dialogue.py"
+     "::test_cancelling_checks_the_right_by_the_transition_map"),
 
     ("апселл: право снимать счёт отдано системе целиком",
      "chatter/payments/statuses.py",
@@ -847,7 +847,7 @@ MUTATIONS = [
      '_SILENT_STATUSES = frozenset({"paid", "cancelled", "refunded", "refund_requested"})',
      '_SILENT_STATUSES = frozenset({"paid", "refunded", "refund_requested"})',
      "tests/chatter/test_payments_tiers_dialogue.py"
-     "::test_a_cancelled_invoice_is_not_the_open_one"),
+     "::test_a_lone_cancelled_invoice_leaves_no_open_one"),
 
     ("прайс: многословный алиас проходит и не совпадает никогда",
      "chatter/payments/pricing.py", "        if len(alias.split()) > 1:",
@@ -877,7 +877,7 @@ MUTATIONS = [
      "tests/chatter/test_payments_dialogue.py::test_stub_scope_texts_stop_the_quote_for_a_live_lead"),
 
     ("проводка: вопрос цены сразу выставляет счёт", "chatter/payments/dialogue.py",
-     "            if intent.wants_invoice:", "            if True:",
+     "            if intent.wants_invoice or reissue:", "            if True:",
      "tests/chatter/test_payments_dialogue.py::test_price_question_quotes_without_an_invoice_and_demands_the_disclaimer"),
 
     ("проводка: оговорка перестаёт требоваться", "chatter/payments/dialogue.py",
