@@ -61,6 +61,15 @@ class Series:
     available: bool = True               # False → «історія накопичується з …»
 
 
+def _peer(contact_id: str, display_name) -> str:
+    """Как звать лида на экране. Имя, если раннер его запомнил, иначе id.
+
+    Голый id — признак того, что о человеке НЕ известно ничего, а не нормальный
+    вид карточки: на живом дриле оператор не смог возобновить диалог, увидев
+    одно число. Fallback при этом остаётся — пустоту показывать нельзя."""
+    return (display_name or "").strip() or contact_id.split(":", 1)[0]
+
+
 def _ro(db_path: str | Path) -> sqlite3.Connection:
     conn = sqlite3.connect(f"file:{Path(db_path).as_posix()}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
@@ -243,9 +252,12 @@ def needs_attention(db_path, *, now: float, limit: int = 10) -> list[dict]:
             card = conn.execute(
                 "SELECT ts FROM console_cards WHERE contact_id=? AND kind='escalation' "
                 "ORDER BY msg_id DESC LIMIT 1", (contact_id,)).fetchone()
+            who = conn.execute(
+                "SELECT display_name FROM contacts WHERE contact_id=?",
+                (contact_id,)).fetchone()
             out.append({
                 "contact_id": contact_id,
-                "peer": contact_id.split(":", 1)[0],
+                "peer": _peer(contact_id, who["display_name"] if who else None),
                 "last_text": (last["text"] if last else ""),
                 "last_ts": (last["ts"] if last else None),
                 "card_ts": (card["ts"] if card else None),
@@ -267,13 +279,14 @@ def dialog_feed(db_path, *, now: float, limit: int = 30, flt: str = "all") -> li
             "SELECT c.contact_id, c.state, c.paused, "
             "  (SELECT text FROM messages m WHERE m.contact_id=c.contact_id "
             "    ORDER BY m.id DESC LIMIT 1) AS last_text, "
+            "  c.display_name AS display_name, "
             "  (SELECT ts FROM messages m WHERE m.contact_id=c.contact_id "
             "    ORDER BY m.id DESC LIMIT 1) AS last_ts "
             "FROM contacts c").fetchall()
         feed = []
         for r in rows:
             cid = r["contact_id"]
-            item = {"contact_id": cid, "peer": cid.split(":", 1)[0],
+            item = {"contact_id": cid, "peer": _peer(cid, r["display_name"]),
                     "state": r["state"], "paused": bool(r["paused"]),
                     "last_text": r["last_text"] or "", "last_ts": r["last_ts"],
                     "needs_you": cid in active, "paid": cid in paid_ids}

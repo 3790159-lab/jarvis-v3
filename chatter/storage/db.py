@@ -20,6 +20,14 @@ class PaymentsMigrationBlocked(RuntimeError):
 
 
 _SCHEMA = """
+-- `display_name` — имя лида для интерфейса. Кэш, а не источник: резолв
+-- требует Telethon, которого у веба нет; пишет раннер при первом контакте.
+-- NULL отличим от «имя стёрли»: пустая строка означала бы, что мы уже
+-- спрашивали и получили пустоту.
+--
+-- Комментарии живут НАД оператором намеренно: внутри CREATE TABLE они
+-- ломают ALTER TABLE DROP COLUMN — SQLite пересобирает исходный текст DDL
+-- и спотыкается о `--` (поймано тестом миграции).
 CREATE TABLE IF NOT EXISTS contacts (
     contact_id TEXT PRIMARY KEY,
     state TEXT NOT NULL DEFAULT 'new',
@@ -30,7 +38,8 @@ CREATE TABLE IF NOT EXISTS contacts (
     pause_msg_id INTEGER,
     pause_detail TEXT,
     pause_until REAL,
-    last_human_out_ts REAL
+    last_human_out_ts REAL,
+    display_name TEXT
 );
 CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -245,6 +254,7 @@ _ADDED_COLUMNS = {
         "tier_id": "TEXT",
     },
     "contacts": {
+        "display_name": "TEXT",
         "paused_at": "REAL",
         "pause_source": "TEXT",
         "pause_msg_id": "INTEGER",
@@ -483,6 +493,19 @@ class Store:
         if inv is None or inv["amount_total"] is None:
             return None
         return int(inv["amount_total"]) - self.received_minor(invoice_id)
+
+    def set_display_name(self, contact_id: str, name: str) -> None:
+        """Запомнить имя лида. Пустое значение НЕ затирает известное: Telethon
+        иногда не знает сущность, и «не знаю сейчас» не должно стирать то, что
+        мы узнали раньше."""
+        clean = (name or "").strip()
+        if not clean:
+            return
+        with self._lock:
+            self._conn.execute(
+                "UPDATE contacts SET display_name=? WHERE contact_id=?",
+                (clean, contact_id))
+            self._conn.commit()
 
     def cancel_invoice(self, invoice_id: str, *, reason: str, actor: str,
                        now: float) -> dict:

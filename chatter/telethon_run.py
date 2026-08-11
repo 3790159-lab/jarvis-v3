@@ -1497,6 +1497,12 @@ class TelethonRunner:
             return
 
         persona_slug = self.persona_for(sender_id)
+        # Имя лида для панели: у события есть сущность отправителя, у веба её
+        # нет. Пишем ДО дебаунсера, чтобы имя было уже на первом ходу.
+        remember_display_name(
+            self.personas[persona_slug].deps.store,
+            f"{sender_id}:{persona_slug}", getattr(event, "sender", None),
+            user_id=sender_id)
         deb = self._debouncers.get(chat_id)
         if deb is None or deb.task is None or deb.task.done():
             deb = self._new_debouncer(peer=peer, sender_id=sender_id, persona_slug=persona_slug)
@@ -1604,6 +1610,43 @@ class TelethonRunner:
             missed_age_seconds=mm.oldest_age_seconds,
         )
         log.info("catch-up process END %s", contact_id)
+
+
+
+def remember_display_name(store, contact_id: str, sender, *, user_id) -> None:
+    """Запомнить имя лида в БД — при первом контакте и дальше по факту.
+
+    Веб-панель показывала голый telegram-id, потому что резолв имени требует
+    Telethon-сущности, которой у веба нет. Значит положить имя обязан тот, у
+    кого сущность есть, — раннер.
+
+    Имя кладётся СЫРЫМ, без HTML-экранирования: экранирует тот, кто рендерит.
+    Хранить уже экранированное значит однажды показать «&amp;lt;» вместо «<»
+    там, где экранируют второй раз.
+
+    `display_name` из console здесь НЕ используется намеренно: его цепочка
+    fallback заканчивается голым id, и с `user_id=None` он вернул бы строку
+    «None», затерев уже известное имя. Нам нужно ровно обратное — «не узнали
+    ничего» обязано означать «ничего не пишем».
+
+    В ЛОГИ имя не идёт: там остаётся хеш контакта. Лог читают шире, чем панель,
+    и имя живого лида в файле — утечка, которой панель не требует.
+
+    Сбой не имеет права уронить ход: имя украшает экран, а не участвует в
+    ответе лиду. Ловим и логируем (DEV-18 — не глотаем молча)."""
+    try:
+        parts = [getattr(sender, "first_name", None), getattr(sender, "last_name", None)]
+        name = " ".join(p for p in parts if p).strip()
+        username = getattr(sender, "username", None)
+        if name and username:
+            name = f"{name} (@{username})"
+        elif not name and username:
+            name = f"@{username}"
+        if not name:
+            return          # не узнали ничего — не трогаем то, что знали
+        store.set_display_name(contact_id, name)
+    except Exception:
+        log.warning("не удалось запомнить имя контакта %s", contact_id, exc_info=True)
 
 
 async def config_watch_loop(

@@ -234,10 +234,15 @@ try:
 
     if panels_enabled():
         from app.routers.jarvis_panel import router as _jarvis_panel_router
+        from app.routers.panels_auth import router as _panels_login_router
         from app.routers.tamapi_dashboard import router as _tamapi_router
+        # Ручка входа монтируется ВНУТРИ того же гейта: без ключа в окружении
+        # её тоже нет. Открытая дверь в выключенной панели была бы хуже, чем
+        # отсутствие двери.
+        app.include_router(_panels_login_router)
         app.include_router(_tamapi_router)
         app.include_router(_jarvis_panel_router)
-        print("[OK] Included routers: tamapi_dashboard + jarvis_panel")
+        print("[OK] Included routers: panels_login + tamapi_dashboard + jarvis_panel")
     else:
         print("[skip] panels disabled (JARVIS_PANELS_KEY not set)")
 except Exception as e:

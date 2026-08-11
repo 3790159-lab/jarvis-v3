@@ -373,3 +373,43 @@ def test_tier_id_is_migrated_into_an_existing_base(tmp_path):
     cols = {r[1] for r in s._conn.execute("PRAGMA table_info(quotes)")}
     assert "tier_id" in cols
     Store(path).close()          # второй прогон не падает
+
+
+# ── имя лида: кэш в contacts, чтобы веб не ходил в Telethon ───────────────
+
+def test_display_name_is_stored_and_read_back(tmp_path):
+    s = Store(str(tmp_path / "n.db"))
+    s.get_or_create_contact("1:demo")
+    s.set_display_name("1:demo", "Олена")
+    assert s.get_or_create_contact("1:demo")["display_name"] == "Олена"
+
+
+def test_an_unknown_contact_has_no_name_rather_than_an_empty_string(tmp_path):
+    """NULL отличим от «имя стёрли». Пустая строка означала бы, что мы уже
+    спрашивали и получили пустоту."""
+    s = Store(str(tmp_path / "n2.db"))
+    assert s.get_or_create_contact("2:demo")["display_name"] is None
+
+
+def test_the_name_is_not_overwritten_by_a_blank(tmp_path):
+    """Telethon иногда не знает сущность. «Не знаю сейчас» не должно стирать
+    то, что мы уже узнали раньше."""
+    s = Store(str(tmp_path / "n3.db"))
+    s.get_or_create_contact("3:demo")
+    s.set_display_name("3:demo", "Олена")
+    s.set_display_name("3:demo", "   ")
+    assert s.get_or_create_contact("3:demo")["display_name"] == "Олена"
+
+
+def test_display_name_is_migrated_into_an_existing_base(tmp_path):
+    path = str(tmp_path / "old2.db")
+    Store(path).close()
+    import sqlite3
+    conn = sqlite3.connect(path)
+    conn.execute("ALTER TABLE contacts DROP COLUMN display_name")
+    conn.commit()
+    conn.close()
+    s = Store(path)
+    cols = {r[1] for r in s._conn.execute("PRAGMA table_info(contacts)")}
+    assert "display_name" in cols
+    Store(path).close()          # второй прогон не падает

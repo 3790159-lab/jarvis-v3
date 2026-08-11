@@ -99,10 +99,20 @@ def _package() -> dict:
 
 def _funnel_html(sm: dict) -> str:
     f = sm["funnel"]
-    steps = [("Діалоги", f["dialogs"]), ("Кваліфіковано", f["qualified"]),
-             ("Передано вам", f["handed"]), ("Оплати", f["payments"])]
+    # «Кваліфіковано» — мнение КЛАССИФИКАТОРА, и подпись обязательна (решение
+    # владельца 31.07, спека §2.3): без неё клиент прочтёт оценку модели как
+    # факт, проверенный человеком, и первое расхождение будет стоить доверия
+    # ко всему экрану.
+    # У «Кваліфіковано» есть ПОДПИСЬ, и она обязательна (решение владельца
+    # 31.07, спека §2.3): это мнение КЛАССИФИКАТОРА, а не отметка человека.
+    # Без подписи клиент прочтёт оценку модели как проверенный факт, и первое
+    # же расхождение будет стоить доверия ко всему экрану.
+    steps = [("Діалоги", f["dialogs"], ""),
+             ("Кваліфіковано", f["qualified"], "за оцінкою асистента"),
+             ("Передано вам", f["handed"], ""),
+             ("Оплати", f["payments"], "")]
     out = []
-    for i, (label, val) in enumerate(steps):
+    for i, (label, val, note) in enumerate(steps):
         if val is None:
             # Честно: метрики нет, потому что таблица только начала копиться.
             body = ("<div class='n' style='color:var(--dim);font-size:15px'>"
@@ -112,7 +122,9 @@ def _funnel_html(sm: dict) -> str:
         pct = ""
         if i and val is not None and steps[i-1][1]:
             pct = f"<div class='p'>{val / steps[i-1][1] * 100:.0f}%</div>"
-        out.append(f"<div class='fstep'>{body}<div class='l'>{esc(label)}</div>{pct}</div>")
+        note_html = (f"<div class='sub'>{esc(note)}</div>" if note else "")
+        out.append(f"<div class='fstep'>{body}<div class='l'>{esc(label)}</div>"
+                   f"{note_html}{pct}</div>")
     return f"<div class='funnel'>{''.join(out)}</div>"
 
 
@@ -257,7 +269,7 @@ async def main_screen(request: Request):
   <p>Вона перестане відповідати <b>ВСІМ</b> лідам, доки ви не увімкнете її назад.
      Діалоги не зникнуть, історія збережеться.</p>
   <div style='display:flex;gap:8px'>
-    <button class='btn danger' onclick="act('stop_all')">Так, зупинити</button>
+    <button class='btn danger' onclick="act('stop_all confirm')">Так, зупинити</button>
     <button class='btn' onclick="closeM('pausebox')">Скасувати</button></div>
 </div></div>
 
@@ -371,7 +383,16 @@ async def action(request: Request, data: str = Form(...),
     store = Store(_db_path())
     now = time.time()
 
+    # Глобальная заглушка требует ВТОРОГО осознанного действия, и проверка эта
+    # СЕРВЕРНАЯ. Модалка в вебе защищает только от промаха пальцем по экрану;
+    # одиночный POST мимо неё взводил флаг, от которого «бот молчит на всех»
+    # (P15). Идиома «подтверждение последним токеном» взята у пульта.
     if data == "stop_all":
+        return JSONResponse({
+            "confirm": True,
+            "feedback": "Зупинити Ольгу ВСІМ лідам? Підтвердіть ще раз.",
+        })
+    if data == "stop_all confirm":
         store.set_runtime_flag("kill_switch", "1", ts=now)
         store.add_event("kill_on", ts=now)
         return JSONResponse({"feedback": "Ольгу зупинено"})
