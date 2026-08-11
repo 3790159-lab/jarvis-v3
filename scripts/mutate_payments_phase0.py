@@ -479,6 +479,159 @@ MUTATIONS = [
      "        return CommitOutcome(True, False)",
      "tests/chatter/test_config_commit.py::test_git_missing_is_loud_not_silent"),
 
+    # --- проводка в диалог: обе операции §8.2 -------------------------------
+    # Здесь ломается не расчёт, а ЗВЕНО. Каждая мутация отвечает на вопрос
+    # «если убрать это, путь всё ещё работает?» — и если сторож остаётся
+    # зелёным, значит путь он не охранял, а только его кусок.
+
+    ("предпасс: окно количества расширено до года", "chatter/payments/intent.py",
+     "_QTY_WINDOW = 2", "_QTY_WINDOW = 5",
+     "tests/chatter/test_payments_intent.py::test_a_number_far_from_the_alias_is_not_a_quantity"),
+
+    ("предпасс: граница правдоподобного количества снята",
+     "chatter/payments/intent.py",
+     "        return n if 1 <= n <= _MAX_QTY else None", "        return n",
+     "tests/chatter/test_payments_intent.py::test_a_year_right_next_to_the_alias_is_still_not_a_quantity"),
+
+    ("предпасс: пара основ упрощена до одной (ложная готовность платить)",
+     "chatter/payments/intent.py",
+     "        any(all(_has(tokens, stem) for stem in pair) for pair in _READY_PAIRS)",
+     "        any(any(_has(tokens, stem) for stem in pair) for pair in _READY_PAIRS)",
+     "tests/chatter/test_payments_intent.py::test_ordinary_talk_triggers_neither_operation"),
+
+    ("предпасс: пустой ход считается разобранным", "chatter/payments/intent.py",
+     "        return Intent(False, False, QuoteRequest(parsed=False))",
+     "        return Intent(False, False, QuoteRequest(parsed=True))",
+     "tests/chatter/test_payments_intent.py::test_empty_text_parses_to_nothing_rather_than_to_something"),
+
+    ("предпасс: клиент без прайса считается разобранным",
+     "chatter/payments/intent.py",
+     "        return Intent(asks_price, wants_invoice, QuoteRequest(parsed=False))",
+     "        return Intent(asks_price, wants_invoice, QuoteRequest(parsed=True))",
+     "tests/chatter/test_payments_intent.py::test_pricing_absent_means_no_facts_at_all"),
+
+    ("предпасс: порядок позиций взят из конфига, а не из сообщения",
+     "chatter/payments/intent.py",
+     "    return tuple(found.values())",
+     "    return tuple(sorted(found.values(), key=lambda it: it.position_id))",
+     "tests/chatter/test_payments_intent.py::test_items_are_ordered_by_the_message_not_by_the_config"),
+
+    ("прайс: многословный алиас проходит и не совпадает никогда",
+     "chatter/payments/pricing.py", "        if len(alias.split()) > 1:",
+     "        if False:",
+     "tests/chatter/test_payments_pricing.py::test_a_multiword_alias_is_an_error_not_a_dead_string"),
+
+    ("volska: позиция осталась без алиасов (тихо неузнаваема)",
+     "chatter/clients/volska/settings.yaml",
+     '        aliases: ["логотип", "лого", "logo"]\n', "",
+     "tests/chatter/test_payments_volska_config.py::test_every_position_has_aliases"),
+
+    ("volska: алиас с опечаткой ведёт в чужую позицию",
+     "chatter/clients/volska/settings.yaml",
+     '        aliases: ["рефайн", "редизайн"]', '        aliases: ["логотип"]',
+     "tests/chatter/test_payments_volska_config.py::test_each_alias_resolves_back_to_its_own_position"),
+
+    ("проводка: счёт выставляется без реквизитов", "chatter/payments/dialogue.py",
+     "    if invoice is None and instruction is not None and (",
+     "    if invoice is None and (",
+     "tests/chatter/test_payments_dialogue.py::test_no_requisites_means_no_invoice_at_all"),
+
+    ("проводка: пригодность прайса не проверяется (заглушка живому лиду)",
+     "chatter/payments/dialogue.py",
+     "        assert_pricing_usable(payments.pricing, payments.scope_texts,\n"
+     "                              contact_id=contact_id)",
+     "        pass",
+     "tests/chatter/test_payments_dialogue.py::test_stub_scope_texts_stop_the_quote_for_a_live_lead"),
+
+    ("проводка: вопрос цены сразу выставляет счёт", "chatter/payments/dialogue.py",
+     "            if intent.wants_invoice:", "            if True:",
+     "tests/chatter/test_payments_dialogue.py::test_price_question_quotes_without_an_invoice_and_demands_the_disclaimer"),
+
+    ("проводка: оговорка перестаёт требоваться", "chatter/payments/dialogue.py",
+     "                requires_disclaimer = True", "                requires_disclaimer = False",
+     "tests/chatter/test_payments_dialogue.py::test_price_question_quotes_without_an_invoice_and_demands_the_disclaimer"),
+
+    ("проводка: сумма берётся с ПОЛА сетки, а не с верха вилки",
+     "chatter/payments/dialogue.py", "            step = position.top",
+     "            step = position.floor",
+     "tests/chatter/test_payments_path_e2e.py::test_ready_lead_turn_creates_the_invoice_object_itself"),
+
+    ("проводка: счёт не привязан к котировке", "chatter/payments/dialogue.py",
+     'quote_id=quote["quote_id"],', "quote_id=None,",
+     "tests/chatter/test_payments_path_e2e.py::test_ready_lead_turn_creates_the_invoice_object_itself"),
+
+    ("проводка: снапшот отправленной инструкции не пишется",
+     "chatter/payments/dialogue.py",
+     "                    instruction_snapshot=instruction.body_text)",
+     "                    instruction_snapshot=None)",
+     "tests/chatter/test_payments_path_e2e.py::test_the_invoice_carries_the_snapshot_of_what_was_actually_sent"),
+
+    ("проводка: долг оплаты повешен на бота", "chatter/payments/dialogue.py",
+     '        [{"kind": "other", "owed_by": "client", "status": "open",',
+     '        [{"kind": "other", "owed_by": "bot", "status": "open",',
+     "tests/chatter/test_payments_path_e2e.py::test_the_invoice_turn_puts_the_debt_on_the_client"),
+
+    ("проводка: ключ обязательства без номера счёта (второй затрёт первый)",
+     "chatter/payments/dialogue.py", '"slug": f"inv-{invoice_id}"', '"slug": "inv"',
+     "tests/chatter/test_payments_path_e2e.py::test_the_invoice_turn_puts_the_debt_on_the_client"),
+
+    ("проводка: позиция угадывается при пустом разборе",
+     "chatter/payments/dialogue.py",
+     "    if request.items:\n        return request", "    if True:\n        return request",
+     "tests/chatter/test_payments_dialogue.py::test_readiness_without_a_service_falls_back_to_the_active_quote"),
+
+    ("проводка: причина ухода к владельцу теряется", "chatter/payments/dialogue.py",
+     "                       else (outcome.why,))", "                       else ())",
+     "tests/chatter/test_payments_dialogue.py::test_the_owner_note_names_why_the_amount_was_withheld"),
+
+    ("срок: не прижимается к рабочим часам клиента", "chatter/payments/prompt.py",
+     "    if dt.hour < start:", "    if False:",
+     "tests/chatter/test_payments_dialogue.py::test_due_landing_before_the_working_day_moves_to_its_start"),
+
+    ("срок: остаётся с минутами («до 10:06 у неділю»)", "chatter/payments/prompt.py",
+     "    dt = dt.replace(minute=0, second=0, microsecond=0)",
+     "    dt = dt.replace(second=0, microsecond=0)",
+     "tests/chatter/test_payments_dialogue.py::test_due_is_a_round_hour_inside_the_working_day"),
+
+    ("блок А: инструкция про реквизиты не доезжает до модели",
+     "chatter/payments/prompt.py", "    if not channels:\n        return \"\"",
+     "    if True:\n        return \"\"",
+     "tests/chatter/test_payments_path_e2e.py::test_lead_asking_where_to_pay_gets_the_requisites_in_the_same_turn"),
+
+    ("оговорка: узнаётся в любом тексте", "chatter/payments/prompt.py",
+     "    return any(marker in low for marker in DISCLAIMER_MARKERS)",
+     "    return True",
+     "tests/chatter/test_payments_path_e2e.py::test_an_amount_without_the_disclaimer_never_reaches_the_lead"),
+
+    ("оговорка: не узнаётся никогда (глушит и корректный ответ)",
+     "chatter/payments/prompt.py",
+     "    return any(marker in low for marker in DISCLAIMER_MARKERS)",
+     "    return False",
+     "tests/chatter/test_payments_path_e2e.py::test_the_same_amount_with_the_disclaimer_goes_through"),
+
+    ("run: ответ без оговорки уходит лиду", "chatter/run.py",
+     '        deps.store.add_event("payments_disclaimer_missing", contact_id=contact_id,\n'
+     "                             detail=reply[:120], ts=deps.clock())\n        return",
+     '        deps.store.add_event("payments_disclaimer_missing", contact_id=contact_id,\n'
+     "                             detail=reply[:120], ts=deps.clock())",
+     "tests/chatter/test_payments_path_e2e.py::test_an_amount_without_the_disclaimer_never_reaches_the_lead"),
+
+    ("run: карточка счёта владельцу не уходит", "chatter/run.py",
+     "    if pay.owner_note is not None:", "    if False:",
+     "tests/chatter/test_payments_path_e2e.py::test_awaiting_owner_invoice_reaches_the_owner_as_a_card"),
+
+    ("run: деньги считаются ДО лимитов", "chatter/run.py",
+     "    limits = deps.cfg.settings.limits\n"
+     "    if not within_hourly_limit(deps.store, contact_id, now=deps.clock(), limit=limits.per_contact_hourly):\n"
+     '        print(f"  [rate limit] hourly limit hit for {contact_id}; skipping")\n'
+     "        return",
+     "    pay = _payment_context(deps, contact_id, text=text)\n"
+     "    limits = deps.cfg.settings.limits\n"
+     "    if not within_hourly_limit(deps.store, contact_id, now=deps.clock(), limit=limits.per_contact_hourly):\n"
+     '        print(f"  [rate limit] hourly limit hit for {contact_id}; skipping")\n'
+     "        return",
+     "tests/chatter/test_payments_path_e2e.py::test_a_rate_limited_turn_creates_no_money_object"),
+
     ("пульт: файл не откатывается на упавшей валидации", "chatter/telethon_run.py",
      '            path.write_text(old, encoding="utf-8")   # вернуть заведомо рабочий файл\n'
      '            self.reload_configs()\n'
