@@ -849,6 +849,89 @@ MUTATIONS = [
      "tests/chatter/test_payments_tiers_dialogue.py"
      "::test_a_lone_cancelled_invoice_leaves_no_open_one"),
 
+    # --- панели: вход, имена, подтверждение (12.08) -------------------------
+
+    ("панель: ручка входа не проверяет ключ вовсе",
+     "app/routers/panels_auth.py",
+     "    if not key or not _same(key, expected):",
+     "    if False:",
+     "tests/chatter/test_panels_web.py::test_a_wrong_key_is_refused_and_sets_nothing"),
+
+    ("панель: cookie входа доступна скрипту (HttpOnly снят)",
+     "app/routers/panels_auth.py", "        httponly=True,", "        httponly=False,",
+     "tests/chatter/test_panels_web.py::test_the_cookie_is_httponly_and_samesite_strict"),
+
+    ("панель: cookie уходит на чужие сайты (SameSite ослаблен)",
+     "app/routers/panels_auth.py", '        samesite="strict",', '        samesite="lax",',
+     "tests/chatter/test_panels_web.py::test_the_cookie_is_httponly_and_samesite_strict"),
+
+    ("панель: открытый редирект с ручки входа",
+     "app/routers/panels_auth.py",
+     "    target = next if next in _NEXT_ALLOWED else _NEXT_DEFAULT",
+     "    target = next or _NEXT_DEFAULT",
+     "tests/chatter/test_panels_web.py::test_the_redirect_target_cannot_be_an_arbitrary_site"),
+
+    ("панель: вход работает при выключенных панелях",
+     "app/routers/panels_auth.py",
+     "    expected = _expected()\n"
+     "    if not expected:\n"
+     "        # Симметрия с `require_owner`: выключенная панель не имеет права\n"
+     "        # оставить открытой хотя бы одну дверь.\n"
+     "        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,\n"
+     '                            "panels disabled: JARVIS_PANELS_KEY not set")',
+     '    expected = _expected() or "любой сойдёт"',
+     "tests/chatter/test_panels_web.py::test_a_wrong_key_is_refused_and_sets_nothing"),
+
+    ("панель: сравнение ключа вернулось на строки (не-ASCII = 500)",
+     "app/routers/panels_auth.py",
+     "    return secrets.compare_digest(\n"
+     '        provided.strip().encode("utf-8"), expected.encode("utf-8"))',
+     "    return secrets.compare_digest(provided.strip(), expected)",
+     "tests/chatter/test_panels_web.py::test_a_non_ascii_key_is_a_refusal_not_a_crash"),
+
+    ("панель: одиночный POST снова взводит глобальную заглушку",
+     "app/routers/tamapi_dashboard.py",
+     '    if data == "stop_all":\n        return JSONResponse({',
+     '    if data == "stop_all_никогда":\n        return JSONResponse({',
+     "tests/chatter/test_panels_web.py::test_a_single_post_does_not_arm_the_global_mute"),
+
+    ("панель: подтверждение stop_all требуется и на возврат из паузы",
+     "app/routers/tamapi_dashboard.py",
+     '    if data == "resume_all":',
+     '    if data == "resume_all confirm":',
+     "tests/chatter/test_panels_web.py::test_resume_needs_no_confirmation"),
+
+    ("панель: имя лида не показывается, снова голый id",
+     "app/services/tamapi_metrics.py",
+     '    return (display_name or "").strip() or contact_id.split(":", 1)[0]',
+     '    return contact_id.split(":", 1)[0]',
+     "tests/chatter/test_panels_web.py::test_the_feed_shows_the_name_when_it_is_known"),
+
+    ("панель: пустое имя затирает известное",
+     "chatter/storage/db.py",
+     "        clean = (name or \"\").strip()\n        if not clean:\n            return",
+     "        clean = (name or \"\").strip()",
+     "tests/chatter/test_payments_store.py::test_the_name_is_not_overwritten_by_a_blank"),
+
+    ("панель: неузнанный отправитель затирает имя",
+     "chatter/telethon_run.py",
+     "        if not name:\n            return          # не узнали ничего",
+     "        if not name:\n            name = str(user_id)  # не узнали ничего",
+     "tests/chatter/test_panels_web.py::test_an_unknown_sender_does_not_erase_a_known_name"),
+
+    ("панель: подпись «за оцінкою асистента» пропала",
+     "app/routers/tamapi_dashboard.py",
+     '("Кваліфіковано", f["qualified"], "за оцінкою асистента"),',
+     '("Кваліфіковано", f["qualified"], ""),',
+     "tests/chatter/test_panels_web.py"
+     "::test_qualified_is_labelled_as_the_assistants_opinion"),
+
+    ("панель: пакет тихо сменил величину",
+     "app/routers/tamapi_dashboard.py",
+     'limit = int(os.getenv("TAMAPI_PACKAGE", "500"))',
+     'limit = int(os.getenv("TAMAPI_PACKAGE", "1000"))',
+     "tests/chatter/test_panels_web.py::test_the_package_limit_is_five_hundred_by_default"),
+
     ("прайс: многословный алиас проходит и не совпадает никогда",
      "chatter/payments/pricing.py", "        if len(alias.split()) > 1:",
      "        if False:",
