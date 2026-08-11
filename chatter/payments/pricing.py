@@ -31,6 +31,22 @@ class LadderStep:
 
 
 @dataclass(frozen=True)
+class Tier:
+    """ПУБЛИЧНАЯ ступень объёма (решение владельца 12.08).
+
+    Ровно ОДНА цена, названная лиду вслух вместе с описанием объёма. Ни вилки,
+    ни пола, ни сетки внутри: дешевле — это меньший ОБЪЁМ, а не тихая скидка за
+    тот же. Поэтому «уступка без названного обмена» (риск 10.12) тут невозможна
+    по построению, а не удерживается проверкой.
+
+    Отличие от `LadderStep` не в полях, а в публичности: ступень объёма
+    произносится, шаг сетки — никогда."""
+    id: str
+    amount: Money
+    tier_text_key: str      # ключ текста «що входить» в книге tier_texts
+
+
+@dataclass(frozen=True)
 class Position:
     position_id: str
     title: str
@@ -43,14 +59,35 @@ class Position:
     # неразобранный. Это рабочий исход, а не поломка: лучше молча позвать
     # человека, чем угадать позицию и назвать цену за не ту работу.
     aliases: tuple[str, ...] = ()
+    # Публичные ступени объёма. Пусто — позиция работает как до 12.08: одна
+    # вилка и внутренняя сетка торга. Непусто — сетки нет вовсе (валидатор их
+    # не пускает вместе), и цена называется выбором объёма.
+    tiers: tuple[Tier, ...] = ()
 
     @property
     def top(self) -> LadderStep:
+        """Стартовое предложение при невыбранном объёме (политика price_upper).
+
+        У ярусной позиции это САМАЯ ДОРОГАЯ ступень, а не верх несуществующей
+        вилки. Тип общий намеренно: вызывающей стороне (`dialogue`) не нужно
+        знать, ярусная позиция или нет, — ей нужны сумма и ключ текста."""
+        if self.tiers:
+            top = self.tiers[-1]
+            return LadderStep(top.amount, top.tier_text_key)
         return self.steps[0]
 
     @property
     def floor(self) -> LadderStep:
+        if self.tiers:
+            low = self.tiers[0]
+            return LadderStep(low.amount, low.tier_text_key)
         return self.steps[-1]
+
+    def tier(self, tier_id: str) -> Tier | None:
+        """Ступень по идентификатору. `None` — не «пустая ступень», а «такой
+        нет»: подставлять вместо неё дефолт значит выставить счёт за объём,
+        которого лид не выбирал."""
+        return next((t for t in self.tiers if t.id == tier_id), None)
 
 
 @dataclass(frozen=True)
@@ -101,6 +138,13 @@ def _load_position(pid: str, raw: dict, knowledge: str) -> Position:
         raise PricingConfigError(
             f"позиция {pid!r}: currency={ccy!r} — нужен ISO-4217 из "
             f"{sorted(MINOR_EXPONENT)}, а не символ (§14 п.8)")
+
+    title = raw.get("title")
+    if not isinstance(title, str) or not title.strip():
+        raise PricingConfigError(f"позиция {pid!r}: пустой title")
+
+    if raw.get("tiers") is not None:
+        return _load_tiered_position(pid, raw, ccy, title, knowledge)
 
     rng = raw.get("price_range")
     if not (isinstance(rng, (list, tuple)) and len(rng) == 2):
@@ -155,12 +199,74 @@ def _load_position(pid: str, raw: dict, knowledge: str) -> Position:
             f"позиция {pid!r}: пол сетки {steps[-1].amount.minor} ≠ нижней границе "
             f"вилки {low.minor} — торг ушёл бы ниже опубликованного (правило №6)")
 
-    title = raw.get("title")
-    if not isinstance(title, str) or not title.strip():
-        raise PricingConfigError(f"позиция {pid!r}: пустой title")
-
     return Position(pid, title, ccy, low, high, tuple(steps),
                     _aliases(pid, raw.get("aliases")))
+
+
+def _load_tiered_position(pid: str, raw: dict, ccy: str, title: str,
+                          knowledge: str) -> Position:
+    """Позиция с ПУБЛИЧНЫМИ ступенями объёма.
+
+    Сетка торга здесь запрещена, а не «не используется»: два списка цен на одну
+    позицию расходятся не сразу, а через месяц, и наружу это выходит ценой.
+    Границы позиции выводятся из ступеней по той же причине — заданные отдельно,
+    они были бы вторым источником."""
+    for forbidden in ("ladder", "price_range"):
+        if raw.get(forbidden) is not None:
+            raise PricingConfigError(
+                f"позиция {pid!r}: {forbidden} рядом с tiers запрещён. Ступень "
+                f"объёма — одна цена, торга внутри неё нет; два списка на одной "
+                f"позиции это второй источник цены")
+
+    raw_tiers = raw.get("tiers")
+    if not isinstance(raw_tiers, (list, tuple)) or len(raw_tiers) < 2:
+        raise PricingConfigError(
+            f"позиция {pid!r}: нужно минимум ДВЕ ступени — одна ступень это не "
+            f"выбор объёма, а обычная позиция")
+
+    tiers: list[Tier] = []
+    seen_ids: set[str] = set()
+    seen_keys: set[str] = set()
+    prev: int | None = None
+    for i, t in enumerate(raw_tiers):
+        if not isinstance(t, dict):
+            raise PricingConfigError(f"позиция {pid!r}, ступень {i}: ожидался словарь")
+        tid = t.get("id")
+        if not isinstance(tid, str) or not tid.strip():
+            raise PricingConfigError(f"позиция {pid!r}, ступень {i}: пустой id")
+        tid = tid.strip()
+        if tid in seen_ids:
+            raise PricingConfigError(
+                f"позиция {pid!r}, ступень {i}: id {tid!r} повторяется — счёт "
+                f"сослался бы на неоднозначную ступень")
+        key = t.get("tier_text_key")
+        if not isinstance(key, str) or not key.strip():
+            raise PricingConfigError(
+                f"позиция {pid!r}, ступень {tid!r}: пустой tier_text_key — цена "
+                f"без названного объёма это цена ни за что")
+        key = key.strip()
+        if key in seen_keys:
+            raise PricingConfigError(
+                f"позиция {pid!r}, ступень {tid!r}: tier_text_key {key!r} "
+                f"повторяется — выбор, в котором нечего выбирать")
+        amount = _money(t.get("amount"), ccy, f"позиция {pid!r}, ступень {tid!r}")
+        if prev is not None and amount.minor <= prev:
+            raise PricingConfigError(
+                f"позиция {pid!r}, ступень {tid!r}: ступени обязаны строго "
+                f"возрастать — это публичный порядок перечисления лиду")
+        # Правило №5 читается по КАЖДОЙ ступени: публичны они все, промежуточных
+        # среди них не бывает.
+        if not _literal_in_knowledge(amount, ccy, knowledge):
+            raise PricingConfigError(
+                f"позиция {pid!r}, ступень {tid!r}: цена отсутствует в knowledge "
+                f"как литерал — бот назвал бы цену, которой клиент не публиковал")
+        seen_ids.add(tid)
+        seen_keys.add(key)
+        prev = amount.minor
+        tiers.append(Tier(tid, amount, key))
+
+    return Position(pid, title, ccy, tiers[0].amount, tiers[-1].amount, (),
+                    _aliases(pid, raw.get("aliases")), tuple(tiers))
 
 
 def _aliases(pid: str, raw) -> tuple[str, ...]:

@@ -202,3 +202,165 @@ def test_a_position_without_aliases_loads_but_is_unrecognisable():
     позиция не узнаётся предпассом никогда и уходит владельцу."""
     pricing = load_pricing(_raw(), knowledge=KNOWLEDGE)
     assert pricing.positions["logo_create"].aliases == ()
+
+
+# ── публичные ярусы по объёму (решение владельца 12.08) ────────────────────
+# Ступень — ОДНА цена, названная вслух вместе с описанием объёма. Вилки, пола
+# и торга внутри ступени не существует как понятия: дешевле — это меньший
+# объём, а не тихая скидка за тот же.
+
+TIER_KNOWLEDGE = """
+# Послуги та ціни
+- Створення логотипа — 300 $ або 400 $ залежно від обсягу
+- Рефайн (редизайн) логотипа — 200 $
+"""
+
+TIER_RAW = {
+    "amount_source": "price_upper",
+    "positions": {
+        "logo_create": {
+            "title": "Створення логотипа",
+            "currency": "USD",
+            "tiers": [
+                {"id": "logo_basic", "amount": 300,
+                 "tier_text_key": "tier_logo_basic"},
+                {"id": "logo_standard", "amount": 400,
+                 "tier_text_key": "tier_logo_standard"},
+            ],
+        },
+        "logo_refine": {                      # позиция БЕЗ ярусов — как сегодня
+            "title": "Рефайн логотипа",
+            "currency": "USD",
+            "price_range": [200, 200],
+            "ladder": [{"amount": 200, "scope_key": "refine_full"}],
+        },
+    },
+}
+
+
+def _tier_raw(**position_overrides):
+    """Копия TIER_RAW с правками в logo_create."""
+    import copy
+    raw = copy.deepcopy(TIER_RAW)
+    raw["positions"]["logo_create"].update(position_overrides)
+    return raw
+
+
+def test_a_tiered_position_loads_its_public_steps():
+    pricing = load_pricing(TIER_RAW, knowledge=TIER_KNOWLEDGE)
+    pos = pricing.positions["logo_create"]
+    assert [t.id for t in pos.tiers] == ["logo_basic", "logo_standard"]
+    assert [t.amount.minor for t in pos.tiers] == [30000, 40000]
+    assert [t.tier_text_key for t in pos.tiers] == [
+        "tier_logo_basic", "tier_logo_standard"]
+
+
+def test_a_tiered_position_has_no_ladder_at_all():
+    """Торга внутри ступени не существует: пол, шаги и перекрытия исчезают
+    вместе с вилкой. Пустая сетка — не «забыли заполнить», а инвариант."""
+    pricing = load_pricing(TIER_RAW, knowledge=TIER_KNOWLEDGE)
+    assert pricing.positions["logo_create"].steps == ()
+
+
+def test_position_bounds_are_derived_from_the_tiers():
+    """Границы позиции больше не задаются отдельно — их НЕЛЬЗЯ задать
+    отдельно, иначе появится второй источник цены на одну позицию."""
+    pos = load_pricing(TIER_RAW, knowledge=TIER_KNOWLEDGE).positions["logo_create"]
+    assert (pos.low.minor, pos.high.minor) == (30000, 40000)
+
+
+def test_ladder_next_to_tiers_is_a_start_error():
+    """Два списка на одной позиции — заготовка расхождения: разъедутся не
+    сразу, а через месяц, и наружу это выйдет ценой."""
+    raw = _tier_raw(ladder=[{"amount": 400, "scope_key": "logo_full"}])
+    with pytest.raises(PricingConfigError, match="ladder"):
+        load_pricing(raw, knowledge=TIER_KNOWLEDGE)
+
+
+def test_price_range_next_to_tiers_is_a_start_error():
+    raw = _tier_raw(price_range=[300, 400])
+    with pytest.raises(PricingConfigError, match="price_range"):
+        load_pricing(raw, knowledge=TIER_KNOWLEDGE)
+
+
+def test_a_single_tier_is_not_a_choice():
+    """Одна ступень — это не выбор объёма, а обычная позиция. Такой конфиг
+    почти наверняка недописан, и молчать об этом нельзя."""
+    raw = _tier_raw(tiers=[{"id": "only", "amount": 400,
+                            "tier_text_key": "tier_logo_standard"}])
+    with pytest.raises(PricingConfigError, match="ступен"):
+        load_pricing(raw, knowledge=TIER_KNOWLEDGE)
+
+
+def test_tiers_must_strictly_ascend():
+    """Порядок — публичный: он же порядок перечисления лиду. Две ступени с
+    одной ценой означают выбор без разницы в деньгах."""
+    raw = _tier_raw(tiers=[
+        {"id": "a", "amount": 400, "tier_text_key": "tier_logo_standard"},
+        {"id": "b", "amount": 300, "tier_text_key": "tier_logo_basic"},
+    ])
+    with pytest.raises(PricingConfigError, match="зроста|возраст"):
+        load_pricing(raw, knowledge=TIER_KNOWLEDGE)
+
+
+def test_tier_ids_are_unique():
+    raw = _tier_raw(tiers=[
+        {"id": "same", "amount": 300, "tier_text_key": "tier_logo_basic"},
+        {"id": "same", "amount": 400, "tier_text_key": "tier_logo_standard"},
+    ])
+    with pytest.raises(PricingConfigError, match="повторя"):
+        load_pricing(raw, knowledge=TIER_KNOWLEDGE)
+
+
+def test_tier_text_keys_are_unique():
+    """Два объёма с одним описанием — выбор, в котором нечего выбирать."""
+    raw = _tier_raw(tiers=[
+        {"id": "a", "amount": 300, "tier_text_key": "tier_logo_basic"},
+        {"id": "b", "amount": 400, "tier_text_key": "tier_logo_basic"},
+    ])
+    with pytest.raises(PricingConfigError, match="tier_text_key"):
+        load_pricing(raw, knowledge=TIER_KNOWLEDGE)
+
+
+def test_a_tier_without_its_text_key_is_a_start_error():
+    """Цена без названного объёма — это цена ни за что: лид не поймёт, за что
+    он платит больше, и выберет дешёвое или уйдёт."""
+    raw = _tier_raw(tiers=[
+        {"id": "a", "amount": 300},
+        {"id": "b", "amount": 400, "tier_text_key": "tier_logo_standard"},
+    ])
+    with pytest.raises(PricingConfigError, match="tier_text_key"):
+        load_pricing(raw, knowledge=TIER_KNOWLEDGE)
+
+
+def test_every_tier_amount_must_be_published_in_knowledge():
+    """Правило №5 на ярусах читается по КАЖДОЙ ступени: она публичная целиком,
+    промежуточных среди них не бывает."""
+    raw = _tier_raw(tiers=[
+        {"id": "a", "amount": 333, "tier_text_key": "tier_logo_basic"},
+        {"id": "b", "amount": 400, "tier_text_key": "tier_logo_standard"},
+    ])
+    with pytest.raises(PricingConfigError, match="knowledge"):
+        load_pricing(raw, knowledge=TIER_KNOWLEDGE)
+
+
+def test_the_top_offer_of_a_tiered_position_is_its_priciest_tier():
+    """Лид объёма не назвал — политика прежняя, price_upper. Верх у ярусной
+    позиции это верхняя ступень, а не верх несуществующей вилки."""
+    pos = load_pricing(TIER_RAW, knowledge=TIER_KNOWLEDGE).positions["logo_create"]
+    assert pos.top.amount.minor == 40000
+    assert pos.top.scope_key == "tier_logo_standard"
+
+
+def test_a_position_without_tiers_keeps_todays_behaviour():
+    """Обратная сторона: ярусы — только там, где объём различим. Остальные
+    позиции обязаны работать ровно как вчера."""
+    pos = load_pricing(TIER_RAW, knowledge=TIER_KNOWLEDGE).positions["logo_refine"]
+    assert pos.tiers == ()
+    assert pos.steps and pos.top.amount.minor == 20000
+
+
+def test_tier_lookup_by_id():
+    pos = load_pricing(TIER_RAW, knowledge=TIER_KNOWLEDGE).positions["logo_create"]
+    assert pos.tier("logo_basic").amount.minor == 30000
+    assert pos.tier("нет такой") is None

@@ -31,6 +31,8 @@ from chatter.payments.instructions import (
 from chatter.payments.money import MINOR_EXPONENT, Money, MoneyError, from_major
 from chatter.payments.pricing import Pricing, PricingConfigError, load_pricing
 from chatter.payments.scope import ScopeConfigError, ScopeText, load_scope_texts
+from chatter.payments.tier_texts import (
+    TierText, TierTextsError, load_tier_texts)
 
 log = logging.getLogger(__name__)
 
@@ -45,6 +47,10 @@ _ALLOWED_KEYS = frozenset({
     "enabled", "escalate_on_complexity", "owner_approval_above",
     "daily_invoice_cap", "per_contact_invoice_cap", "due_hours",
     "channels", "pricing", "scope_texts",
+    # Публичные описания объёма — ОТДЕЛЬНАЯ книга от scope_texts. Разные ключи,
+    # разные типы: смешать внутреннее «що змінюється» с публичным «що входить»
+    # можно было бы опиской, а цена ошибки — опубликованный внутренний текст.
+    "tier_texts",
 })
 
 _CHANNEL_KEYS = frozenset({
@@ -72,6 +78,7 @@ class PaymentsConfig:
     channels: tuple[Channel, ...] = ()
     pricing: Pricing | None = None
     scope_texts: Mapping[str, ScopeText] = field(default_factory=dict)
+    tier_texts: Mapping[str, TierText] = field(default_factory=dict)
     requisites: RequisitesBook = field(
         default_factory=lambda: RequisitesBook({}, {}))
 
@@ -204,6 +211,11 @@ def load_payments(raw: dict | None, *, requisites_raw: dict | None,
         raise PaymentsConfigError(f"payments.scope_texts: {exc}") from exc
 
     try:
+        tier_texts = load_tier_texts(raw.get("tier_texts") or {})
+    except TierTextsError as exc:
+        raise PaymentsConfigError(f"payments.tier_texts: {exc}") from exc
+
+    try:
         requisites = load_requisites(requisites_raw or {})
     except RequisitesError as exc:
         raise PaymentsConfigError(f"requisites.yaml: {exc}") from exc
@@ -219,7 +231,7 @@ def load_payments(raw: dict | None, *, requisites_raw: dict | None,
                                               DEFAULT_PER_CONTACT_INVOICE_CAP),
         due_hours=_positive_int(raw, "due_hours", DEFAULT_DUE_HOURS),
         channels=channels, pricing=pricing, scope_texts=scope_texts,
-        requisites=requisites,
+        tier_texts=tier_texts, requisites=requisites,
     )
 
 
@@ -291,6 +303,18 @@ def assert_startable(payments: PaymentsConfig, *, slug: str = "") -> None:
             raise PaymentsConfigError(
                 f"payments у клиента {slug!r}: ступени без текста объёма — "
                 + ", ".join(orphan))
+
+        # То же самое для ПУБЛИЧНЫХ ступеней: цена без названного объёма — это
+        # цена ни за что, и узнавать об этом в разговоре поздно.
+        tier_orphan = sorted({
+            f"{pos.position_id}:{tier.tier_text_key}"
+            for pos in payments.pricing.positions.values()
+            for tier in pos.tiers
+            if tier.tier_text_key not in payments.tier_texts})
+        if tier_orphan:
+            raise PaymentsConfigError(
+                f"payments у клиента {slug!r}: ступени объёма без публичного "
+                f"описания — " + ", ".join(tier_orphan))
 
     client_ready = client_ready_channels(payments)
     if not client_ready:
