@@ -65,6 +65,17 @@ _DUE_PATTERN = {
 }
 
 
+# Символы валют, которые модель дописывает рядом с суммой. Берутся из
+# `currency` клиента («$» у volska), и рядом с подстановкой это ВСЕГДА дубль:
+# `_money_value` отдаёт сумму уже с кодом валюты («400 USD»).
+_CURRENCY_SIGNS = "$€₴£¥"
+_SPACE = "[ \u00a0\u202f]*"      # обычный, неразрывный и узкий неразрывный пробел
+# Ровно ОДИН символ с каждой стороны и только вплотную к плейсхолдеру: символ
+# в другом месте фразы говорит о другой сумме, и вырезать его — переписать смысл.
+_SIGN_BEFORE_AMOUNT = re.compile(f"[{_CURRENCY_SIGNS}]" + _SPACE + r"(?=\{AMOUNT\})")
+_SIGN_AFTER_AMOUNT = re.compile(r"(?<=\{AMOUNT\})" + _SPACE + f"[{_CURRENCY_SIGNS}]")
+
+
 class UnsubstitutedPlaceholder(Exception):
     """Плейсхолдер остался без значения — ответ подавляется целиком (§8.3)."""
 
@@ -96,6 +107,20 @@ def substitute(text: str, values: Mapping[str, str]) -> str:
         lambda m: str(values.get(m.group(1), m.group(0))), text or "")
 
 
+def _drop_currency_sign_by_amount(text: str) -> str:
+    """Убрать знак валюты, прилипший к `{AMOUNT}` (Т1 11.08: «400 USD $»).
+
+    Авторитет по деньгам — код: `_money_value` отдаёт сумму вместе с кодом
+    валюты. Знак, который модель дописала рядом (он приходит из `currency`
+    клиента), — это та же валюта второй раз, и читает её лид.
+
+    Убираем именно знак модели, а не код из подстановки: обратный выбор — не
+    печатать валюту в значении — оставил бы сумму без валюты всякий раз, когда
+    модель знак не поставит. Голая цифра на деньгах хуже дубля."""
+    text = _SIGN_BEFORE_AMOUNT.sub("", text or "")
+    return _SIGN_AFTER_AMOUNT.sub("", text)
+
+
 def finalize(text: str, values: Mapping[str, str]) -> str:
     """Текст для отправки лиду. Зовётся ПОСЛЕ guardrails.
 
@@ -105,7 +130,7 @@ def finalize(text: str, values: Mapping[str, str]) -> str:
     if missing:
         raise UnsubstitutedPlaceholder(
             "нечем подставить: " + ", ".join(missing))
-    return substitute(text, values)
+    return substitute(_drop_currency_sign_by_amount(text), values)
 
 
 def due_at(now: float, *, due_hours: int, work_hours: tuple[int, int],

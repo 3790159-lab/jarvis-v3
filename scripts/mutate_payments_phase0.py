@@ -547,6 +547,58 @@ MUTATIONS = [
      "    return tuple(sorted(found.values(), key=lambda it: it.position_id))",
      "tests/chatter/test_payments_intent.py::test_items_are_ordered_by_the_message_not_by_the_config"),
 
+    # --- готовность КУПИТЬ, а не только заплатить (прогон Т1 11.08) ---------
+
+    ("предпасс: готовность заказать выпала из списка",
+     "chatter/payments/intent.py",
+     '    ("готов", "замов"), ("готов", "заказ"),\n', "",
+     "tests/chatter/test_payments_intent.py"
+     "::test_readiness_to_buy_is_recognised_not_only_as_readiness_to_pay"),
+
+    ("предпасс: форма первого лица «закажем» снова не ловится",
+     "chatter/payments/intent.py",
+     '    ("давайте", "замов"), ("давайте", "заказ"), ("давайте", "закаж"),',
+     '    ("давайте", "замов"), ("давайте", "заказ"),',
+     "tests/chatter/test_payments_intent.py"
+     "::test_readiness_to_buy_is_recognised_not_only_as_readiness_to_pay"),
+
+    ("предпасс: одиночная словоформа упрощена до основы (счёт деепричастию)",
+     "chatter/payments/intent.py",
+     "        or (any(t in _READY_WORDS for t in tokens)",
+     "        or (any(_has(tokens, t) for t in _READY_WORDS)",
+     "tests/chatter/test_payments_intent.py"
+     "::test_one_word_signal_does_not_fire_on_look_alike_phrases"),
+
+    ("предпасс: вето снято — «беру паузу» стало покупкой",
+     "chatter/payments/intent.py",
+     "            and not any(_has(tokens, stem) for stem in _READY_WORD_VETO)))",
+     "            and True))",
+     "tests/chatter/test_payments_intent.py"
+     "::test_one_word_signal_does_not_fire_on_look_alike_phrases"),
+
+    # --- валюта в лицо лиду ровно один раз ----------------------------------
+
+    ("подстановка: знак валюты ПЕРЕД суммой больше не снимается",
+     "chatter/payments/prompt.py",
+     '    text = _SIGN_BEFORE_AMOUNT.sub("", text or "")',
+     '    text = text or ""',
+     "tests/chatter/test_payments_prompt.py"
+     "::test_currency_symbol_next_to_the_amount_is_dropped"),
+
+    ("подстановка: знак валюты ПОСЛЕ суммы больше не снимается",
+     "chatter/payments/prompt.py",
+     '    return _SIGN_AFTER_AMOUNT.sub("", text)',
+     "    return text",
+     "tests/chatter/test_payments_prompt.py"
+     "::test_currency_symbol_next_to_the_amount_is_dropped"),
+
+    ("подстановка: чистка валюты бьёт по всей фразе, а не по соседу суммы",
+     "chatter/payments/prompt.py",
+     '_SIGN_BEFORE_AMOUNT = re.compile(f"[{_CURRENCY_SIGNS}]" + _SPACE + r"(?=\\{AMOUNT\\})")',
+     '_SIGN_BEFORE_AMOUNT = re.compile(f"[{_CURRENCY_SIGNS}]" + _SPACE)',
+     "tests/chatter/test_payments_prompt.py"
+     "::test_currency_symbol_away_from_the_amount_is_left_alone"),
+
     ("прайс: многословный алиас проходит и не совпадает никогда",
      "chatter/payments/pricing.py", "        if len(alias.split()) > 1:",
      "        if False:",

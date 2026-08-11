@@ -22,8 +22,8 @@ from __future__ import annotations
 import pytest
 
 from chatter.payments.prompt import (
-    UnsubstitutedPlaceholder, find_placeholders, format_due, missing_values,
-    render_invoice_block, substitute)
+    UnsubstitutedPlaceholder, finalize, find_placeholders, format_due,
+    missing_values, render_invoice_block, substitute)
 
 DAY = 86400.0
 NOW = 1_786_000_000.0
@@ -69,6 +69,38 @@ def test_braces_inside_a_substituted_value_do_not_suppress_the_reply():
     values = {"REQUISITES": "IBAN {UA00}"}
     assert missing_values("на {REQUISITES}", values) == []
     assert substitute("на {REQUISITES}", values) == "на IBAN {UA00}"
+
+
+# ── валюта пишется ОДИН раз ────────────────────────────────────────────────
+
+@pytest.mark.parametrize("raw, expected", [
+    # Живой прогон Т1 11.08: ушло «орієнтовно до 400 USD $». Символ дописала
+    # модель (`currency: "$"` в settings), код подставил «400 USD» — валюта
+    # прозвучала дважды в лицо лиду.
+    ("орієнтовно до {AMOUNT} $, це верхня межа",
+     "орієнтовно до 400 USD, це верхня межа"),
+    ("приблизно ${AMOUNT}", "приблизно 400 USD"),
+    ("{AMOUNT}$", "400 USD"),
+    ("ціна {AMOUNT} €", "ціна 400 USD"),
+    ("вартість {AMOUNT}₴", "вартість 400 USD"),
+])
+def test_currency_symbol_next_to_the_amount_is_dropped(raw, expected):
+    """Авторитет по деньгам — код, а не модель: `_money_value` уже отдаёт сумму
+    вместе с кодом валюты. Символ рядом — не вторая валюта, а дубль первой."""
+    assert finalize(raw, {"AMOUNT": "400 USD"}) == expected
+
+
+def test_currency_symbol_away_from_the_amount_is_left_alone():
+    """Чистим ровно соседа подстановки. Символ в другом месте фразы — это текст
+    про другую сумму, и вырезать его значит переписать смысл."""
+    out = finalize("знижка від $50 діє, разом {AMOUNT}", {"AMOUNT": "400 USD"})
+    assert out == "знижка від $50 діє, разом 400 USD"
+
+
+def test_only_one_symbol_per_side_is_eaten():
+    """«$$» — опечатка модели, а не валюта. Съедаем один символ, остальное
+    остаётся видимым: молча причёсывать чужой текст опаснее, чем показать."""
+    assert finalize("разом $${AMOUNT}", {"AMOUNT": "400 USD"}) == "разом $400 USD"
 
 
 # ── блок счёта ─────────────────────────────────────────────────────────────
