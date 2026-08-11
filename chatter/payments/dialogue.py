@@ -146,6 +146,30 @@ def _tier_named_now(payments: PaymentsConfig, store, contact_id: str, text: str,
         if (pos := payments.pricing.positions.get(pid)) is not None)
 
 
+def _upsell_verdict(store, invoice, new_amount: Money) -> str:
+    """Можно ли боту заменить УЖЕ выставленный счёт. Три условия разом.
+
+    `ok` — счёт `issued`, поступлений НОЛЬ и новая ступень ДОРОЖЕ. Тогда это не
+    распоряжение деньгами, а уточнение заказа до того, как деньги пошли.
+
+    `money_received` — по счёту есть ЛЮБАЯ сумма. Замена счёта под пришедшей
+    оплатой — движение денег, и решает его человек.
+
+    `tier_downgrade` — просят дешевле. Это скидка на уже зафиксированную цену,
+    а скидками бот не распоряжается (правило №6 читается и так).
+
+    `not_issued` — счёт в любом другом статусе: черновик, ждёт владелицу, уже
+    закрыт. Трогать его бот тем более не вправе."""
+    if invoice["status"] != "issued":
+        return "not_issued"
+    if store.received_minor(invoice["invoice_id"]) > 0:
+        return "money_received"
+    total = invoice.get("amount_total")
+    if total is None or new_amount.minor <= int(total):
+        return "tier_downgrade"
+    return "ok"
+
+
 def _verdict(payments: PaymentsConfig, request: QuoteRequest, contact_id: str):
     """Simple | NeedsOwner | _Blocked. Решение принимает КОД (§2.4)."""
     if payments.pricing is None:
@@ -192,6 +216,21 @@ def _record_obligation(store, contact_id: str, invoice_id: str, *, now: float,
         now=now, current_msg_id=msg_id))
 
 
+def _close_obligation(store, contact_id: str, invoice_id: str, *, now: float,
+                      msg_id: int | None) -> None:
+    """Снять долг по счёту, которого больше нет.
+
+    Заводит и закрывает эту строку КОД — модель к ней не допущена
+    (`filter_model_updates`). Значит долг, не закрытый здесь, не закроет уже
+    никто: блок обязательств вечно дожимал бы оплату снятого счёта."""
+    store.save_obligations(contact_id, merge_obligations(
+        store.get_obligations(contact_id),
+        [{"kind": "other", "owed_by": "client", "status": "cancelled",
+          "slug": invoice_slug(invoice_id),
+          "detail": f"рахунок {invoice_id} знято"}],
+        now=now, current_msg_id=msg_id))
+
+
 def payment_turn(*, store, payments: PaymentsConfig, contact_id: str, text: str,
                  msg_id: int | None, now: float, language: str = "uk",
                  work_hours: tuple[int, int] = (9, 20),
@@ -211,6 +250,7 @@ def payment_turn(*, store, payments: PaymentsConfig, contact_id: str, text: str,
     intent = read_intent(text, payments.pricing)
     owner_note: OwnerNote | None = None
     requires_disclaimer = False
+    reissue = False          # апселл снял счёт — новый обязателен
     quote: Mapping | None = None
 
     # Операция Б. Счёта без реквизитов не бывает: «заплати невідомо куди до
@@ -218,6 +258,37 @@ def payment_turn(*, store, payments: PaymentsConfig, contact_id: str, text: str,
     # Выбор объёма — такой же денежный ход, как вопрос цены: он меняет сумму,
     # не называя ни цены, ни услуги.
     tier_now = _tier_named_now(payments, store, contact_id, text, intent.request)
+
+    # Апселл: лид передумал в сторону ДОРОЖЕ, когда счёт уже выставлен.
+    # Разрешено ботом ровно при трёх условиях (см. `_upsell_verdict`); всё
+    # остальное — владелице. Стоит ДО основной ветки, потому что та работает
+    # только при `invoice is None`.
+    if invoice is not None and tier_now and instruction is not None:
+        request = _with_quote_fallback(intent.request, store, contact_id,
+                                       payments=payments, text=text)
+        outcome = _verdict(payments, request, contact_id)
+        if isinstance(outcome, Simple) and outcome.tier_id is not None:
+            position = payments.pricing.positions[outcome.position_id]
+            chosen = position.tier(outcome.tier_id)
+            verdict = _upsell_verdict(store, invoice, chosen.amount)
+            if verdict == "ok":
+                store.cancel_invoice(
+                    invoice["invoice_id"], actor="upsell", now=now,
+                    reason=f"замінено на дорожчий обсяг {chosen.id}")
+                # Долг снятого счёта закрывается вместе с ним: модель к нему не
+                # допущена, значит незакрытый здесь не закроет уже никто.
+                _close_obligation(store, contact_id, invoice["invoice_id"],
+                                  now=now, msg_id=msg_id)
+                invoice = None
+                # Готовность платить лид выразил ХОДОМ РАНЬШЕ — счёт уже
+                # стоял. Смена объёма её не отзывает, поэтому новый счёт
+                # выставляется без повторных слов готовности: требовать их
+                # снова значило бы оставить лида без счёта после апселла.
+                reissue = True
+            else:
+                owner_note = OwnerNote("invoice_change_needs_owner",
+                                       invoice["invoice_id"], (verdict,))
+
     if invoice is None and instruction is not None and (
             intent.wants_invoice or intent.asks_price or tier_now):
         request = _with_quote_fallback(intent.request, store, contact_id,
@@ -245,7 +316,7 @@ def payment_turn(*, store, payments: PaymentsConfig, contact_id: str, text: str,
                 amount_source=source, tier_id=outcome.tier_id,
                 knowledge_version=knowledge_version,
                 origin_msg_id=msg_id, now=now)
-            if intent.wants_invoice:
+            if intent.wants_invoice or reissue:
                 invoice = store.create_invoice(
                     contact_id=contact_id, origin_msg_id=msg_id,
                     amount=amount, channel_id=instruction.channel_id,

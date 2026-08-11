@@ -149,3 +149,110 @@ def test_a_reply_listing_prices_without_a_caveat_is_suppressed():
 
 def test_the_caveat_words_of_the_tiers_block_are_recognised():
     assert has_disclaimer("точну суму зафіксуємо в рахунку після вибору обсягу")
+
+
+# ── апселл: лид передумал в СТОРОНУ ДОРОЖЕ уже после счёта ────────────────
+# Разрешено ровно при трёх условиях разом: счёт `issued`, денег по нему НОЛЬ,
+# и новая ступень ДОРОЖЕ. Любое другое сочетание — к владелице: деньги на счёте
+# и скидка на зафиксированную цену это решения человека, а не бота.
+
+def _issued(store, pay, text="Готовий замовити базовий логотип"):
+    _turn(store, pay, text, msg_id=1)
+    return store.invoices_for(contact_id=DRILL)[-1]
+
+
+def test_upselling_an_untouched_invoice_replaces_it(store, pay):
+    old = _issued(store, pay)
+    assert old["amount_total"] == 30000
+
+    turn = _turn(store, pay, "А давайте краще повний варіант", msg_id=2)
+
+    rows = store.invoices_for(contact_id=DRILL)
+    assert [(r["amount_total"], r["status"]) for r in rows] == [
+        (30000, "cancelled"), (40000, "issued")]
+    assert store.quotes_for(DRILL)[-1]["tier_id"] == "standard"
+    assert turn.owner_note is None, "апселл без денег владелицу не беспокоит"
+
+
+def test_the_replaced_invoice_names_why_it_was_cancelled(store, pay):
+    """«Отменён» без причины — это дыра в разборе спора о деньгах."""
+    _issued(store, pay)
+    _turn(store, pay, "А давайте краще повний варіант", msg_id=2)
+    old = store.invoices_for(contact_id=DRILL)[0]
+    assert old["cancelled_reason"], "причина отмены не записана"
+
+
+def test_the_debt_of_the_replaced_invoice_is_closed(store, pay):
+    """Долг снятого счёта обязан закрыться вместе с ним: модель к нему не
+    допущена (фикс 12.08), значит незакрытый здесь не закроет уже никто."""
+    from chatter.core.obligations_slot import invoice_okey
+    old = _issued(store, pay)
+    _turn(store, pay, "А давайте краще повний варіант", msg_id=2)
+    row = next(o for o in store.get_obligations(DRILL)
+               if o.okey == invoice_okey(old["invoice_id"]))
+    assert row.status == "cancelled"
+
+
+def test_money_on_the_invoice_sends_it_to_the_owner(store, pay):
+    """Любая сумма — уже движение денег: замена счёта под пришедшей оплатой
+    это решение человека, а не бота."""
+    from chatter.payments.model import PaymentRecord, make_dedup_key
+    from chatter.payments.money import from_major
+    old = _issued(store, pay)
+    store.apply_payment(PaymentRecord(
+        contact_id=DRILL, dedup_key=make_dedup_key("tap", 1), ts=NOW,
+        confirmed_by="owner", amount=from_major(100, "USD"),
+        invoice_id=old["invoice_id"], stage_no=1), now=NOW)
+
+    turn = _turn(store, pay, "А давайте краще повний варіант", msg_id=2)
+
+    still = store.get_invoice(old["invoice_id"])
+    assert still["status"] != "cancelled", "счёт с деньгами снят ботом"
+    assert turn.owner_note is not None
+    assert len(store.invoices_for(contact_id=DRILL)) == 1
+
+
+def test_a_cheaper_tier_after_the_invoice_goes_to_the_owner(store, pay):
+    """Ступень вниз по уже выставленному счёту — это СКИДКА на зафиксированную
+    цену. Ею распоряжается человек."""
+    _turn(store, pay, "Готовий замовити повний логотип", msg_id=1)
+    turn = _turn(store, pay, "А давайте базовий", msg_id=2)
+
+    rows = store.invoices_for(contact_id=DRILL)
+    assert [r["status"] for r in rows] == ["issued"], "бот снял счёт ради скидки"
+    assert rows[0]["amount_total"] == 40000
+    assert turn.owner_note is not None
+
+
+def test_the_same_tier_again_changes_nothing(store, pay):
+    """Повтор выбора — не апселл. Новый счёт на ту же сумму означал бы вторую
+    просьбу заплатить за то же самое."""
+    _issued(store, pay)
+    _turn(store, pay, "Так, базовий", msg_id=2)
+    rows = store.invoices_for(contact_id=DRILL)
+    assert [r["status"] for r in rows] == ["issued"]
+
+
+# ── отменённый счёт не ломает пересчёт и не считается деньгами ────────────
+
+def test_recompute_leaves_a_cancelled_invoice_alone(store, pay):
+    """`cancelled` — решение человека, а не проекция от сумм. Пересчёт обязан
+    его не трогать и не падать на нём."""
+    old = _issued(store, pay)
+    _turn(store, pay, "А давайте краще повний варіант", msg_id=2)
+    assert store.recompute_status(old["invoice_id"], now=NOW + 10 * 86400) == "cancelled"
+
+
+def test_a_cancelled_invoice_carries_no_money(store, pay):
+    old = _issued(store, pay)
+    _turn(store, pay, "А давайте краще повний варіант", msg_id=2)
+    assert store.received_minor(old["invoice_id"]) == 0
+
+
+def test_a_cancelled_invoice_is_not_the_open_one(store, pay):
+    """Иначе блок счёта в промпте твердил бы про снятый счёт."""
+    from chatter.payments.prompt import pick_open_invoice
+    _issued(store, pay)
+    _turn(store, pay, "А давайте краще повний варіант", msg_id=2)
+    open_inv = pick_open_invoice(store.invoices_for(contact_id=DRILL))
+    assert open_inv["amount_total"] == 40000

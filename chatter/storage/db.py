@@ -7,6 +7,7 @@ from pathlib import Path
 
 from chatter.core.obligations_slot import Obligation
 from chatter.payments.model import PaymentRecord, project_status, validate_dedup_key
+from chatter.payments.statuses import assert_transition
 from chatter.payments.money import Money
 
 
@@ -482,6 +483,32 @@ class Store:
         if inv is None or inv["amount_total"] is None:
             return None
         return int(inv["amount_total"]) - self.received_minor(invoice_id)
+
+    def cancel_invoice(self, invoice_id: str, *, reason: str, actor: str,
+                       now: float) -> dict:
+        """Снять счёт с названной причиной.
+
+        Причина обязательна, а не опциональна: «отменён» без причины — дыра в
+        разборе спора о деньгах через месяц, когда никто уже не помнит хода.
+
+        Право проверяет карта переходов, а не вызыватель: `assert_transition`
+        упадёт, если актору этот переход не положен (DEV-18 — молчаливый отказ
+        неотличим от «сделано»)."""
+        inv = self.get_invoice(invoice_id)
+        if inv is None:
+            raise KeyError(f"счёт {invoice_id!r} не найден")
+        if not (reason or "").strip():
+            raise ValueError("отмена счёта без причины запрещена")
+        assert_transition(inv["status"], "cancelled", actor)
+        with self._lock:
+            self._conn.execute(
+                "UPDATE invoices SET status='cancelled', cancelled_reason=?"
+                " WHERE invoice_id=?", (reason.strip(), invoice_id))
+            self._conn.execute(
+                "UPDATE invoice_stages SET status='cancelled' WHERE invoice_id=?",
+                (invoice_id,))
+            self._conn.commit()
+        return self.get_invoice(invoice_id)
 
     def recompute_status(self, invoice_id: str, *, now: float) -> str:
         inv = self.get_invoice(invoice_id)

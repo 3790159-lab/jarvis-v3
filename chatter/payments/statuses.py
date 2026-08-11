@@ -26,10 +26,16 @@ INVOICE_STATUSES: tuple[str, ...] = (
     "refunded",          # Ф3
 )
 
-ACTORS: tuple[str, ...] = ("owner", "provider", "system")
+# `upsell` — УЗКИЙ актор, а не «система вообще». Снять выставленный счёт это
+# денежное решение, и правом на него не должен обладать любой код бота:
+# добавь сюда `system` — и завтра счёт снимет любая ветка. Этот актор
+# рождается ровно в одном месте (замена счёта на более дорогой при нулевых
+# поступлениях), и его предусловия проверены ТАМ же.
+ACTORS: tuple[str, ...] = ("owner", "provider", "system", "upsell")
 
 _SYSTEM = frozenset({"system"})
 _OWNER = frozenset({"owner"})
+_UPSELL = frozenset({"upsell"})
 
 # (откуда, куда, кто вправе). Денежные переходы — ВСЕГДА `system`: статус это
 # проекция от строк оплаты (§14 п.4), а не то, что кто-то ставит рукой. Владелец
@@ -47,7 +53,7 @@ TRANSITIONS: tuple[tuple[str, str, frozenset[str]], ...] = (
     ("issued", "paid", _SYSTEM),
     ("issued", "overpaid", _SYSTEM),
     ("issued", "overdue", _SYSTEM),
-    ("issued", "cancelled", _OWNER),
+    ("issued", "cancelled", _OWNER | _UPSELL),
 
     # Просрочка — пометка, а не конец: просроченный счёт остаётся оплачиваемым,
     # и автоотмены по сроку нет (§3.2). Отменить может только владелец.

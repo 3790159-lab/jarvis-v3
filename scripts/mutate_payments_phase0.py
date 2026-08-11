@@ -766,6 +766,89 @@ MUTATIONS = [
      "tests/chatter/test_payments_tiers_dialogue.py"
      "::test_moving_up_a_tier_is_a_new_quote_and_supersedes_the_old"),
 
+    # --- апселл по выставленному счёту (решение владельца 12.08) ------------
+
+    ("апселл: счёт с ПРИШЕДШИМИ деньгами снимается ботом",
+     "chatter/payments/dialogue.py",
+     '    if store.received_minor(invoice["invoice_id"]) > 0:\n'
+     '        return "money_received"',
+     "    if False:\n"
+     '        return "money_received"',
+     "tests/chatter/test_payments_tiers_dialogue.py"
+     "::test_money_on_the_invoice_sends_it_to_the_owner"),
+
+    ("апселл: ступень ВНИЗ проходит как апселл (бот раздаёт скидки)",
+     "chatter/payments/dialogue.py",
+     "    if total is None or new_amount.minor <= int(total):",
+     "    if total is None:",
+     "tests/chatter/test_payments_tiers_dialogue.py"
+     "::test_a_cheaper_tier_after_the_invoice_goes_to_the_owner"),
+
+    ("апселл: та же ступень заново выставляет второй счёт",
+     "chatter/payments/dialogue.py",
+     "    if total is None or new_amount.minor <= int(total):",
+     "    if total is None or new_amount.minor < int(total):",
+     "tests/chatter/test_payments_tiers_dialogue.py"
+     "::test_the_same_tier_again_changes_nothing"),
+
+    ("апселл: счёт НЕ в issued тоже снимается",
+     "chatter/payments/dialogue.py",
+     '    if invoice["status"] != "issued":\n        return "not_issued"',
+     "    if False:\n        return \"not_issued\"",
+     "tests/chatter/test_payments_run_wiring.py"
+     "::test_payment_closes_the_code_owned_invoice_debt"),
+
+    ("апселл: причина отмены не записывается",
+     "chatter/storage/db.py",
+     '        if not (reason or "").strip():\n'
+     '            raise ValueError("отмена счёта без причины запрещена")',
+     "        reason = reason or \"\"",
+     "tests/chatter/test_payments_tiers_dialogue.py"
+     "::test_the_replaced_invoice_names_why_it_was_cancelled"),
+
+    ("апселл: право отмены не проверяется по карте переходов",
+     "chatter/storage/db.py",
+     '        assert_transition(inv["status"], "cancelled", actor)',
+     "        pass",
+     "tests/chatter/test_payments_statuses.py"
+     "::test_the_upsell_actor_may_not_do_anything_else_with_money"),
+
+    ("апселл: право снимать счёт отдано системе целиком",
+     "chatter/payments/statuses.py",
+     '    ("issued", "cancelled", _OWNER | _UPSELL),',
+     '    ("issued", "cancelled", _OWNER | _UPSELL | _SYSTEM),',
+     "tests/chatter/test_payments_statuses.py"
+     "::test_only_the_owner_and_the_upsell_may_cancel_an_issued_invoice"),
+
+    ("апселл: долг снятого счёта остаётся открытым навсегда",
+     "chatter/payments/dialogue.py",
+     "                _close_obligation(store, contact_id, invoice[\"invoice_id\"],\n"
+     "                                  now=now, msg_id=msg_id)",
+     "                pass",
+     "tests/chatter/test_payments_tiers_dialogue.py"
+     "::test_the_debt_of_the_replaced_invoice_is_closed"),
+
+    ("апселл: новый счёт после замены не выставляется (лид остался без счёта)",
+     "chatter/payments/dialogue.py",
+     "            if intent.wants_invoice or reissue:",
+     "            if intent.wants_invoice:",
+     "tests/chatter/test_payments_tiers_dialogue.py"
+     "::test_upselling_an_untouched_invoice_replaces_it"),
+
+    ("отмена: cancelled снова считается проекцией от сумм",
+     "chatter/payments/model.py",
+     '_NOT_MONEY = frozenset({"draft", "awaiting_owner", "cancelled",',
+     '_NOT_MONEY = frozenset({"draft", "awaiting_owner",',
+     "tests/chatter/test_payments_tiers_dialogue.py"
+     "::test_recompute_leaves_a_cancelled_invoice_alone"),
+
+    ("отмена: снятый счёт снова виден как открытый",
+     "chatter/payments/prompt.py",
+     '_SILENT_STATUSES = frozenset({"paid", "cancelled", "refunded", "refund_requested"})',
+     '_SILENT_STATUSES = frozenset({"paid", "refunded", "refund_requested"})',
+     "tests/chatter/test_payments_tiers_dialogue.py"
+     "::test_a_cancelled_invoice_is_not_the_open_one"),
+
     ("прайс: многословный алиас проходит и не совпадает никогда",
      "chatter/payments/pricing.py", "        if len(alias.split()) > 1:",
      "        if False:",

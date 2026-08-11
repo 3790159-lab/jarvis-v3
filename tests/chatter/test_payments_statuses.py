@@ -27,7 +27,12 @@ def test_all_ten_statuses_exist_from_day_one():
 def test_actors_do_not_include_the_client():
     """Жёсткое правило №2: «я оплатил» словами — не событие. Клиента нет среди
     акторов вообще, значит ветку «клиент подтвердил» физически некуда написать."""
-    assert ACTORS == ("owner", "provider", "system")
+    assert "client" not in ACTORS and "lead" not in ACTORS
+    # Список прибит гвоздями намеренно: новый актор — это новое право двигать
+    # деньги, и он обязан появляться правкой ЭТОГО теста, а не молча.
+    # `upsell` (12.08) — узкий актор замены неоплаченного счёта на более
+    # дорогой; он существует, чтобы этим правом НЕ обладал `system` целиком.
+    assert ACTORS == ("owner", "provider", "system", "upsell")
     assert all(a in ACTORS for _, _, actors in TRANSITIONS for a in actors)
 
 
@@ -101,3 +106,18 @@ def test_is_settled_is_the_only_way_to_ask_about_money():
     assert is_settled("partially_paid") is False
     assert is_settled("overpaid") is False
     assert is_settled("issued") is False
+
+
+def test_only_the_owner_and_the_upsell_may_cancel_an_issued_invoice():
+    """`system` целиком этим правом НЕ обладает: снять выставленный счёт —
+    денежное решение, и любая ветка бота не должна мочь его принять."""
+    from chatter.payments.statuses import allowed_actors
+    assert allowed_actors("issued", "cancelled") == frozenset({"owner", "upsell"})
+
+
+def test_the_upsell_actor_may_not_do_anything_else_with_money():
+    """Узость актора — весь его смысл. Если он появится ещё где-то, право
+    «бот двигает деньги» расползётся обратно."""
+    from chatter.payments.statuses import TRANSITIONS
+    edges = [(f, t) for f, t, actors in TRANSITIONS if "upsell" in actors]
+    assert edges == [("issued", "cancelled")]

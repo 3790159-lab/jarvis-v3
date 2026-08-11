@@ -261,10 +261,20 @@ def _post_invoice_card(deps: "Deps", contact_id: str, note: OwnerNote, *,
     language = deps.cfg.settings.language
     peer = contact_id.split(":", 1)[0]
     why = ", ".join(note.reasons) or "причина не названа"
-    text = (f"💸 Рахунок {note.invoice_id} чекає на тебе\n"
-            f"Лід готовий платити, але суму назвати не можна: {why}\n"
-            f"Реквізити ліду вже надіслані — гроші й реквізити розділені "
-            f"навмисно (§8.2).")
+    if note.kind == "invoice_change_needs_owner":
+        # Другой повод — другой текст. Прежний («лід готовий платити, але суму
+        # назвати не можна») тут прямо врал бы: сумма названа и счёт выставлен,
+        # решения ждёт его ИЗМЕНЕНИЕ.
+        text = (f"💸 Рахунок {note.invoice_id}: лід просить змінити суму\n"
+                f"Сам бот цього не зробив: {why}\n"
+                f"«money_received» — по рахунку вже є гроші; «tier_downgrade» — "
+                f"просять дешевший обсяг, тобто знижку на зафіксовану ціну. "
+                f"І те, й інше — рішення людини.")
+    else:
+        text = (f"💸 Рахунок {note.invoice_id} чекає на тебе\n"
+                f"Лід готовий платити, але суму назвати не можна: {why}\n"
+                f"Реквізити ліду вже надіслані — гроші й реквізити розділені "
+                f"навмисно (§8.2).")
     try:
         handle = deps.notifier.notify(Card(
             kind=note.kind, contact_id=contact_id, text_html=escape_html(text),
