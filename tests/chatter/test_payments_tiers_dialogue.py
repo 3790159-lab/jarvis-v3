@@ -108,8 +108,12 @@ def test_a_chosen_tier_prices_by_that_tier_not_by_the_top(store, pay):
 
 def test_a_chosen_tier_needs_no_caveat(store, pay):
     """«Орієнтовно» рядом с опубликованной ценой за названный объём — ложь:
-    сумма точная, и оговорка приглашала бы спорить о решённом."""
-    assert not _turn(store, pay, "Беру базовий логотип").requires_disclaimer
+    сумма точная, и оговорка приглашала бы спорить о решённом.
+
+    Реплика БЕЗ готовности платить намеренно: с ней ход уходит в ветку счёта,
+    где оговорка не назначается вовсе, и тест смотрел бы мимо правила
+    (поймано мутацией DEV-26)."""
+    assert not _turn(store, pay, "Мені базовий логотип ближче").requires_disclaimer
 
 
 def test_moving_up_a_tier_is_a_new_quote_and_supersedes_the_old(store, pay):

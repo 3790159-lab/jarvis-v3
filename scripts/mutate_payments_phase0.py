@@ -798,12 +798,14 @@ MUTATIONS = [
      "tests/chatter/test_payments_dialogue.py::test_price_question_quotes_without_an_invoice_and_demands_the_disclaimer"),
 
     ("проводка: оговорка перестаёт требоваться", "chatter/payments/dialogue.py",
-     "                requires_disclaimer = True", "                requires_disclaimer = False",
+     "                requires_disclaimer = chosen is None",
+     "                requires_disclaimer = False",
      "tests/chatter/test_payments_dialogue.py::test_price_question_quotes_without_an_invoice_and_demands_the_disclaimer"),
 
     ("проводка: сумма берётся с ПОЛА сетки, а не с верха вилки",
-     "chatter/payments/dialogue.py", "            step = position.top",
-     "            step = position.floor",
+     "chatter/payments/dialogue.py",
+     "                top = position.top       # price_upper",
+     "                top = position.floor     # price_upper",
      "tests/chatter/test_payments_path_e2e.py::test_ready_lead_turn_creates_the_invoice_object_itself"),
 
     ("проводка: счёт не привязан к котировке", "chatter/payments/dialogue.py",
