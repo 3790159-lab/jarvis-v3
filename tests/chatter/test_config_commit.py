@@ -133,7 +133,12 @@ def test_an_unfinished_merge_is_loud_and_leaves_the_tree_dirty(repo):
     out = commit_config_file(_settings(repo), message="chore: payments on", trunk=TRUNK)
 
     assert not out.ok
-    assert "merge" in out.detail.lower() or "rebase" in out.detail.lower()
+    # Сверяем НАШУ формулировку, а не git'овскую: git на partial commit во время
+    # merge ругается и сам, и тест, принимающий его текст, не отличает «мы
+    # проверили» от «мы попробовали и нам не дали». Разница не косметическая —
+    # при незавершённом rebase попытка может и пройти, дописав коммит в чужое
+    # состояние (мутация DEV-26 поймала эту слепоту 11.08).
+    assert "незавершённый" in out.detail, out.detail
     assert any("settings.yaml" in l for l in _dirty(repo)), \
         "тумблер обязан остаться применённым: он уже работает"
 
