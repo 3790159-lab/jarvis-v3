@@ -38,6 +38,11 @@ class Position:
     low: Money          # нижняя граница вилки прайса == пол торга
     high: Money         # верхняя == стартовая цена при price_upper
     steps: tuple[LadderStep, ...]
+    # Слова КЛИЕНТА, по которым позицию узнаёт предпасс (`intent.py`). Пусто —
+    # позиция не узнаётся никогда, и запрос про неё уходит владельцу как
+    # неразобранный. Это рабочий исход, а не поломка: лучше молча позвать
+    # человека, чем угадать позицию и назвать цену за не ту работу.
+    aliases: tuple[str, ...] = ()
 
     @property
     def top(self) -> LadderStep:
@@ -154,7 +159,34 @@ def _load_position(pid: str, raw: dict, knowledge: str) -> Position:
     if not isinstance(title, str) or not title.strip():
         raise PricingConfigError(f"позиция {pid!r}: пустой title")
 
-    return Position(pid, title, ccy, low, high, tuple(steps))
+    return Position(pid, title, ccy, low, high, tuple(steps),
+                    _aliases(pid, raw.get("aliases")))
+
+
+def _aliases(pid: str, raw) -> tuple[str, ...]:
+    """Основы слов клиента для узнавания позиции. Регистр снимается здесь, один
+    раз: приводить его на каждом ходу разговора — это тихий шанс когда-нибудь
+    забыть."""
+    if raw is None:
+        return ()
+    if not isinstance(raw, (list, tuple)):
+        raise PricingConfigError(f"позиция {pid!r}: aliases обязан быть списком")
+    out: list[str] = []
+    for a in raw:
+        if not isinstance(a, str) or not a.strip():
+            raise PricingConfigError(
+                f"позиция {pid!r}: пустой алиас — совпал бы с любым словом")
+        alias = a.strip().casefold()
+        if len(alias.split()) > 1:
+            # Предпасс сравнивает алиас с ОДНИМ словом лида. Многословный алиас
+            # не совпадёт никогда, но в конфиге выглядит рабочим — это молчаливо
+            # неузнаваемая позиция, а не мелочь.
+            raise PricingConfigError(
+                f"позиция {pid!r}: алиас {a!r} состоит из нескольких слов — "
+                f"он не совпадёт ни разу; нужна одна основа слова")
+        if alias not in out:
+            out.append(alias)
+    return tuple(out)
 
 
 def load_pricing(raw: dict, *, knowledge: str) -> Pricing:

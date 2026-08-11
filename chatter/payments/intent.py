@@ -1,0 +1,183 @@
+"""Детерминированный предпасс: что лид попросил ЭТИМ сообщением (§2.4).
+
+Почему код, а не модель. Классификатор отвечает ПОСЛЕ `brain.reply` — он видит
+`pending_reply` и без этого не может закрывать обязательства бота. Значит факты,
+разобранные им из хода N, доедут до лида только ходом N+1: на «скільки коштує
+логотип і куди платити» бот ответил бы «уточню», а число назвал бы лишь если лид
+напишет ещё раз. Поэтому источник фактов для денег — этот модуль, и он работает
+до генерации реплики.
+
+Разделение из §2.4 при этом не смягчается, а ужесточается: здесь вообще нет
+модели. Модуль ФИКСИРУЕТ факты (какие позиции узнаны по алиасам клиента, сколько
+единиц, есть ли пометка объёма/срока, просил ли лид цену или готов платить), а
+вывод «просто/сложно» делает `assess_complexity` — как и раньше.
+
+Дефолт закрыт ОТКАЗОМ. Не узнали позицию — `items` пуст, и `assess_complexity`
+даёт `no_parse` → владелец. Угадывать нельзя: угаданная позиция это названная
+цена за не ту работу.
+
+`unknown_services` модуль не заполняет никогда и это осознанно: отличить «услуга,
+которой нет в прайсе» от «просто слова» без модели невозможно, а придуманная
+уверенность здесь дороже пустоты — нераспознанный запрос и так уходит владельцу
+через `no_parse`.
+"""
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+
+from chatter.payments.complexity import QuoteRequest, RequestedItem
+from chatter.payments.pricing import Pricing
+
+_WORD = re.compile(r"[\w'’ʼ-]+", re.UNICODE)
+
+# Сколько токенов ПЕРЕД алиасом считается «рядом». Два: «нужно 2 презентации»,
+# «потрібно три логотипи». Шире — и год из «працюємо з 2019 року» станет
+# количеством, то есть цена уйдёт за 2019 логотипов.
+_QTY_WINDOW = 2
+
+# Числительные словами (ru+uk). Список закрытый: «пара», «декілька» сюда не
+# входят намеренно — это не количество, а неопределённость, и её место у
+# владельца, а не в арифметике счёта.
+_WORD_NUMERALS: dict[str, int] = {
+    "два": 2, "две": 2, "дві": 2, "три": 3, "чотири": 4, "четыре": 4,
+    "пять": 5, "п'ять": 5, "пʼять": 5, "шесть": 6, "шість": 6,
+    "семь": 7, "сім": 7, "восемь": 8, "вісім": 8, "девять": 9, "дев'ять": 9,
+    "десять": 10,
+}
+
+# Верхняя граница правдоподобного количества. 2019 — это год, а не «две тысячи
+# девятнадцать логотипов»; такой запрос всё равно к владельцу, но через
+# volume_out_of_norm, а не через тихо посчитанную сумму.
+_MAX_QTY = 99
+
+# Основы слов, при которых число рядом означает ОБЪЁМ, а не количество услуг.
+_VOLUME_NOUNS = ("концепц", "варіант", "вариант", "мов", "язык", "мокап",
+                 "сторінок", "сторінк", "страниц", "штук", "правок", "правк",
+                 "кол", "кругов", "ітерац", "итерац")
+
+# Пометки срока вне обычного (§2.4). Тоже закрытый список: «завтра» и «терміново»
+# меняют производственный план, а не только сумму.
+_DEADLINE_MARKERS = ("терміново", "термінов", "срочно", "срочн", "завтра",
+                     "сьогодні", "сегодня", "дедлайн", "asap", "вчора", "вчера",
+                     "швидше", "быстрее", "горит", "горить")
+
+# Вопрос цены → котировка (без счёта, без срока, без долга).
+_PRICE_STEMS = ("скільки", "сколько", "цін", "цен", "кошту", "коштує",
+                "стоит", "стоимост", "вартіст", "вартист", "прайс",
+                "почём", "почем")
+
+# Готовность платить → операция Б. Пара основ означает «обе в сообщении»:
+# одиночное «плат» ловило бы «платформу», одиночное «рахун» — «на рахунок
+# кожного клієнта». Пара из двух обычных слов встречается только в намерении.
+_READY_PAIRS: tuple[tuple[str, ...], ...] = (
+    ("куди", "плат"), ("куда", "плат"),
+    ("як", "оплат"), ("как", "оплат"),
+    ("вистав", "рахун"), ("выстав", "счёт"), ("выстав", "счет"),
+    ("готов", "оплат"), ("готов", "плат"),
+    ("давайте", "почн"), ("давайте", "начн"),
+    ("хочу", "оплат"), ("хочу", "заплат"),
+)
+# Одиночные основы, у которых другого смысла в диалоге воронки практически нет.
+_READY_STEMS = ("реквізит", "реквизит", "передоплат", "предоплат")
+
+
+@dataclass(frozen=True)
+class Intent:
+    """Что лид попросил. Обе операции §8.2 различены явно: реквизиты — не
+    деньги, и гейт сложности на них не распространяется (решение владельца 4)."""
+    asks_price: bool
+    wants_invoice: bool
+    request: QuoteRequest
+
+
+def _tokens(text: str) -> list[str]:
+    return _WORD.findall((text or "").casefold())
+
+
+def _has(tokens: list[str], stem: str) -> bool:
+    return any(t.startswith(stem) for t in tokens)
+
+
+def _numeral(token: str) -> int | None:
+    if token.isdigit():
+        n = int(token)
+        return n if 1 <= n <= _MAX_QTY else None
+    return _WORD_NUMERALS.get(token)
+
+
+def _qty_before(tokens: list[str], idx: int) -> int:
+    """Количество, стоящее ПЕРЕД алиасом. Дефолт 1: «логотип» без числа — это
+    один логотип, и это единственное место, где дефолт не отказ, потому что
+    единственное число здесь не догадка, а грамматика."""
+    for j in range(max(0, idx - _QTY_WINDOW), idx):
+        n = _numeral(tokens[j])
+        if n is not None:
+            return n
+    return 1
+
+
+def _items(tokens: list[str], pricing: Pricing | None) -> tuple[RequestedItem, ...]:
+    """Позиции в порядке ПОЯВЛЕНИЯ в сообщении. Порядок объявлен, а не унаследован
+    от обхода словаря: карточка владельцу и тесты не должны зависеть от того, как
+    отсортирован конфиг."""
+    if pricing is None:
+        return ()
+    # Обход идёт ПО СЛОВАМ лида, а не по позициям конфига: порядок сообщения и
+    # «первое вхождение» получаются сами, без отдельного правила, которое можно
+    # забыть починить. Одна позиция попадает сюда один раз, каким бы из своих
+    # алиасов она ни совпала («логотип, він же лого» — одна услуга).
+    found: dict[str, RequestedItem] = {}
+    for i, token in enumerate(tokens):
+        for position in pricing.positions.values():
+            if position.position_id in found:
+                continue
+            if any(token.startswith(alias) for alias in position.aliases):
+                found[position.position_id] = RequestedItem(
+                    position_id=position.position_id,
+                    qty=_qty_before(tokens, i), raw=token)
+                break
+    return tuple(found.values())
+
+
+def _volume_note(tokens: list[str]) -> str | None:
+    """Число рядом со словом объёма («10 концепцій», «на 5 мов»). Это другая
+    работа, а не другая цена, поэтому признак отдельный от количества."""
+    for i, token in enumerate(tokens):
+        n = _numeral(token)
+        if n is None or n <= 1:
+            continue
+        for j in range(i + 1, min(len(tokens), i + 1 + _QTY_WINDOW)):
+            if any(tokens[j].startswith(stem) for stem in _VOLUME_NOUNS):
+                return f"{token} {tokens[j]}"
+    return None
+
+
+def _deadline_note(tokens: list[str]) -> str | None:
+    for token in tokens:
+        if any(token.startswith(stem) for stem in _DEADLINE_MARKERS):
+            return token
+    return None
+
+
+def read_intent(text: str, pricing: Pricing | None) -> Intent:
+    """Разобрать сообщение лида. Ноль I/O, ноль модели, ноль сети."""
+    tokens = _tokens(text)
+    if not tokens:
+        return Intent(False, False, QuoteRequest(parsed=False))
+
+    asks_price = any(_has(tokens, stem) for stem in _PRICE_STEMS)
+    wants_invoice = (
+        any(all(_has(tokens, stem) for stem in pair) for pair in _READY_PAIRS)
+        or any(_has(tokens, stem) for stem in _READY_STEMS))
+
+    if pricing is None:
+        # Прайса нет — узнавать нечем, и это именно «разбор не состоялся», а не
+        # «клиент ничего не просил»: разница в том, что первое зовёт владельца.
+        return Intent(asks_price, wants_invoice, QuoteRequest(parsed=False))
+
+    return Intent(asks_price, wants_invoice, QuoteRequest(
+        items=_items(tokens, pricing),
+        volume_note=_volume_note(tokens),
+        deadline_note=_deadline_note(tokens),
+        parsed=True))

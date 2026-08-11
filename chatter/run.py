@@ -36,15 +36,10 @@ from chatter.core.escalation import (
     honest_self_action_fallback, pick_non_repeating, self_action_fallback,
     suppressed_fallback,
 )
-from chatter.payments.drill_gate import NotForProduction
-from chatter.payments.instructions import (
-    RequisitesError, RequisitesUnavailable, resolve_instruction)
-from chatter.payments.money import Money, format_major
+from chatter.payments.dialogue import OwnerNote, PaymentTurn, payment_turn
 from chatter.payments.prompt import (
-    UnsubstitutedPlaceholder, finalize, find_placeholders, format_due,
-    pick_open_invoice, render_invoice_block,
+    UnsubstitutedPlaceholder, finalize, find_placeholders, has_disclaimer,
 )
-from chatter.payments.settings import usable_channels
 from chatter.core.guardrails import (
     redact_unbacked, within_daily_cap, within_hourly_limit,
 )
@@ -227,47 +222,64 @@ def _muted_now(deps: Deps, contact_id: str) -> bool:
     return is_muted(row, kill_switch=kill, now=deps.clock())
 
 
-def _payment_context(deps: "Deps", contact_id: str) -> tuple[str, dict[str, str]]:
-    """Блок счёта для промпта и значения подстановки (§8.2, §8.3, §14 п.13).
+def _payment_context(deps: "Deps", contact_id: str, *, text: str) -> PaymentTurn:
+    """Обе операции §8.2 на этом ходу: реквизиты (А) и счёт (Б).
 
-    Возвращает ДВЕ вещи, потому что они уходят в разные концы хода: блок — в
-    модель ДО ответа, значения — в текст ПОСЛЕ guardrails. Разъехаться они не
-    могут: собраны из одного снимка счёта.
+    Возвращает ход целиком, потому что его части уходят в РАЗНЫЕ концы: блок —
+    в модель до ответа, значения — в текст после guardrails, заметка — владельцу.
+    Разъехаться они не могут: собраны из одного снимка.
 
-    Реквизитов в блоке нет: модель их не видит вовсе (§8.3). Ошибка в одном
-    символе IBAN — это деньги, ушедшие не туда (риск 10.5)."""
-    pay = deps.cfg.settings.payments
-    if not pay.enabled:
-        return "", {}
+    Разбор идёт ЗДЕСЬ, до `brain.reply`, а не в классификаторе: классификатор
+    отвечает после реплики (он обязан видеть pending_reply), и цена, разобранная
+    им, доехала бы до лида только следующим ходом.
 
-    invoice = pick_open_invoice(deps.store.invoices_for(contact_id=contact_id))
-    block = render_invoice_block(invoice, now=deps.clock())
-    values: dict[str, str] = {}
+    Реквизитов и цифр в блоке нет: модель их не видит вовсе (§8.3). Ошибка в
+    одном символе IBAN — это деньги, ушедшие не туда (риск 10.5)."""
+    wh = deps.cfg.settings.work_hours
+    return payment_turn(
+        store=deps.store, payments=deps.cfg.settings.payments,
+        contact_id=contact_id, text=text,
+        msg_id=deps.store.max_message_id(contact_id), now=deps.clock(),
+        language=deps.cfg.settings.language, work_hours=(wh.start, wh.end),
+        knowledge_version=deps.cfg.settings.model)
 
-    channels = usable_channels(pay)
-    if channels:
-        # Ф0: один канал. Перечисление нескольких — операция А, отдельный шаг.
-        try:
-            instruction = resolve_instruction(
-                channel=channels[0], book=pay.requisites, contact_id=contact_id)
-            values["REQUISITES"] = instruction.body_text
-        except RequisitesUnavailable as exc:
-            # Штатный отказ: клиентских реквизитов нет. Фича молчит, но не
-            # молча — иначе «бот перестал отвечать про оплату» останется без
-            # объяснения (DEV-18).
-            log.info("реквизиты для %s не выданы: %s", contact_id, exc)
-        except (RequisitesError, NotForProduction) as exc:
-            log.warning("реквизиты для %s не выданы: %s", contact_id, exc)
 
-    if invoice is not None:
-        total = invoice.get("amount_total")
-        if total is not None:
-            money = Money(int(total), invoice["currency"])
-            values["AMOUNT"] = f"{format_major(money)} {invoice['currency']}"
-        if invoice.get("due_ts") is not None:
-            values["DUE"] = format_due(invoice["due_ts"],
-                                       language=deps.cfg.settings.language)
-    return block, values
+def _post_invoice_card(deps: "Deps", contact_id: str, note: OwnerNote, *,
+                       now: float) -> None:
+    """Счёт ушёл в `awaiting_owner` — владелец обязан узнать об этом от нас.
+
+    Кнопок ✅/✏️/❌ (§6) здесь НЕТ намеренно: `route_callback` их пока не
+    исполняет и честно отвечает «вне Ф0». Кнопка, которая выглядит сработавшей и
+    не срабатывает, хуже её отсутствия — владелец решит, что счёт утверждён.
+    Карточка информирующая, действия — руками, до отдельной проводки пульта.
+
+    Никогда не роняет ход (DEV-18): деньги уже записаны, и падение на доставке
+    не имеет права стереть ответ лиду."""
+    if deps.notifier is None:
+        return
+    language = deps.cfg.settings.language
+    peer = contact_id.split(":", 1)[0]
+    why = ", ".join(note.reasons) or "причина не названа"
+    text = (f"💸 Рахунок {note.invoice_id} чекає на тебе\n"
+            f"Лід готовий платити, але суму назвати не можна: {why}\n"
+            f"Реквізити ліду вже надіслані — гроші й реквізити розділені "
+            f"навмисно (§8.2).")
+    try:
+        handle = deps.notifier.notify(Card(
+            kind=note.kind, contact_id=contact_id, text_html=escape_html(text),
+            buttons=[], reply_hints=[], link=contact_link(user_id=peer)))
+    except Exception:
+        log.exception("карточка счёта %s НЕ доставлена", note.invoice_id)
+        return
+    if handle is None:
+        log.warning("карточка счёта %s не доставлена (notifier вернул None)",
+                    note.invoice_id)
+        return
+    try:
+        deps.store.add_card(msg_id=int(handle.ref.split(":")[-1]),
+                            contact_id=contact_id, kind=note.kind, ts=now)
+    except Exception:
+        log.warning("не удалось записать карточку счёта %r", handle, exc_info=True)
 
 
 def _escalation_pass(
@@ -843,8 +855,6 @@ def process_batch(
         print(f"  [muted] {contact_id}: входящее записано, ответа не будет")
         return
 
-    pay_block, pay_values = _payment_context(deps, contact_id)
-
     limits = deps.cfg.settings.limits
     if not within_hourly_limit(deps.store, contact_id, now=deps.clock(), limit=limits.per_contact_hourly):
         print(f"  [rate limit] hourly limit hit for {contact_id}; skipping")
@@ -852,6 +862,13 @@ def process_batch(
     if not within_daily_cap(deps.store, now=deps.clock(), cap=limits.daily_cap):
         print("  [rate limit] daily cap hit; skipping")
         return
+
+    # Деньги — ПОСЛЕ лимитов: счёт, выставленный на ходу, который бот всё равно
+    # не отправит, это идущий срок и записанный долг при молчащем боте.
+    pay = _payment_context(deps, contact_id, text=text)
+    pay_block, pay_values = pay.block, pay.values
+    if pay.owner_note is not None:
+        _post_invoice_card(deps, contact_id, pay.owner_note, now=deps.clock())
 
     # honesty_mode (per-client, дефолт honest): захардкоженная гарантия честности
     # стала ОСОЗНАННЫМ выбором владельца — но именно выбором, а не удалением
@@ -911,6 +928,16 @@ def process_batch(
     #
     # Проверка идёт и при выключенной фиче: служебное «{REQUISITES}» в лицо
     # клиенту — дефект независимо от тумблера, а значений тогда просто нет.
+    if pay.requires_disclaimer and "{AMOUNT}" in reply and not has_disclaimer(reply):
+        # §2.2 и приёмка §8.5 п.4. Сумма без оговорки — это оферта, а не оценка:
+        # клиент вправе считать её ценой и требовать её же после пересчёта.
+        # Подавляется ВЕСЬ ответ, как и полуотрендеренные реквизиты: «почти
+        # оговорка» защищает ровно настолько, насколько её нет.
+        log.error("ответ для %s подавлен: названа сумма без оговорки", contact_id)
+        deps.store.add_event("payments_disclaimer_missing", contact_id=contact_id,
+                             detail=reply[:120], ts=deps.clock())
+        return
+
     try:
         reply = finalize(reply, pay_values)
     except UnsubstitutedPlaceholder as exc:

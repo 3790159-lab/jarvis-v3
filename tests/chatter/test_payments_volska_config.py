@@ -184,3 +184,27 @@ def _raw_payments() -> dict:
     import yaml
     raw = yaml.safe_load((CLIENTS / "volska" / "settings.yaml").read_text(encoding="utf-8"))
     return raw["payments"]
+
+
+# ── алиасы: боевой конфиг обязан узнавать свои же позиции ──────────────────
+
+def test_every_position_has_aliases(volska):
+    """Позиция без алиасов не узнаётся предпассом НИКОГДА: каждый запрос про неё
+    уходит владелице как неразобранный. Это не поломка кода, а тихо выключенная
+    половина фичи — поэтому сторож стоит на конфиге."""
+    pricing = volska.settings.payments.pricing
+    missing = sorted(pid for pid, pos in pricing.positions.items() if not pos.aliases)
+    assert missing == [], f"позиции без алиасов: {', '.join(missing)}"
+
+
+def test_each_alias_resolves_back_to_its_own_position(volska):
+    """Обратный ход: каждое слово из конфига обязано привести РОВНО к своей
+    позиции. Опечатка в алиасе или пересечение с чужим — это названная цена за
+    не ту работу, и заметить это на живом лиде дороже всего."""
+    from chatter.payments.intent import read_intent
+
+    pricing = volska.settings.payments.pricing
+    for pid, pos in pricing.positions.items():
+        for alias in pos.aliases:
+            got = [i.position_id for i in read_intent(alias, pricing).request.items]
+            assert got == [pid], f"алиас {alias!r} позиции {pid!r} дал {got}"

@@ -132,6 +132,7 @@ payments:
       # нижче не буває НІКОЛИ.
       smm_month:
         title: "SMM-ведення (місяць)"
+        aliases: ["smm", "смм", "соцмереж", "соцсет"]
         currency: USD
         price_range: [750, 900]
         ladder:
@@ -140,6 +141,7 @@ payments:
           - {amount: 750, scope_key: smm_floor}
       identity:
         title: "Створення айдентики"
+        aliases: ["айдентик", "брендинг", "брендінг", "фірстиль"]
         currency: USD
         price_range: [700, 900]
         ladder:
@@ -148,6 +150,7 @@ payments:
           - {amount: 700, scope_key: identity_floor}
       strategy:
         title: "Маркетингова стратегія"
+        aliases: ["стратег"]
         currency: USD
         price_range: [600, 800]
         ladder:
@@ -155,6 +158,7 @@ payments:
           - {amount: 600, scope_key: strategy_floor}
       packaging:
         title: "Упаковка"
+        aliases: ["упаковк", "пакуванн"]
         currency: USD
         price_range: [300, 400]
         ladder:
@@ -162,6 +166,7 @@ payments:
           - {amount: 300, scope_key: packaging_floor}
       logo:
         title: "Створення логотипа"
+        aliases: ["логотип", "лого", "logo"]
         currency: USD
         price_range: [300, 400]
         ladder:
@@ -169,12 +174,14 @@ payments:
           - {amount: 300, scope_key: logo_floor}
       logo_refine:
         title: "Рефайн (редизайн) логотипа"
+        aliases: ["рефайн", "редизайн"]
         currency: USD
         price_range: [200, 200]
         ladder:
           - {amount: 200, scope_key: logo_refine_only}
       presentation:
         title: "Створення презентації"
+        aliases: ["презентац", "презенташ"]
         currency: USD
         price_range: [100, 200]
         ladder:

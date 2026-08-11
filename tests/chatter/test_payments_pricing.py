@@ -167,3 +167,38 @@ def test_empty_ladder_is_an_error():
 def test_unknown_amount_source_rejected():
     with pytest.raises(PricingConfigError):
         load_pricing(_raw(amount_source="lower_bound"), knowledge=KNOWLEDGE)
+
+
+# ── алиасы: как позицию называет КЛИЕНТ (для предпасса intent.py) ──────────
+
+def test_aliases_are_casefolded_and_deduped():
+    """Регистр снимается один раз, при загрузке. Приводить его на каждом ходу
+    разговора — это тихий шанс когда-нибудь забыть."""
+    raw = _raw()
+    raw["positions"]["logo_create"]["aliases"] = ["Логотип", "логотип", "ЛОГО"]
+    pricing = load_pricing(raw, knowledge=KNOWLEDGE)
+    assert pricing.positions["logo_create"].aliases == ("логотип", "лого")
+
+
+def test_a_multiword_alias_is_an_error_not_a_dead_string():
+    """Предпасс сравнивает алиас с ОДНИМ словом лида, поэтому «фірмовий стиль»
+    не совпадёт никогда. Молча непригодный алиас хуже отсутствующего: в конфиге
+    он выглядит работающим, а позиция не узнаётся ни разу."""
+    raw = _raw()
+    raw["positions"]["logo_create"]["aliases"] = ["фірмовий стиль"]
+    with pytest.raises(PricingConfigError, match="одн"):
+        load_pricing(raw, knowledge=KNOWLEDGE)
+
+
+def test_an_empty_alias_is_an_error():
+    raw = _raw()
+    raw["positions"]["logo_create"]["aliases"] = [""]
+    with pytest.raises(PricingConfigError):
+        load_pricing(raw, knowledge=KNOWLEDGE)
+
+
+def test_a_position_without_aliases_loads_but_is_unrecognisable():
+    """Не ошибка: клиент вправе не давать синонимов. Цена этого названа вслух —
+    позиция не узнаётся предпассом никогда и уходит владельцу."""
+    pricing = load_pricing(_raw(), knowledge=KNOWLEDGE)
+    assert pricing.positions["logo_create"].aliases == ()
