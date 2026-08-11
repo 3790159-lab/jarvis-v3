@@ -775,7 +775,7 @@ MUTATIONS = [
      "    if False:\n"
      '        return "money_received"',
      "tests/chatter/test_payments_tiers_dialogue.py"
-     "::test_money_on_the_invoice_sends_it_to_the_owner"),
+     "::test_the_reason_shown_to_the_owner_is_the_money_not_the_status"),
 
     ("апселл: ступень ВНИЗ проходит как апселл (бот раздаёт скидки)",
      "chatter/payments/dialogue.py",
@@ -795,8 +795,8 @@ MUTATIONS = [
      "chatter/payments/dialogue.py",
      '    if invoice["status"] != "issued":\n        return "not_issued"',
      "    if False:\n        return \"not_issued\"",
-     "tests/chatter/test_payments_run_wiring.py"
-     "::test_payment_closes_the_code_owned_invoice_debt"),
+     "tests/chatter/test_payments_tiers_dialogue.py"
+     "::test_an_invoice_awaiting_the_owner_is_not_replaced_by_the_bot"),
 
     ("апселл: причина отмены не записывается",
      "chatter/storage/db.py",
