@@ -599,6 +599,81 @@ MUTATIONS = [
      "tests/chatter/test_payments_prompt.py"
      "::test_currency_symbol_away_from_the_amount_is_left_alone"),
 
+    # --- у долга по счёту один хозяин, и это код (дубль 12.08) --------------
+
+    ("слот: гард снят — классификатор снова заводит свой долг по счёту",
+     "chatter/core/obligations_slot.py",
+     "        if (kind == \"other\" and invoice_debt_open\n"
+     "                and model_okey(u) not in existing_okeys):",
+     "        if False:",
+     "tests/chatter/test_obligations_slot.py"
+     "::test_model_may_not_open_other_while_an_invoice_debt_is_open"),
+
+    ("слот: гард ослеп — ищет долг счёта не по тому префиксу",
+     "chatter/core/obligations_slot.py",
+     '_INVOICE_OKEY_PREFIX = "other:inv-"',
+     '_INVOICE_OKEY_PREFIX = "other:invoice-"',
+     "tests/chatter/test_obligations_slot.py"
+     "::test_model_may_not_open_other_while_an_invoice_debt_is_open"),
+
+    ("слот: гард глушит other НАВСЕГДА, а не пока счёт открыт",
+     "chatter/core/obligations_slot.py",
+     "        o.status == \"open\" and o.okey.startswith(_INVOICE_OKEY_PREFIX)",
+     "        o.okey.startswith(_INVOICE_OKEY_PREFIX)",
+     "tests/chatter/test_obligations_slot.py"
+     "::test_a_settled_invoice_debt_no_longer_blocks_the_model"),
+
+    ("слот: гард запрещает и ВЕСТИ уже заведённый other, не только заводить",
+     "chatter/core/obligations_slot.py",
+     "        if (kind == \"other\" and invoice_debt_open\n"
+     "                and model_okey(u) not in existing_okeys):",
+     "        if kind == \"other\" and invoice_debt_open:",
+     "tests/chatter/test_obligations_slot.py"
+     "::test_model_may_still_close_an_other_it_already_owns"),
+
+    ("слот: вывод ключа модели разъехался с merge (корень дубля)",
+     "chatter/core/obligations_slot.py",
+     '        slug = _clean_detail(upd.get("detail", ""))[:24] or "misc"',
+     '        slug = _clean_detail(upd.get("detail", ""))[:30] or "misc"',
+     "tests/chatter/test_obligations_slot.py"
+     "::test_the_filter_derives_the_same_key_as_merge"),
+
+    ("оплата: долг по счёту не закрывается деньгами",
+     "chatter/notify/control_bot.py",
+     "        if settled is not None and is_settled(settled[\"status\"]):",
+     "        if False:",
+     "tests/chatter/test_payments_run_wiring.py"
+     "::test_payment_closes_the_code_owned_invoice_debt"),
+
+    ("оплата: долг закрывает сам ТАП, а не деньги (недоплата снимает долг)",
+     "chatter/notify/control_bot.py",
+     "        if settled is not None and is_settled(settled[\"status\"]):",
+     "        if settled is not None:",
+     "tests/chatter/test_payments_run_wiring.py"
+     "::test_a_partially_paid_invoice_keeps_the_debt_open"),
+
+    # --- сброс дрил-контакта чистит и деньги --------------------------------
+
+    ("сброс: денежные таблицы снова переживают дрил",
+     "scripts/drill_reset.py",
+     '                "quotes", "invoices", "payments")',
+     "                )",
+     "tests/test_drill_reset.py::test_money_tables_are_wiped_for_the_drill_contact"),
+
+    ("сброс: ступени счёта осиротели (чистятся ПОСЛЕ счетов)",
+     "scripts/drill_reset.py",
+     "    for table in _WIPE_BY_INVOICE:\n"
+     "        conn.execute(f\"DELETE FROM {table} {_BY_INVOICE_WHERE}\", (contact,))\n"
+     "    for table in _WIPE_TABLES:",
+     "    for table in _WIPE_TABLES:",
+     "tests/test_drill_reset.py::test_invoice_stages_are_wiped_through_their_invoice"),
+
+    ("сброс: план молчит про денежные таблицы (стираем втихую)",
+     "scripts/drill_reset.py",
+     '        print(f"\\nсбрасываю: {\', \'.join((*_WIPE_TABLES, *_WIPE_BY_INVOICE))}"',
+     '        print(f"\\nсбрасываю: {\', \'.join(_WIPE_TABLES[:5])}"',
+     "tests/test_drill_reset.py::test_plan_names_the_money_tables"),
+
     ("прайс: многословный алиас проходит и не совпадает никогда",
      "chatter/payments/pricing.py", "        if len(alias.split()) > 1:",
      "        if False:",
