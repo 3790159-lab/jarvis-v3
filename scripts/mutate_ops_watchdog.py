@@ -79,10 +79,10 @@ MUTATIONS = [
      "            line.strip() for line in dirty)))",
      T_TREE + "::test_the_same_dirty_file_keeps_the_same_reason"),
 
-    ("дерево: ветка и грязь схлопнуты в одну причину", WATCHDOG,
+    ("дерево: причина не называет ветку", WATCHDOG,
      '        reasons.append("branch:%s" % branch)',
-     '        reasons.append("dirty:")',
-     T_TREE + "::test_wrong_branch_and_dirty_tree_are_different_reasons"),
+     '        reasons.append("branch")',
+     T_TREE + "::test_two_different_wrong_branches_are_different_reasons"),
 
     ("диск: гигабайты попали в причину", WATCHDOG,
      '            "reason": "low_space",',

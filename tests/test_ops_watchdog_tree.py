@@ -196,9 +196,18 @@ def test_the_file_count_alone_is_not_the_reason():
     assert a["reason"] != b["reason"]
 
 
-def test_wrong_branch_and_dirty_tree_are_different_reasons():
-    assert (ow.probe_worktree(_snap(branch="feat/x"))["reason"]
-            != ow.probe_worktree(_snap(dirty=[" M a.py"]))["reason"])
+def test_two_different_wrong_branches_are_different_reasons():
+    """Сторож обязан назвать ВЕТКУ, а не факт «не транк». Иначе дерево,
+    переехавшее с одной чужой ветки на другую, второго алерта не даст — а это
+    вторая сессия, забывшая вернуть дерево, поверх первой.
+
+    Прежняя редакция теста сравнивала «ветка» с «грязью» и оставалась зелёной
+    даже при ПУСТОЙ причине у ветки: две разные причины различались случайно,
+    потому что одна из них была непустой (мутация DEV-26, 11.08)."""
+    a = ow.probe_worktree(_snap(branch="feat/a"))
+    b = ow.probe_worktree(_snap(branch="feat/b"))
+    assert a["reason"] and b["reason"]
+    assert a["reason"] != b["reason"]
 
 
 def test_the_reason_survives_more_files_than_the_alert_shows():
