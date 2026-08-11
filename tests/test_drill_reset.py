@@ -309,9 +309,14 @@ def test_plan_without_apply_does_not_touch_money(tmp_path):
 
 def test_plan_names_the_money_tables(tmp_path, capsys):
     """План — это то, по чему принимают решение стереть. Таблица, которой в нём
-    нет, стирается втихую."""
+    нет, стирается втихую.
+
+    Смотрим ИМЕННО строку «сбрасываю:», а не весь вывод: имена таблиц печатает
+    ещё и блок счётчиков, и проверка по всему выводу зеленела бы даже при
+    вычеркнутых из плана деньгах (поймано мутацией DEV-26)."""
     db = _db(tmp_path / "n.db")
     _mod().main([db, "--contact", DRILL])
-    out = capsys.readouterr().out
+    line = next(ln for ln in capsys.readouterr().out.splitlines()
+                if ln.startswith("сбрасываю:"))
     for table in ("quotes", "invoices", "invoice_stages", "payments"):
-        assert table in out, f"{table} стирается, но в плане не назван"
+        assert table in line, f"{table} стирается, но в плане не назван: {line}"

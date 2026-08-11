@@ -631,12 +631,14 @@ MUTATIONS = [
      "tests/chatter/test_obligations_slot.py"
      "::test_model_may_still_close_an_other_it_already_owns"),
 
-    ("слот: вывод ключа модели разъехался с merge (корень дубля)",
+    ("слот: вывод ключа модели игнорирует slug (гард бьёт мимо строки)",
      "chatter/core/obligations_slot.py",
-     '        slug = _clean_detail(upd.get("detail", ""))[:24] or "misc"',
-     '        slug = _clean_detail(upd.get("detail", ""))[:30] or "misc"',
+     "    slug = upd.get(\"slug\")\n"
+     "    if kind == \"other\" and not slug:",
+     "    slug = None\n"
+     "    if kind == \"other\" and not slug:",
      "tests/chatter/test_obligations_slot.py"
-     "::test_the_filter_derives_the_same_key_as_merge"),
+     "::test_model_may_still_close_an_other_it_already_owns"),
 
     ("оплата: долг по счёту не закрывается деньгами",
      "chatter/notify/control_bot.py",
@@ -730,7 +732,8 @@ MUTATIONS = [
      "tests/chatter/test_payments_path_e2e.py::test_the_invoice_turn_puts_the_debt_on_the_client"),
 
     ("проводка: ключ обязательства без номера счёта (второй затрёт первый)",
-     "chatter/payments/dialogue.py", '"slug": f"inv-{invoice_id}"', '"slug": "inv"',
+     "chatter/payments/dialogue.py", '"slug": invoice_slug(invoice_id)',
+     '"slug": "inv"',
      "tests/chatter/test_payments_path_e2e.py::test_the_invoice_turn_puts_the_debt_on_the_client"),
 
     ("проводка: позиция угадывается при пустом разборе",
