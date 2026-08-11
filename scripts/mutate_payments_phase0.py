@@ -676,6 +676,96 @@ MUTATIONS = [
      '        print(f"\\nсбрасываю: {\', \'.join(_WIPE_TABLES[:5])}"',
      "tests/test_drill_reset.py::test_plan_names_the_money_tables"),
 
+    # --- публичные ступени объёма (решение владельца 12.08) -----------------
+
+    ("ярусы: сетка торга снова уживается со ступенями объёма",
+     "chatter/payments/pricing.py",
+     '    for forbidden in ("ladder", "price_range"):',
+     "    for forbidden in ():",
+     "tests/chatter/test_payments_pricing.py::test_ladder_next_to_tiers_is_a_start_error"),
+
+    ("ярусы: одна ступень считается выбором объёма",
+     "chatter/payments/pricing.py",
+     "    if not isinstance(raw_tiers, (list, tuple)) or len(raw_tiers) < 2:",
+     "    if not isinstance(raw_tiers, (list, tuple)) or len(raw_tiers) < 1:",
+     "tests/chatter/test_payments_pricing.py::test_a_single_tier_is_not_a_choice"),
+
+    ("ярусы: порядок ступеней перестал быть строгим",
+     "chatter/payments/pricing.py",
+     "        if prev is not None and amount.minor <= prev:",
+     "        if False:",
+     "tests/chatter/test_payments_pricing.py::test_tiers_must_strictly_ascend"),
+
+    ("ярусы: цена ступени больше не сверяется с knowledge (правило №5)",
+     "chatter/payments/pricing.py",
+     "        if not _literal_in_knowledge(amount, ccy, knowledge):\n"
+     "            raise PricingConfigError(\n"
+     "                f\"позиция {pid!r}, ступень {tid!r}: цена отсутствует в knowledge \"",
+     "        if False:\n"
+     "            raise PricingConfigError(\n"
+     "                f\"позиция {pid!r}, ступень {tid!r}: цена отсутствует в knowledge \"",
+     "tests/chatter/test_payments_pricing.py"
+     "::test_every_tier_amount_must_be_published_in_knowledge"),
+
+    ("ярусы: при невыбранном объёме стартуем с ДЕШЁВОЙ ступени",
+     "chatter/payments/pricing.py",
+     "        if self.tiers:\n            top = self.tiers[-1]",
+     "        if self.tiers:\n            top = self.tiers[0]",
+     "tests/chatter/test_payments_pricing.py"
+     "::test_the_top_offer_of_a_tiered_position_is_its_priciest_tier"),
+
+    ("ярусы: неузнанная ступень молча игнорируется вместо владельца",
+     "chatter/payments/complexity.py",
+     "        elif (item.tier_id is not None\n"
+     "              and pricing.positions[item.position_id].tier(item.tier_id) is None):\n"
+     "            found.append(\"unknown_tier\")",
+     "        elif False:\n"
+     "            found.append(\"unknown_tier\")",
+     "tests/chatter/test_payments_complexity.py::test_an_unknown_tier_calls_the_owner"),
+
+    ("ярусы: счёт выставляется по ВЕРХНЕЙ ступени, а не по выбранной",
+     "chatter/payments/dialogue.py",
+     "                amount, scope_key = chosen.amount, chosen.tier_text_key",
+     "                amount, scope_key = position.top.amount, chosen.tier_text_key",
+     "tests/chatter/test_payments_tiers_dialogue.py"
+     "::test_the_invoice_is_issued_by_the_chosen_tier"),
+
+    ("ярусы: оговорка требуется и при выбранном объёме (ложь про точную цену)",
+     "chatter/payments/dialogue.py",
+     "                requires_disclaimer = chosen is None",
+     "                requires_disclaimer = True",
+     "tests/chatter/test_payments_tiers_dialogue.py::test_a_chosen_tier_needs_no_caveat"),
+
+    ("ярусы: guardrail оговорки снова не знает про {TIERS}",
+     "chatter/payments/prompt.py",
+     '_MONEY_PLACEHOLDERS: tuple[str, ...] = ("{AMOUNT}", "{TIERS}")',
+     '_MONEY_PLACEHOLDERS: tuple[str, ...] = ("{AMOUNT}",)',
+     "tests/chatter/test_payments_tiers_dialogue.py"
+     "::test_a_reply_listing_prices_without_a_caveat_is_suppressed"),
+
+    ("ярусы: заглушка описания объёма уходит живому лиду",
+     "chatter/payments/tier_texts.py",
+     "        guard_test_asset(\n"
+     "            contact_id=contact_id,\n"
+     "            what=\"заглушки описаний объёма [\" + \", \".join(stubs) + \"]\")",
+     "        pass",
+     "tests/chatter/test_payments_tier_texts.py"
+     "::test_stubs_block_a_live_contact_but_not_the_drill"),
+
+    ("ярусы: выбор объёма перестал быть денежным ходом",
+     "chatter/payments/dialogue.py",
+     "            intent.wants_invoice or intent.asks_price or tier_now):",
+     "            intent.wants_invoice or intent.asks_price):",
+     "tests/chatter/test_payments_tiers_dialogue.py"
+     "::test_moving_up_a_tier_is_a_new_quote_and_supersedes_the_old"),
+
+    ("ярусы: ступень наследуется от котировки вместо чтения из хода",
+     "chatter/payments/dialogue.py",
+     "    tier_id = read_tier(text, position) if position is not None else None",
+     "    tier_id = None",
+     "tests/chatter/test_payments_tiers_dialogue.py"
+     "::test_moving_up_a_tier_is_a_new_quote_and_supersedes_the_old"),
+
     ("прайс: многословный алиас проходит и не совпадает никогда",
      "chatter/payments/pricing.py", "        if len(alias.split()) > 1:",
      "        if False:",
