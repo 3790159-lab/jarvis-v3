@@ -21,7 +21,12 @@ ROOT = Path(__file__).parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.routers.panels_auth import require_owner  # noqa: E402
+# Сверяем зависимость ПО ИМЕНИ, а не по объекту. `tests/chatter/test_panels_web.py`
+# делает `importlib.reload` панельных модулей: после него `require_owner` — новый
+# объект, а роутеры держат прежний. Сверка по identity давала на полном прогоне
+# ложный красный «все ручки открыты» при живой защите — то есть сторож врал ровно
+# в том прогоне, ради которого он написан.
+OWNER_DEP = ("app.routers.panels_auth", "require_owner")
 
 # Дверь входа: не закрыта require_owner намеренно — она сама сверяет ключ и
 # fail-closed'ит 503, если ключа в окружении нет.
@@ -36,20 +41,28 @@ def _panel_routers():
     return [panels_login, tamapi, jarvis_panel]
 
 
-def _dependency_calls(route) -> set:
-    """Все зависимости ручки, уже с учётом router-level `dependencies=[...]`.
+def _name_of(fn) -> tuple:
+    return (getattr(fn, "__module__", ""), getattr(fn, "__qualname__", ""))
+
+
+def _dependency_names(route) -> set:
+    """Имена всех зависимостей ручки, уже с учётом router-level `dependencies=[...]`.
 
     FastAPI раскладывает их в `route.dependant.dependencies` (объекты
     `Dependant` с `.call`); сырой `route.dependencies` держит `Depends`,
     у которого функция лежит в `.dependency`.
     """
-    calls = set()
+    names = set()
     dependant = getattr(route, "dependant", None)
     for dep in getattr(dependant, "dependencies", []) or []:
-        calls.add(getattr(dep, "call", None))
+        fn = getattr(dep, "call", None)
+        if fn is not None:
+            names.add(_name_of(fn))
     for dep in getattr(route, "dependencies", []) or []:
-        calls.add(getattr(dep, "dependency", None))
-    return calls
+        fn = getattr(dep, "dependency", None)
+        if fn is not None:
+            names.add(_name_of(fn))
+    return names
 
 
 def test_every_panel_route_is_owner_guarded():
@@ -61,12 +74,32 @@ def test_every_panel_route_is_owner_guarded():
                 continue
             if path == DOOR:
                 continue
-            if require_owner not in _dependency_calls(route):
+            if OWNER_DEP not in _dependency_names(route):
                 unguarded.append(f"{sorted(getattr(route, 'methods', []) or [])} {path}")
     assert not unguarded, (
         "ручки под /panel без require_owner — публичный префикс сделает их "
         f"открытыми миру: {unguarded}"
     )
+
+
+def test_guard_matches_by_name_not_identity():
+    """Сторож обязан пережить `importlib.reload` панельных модулей.
+
+    Подделываем ровно то, что делает reload: другой объект функции с тем же
+    модулем и именем. Сверка по identity здесь падала — по имени проходит.
+    """
+    from fastapi import Depends
+
+    def clone(request=None, x_panels_key=None):  # pragma: no cover - не вызывается
+        ...
+
+    clone.__module__, clone.__qualname__ = OWNER_DEP
+
+    class _Route:
+        dependant = None
+        dependencies = [Depends(clone)]
+
+    assert OWNER_DEP in _dependency_names(_Route())
 
 
 def test_panels_disabled_without_key(monkeypatch):
