@@ -58,7 +58,14 @@ def _rows_html(rows, now: float) -> str:
 
 @router.get("", response_class=HTMLResponse)
 @router.get("/", response_class=HTMLResponse)
-async def panel():
+def panel():
+    """СИНХРОННАЯ намеренно: `snapshot()` собирается 6.8 с (git по четырём
+    десяткам worktree, планировщик, psutil), и в `async def` эти секунды у
+    event loop'а отбирались целиком. Гардиан бэкенда пингует /health с
+    таймаутом 3 с и убивает процесс на первом провале — открытие панели с
+    телефона роняло прод. У обычной `def` Starlette уносит ручку в свой
+    threadpool, и loop остаётся свободен. Сторож —
+    tests/chatter/test_panel_event_loop.py."""
     now = time.time()
     snap = F.snapshot()
     ext = snap["external"]
@@ -136,7 +143,8 @@ async def panel():
 
 
 @router.get("/api/snapshot")
-async def api_snapshot():
+def api_snapshot():
+    """Синхронная по той же причине, что и `panel()` — тот же `snapshot()`."""
     snap = F.snapshot()
     return JSONResponse({
         "collected_at": snap["collected_at"],
