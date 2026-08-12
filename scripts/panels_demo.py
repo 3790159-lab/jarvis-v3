@@ -103,8 +103,26 @@ def seed(path: str, *, now: float | None = None) -> None:
                         else None)))
 
     s.set_runtime_flag("kill_switch", "0", ts=now)
-    for k in ("classifier_error", "resume", "escalation_kept", "payment"):
-        s.add_event(k, contact_id=f"{500001}:volska", detail="", ts=now - rnd.uniform(60, 5000))
+    # Детали БОЕВОГО вида, а не пустые строки. Приёмка 13.08: стенд с пустыми
+    # деталями прошёл узкий экран, а живая панель на тех же 390 px уехала вбок
+    # на 43 px — её ленту распирал `stop_reason=max_tokens`, слово без единой
+    # возможности переноса. Вежливые демо-данные делают приёмку слепой ровно к
+    # тому классу дефектов, ради которого она заводилась.
+    # Первая строка — снятая с прода: 56 символов без единого пробела. Именно
+    # она распирала таблицу, а не длинные фразы: у фразы есть где переноситься.
+    EVENTS = [
+        ("unbacked_redacted",
+         "deadline:30,price:40,price:80,price:1000,large_number:1000"),
+        ("classifier_error",
+         "ответ обрезан (stop_reason=max_tokens при лимите 500) — "
+         "поднимите _CLASSIFIER_MAX_TOKENS"),
+        ("stale_reply_cancelled", "не відправлено 1 з 2 бабблів"),
+        ("auto_resume", "8849893367:volska"),
+        ("takeover", "447"),
+    ]
+    for k, detail in EVENTS:
+        s.add_event(k, contact_id=f"{500001}:volska", detail=detail,
+                    ts=now - rnd.uniform(60, 5000))
     del s
     print(f"[seed] синтетична БД готова: {p}  ({total} діалогів, 3 оплати)")
 

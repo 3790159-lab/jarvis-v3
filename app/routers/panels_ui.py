@@ -193,7 +193,12 @@ tr:last-child td{border-bottom:none}
   /* Главная ячейка остаётся блоком: её содержимое (имя ветки + путь, имя лида
      + последняя реплика) сверстано «одно под другим», и flex развернул бы эту
      пару в строку. Ряд «подпись — значение» нужен только помеченным ячейкам. */
-  table td{display:block;border:none;padding:2px 0}
+  /* `anywhere`, а не `break-word`: только он участвует в расчёте min-content, а
+     ширину карточке диктует именно она. Лента событий несёт машинные строки без
+     единого пробела («deadline:30,price:40,…», 56 символов) — фразе есть где
+     перенестись, такой строке негде, и одна ячейка распирала таблицу до 433 px
+     при окне 390. */
+  table td{display:block;border:none;padding:2px 0;overflow-wrap:anywhere}
   table td[data-l]{display:flex;gap:10px;align-items:baseline}
   table td>*{min-width:0}
   table td[data-l]::before{content:attr(data-l);flex:0 0 84px;

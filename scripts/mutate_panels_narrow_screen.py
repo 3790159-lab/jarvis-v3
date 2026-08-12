@@ -70,6 +70,17 @@ MUTATIONS = [
     ("снят ограничитель min-width с flex/grid-элементов", UI,
      [(".row>*,.grid>*,.funnel>*,.tile,.fstep{min-width:0}", "")],
      f"{T}::test_narrow_screen_rules_are_present"),
+
+    ("ячейка таблицы снова не рвёт длинное слово", UI,
+     [("padding:2px 0;overflow-wrap:anywhere}", "padding:2px 0}")],
+     f"{T}::test_narrow_screen_rules_are_present"),
+
+    # Подмена, которая выглядит как исправление и не исправляет ничего:
+    # `break-word` не участвует в расчёте min-content, и карточка останется
+    # ровно такой же широкой. Сторож обязан отличать эти два слова.
+    ("перенос подменён на break-word — на ширину карточки он не влияет", UI,
+     [("padding:2px 0;overflow-wrap:anywhere}", "padding:2px 0;overflow-wrap:break-word}")],
+     f"{T}::test_narrow_screen_rules_are_present"),
 ]
 
 
