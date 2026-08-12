@@ -98,8 +98,8 @@ MUTATIONS = [
      f"{T}::test_funnel_and_package_are_named_differently"),
 
     ("первая ступень снова «Діалоги» без окна", TD,
-     [('    steps = [("Ліди", f["dialogs"], "унікальні за 7 днів"),',
-       '    steps = [("Діалоги", f["dialogs"], ""),')],
+     [('    steps = [("Ліди", f["dialogs"], "унікальні за 7 днів", ""),',
+       '    steps = [("Діалоги", f["dialogs"], "", ""),')],
      f"{T}::test_funnel_and_package_are_named_differently"),
 
     # ── «Требує вас» ─────────────────────────────────────────────────────
@@ -120,8 +120,7 @@ MUTATIONS = [
      f"{T}::test_dead_lead_with_an_open_card_is_flagged"),
 
     ("пометка мёртвого лида убрана со свежей карточки", TD,
-     [('    dead = (f"<div class=\'sub\' style=\'color:var(--bad)\'>{DEAD_MARK}</div>"\n'
-       '            if it.get("dead") else "")',
+     [('    dead = f" · <span class=\'wait\'>{DEAD_MARK}</span>" if it.get("dead") else ""',
        '    dead = ""')],
      f"{T}::test_dead_lead_is_marked_on_the_screen"),
 
@@ -132,8 +131,8 @@ MUTATIONS = [
 
     ("второй возраст («чекає») исчез с карточки", TD,
      [("f\"<span class='sub'>підняв руку {esc(ago(it['card_ts']))}\"\n"
-       "        f\" · чекає {esc(ago(it['last_ts']))}</span></div>\"",
-       "f\"<span class='sub'>підняв руку {esc(ago(it['card_ts']))}</span></div>\"")],
+       "        f\" · чекає {esc(ago(it['last_ts']))}{dead}</span></div>\"",
+       "f\"<span class='sub'>підняв руку {esc(ago(it['card_ts']))}{dead}</span></div>\"")],
      f"{T}::test_fresh_card_shows_the_age_of_the_last_inbound"),
 
     ("возраст последнего входящего выброшен из данных", MET,
