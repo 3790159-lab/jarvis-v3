@@ -58,7 +58,10 @@ def mod(monkeypatch):
         ("/api/jarvis/tools/internet/research", False),
         ("/docs", False),
         ("/api/jarvis/ops", False),            # exact, no trailing slash — not the prefix
-        ("/panel", False),                     # exact, no trailing slash — not the prefix
+        # Голый /panel — короткий адрес, который набирают с телефона: он лишь
+        # разводит на панель или на форму входа. Открыт ТОЧНЫМ совпадением, а не
+        # префиксом, иначе публичным станет и `/panelling/secret` строкой ниже.
+        ("/panel", True),
         ("/panelling/secret", False),          # префикс — это /panel/, а не /panel
     ],
 )

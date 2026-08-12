@@ -121,6 +121,31 @@ def _form_html(target: str, *, error: bool = False) -> str:
                              next=html.escape(target, quote=True))
 
 
+@router.get("")
+async def panel_root(
+    request: Request,
+    x_panels_key: str | None = Header(default=None, alias="X-Panels-Key"),
+):
+    """Указатель на голом `/panel` — короткий адрес, который набирают с телефона.
+
+    Заводится не для красоты: в корень API (`host:port`) промахивались дважды, и
+    в истории браузера оседал голый адрес без пути — при следующем заходе он
+    подставляется первым и ведёт мимо панели опять.
+
+    Годность ключа сверяется, а не его НАЛИЧИЕ: протухшая cookie увела бы на
+    панель, которая ответит 401, — тупик, из которого с телефона не выбраться
+    иначе как чисткой cookie руками. Не годится — значит на форму.
+
+    Ручка НЕ закрыта `require_owner` намеренно, как и форма входа: закрытый
+    указатель отдаёт 401 вместо формы и перестаёт быть указателем. Показывать
+    ему нечего — он только выбирает, куда увести."""
+    _require_enabled()
+    provided = x_panels_key or request.cookies.get(_COOKIE) or ""
+    known = bool(provided) and _same(provided, _expected())
+    return RedirectResponse(_NEXT_DEFAULT if known else "/panel/login",
+                            status_code=status.HTTP_303_SEE_OTHER)
+
+
 @router.get("/login")
 async def login_page(next: str = _NEXT_DEFAULT) -> HTMLResponse:
     """Дверь внутрь с телефона: ФОРМА, а не ссылка с ключом.

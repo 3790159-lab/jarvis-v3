@@ -34,6 +34,11 @@ PUBLIC_EXACT = frozenset(
         "/health",
         "/oauth/callback",     # external: Instagram OAuth redirect
         "/telegram/webhook",   # external: Telegram (self-secured by secret-token)
+        # Короткий адрес панели для телефона. Открыт ТОЧНЫМ совпадением, а не
+        # добавлением в PUBLIC_PREFIXES: префикс «/panel» сделал бы публичным и
+        # `/panelling/что-угодно`. Сама ручка ничего не показывает — только
+        # разводит на панель или на форму входа.
+        "/panel",
     }
 )
 

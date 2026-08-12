@@ -537,3 +537,50 @@ def test_narrow_screen_rules_are_present(client):
     assert "tabletd{display:block;border:none;padding:2px0;overflow-wrap:anywhere}" in flat, (
         "ячейка таблицы снова не умеет рвать длинное слово — машинная строка "
         "без пробелов распирает карточку шире экрана")
+
+
+# ── /panel: короткий адрес для телефона ─────────────────────────────────────
+# Даниил дважды попадал в корень API вместо панели, и в истории браузера
+# оседал голый host:port. Указатель должен стоять там, куда промахиваются.
+
+def _panel_root(c):
+    """Голый /panel без следования за редиректом."""
+    return c.get("/panel", follow_redirects=False)
+
+
+def test_panel_root_sends_the_owner_to_the_dashboard(client):
+    c, _ = client
+    from app.routers.panels_auth import COOKIE_NAME
+    c.cookies.set(COOKIE_NAME, KEY)
+    r = _panel_root(c)
+    assert r.status_code == 303
+    assert r.headers["location"] == "/panel/tamapi"
+
+
+def test_panel_root_sends_a_stranger_to_the_login_form(client):
+    c, _ = client
+    r = _panel_root(c)
+    assert r.status_code == 303
+    assert r.headers["location"] == "/panel/login"
+
+
+def test_panel_root_with_a_stale_cookie_goes_to_the_form_not_a_dead_end(client):
+    """Протухшая cookie — не «есть cookie». Проверять НАЛИЧИЕ, а не годность,
+    значило бы уводить на панель, которая ответит 401: тупик, из которого с
+    телефона не выбраться иначе как чисткой cookie вручную."""
+    c, _ = client
+    from app.routers.panels_auth import COOKIE_NAME
+    # Значение ASCII: cookie едет заголовком, а httpx кодирует его latin-1 и
+    # роняет запрос на кириллице ещё до приложения.
+    c.cookies.set(COOKIE_NAME, "key-from-the-previous-rotation")
+    r = _panel_root(c)
+    assert r.status_code == 303
+    assert r.headers["location"] == "/panel/login"
+
+
+def test_panel_root_accepts_the_header_too(client):
+    """Тем же ключом ходит приёмка (`panels_mobile_check`) — заголовком."""
+    c, _ = client
+    r = c.get("/panel", headers={"X-Panels-Key": KEY}, follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"] == "/panel/tamapi"

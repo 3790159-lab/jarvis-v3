@@ -28,9 +28,11 @@ if str(ROOT) not in sys.path:
 # в том прогоне, ради которого он написан.
 OWNER_DEP = ("app.routers.panels_auth", "require_owner")
 
-# Дверь входа: не закрыта require_owner намеренно — она сама сверяет ключ и
-# fail-closed'ит 503, если ключа в окружении нет.
-DOOR = "/panel/login"
+# Двери: не закрыты require_owner намеренно. `/panel/login` сама сверяет ключ и
+# fail-closed'ит 503 без ключа в окружении. `/panel` — указатель: он ничего не
+# показывает, только разводит владельца на панель, а чужого на форму; закрой его
+# зависимостью — и он вместо формы отдаст 401, то есть перестанет быть указателем.
+DOORS = frozenset({"/panel/login", "/panel"})
 
 
 def _panel_routers():
@@ -72,7 +74,7 @@ def test_every_panel_route_is_owner_guarded():
             path = getattr(route, "path", "")
             if not path.startswith("/panel"):
                 continue
-            if path == DOOR:
+            if path in DOORS:
                 continue
             if OWNER_DEP not in _dependency_names(route):
                 unguarded.append(f"{sorted(getattr(route, 'methods', []) or [])} {path}")
@@ -143,4 +145,5 @@ def test_panel_routers_actually_mounted_under_panel_prefix():
     ]
     panel_paths = [p for p in paths if p.startswith("/panel")]
     assert len(panel_paths) >= 3, f"ожидали ручки под /panel, нашли: {paths}"
-    assert DOOR in panel_paths
+    assert DOORS <= set(panel_paths), (
+        f"дверь исчезла из смонтированных ручек: {sorted(DOORS - set(panel_paths))}")
