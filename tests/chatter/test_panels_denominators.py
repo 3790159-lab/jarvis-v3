@@ -409,8 +409,15 @@ def test_fresh_card_shows_the_age_of_the_last_inbound(tmp_path, monkeypatch):
     s.set_runtime_flag("esc_active:w:volska", "bot:1:7", ts=live - 5 * HOUR)
     del s
 
+    import re
+
     body = _screen(_client(p, monkeypatch))
-    assert "чекає" in body, "возраст последнего входящего на карточку не доехал"
+    # Ищем В ПОДПИСИ КАРТОЧКИ, а не по всей странице: ответ сверху с части A
+    # звучит «1 лід чекає на вас», и голая подстрока «чекає» стала находиться
+    # даже когда со самой карточки второй возраст убран.
+    m = re.search(r"підняв руку(.*?)</span>", body, re.S)
+    assert m and "чекає" in m.group(1), (
+        "возраст последнего входящего на карточку не доехал")
 
 
 def test_duration_tile_shows_the_basis(tmp_path, monkeypatch):
