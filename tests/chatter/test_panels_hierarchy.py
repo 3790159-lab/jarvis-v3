@@ -136,6 +136,23 @@ def test_no_page_smuggles_its_own_type_size(tmp_path, monkeypatch, url):
     assert not extra, f"{url}: кегли мимо шкалы: {sorted(extra)}"
 
 
+def test_the_empty_state_markup_keeps_the_scale(tmp_path, monkeypatch):
+    """Пустые состояния — любимое место кегля «на глаз»: до части A подпись
+    «історія накопичується» несла собственный `font-size:13px` инлайном.
+
+    Отдельным стендом, потому что ветка эта видна только когда сравнивать не с
+    чем: на стенде с историей рисуются нормальные дельты, и мутация «пустая
+    дельта протащила свой кегль» проходила мимо сторожа целиком.
+    """
+    p = tmp_path / "empty-scale.db"
+    _seed(p, leads=1)                  # прошлого периода нет — подписи вместо цифр
+    body = _visible(_page(_client(p, monkeypatch), "/panel/tamapi/dynamics"))
+    assert "нема з чим порівняти" in body, "стенд не довёл пустую дельту до экрана"
+    assert "історія накопичується" in body, "стенд не довёл пустую плитку до экрана"
+    extra = _font_sizes(body) - SCALE
+    assert not extra, f"кегли мимо шкалы в пустых состояниях: {sorted(extra)}"
+
+
 # ─────────────────────── B. ответ сверху, данные ниже ───────────────────────
 
 def test_the_answer_stands_first_and_largest(tmp_path, monkeypatch):
@@ -327,7 +344,11 @@ def test_nothing_is_red_while_nothing_is_broken(tmp_path, monkeypatch):
 
 def test_broken_link_is_red(tmp_path, monkeypatch):
     body = _visible(_page(_client(tmp_path / "red.db", monkeypatch, heartbeat=None)))
-    assert "broken" in body, "авария не отмечена красным"
+    # Поимённо, а не «слово broken где-нибудь на странице»: ответ сверху при
+    # обрыве и так красный, и одной подстроки хватало, чтобы сторож пережил
+    # обесцвечивание САМОЙ точки статуса — то есть охранял он ответ, не статус.
+    assert "<h1 class='ans broken'>" in body, "ответ об аварии не красный"
+    assert "class='dot broken'" in body, "точка статуса не красная при обрыве"
 
 
 def test_stop_all_is_neutral_and_red_lives_in_the_confirmation(tmp_path, monkeypatch):
