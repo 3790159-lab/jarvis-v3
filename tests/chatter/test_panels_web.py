@@ -157,71 +157,112 @@ def test_metric_without_history_is_labelled_not_zeroed(client):
     assert "історія накопичується" in body
 
 
-# ── ручка входа: единственный способ попасть в панель с телефона ──────────
+# ── ручка входа: ФОРМА с полем пароля, а не ссылка с ключом ───────────────
 # Гейт принимает ключ в заголовке ИЛИ в cookie, но заголовок с мобильного
-# браузера не отправить. Пока ручки не было, cookie ставить было нечем — и
-# «панель работает с телефона» держалось на расширении к браузеру.
+# браузера не отправить, поэтому cookie ставит отдельная дверь.
+#
+# Дверь была ссылкой `?key=…`. Ключ в query оседает в истории браузера, в
+# адресной строке на скриншоте, в логах любого прокси по пути и в Referer.
+# Форма шлёт тот же ключ телом POST: cookie ставится так же, а следов не
+# остаётся ни одного. Ключ из query после этой замены не работает ВООБЩЕ —
+# иначе старая ссылка осталась бы действующей дверью.
 
-def test_login_with_the_right_key_sets_the_cookie(client):
+def test_login_page_is_a_password_form(client):
+    c, _ = client
+    r = c.get("/panel/login")
+    assert r.status_code == 200
+    body = r.text.lower()
+    assert "method='post'" in body
+    assert "type='password'" in body
+    assert "name='key'" in body
+
+
+def test_a_valid_key_in_the_url_no_longer_logs_anybody_in(client):
+    """Суть замены: даже ВЕРНЫЙ ключ из query больше не открывает дверь.
+    Старая ссылка из истории телефона должна приводить к форме, а не внутрь."""
     c, _ = client
     r = c.get("/panel/login", params={"key": KEY}, follow_redirects=False)
-    assert r.status_code in (302, 303)
+    assert r.status_code == 200
+    assert "set-cookie" not in {k.lower() for k in r.headers}
+    assert c.get("/panel/tamapi").status_code == 401
+
+
+def test_posting_the_right_key_sets_the_cookie(client):
+    c, _ = client
+    r = c.post("/panel/login", data={"key": KEY}, follow_redirects=False)
+    assert r.status_code == 303
     assert r.cookies.get("panels_key") == KEY
 
 
-def test_the_cookie_is_httponly_and_samesite_strict(client):
+def test_the_cookie_is_httponly_samesite_strict_and_panel_scoped(client):
     """HttpOnly — чтобы ключ не достался скрипту на странице; SameSite=Strict —
-    чтобы чужой сайт не мог дёрнуть панель от твоего имени."""
+    чтобы чужой сайт не мог дёрнуть панель от твоего имени; Path=/panel — чтобы
+    ключ не уезжал на остальные ручки бэкенда с каждым запросом."""
     c, _ = client
-    r = c.get("/panel/login", params={"key": KEY}, follow_redirects=False)
+    r = c.post("/panel/login", data={"key": KEY}, follow_redirects=False)
     raw = r.headers.get("set-cookie", "").lower()
     assert "httponly" in raw
     assert "samesite=strict" in raw
+    assert "path=/panel" in raw
 
 
 def test_after_login_the_panel_opens_without_any_header(client):
-    """Ровно то, ради чего ручка нужна: телефон дальше ходит по cookie."""
+    """Ровно то, ради чего дверь нужна: телефон дальше ходит по cookie."""
     c, _ = client
-    c.get("/panel/login", params={"key": KEY})
+    c.post("/panel/login", data={"key": KEY})
     assert c.get("/panel/tamapi").status_code == 200
 
 
 def test_a_wrong_key_is_refused_and_sets_nothing(client):
     c, _ = client
-    r = c.get("/panel/login", params={"key": "не тот"}, follow_redirects=False)
+    r = c.post("/panel/login", data={"key": "не тот"}, follow_redirects=False)
     assert r.status_code == 401
     assert "set-cookie" not in {k.lower() for k in r.headers}
     assert c.get("/panel/tamapi").status_code == 401
 
 
 def test_no_key_at_all_is_refused_and_sets_nothing(client):
+    """Пустая форма — это отказ, а не 422: 422 отличается от 401 и подсказывает
+    тому, кто подбирает, что поле вообще существует."""
     c, _ = client
-    r = c.get("/panel/login", follow_redirects=False)
-    assert r.status_code in (401, 422)
+    r = c.post("/panel/login", data={}, follow_redirects=False)
+    assert r.status_code == 401
     assert "set-cookie" not in {k.lower() for k in r.headers}
 
 
 def test_the_key_is_not_echoed_back_in_the_body(client):
-    """Ключ и так уедет в историю браузера через query — повторять его в теле
-    страницы значит раздать его ещё и скриншотам."""
+    """Отказ не имеет права вернуть введённое значением поля: страница уедет в
+    скриншот и в кэш браузера вместе с ним."""
     c, _ = client
-    r = c.get("/panel/login", params={"key": KEY}, follow_redirects=False)
+    assert KEY not in c.get("/panel/login", params={"key": KEY}).text
+    r = c.post("/panel/login", data={"key": KEY}, follow_redirects=False)
     assert KEY not in r.text
+    assert KEY not in c.post("/panel/login", data={"key": KEY + "x"}).text
 
 
 def test_the_redirect_target_cannot_be_an_arbitrary_site(client):
     """Открытый редирект на ручке входа — это фишинг с твоего же домена."""
     c, _ = client
-    r = c.get("/panel/login", params={"key": KEY, "next": "https://evil.example"},
-              follow_redirects=False)
+    r = c.post("/panel/login", data={"key": KEY, "next": "https://evil.example"},
+               follow_redirects=False)
     assert r.headers.get("location", "").startswith("/panel/")
 
 
 def test_the_redirect_target_may_pick_the_jarvis_panel(client):
     c, _ = client
-    r = c.get("/panel/login", params={"key": KEY, "next": "/panel/jarvis"},
-              follow_redirects=False)
+    r = c.post("/panel/login", data={"key": KEY, "next": "/panel/jarvis"},
+               follow_redirects=False)
     assert r.headers["location"] == "/panel/jarvis"
+
+
+def test_the_form_carries_a_whitelisted_next_and_drops_the_rest(client):
+    """`next` доезжает до POST скрытым полем. Через него в разметку попадает
+    строка из запроса — поэтому в форму кладётся только значение из белого
+    списка, а не то, что прислали."""
+    c, _ = client
+    assert "/panel/jarvis" in c.get("/panel/login", params={"next": "/panel/jarvis"}).text
+    body = c.get("/panel/login", params={"next": "https://evil.example"}).text
+    assert "evil.example" not in body
 
 
 def test_login_is_dead_while_panels_are_disabled(monkeypatch):
@@ -241,12 +282,10 @@ def test_a_non_ascii_key_is_a_refusal_not_a_crash(client):
     ASCII и бросало TypeError, то есть ключ с кириллицей давал 500 вместо 401.
     Отказ, отличимый от обычного, — подсказка тому, кто подбирает ключ.
 
-    Путь ровно один — query: он percent-кодируется и доезжает до сервера как
-    есть. Заголовок и cookie сюда не входят по факту, а не по решению: HTTP не
-    даёт положить в них кириллицу, и клиент отвергает такой запрос сам, до
-    сервера (проверено — httpx падает на UnicodeEncodeError)."""
+    Тело формы кириллицу везёт штатно — в отличие от заголовка и cookie, куда
+    её не положить: клиент отвергает такой запрос сам, до сервера."""
     c, _ = client
-    r = c.get("/panel/login", params={"key": "ключ"}, follow_redirects=False)
+    r = c.post("/panel/login", data={"key": "ключ"}, follow_redirects=False)
     assert r.status_code == 401
 
 
@@ -418,6 +457,11 @@ def test_the_login_route_itself_is_dead_while_panels_are_disabled(tmp_path, monk
     api = FastAPI()
     api.include_router(pa.router)
     c = TestClient(api)
-    r = c.get("/panel/login", params={"key": "что угодно"}, follow_redirects=False)
+    # Обе половины двери: и страница с формой, и приём формы. Закрыть одну и
+    # оставить другую значит оставить дверь.
+    r = c.get("/panel/login", follow_redirects=False)
+    assert r.status_code == 503
+    assert "set-cookie" not in {k.lower() for k in r.headers}
+    r = c.post("/panel/login", data={"key": "что угодно"}, follow_redirects=False)
     assert r.status_code == 503
     assert "set-cookie" not in {k.lower() for k in r.headers}
