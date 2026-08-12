@@ -21,9 +21,11 @@ CHROME = Path.home() / (
 
 SHOTS = [
     ("01-tamapi-main", "/panel/tamapi", 1200, 1900, None),
+    # Точка красится по СМЫСЛУ, а не по состоянию: «на зв'язку» — нейтральная
+    # (зелёный отдан деньгам), «немає зв'язку» — красная. Поэтому подмен две.
     ("01b-tamapi-status-down", "/panel/tamapi", 1200, 420,
-     ("<span class='dot ok'></span><b>На зв&#x27;язку</b>",
-      "<span class='dot bad'></span><b>Немає зв&#x27;язку</b>")),
+     [("<span class='dot calm'></span>", "<span class='dot broken'></span>"),
+      ("<b>На зв&#x27;язку</b>", "<b>Немає зв&#x27;язку</b>")]),
     ("02-tamapi-main-mobile", "/panel/tamapi", 430, 1750, None),
     ("03-tamapi-paid-modal", "/panel/tamapi", 1200, 1000,
      ("class='modal' id='paidbox'", "class='modal show' id='paidbox'")),
@@ -53,10 +55,10 @@ def main() -> int:
                 print(f"  [!] {name}: HTTP {r.status_code}")
                 continue
             html = r.text
-            if patch:
-                if patch[0] not in html:
-                    print(f"  [!] {name}: паттерн модалки не найден")
-                html = html.replace(*patch)
+            for old, new in ([patch] if isinstance(patch, tuple) else (patch or [])):
+                if old not in html:
+                    print(f"  [!] {name}: паттерн подмены не найден: {old[:40]}")
+                html = html.replace(old, new)
             f = tmp / f"{name}.html"
             f.write_text(html, encoding="utf-8")
             png = OUT / f"{name}.png"

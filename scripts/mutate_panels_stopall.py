@@ -42,8 +42,8 @@ MUTATIONS = [
     # ── 21: порядок кнопок ──────────────────────────────────────────────
     ("21: разрушительная кнопка возвращается под палец", TD,
      """    <button class='btn' onclick="closeM('pausebox')">Скасувати</button>
-    <button class='btn danger' onclick="act('stop_all confirm')">Так, зупинити</button></div>""",
-     """    <button class='btn danger' onclick="act('stop_all confirm')">Так, зупинити</button>
+    <button class='btn broken' onclick="act('stop_all confirm')">Так, зупинити</button></div>""",
+     """    <button class='btn broken' onclick="act('stop_all confirm')">Так, зупинити</button>
     <button class='btn' onclick="closeM('pausebox')">Скасувати</button></div>""",
      f"{T}::test_cancel_comes_before_confirm"),
 
@@ -115,13 +115,13 @@ MUTATIONS = [
 
     # ── 17: слово рядом с цветом ────────────────────────────────────────
     ("17: у точки снова отобрали подпись", UI,
-     """    return (f"<span class='dot {st}'></span>"
+     """    return (f"<span class='dot {STATE_TONE[st]}'></span>"
             f"<span class='slab'>{esc(STATE_LABEL[st])}</span>")""",
-     '    return f"<span class=\'dot {st}\'></span>"',
+     '    return f"<span class=\'dot {STATE_TONE[st]}\'></span>"',
      f"{T}::test_state_label_is_next_to_the_dot_not_instead"),
 
     ("17: строки фермы вернулись к голой точке", JP,
-     '            f"<div>{dot_html(_DOT.get(r.state, \'off\'))}{esc(r.label)}"',
+     '            f"<div>{dot_html(r.state)}{esc(r.label)}"',
      '            f"<div><span class=\'dot {_DOT.get(r.state,\'off\')}\'></span>{esc(r.label)}"',
      f"{T}::test_rows_differing_only_by_state_differ_in_text"),
 

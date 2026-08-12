@@ -122,7 +122,11 @@ def test_resume_button_unchanged_when_paused(client, tmp_path):
     del s
     html = _html(c)
     assert "▶️ Увімкнути" in html
-    assert "Зупинити всіх" not in html
+    # Ищем В РАЗМЕТКЕ, а не по всей странице: в комментарии внутри `<style>`
+    # разбор узкого экрана поимённо называет обрезанные элементы, и «Зупинити
+    # всіх» там упомянута. Сторож с 53c9ea19 краснел на собственном тексте
+    # объяснения, а не на кнопке.
+    assert "Зупинити всіх" not in html.split("</style>", 1)[1]
 
 
 # ── 19: что будет с теми, кто напишет во время паузы ────────────────────────
@@ -215,11 +219,14 @@ def test_js_returns_focus_to_the_trigger(client):
 # ── 17: текстовая метка состояния РЯДОМ с цветом ────────────────────────────
 
 def test_state_label_is_next_to_the_dot_not_instead(tmp_path, monkeypatch):
-    from app.routers.panels_ui import STATE_LABEL, dot_html
+    from app.routers.panels_ui import STATE_LABEL, STATE_TONE, dot_html
 
     for state, word in STATE_LABEL.items():
         h = dot_html(state)
-        assert f"dot {state}" in h, "цветная точка обязана остаться"
+        # Класс точки — не имя состояния, а его СМЫСЛ (ok → calm: «норма» цвета
+        # не получает, зелёный отдан деньгам). Точка при этом обязана остаться:
+        # слово рядом с ней — дополнение, а не замена.
+        assert f"dot {STATE_TONE[state]}" in h, "цветная точка обязана остаться"
         assert word in h, "рядом с ней обязано быть слово"
 
 

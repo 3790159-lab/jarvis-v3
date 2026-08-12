@@ -62,7 +62,11 @@ def seed(path: str, *, now: float | None = None) -> None:
     for i in range(total):
         cid = f"{500000 + i}:volska"
         s.get_or_create_contact(cid)
-        start = now - rnd.uniform(0.2, 29.0) * DAY
+        # Первые двое пишут СЕГОДНЯ: без свежей эскалации блок «Требує вас»
+        # состоит из одной свёртки застарелых, и главную карточку экрана на
+        # скриншоте просто не видно. Порог свежести — 48 годин.
+        start = (now - rnd.uniform(0.1, 0.7) * DAY if i < 2
+                 else now - rnd.uniform(2.5, 29.0) * DAY)
         n_msgs = rnd.randint(2, 14)
         t = start
         for j in range(n_msgs):
@@ -116,6 +120,25 @@ def build_app():
     return app
 
 
+def _keep_heartbeat(path: str, every: float = 30.0) -> None:
+    import threading
+
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+
+    def loop():
+        while True:
+            try:
+                p.write_text(str(time.time()), encoding="utf-8")
+            except OSError:
+                # Демо-стенд не имеет права падать из-за картинки: экран сам
+                # покажет «немає зв'язку», и это будет видно.
+                pass
+            time.sleep(every)
+
+    threading.Thread(target=loop, daemon=True).start()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--seed", action="store_true")
@@ -129,6 +152,11 @@ def main() -> int:
     os.environ.setdefault("TAMAPI_DB", a.db)
     os.environ.setdefault("JARVIS_PANELS_KEY", "demo-local-key")
     os.environ.setdefault("TAMAPI_HEARTBEAT", "state/chatter_heartbeat.txt")
+
+    # Стенд сам держит heartbeat свежим. Иначе через 90 с после запуска экран
+    # честно скажет «немає зв'язку» — и на скриншотах вместо разбираемой
+    # раскладки окажется авария демо-стенда.
+    _keep_heartbeat(os.environ["TAMAPI_HEARTBEAT"])
 
     import uvicorn
     uvicorn.run(build_app(), host=a.host, port=a.port, log_level="warning")

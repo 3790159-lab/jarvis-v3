@@ -17,8 +17,8 @@ from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from app.routers.panels_auth import require_owner
-from app.routers.panels_ui import (ago, delta_html, esc, line_chart, page,
-                                   plural_dialogs)
+from app.routers.panels_ui import (ago, delta_html, esc, leads_waiting,
+                                   line_chart, page, plural_dialogs)
 from app.services import tamapi_metrics as M
 
 router = APIRouter(prefix="/panel/tamapi", tags=["tamapi-dashboard"],
@@ -65,14 +65,33 @@ def _status() -> dict:
         del s
     except Exception:
         pass
+    # Точка красится по СМЫСЛУ: красный — только «зламано» (связи нет), янтарь —
+    # «чекає вас» (пауза снимается вами), «на зв'язку» цвета не получает вовсе.
     if age is None or age > 90:
-        return {"code": "down", "dot": "bad", "title": "Немає зв'язку",
+        return {"code": "down", "dot": "broken", "title": "Немає зв'язку",
                 "sub": "технічна проблема, ми вже бачимо", "age": age}
     if killed:
-        return {"code": "paused", "dot": "warn", "title": "На паузі",
+        return {"code": "paused", "dot": "wait", "title": "На паузі",
                 "sub": "зупинено вами", "age": age}
-    return {"code": "live", "dot": "ok", "title": "На зв'язку",
+    return {"code": "live", "dot": "calm", "title": "На зв'язку",
             "sub": "відповідає", "age": age}
+
+
+def _answer(st: dict, att: list[dict]) -> tuple[str, str]:
+    """Ответ экрана одной строкой: «мені зараз щось треба робити?».
+
+    Порядок ответов — это и есть приоритет. Связи нет — про очередь говорить
+    рано: цифры под ответом уже неживые, и звать человека разбирать их значит
+    звать его не туда. Дальше долг, потом пауза, потом тишина.
+    """
+    fresh = [i for i in att if not i.get("stale")]
+    if st["code"] == "down":
+        return "Немає зв'язку з Ольгою", "broken"
+    if fresh:
+        return leads_waiting(len(fresh)), "wait"
+    if st["code"] == "paused":
+        return "Ольга на паузі — не відповідає нікому", "wait"
+    return "Все спокійно", "calm"
 
 
 def _month_start(now: float) -> float:
@@ -134,19 +153,19 @@ def _funnel_html(sm: dict) -> str:
     # 31.07, спека §2.3): это мнение КЛАССИФИКАТОРА, а не отметка человека.
     # Без подписи клиент прочтёт оценку модели как проверенный факт, и первое
     # же расхождение будет стоить доверия ко всему экрану.
-    steps = [("Ліди", f["dialogs"], "унікальні за 7 днів"),
-             ("Кваліфіковано", f["qualified"], "за оцінкою асистента"),
-             ("Передано вам", f["handed"], ""),
-             ("Оплати", f["payments"], "")]
+    # Последняя ступень — деньги, и она единственная на экране красится зелёным.
+    steps = [("Ліди", f["dialogs"], "унікальні за 7 днів", ""),
+             ("Кваліфіковано", f["qualified"], "за оцінкою асистента", ""),
+             ("Передано вам", f["handed"], "", ""),
+             ("Оплати", f["payments"], "", " money")]
     cohort = f["dialogs"]
     out = []
-    for i, (label, val, note) in enumerate(steps):
+    for i, (label, val, note, tone) in enumerate(steps):
         if val is None:
             # Честно: метрики нет, потому что таблица только начала копиться.
-            body = ("<div class='n' style='color:var(--dim);font-size:15px'>"
-                    "історія накопичується</div>")
+            body = "<div class='n na'>історія накопичується</div>"
         else:
-            body = f"<div class='n'>{val:g}</div>"
+            body = f"<div class='n{tone}'>{val:g}</div>"
         pct = ""
         # Доля — от КОГОРТЫ (первой ступени), а не от предыдущей строки: все
         # ступени считают людей из одного и того же множества, поэтому доля
@@ -186,25 +205,36 @@ DEAD_MARK = "лід мертвий, картку не закрито"
 
 
 def _attention_card(it: dict) -> str:
+    """Две строки: кто и сколько ждёт — сверху, реплика и действие — снизу.
+
+    Раньше карточка занимала четыре этажа и несла четыре равноправные кнопки:
+    восемь таких на телефоне превращали блок «требує вас» в простыню, из
+    которой не видно, сколько всего людей ждёт. На виду остаётся ОДНО действие,
+    остальные уезжают под «⋯».
+
+    ГРАНИЦА: под «⋯» уезжают ДЕЙСТВИЯ. Оба возраста и пометка мёртвого лида —
+    это долг, и они остаются в первой строке при любой перекладке.
+    """
     cid = esc(it["contact_id"])
     # Два возраста, а не один: «підняв руку» — когда бот попросил вмешаться,
     # «чекає» — сколько человек ждёт ответа. Раньше было видно только первое.
-    dead = (f"<div class='sub' style='color:var(--bad)'>{DEAD_MARK}</div>"
-            if it.get("dead") else "")
+    dead = f" · <span class='wait'>{DEAD_MARK}</span>" if it.get("dead") else ""
     return (
-        "<div class='card' style='background:var(--panel2)'>"
+        "<div class='card att'>"
         f"<div class='row'><b>{esc(it['peer'])}</b>"
         f"<span class='sub'>підняв руку {esc(ago(it['card_ts']))}"
-        f" · чекає {esc(ago(it['last_ts']))}</span></div>"
-        f"{dead}"
-        f"<div class='sub' style='margin:6px 0'>Останнє: "
-        f"«{esc((it['last_text'] or '')[:120])}»</div>"
-        "<div style='display:flex;gap:6px;flex-wrap:wrap'>"
-        f"<button class='btn sm' onclick=\"act('resume:{cid}')\">▶️ Повернути</button>"
+        f" · чекає {esc(ago(it['last_ts']))}{dead}</span></div>"
+        "<div class='row' style='margin-top:6px'>"
+        f"<span class='sub ell'>«{esc((it['last_text'] or '')[:120])}»</span>"
+        "<span style='display:flex;gap:6px;align-items:center'>"
+        f"<button class='btn sm primary' onclick=\"act('resume:{cid}')\">"
+        "▶️ Повернути</button>"
+        "<details class='more'><summary class='btn sm' title='Інші дії'>⋯</summary>"
+        "<div class='menu'>"
         f"<button class='btn sm' onclick=\"act('snooze:{cid}')\">⏸ Ще 1год</button>"
         f"<button class='btn sm' onclick=\"act('keep:{cid}')\">✅ Лишити боту</button>"
         f"<button class='btn sm' onclick=\"paid('{cid}')\">💰 Оплачено</button>"
-        "</div></div>")
+        "</div></details></span></div></div>")
 
 
 def _attention_html(items: list[dict], lang: str) -> str:
@@ -228,7 +258,7 @@ def _attention_html(items: list[dict], lang: str) -> str:
             + (f" · {DEAD_MARK}" if it.get("dead") else "")
             + "</span></div>" for it in stale)
         out.append(
-            "<details class='card' style='background:var(--panel2)'>"
+            "<details class='card att'>"
             f"<summary>Застарілі ({len(stale)}) · старші за 48 годин</summary>"
             f"{rows}</details>")
     return "".join(out)
@@ -239,7 +269,10 @@ def _feed_html(feed: list[dict]) -> str:
         return "<div class='empty'>Діалогів поки немає.</div>"
     rows = []
     for it in feed:
-        badge = "🔴 " if it["needs_you"] else ("💰 " if it["paid"] else "")
+        # Янтарь, а не красный: лид ждёт ВАС — ничего не сломалось. Красным
+        # этот кружок стоял рядом с красной аварией связи и красной кнопкой
+        # паузы, и три разных смысла делили один цвет.
+        badge = "🟠 " if it["needs_you"] else ("💰 " if it["paid"] else "")
         rows.append(
             f"<tr><td>{badge}<b>{esc(it['peer'])}</b><div class='sub'>"
             f"{esc((it['last_text'] or '')[:90])}</div></td>"
@@ -321,17 +354,21 @@ async def main_screen(request: Request):
     att = M.needs_attention(db, now=now)
     feed = M.dialog_feed(db, now=now, limit=12)
 
-    bar_cls = "bar" + (" b" if pkg["pct"] >= 100 else (" w" if pkg["pct"] >= 80 else ""))
+    # Пакет — деньги, поэтому зелёный. Исчерпанный пакет НЕ авария: бот
+    # продолжает работать, и выключить его может только владелец — это «чекає
+    # вас», янтарь. Красным он был как «немає зв'язку», и два разных смысла в
+    # одном цвете превращали красный в оформление.
+    bar_cls = "bar" + (" wait" if pkg["pct"] >= 80 else " money")
     # Перерасход рисуется отдельным сегментом поверх полной шкалы: `min(pct,100)`
     # оставлял его существовать только в тексте примечания.
     over_seg = (f"<b class='over' style='width:{min(pkg['over_pct'], 100):.0f}%'></b>"
                 if pkg["over"] else "")
     over_note = ""
     if pkg["pct"] >= 100:
-        over_note = ("<div class='note'>Пакет вичерпано. Бот <b>продовжує працювати</b> — "
+        over_note = ("<div class='note wait'>Пакет вичерпано. Бот <b>продовжує працювати</b> — "
                      f"перевитрата {pkg['over']} діалогів. Вимкнення лише вашим рішенням.</div>")
     elif pkg["pct"] >= 80:
-        over_note = "<div class='note'>Використано понад 80% пакета.</div>"
+        over_note = "<div class='note wait'>Використано понад 80% пакета.</div>"
 
     paid_presets = _price_presets()
     presets_html = "".join(
@@ -351,7 +388,10 @@ async def main_screen(request: Request):
         # «Пауза» преуменьшала: это глобальный kill switch на ВСЕХ лидов, а не
         # передышка. Название действия обязано совпадать с действием ещё до
         # того, как человек дойдёт до модалки.
-        pause_btn = ("<button class='btn danger' onclick='pauseAsk()'>"
+        #
+        # Кнопка НЕЙТРАЛЬНАЯ: сама она ничего не ломает, а только задаёт вопрос.
+        # Красное живёт в подтверждении — там, где решение и принимается.
+        pause_btn = ("<button class='btn' onclick='pauseAsk()'>"
                      "⏹ Зупинити всіх</button>")
 
     # Цена решения живьём: «ВСІМ» — абстракция, число — нет.
@@ -360,18 +400,16 @@ async def main_screen(request: Request):
                  if n_active
                  else "Зараз бот нікого не веде — пауза ні на кого не вплине.")
 
-    body = f"""
-<h1>Ольга · TAMAPI</h1>
-<div class='sub'>Клієнт: {esc(_slug())} · оновлено {esc(ago(now - 1, now))}</div>
+    ans, tone = _answer(st, att)
+    # Суточный лимит не задан — так и написано. Пустота после двоеточия
+    # читается как «ноль» или как сломанная строка, а не как «не налаштовано».
+    cap_txt = (f"добовий ліміт: {esc(pkg['daily_cap'])}"
+               if pkg["daily_cap"] is not None else "добовий ліміт не заданий")
 
-<div class='card' style='margin-top:14px'>
-  <div class='row'>
-    <div><span class='dot {st['dot']}'></span><b>{esc(st['title'])}</b>
-      <div class='sub' style='margin-left:17px'>{esc(st['sub'])}
-      · heartbeat {esc(hb_txt)}</div></div>
-    <div>{pause_btn}</div>
-  </div>
-</div>
+    body = f"""
+<h1 class='ans {tone}'>{esc(ans)}</h1>
+<div class='sub'>Ольга · TAMAPI · клієнт {esc(_slug())}
+ · оновлено {esc(ago(now - 1, now))}</div>
 
 {over_note}
 
@@ -381,17 +419,24 @@ async def main_screen(request: Request):
 <h2>Воронка · 7 днів</h2>
 <div class='card'>{_funnel_html(sm)}</div>
 
-<h2>Навантаження · 7 днів</h2>
-<div class='card'>{_load_html(sm)}</div>
-
 <h2>Пакет</h2>
 <div class='card'>
   <div class='row'><span>{pkg['used']} / {pkg['limit']} унікальних лідів цього місяця</span>
-    <span class='sub'>добовий ліміт: {esc(pkg['daily_cap'])}</span></div>
+    <span class='sub'>{cap_txt}</span></div>
   <div class='sub'>з {esc(pkg['since_label'])}</div>
   <div class='{bar_cls}' style='margin-top:8px'>
     <i style='width:{min(pkg['pct'], 100):.0f}%'></i>{over_seg}</div>
 </div>
+
+<h2>Стан</h2>
+<div class='card statusline'>
+  <div class='row'><span><span class='dot {st['dot']}'></span>
+    <b>{esc(st['title'])}</b> <span class='sub'>· {esc(st['sub'])}
+    · heartbeat {esc(hb_txt)}</span></span>{pause_btn}</div>
+</div>
+
+<h2>Навантаження · 7 днів</h2>
+<div class='card'>{_load_html(sm)}</div>
 
 <h2>Діалоги</h2>
 <div class='card'>{_feed_html(feed)}</div>
@@ -408,7 +453,7 @@ async def main_screen(request: Request):
   <p>{stop_cost}</p>
   <div style='display:flex;gap:8px'>
     <button class='btn' onclick="closeM('pausebox')">Скасувати</button>
-    <button class='btn danger' onclick="act('stop_all confirm')">Так, зупинити</button></div>
+    <button class='btn broken' onclick="act('stop_all confirm')">Так, зупинити</button></div>
 </div></div>
 
 <div class='modal' id='paidbox' role='dialog' aria-modal='true'
@@ -467,11 +512,14 @@ async def dynamics(request: Request,
         s = by_key[d.key]
         on = d.key in keys
         sel = colors[keys.index(d.key) % 3] if on else ""
+        # Плитка без данных ГАСНЕТ и перестаёт быть ссылкой: тап по ней
+        # перерисовывал график в пустоту, а сама она выглядела рабочей —
+        # неотличимо от плитки, которую просто не выбрали.
         if not s.available:
-            val = "<div class='v' style='font-size:13px;color:var(--dim)'>історія накопичується</div>"
+            val = "<div class='v na'>історія накопичується</div>"
             dl = ""
         elif s.total is None:
-            val = "<div class='v' style='font-size:15px;color:var(--dim)'>немає даних</div>"
+            val = "<div class='v na'>немає даних</div>"
             dl = ""
         else:
             val = f"<div class='v'>{_fmt_value(d, s.total)}</div>"
@@ -481,12 +529,15 @@ async def dynamics(request: Request,
             if s.basis is not None:
                 dl += (f"<div class='sub'>n={s.basis} проти "
                        f"n={s.prev_basis if s.prev_basis is not None else 0}</div>")
+        head = f"<div class='k'>{esc(d.label)}</div>{val}{dl}"
+        if s.total is None or not s.available:
+            tiles.append(f"<div class='tile off'>{head}</div>")
+            continue
         nxt = [k for k in keys if k != d.key] if on else keys[:2] + [d.key]
         q = "&".join(f"m={k}" for k in (nxt or ["dialogs"]))
         tiles.append(
             f"<a class='tile{' on' if on else ''}' style='--sel:{sel}' "
-            f"href='?{q}&period={esc(period)}'>"
-            f"<div class='k'>{esc(d.label)}</div>{val}{dl}</a>")
+            f"href='?{q}&period={esc(period)}'>{head}</a>")
 
     segs = "".join(
         f"<button class='{'on' if period == k else ''}' "
@@ -497,7 +548,7 @@ async def dynamics(request: Request,
     note = ""
     if unavailable:
         names = ", ".join(s.label for s in unavailable)
-        note = (f"<div class='note'>{esc(names)}: історія ще накопичується — "
+        note = (f"<div class='note wait'>{esc(names)}: історія ще накопичується — "
                 "таблиці заповнюються тільки вперед, з моменту впровадження.</div>")
 
     body = f"""

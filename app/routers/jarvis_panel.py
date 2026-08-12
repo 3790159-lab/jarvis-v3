@@ -19,7 +19,25 @@ from app.services import jarvis_farm as F
 router = APIRouter(prefix="/panel/jarvis", tags=["jarvis-panel"],
                    dependencies=[Depends(require_owner)])
 
-_DOT = {"ok": "ok", "warn": "warn", "bad": "bad", "off": "off"}
+_DOT = {"ok": "calm", "warn": "wait", "bad": "broken", "off": "off"}
+
+
+def _answer(snap) -> tuple[str, str]:
+    """Ответ панели одной строкой: «на ферме всё цело?».
+
+    Раньше страница начиналась с заголовка и списка из трёх десятков строк, где
+    зелёная точка стояла у каждой живой — то есть выделено было всё, значит
+    ничего. Считаем по строкам процессов, гардианов и автоматизаций; арки и
+    ключи в ответ не входят: возраст ветки — не поломка.
+    """
+    rows = list(snap["processes"]) + list(snap["guardians"]) + list(snap["tasks"])
+    bad = [r for r in rows if r.state == "bad"]
+    warn = [r for r in rows if r.state == "warn"]
+    if bad:
+        return f"Впало: {len(bad)}", "broken"
+    if warn:
+        return f"Потребує уваги: {len(warn)}", "wait"
+    return "Ферма ціла", "calm"
 
 
 def _rows_html(rows, now: float) -> str:
@@ -29,7 +47,11 @@ def _rows_html(rows, now: float) -> str:
         tail = f"<span class='sub'>з {esc(time.strftime('%d.%m %H:%M', time.localtime(since)))}</span>" if since else ""
         out.append(
             f"<div class='row' style='padding:7px 0;border-bottom:1px solid var(--line)'>"
-            f"<div>{dot_html(_DOT.get(r.state, 'off'))}{esc(r.label)}"
+            # dot_html сам переводит СОСТОЯНИЕ в цвет по смыслу. Прогонять его
+            # через _DOT второй раз означало отдать ему уже готовый класс: 'ok'
+            # превращался в 'calm', а 'calm' — в «вимкнено», и живой процесс
+            # оказывался выключенным.
+            f"<div>{dot_html(r.state)}{esc(r.label)}"
             f"<div class='sub' style='margin-left:17px'>{esc(r.detail)}</div></div>{tail}</div>")
     return "".join(out)
 
@@ -42,8 +64,7 @@ async def panel():
     ext = snap["external"]
 
     ext_html = (
-        f"<div class='note' style='border-left-color:var("
-        f"{'--bad' if ext.state == 'bad' else '--warn' if ext.state == 'warn' else '--ok'})'>"
+        f"<div class='note {_DOT.get(ext.state, 'off')}'>"
         f"<b>{esc(ext.label)}:</b> {esc(ext.detail)}</div>")
 
     arcs = snap["arcs"]
@@ -71,9 +92,11 @@ async def panel():
         f"<td data-l='Нотатка' class='sub'>{esc(k['note'])}</td></tr>"
         for k in snap["keys"])
 
+    ans, tone = _answer(snap)
     body = f"""
-<h1>Панель Джарвіса · фаза 0</h1>
-<div class='sub'>read-only · зібрано {esc(ago(snap['collected_at'] - 1, now))}
+<h1 class='ans {tone}'>{esc(ans)}</h1>
+<div class='sub'>Панель Джарвіса · фаза 0 · read-only · зібрано
+ {esc(ago(snap['collected_at'] - 1, now))}
  · {esc(time.strftime('%d.%m %H:%M:%S', time.localtime(snap['collected_at'])))}</div>
 
 <div style='margin-top:14px'>{ext_html}</div>
