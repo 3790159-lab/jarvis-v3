@@ -16,7 +16,8 @@ from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from app.routers.panels_auth import require_owner
-from app.routers.panels_ui import ago, delta_html, esc, line_chart, page
+from app.routers.panels_ui import (ago, delta_html, esc, line_chart, page,
+                                   plural_dialogs)
 from app.services import tamapi_metrics as M
 
 router = APIRouter(prefix="/panel/tamapi", tags=["tamapi-dashboard"],
@@ -181,14 +182,45 @@ async function act(data, token){
 }
 function paid(cid){
   const box=document.getElementById('paidbox');
-  box.dataset.cid=cid; box.classList.add('show');
+  box.dataset.cid=cid; openM('paidbox');
 }
 function paidAmt(a){
   const cid=document.getElementById('paidbox').dataset.cid;
   act(a===null? 'paid:'+cid : 'paidamt:'+a+':'+cid);
 }
-function pauseAsk(){document.getElementById('pausebox').classList.add('show');}
-function closeM(id){document.getElementById(id).classList.remove('show');}
+function pauseAsk(){openM('pausebox');}
+
+// Куда вернуть фокус после закрытия. Без этого таб-навигация после Esc
+// начинается с начала страницы, а не с кнопки, которую человек нажал.
+var lastFocus=null;
+function openM(id){
+  const box=document.getElementById(id);
+  lastFocus=document.activeElement;
+  box.classList.add('show');
+  box.focus();
+}
+function closeM(id){
+  document.getElementById(id).classList.remove('show');
+  if(lastFocus && lastFocus.focus) lastFocus.focus();
+  lastFocus=null;
+}
+// Тап мимо окна закрывает — но только по самой подложке, иначе клик по любой
+// кнопке ВНУТРИ окна всплывал бы сюда и закрывал его.
+function closeOnBackdrop(e,id){ if(e.target && e.target.id===id) closeM(id); }
+
+document.addEventListener('keydown',function(e){
+  const box=document.querySelector('.modal.show');
+  if(!box) return;
+  if(e.key==='Escape'){ e.preventDefault(); closeM(box.id); return; }
+  if(e.key!=='Tab') return;
+  // Ловушка фокуса: пока окно открыто, Tab не имеет права уйти на страницу
+  // под ним — там кнопки, меняющие состояние лидов.
+  const f=box.querySelectorAll('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])');
+  if(!f.length) return;
+  const first=f[0], last=f[f.length-1];
+  if(e.shiftKey && document.activeElement===first){ e.preventDefault(); last.focus(); }
+  else if(!e.shiftKey && document.activeElement===last){ e.preventDefault(); first.focus(); }
+});
 """
 
 
@@ -228,7 +260,17 @@ async def main_screen(request: Request):
         pause_btn = ("<button class='btn primary' onclick=\"act('resume_all')\">"
                      "▶️ Увімкнути</button>")
     else:
-        pause_btn = "<button class='btn danger' onclick='pauseAsk()'>⏸ Пауза</button>"
+        # «Пауза» преуменьшала: это глобальный kill switch на ВСЕХ лидов, а не
+        # передышка. Название действия обязано совпадать с действием ещё до
+        # того, как человек дойдёт до модалки.
+        pause_btn = ("<button class='btn danger' onclick='pauseAsk()'>"
+                     "⏹ Зупинити всіх</button>")
+
+    # Цена решения живьём: «ВСІМ» — абстракция, число — нет.
+    n_active = M.active_dialogs(db, now=now)
+    stop_cost = (f"Зараз у роботі: {plural_dialogs(n_active)}."
+                 if n_active
+                 else "Зараз бот нікого не веде — пауза ні на кого не вплине.")
 
     body = f"""
 <h1>Ольга · TAMAPI</h1>
@@ -264,17 +306,23 @@ async def main_screen(request: Request):
 
 <div style='margin-top:18px'><a href='/panel/tamapi/dynamics'>Динаміка →</a></div>
 
-<div class='modal' id='pausebox'><div class='box'>
-  <h3>Зупинити Ольгу?</h3>
+<div class='modal' id='pausebox' role='dialog' aria-modal='true'
+     aria-labelledby='pausebox-title' tabindex='-1'
+     onclick="closeOnBackdrop(event,'pausebox')"><div class='box'>
+  <h3 id='pausebox-title'>Зупинити Ольгу?</h3>
   <p>Вона перестане відповідати <b>ВСІМ</b> лідам, доки ви не увімкнете її назад.
      Діалоги не зникнуть, історія збережеться.</p>
+  <p>Хто напише під час паузи, відповіді не отримає.</p>
+  <p>{stop_cost}</p>
   <div style='display:flex;gap:8px'>
-    <button class='btn danger' onclick="act('stop_all confirm')">Так, зупинити</button>
-    <button class='btn' onclick="closeM('pausebox')">Скасувати</button></div>
+    <button class='btn' onclick="closeM('pausebox')">Скасувати</button>
+    <button class='btn danger' onclick="act('stop_all confirm')">Так, зупинити</button></div>
 </div></div>
 
-<div class='modal' id='paidbox'><div class='box'>
-  <h3>Скільки оплатили?</h3>
+<div class='modal' id='paidbox' role='dialog' aria-modal='true'
+     aria-labelledby='paidbox-title' tabindex='-1'
+     onclick="closeOnBackdrop(event,'paidbox')"><div class='box'>
+  <h3 id='paidbox-title'>Скільки оплатили?</h3>
   <p>Підказки взяті з ваших цін у базі знань.</p>
   <div style='display:flex;gap:8px;flex-wrap:wrap'>{presets_html}
     <button class='btn' onclick='paidAmt(null)'>Без суми</button>

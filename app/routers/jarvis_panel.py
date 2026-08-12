@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from app.routers.panels_auth import require_owner
-from app.routers.panels_ui import ago, esc, page
+from app.routers.panels_ui import ago, dot_html, esc, page
 from app.services import jarvis_farm as F
 
 router = APIRouter(prefix="/panel/jarvis", tags=["jarvis-panel"],
@@ -29,7 +29,7 @@ def _rows_html(rows, now: float) -> str:
         tail = f"<span class='sub'>з {esc(time.strftime('%d.%m %H:%M', time.localtime(since)))}</span>" if since else ""
         out.append(
             f"<div class='row' style='padding:7px 0;border-bottom:1px solid var(--line)'>"
-            f"<div><span class='dot {_DOT.get(r.state,'off')}'></span>{esc(r.label)}"
+            f"<div>{dot_html(_DOT.get(r.state, 'off'))}{esc(r.label)}"
             f"<div class='sub' style='margin-left:17px'>{esc(r.detail)}</div></div>{tail}</div>")
     return "".join(out)
 

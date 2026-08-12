@@ -266,6 +266,28 @@ def needs_attention(db_path, *, now: float, limit: int = 10) -> list[dict]:
         return out[:limit]
 
 
+# Состояния, из которых бот сам уже не выйдет.
+TERMINAL_STATES = ("dead", "closed")
+
+
+def active_dialogs(db_path, *, now: float) -> int:
+    """Сколько диалогов бот ВЕДЁТ прямо сейчас — цена решения «зупинити всіх».
+
+    Считаем только тех, кого пауза реально заденет. Не в счёт: терминальные
+    состояния, поимённо снятые с бота (`paused`) и уже переданные человеку
+    (активная эскалация) — там бот молчит и без паузы. Счётчик, который
+    считает их, завышает цену решения, а завышенная цена — такая же ложь,
+    как заниженная.
+    """
+    feed = dialog_feed(db_path, now=now, limit=100_000)
+    return sum(
+        1 for f in feed
+        if not f["paused"]
+        and not f["needs_you"]
+        and (f["state"] or "") not in TERMINAL_STATES
+    )
+
+
 def dialog_feed(db_path, *, now: float, limit: int = 30, flt: str = "all") -> list[dict]:
     with _ro(db_path) as conn:
         paid_ids = set()

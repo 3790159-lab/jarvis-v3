@@ -89,11 +89,44 @@ tr:last-child td{border-bottom:none}
 .legendline{display:inline-flex;align-items:center;gap:6px;margin-right:14px;
   font-size:12px;color:var(--dim)}
 .sw{width:14px;height:3px;border-radius:2px;display:inline-block}
+/* Подпись состояния РЯДОМ с точкой, а не вместо неё. Цвет у подписи
+   намеренно нейтральный: оттенок уже несёт точка, а --bad как цвет текста
+   даёт 4.45 к фону — впритык мимо AA. */
+.slab{font-size:11px;color:var(--dim);text-transform:uppercase;
+  letter-spacing:.04em;margin-right:7px}
 """
+
+# Слово к каждому состоянию. Без него строки «Ready · останній результат 0» и
+# «… 1» различались ИСКЛЮЧИТЕЛЬНО оттенком точки — то есть не различались для
+# всех, кто не различает красный и зелёный.
+STATE_LABEL = {"ok": "норма", "warn": "увага", "bad": "збій", "off": "вимкнено"}
 
 
 def esc(s) -> str:
     return html.escape(str(s if s is not None else ""))
+
+
+def dot_html(state: str) -> str:
+    """Цветная точка + слово. Оба, а не одно из двух."""
+    st = state if state in STATE_LABEL else "off"
+    return (f"<span class='dot {st}'></span>"
+            f"<span class='slab'>{esc(STATE_LABEL[st])}</span>")
+
+
+def plural_dialogs(n: int) -> str:
+    """«1 діалог», «2 діалоги», «5 діалогів» — иначе счётчик в модалке читается
+    как машинный вывод ровно там, где человек принимает решение."""
+    tail = abs(int(n)) % 100
+    last = tail % 10
+    if 11 <= tail <= 14:
+        word = "діалогів"
+    elif last == 1:
+        word = "діалог"
+    elif 2 <= last <= 4:
+        word = "діалоги"
+    else:
+        word = "діалогів"
+    return f"{n} {word}"
 
 
 def ago(ts: float | None, now: float | None = None) -> str:
