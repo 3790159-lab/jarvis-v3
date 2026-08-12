@@ -119,9 +119,9 @@ MUTATIONS = [
        '                "dead": False,')],
      f"{T}::test_dead_lead_with_an_open_card_is_flagged"),
 
-    ("пометка мёртвого лида убрана из разметки", TD,
-     [('    dead = ("<div class=\'sub\' style=\'color:var(--bad)\'>"\n'
-       '            "лід мертвий, картку не закрито</div>") if it.get("dead") else ""',
+    ("пометка мёртвого лида убрана со свежей карточки", TD,
+     [('    dead = (f"<div class=\'sub\' style=\'color:var(--bad)\'>{DEAD_MARK}</div>"\n'
+       '            if it.get("dead") else "")',
        '    dead = ""')],
      f"{T}::test_dead_lead_is_marked_on_the_screen"),
 
