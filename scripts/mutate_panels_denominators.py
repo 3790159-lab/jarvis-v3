@@ -125,6 +125,11 @@ MUTATIONS = [
        '    dead = ""')],
      f"{T}::test_dead_lead_is_marked_on_the_screen"),
 
+    ("в свёртке застарелых пометка урезана до короткой", TD,
+     [('            + (f" · {DEAD_MARK}" if it.get("dead") else "")',
+       '            + (" · лід мертвий" if it.get("dead") else "")')],
+     f"{T}::test_dead_lead_is_marked_the_same_way_when_stale"),
+
     ("второй возраст («чекає») исчез с карточки", TD,
      [("f\"<span class='sub'>підняв руку {esc(ago(it['card_ts']))}\"\n"
        "        f\" · чекає {esc(ago(it['last_ts']))}</span></div>\"",

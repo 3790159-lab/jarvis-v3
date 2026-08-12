@@ -178,12 +178,19 @@ def _load_html(sm: dict) -> str:
     return "".join(out)
 
 
+# Противоречие «бот с лидом уже не работает, а карточка открыта» звучит ОДИНАКОВО
+# и на свежей карточке, и в свёртке застарелых. Живьём такой лид как раз и был
+# застарелым (14 суток) — короткая форма в свёртке означала бы, что решение
+# помечать противоречие не выполнено ровно в том случае, ради которого принято.
+DEAD_MARK = "лід мертвий, картку не закрито"
+
+
 def _attention_card(it: dict) -> str:
     cid = esc(it["contact_id"])
     # Два возраста, а не один: «підняв руку» — когда бот попросил вмешаться,
     # «чекає» — сколько человек ждёт ответа. Раньше было видно только первое.
-    dead = ("<div class='sub' style='color:var(--bad)'>"
-            "лід мертвий, картку не закрито</div>") if it.get("dead") else ""
+    dead = (f"<div class='sub' style='color:var(--bad)'>{DEAD_MARK}</div>"
+            if it.get("dead") else "")
     return (
         "<div class='card' style='background:var(--panel2)'>"
         f"<div class='row'><b>{esc(it['peer'])}</b>"
@@ -218,7 +225,7 @@ def _attention_html(items: list[dict], lang: str) -> str:
         rows = "".join(
             f"<div class='row'><span>{esc(it['peer'])}</span>"
             f"<span class='sub'>{esc(ago(it['card_ts']))}"
-            + (" · лід мертвий" if it.get("dead") else "")
+            + (f" · {DEAD_MARK}" if it.get("dead") else "")
             + "</span></div>" for it in stale)
         out.append(
             "<details class='card' style='background:var(--panel2)'>"

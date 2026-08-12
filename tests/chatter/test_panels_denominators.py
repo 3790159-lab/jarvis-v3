@@ -379,6 +379,26 @@ def test_dead_lead_is_marked_on_the_screen(tmp_path, monkeypatch):
     assert "лід мертвий, картку не закрито" in _screen(_client(p, monkeypatch))
 
 
+def test_dead_lead_is_marked_the_same_way_when_stale(tmp_path, monkeypatch):
+    """Живьём мёртвый лид И БЫЛ застарелым (14 суток) — то есть полная пометка
+    на экран не попадала вообще: в свёртке стояла короткая. Формулировка обязана
+    быть одна, иначе решение «помечать противоречие» не выполнено ровно в том
+    случае, ради которого принималось."""
+    p = tmp_path / "deadstale.db"
+    live = time.time()
+    s = Store(str(p))
+    s.get_or_create_contact("ds:volska")
+    s.set_state("ds:volska", "dead")
+    s.add_message("ds:volska", "user", "текст", ts=live - 14 * DAY)
+    s.add_card(msg_id=6, contact_id="ds:volska", kind="escalation", ts=live - 14 * DAY)
+    s.set_runtime_flag("esc_active:ds:volska", "bot:1:6", ts=live - 14 * DAY)
+    del s
+
+    body = _screen(_client(p, monkeypatch))
+    assert "Застарілі (1)" in body
+    assert "лід мертвий, картку не закрито" in body
+
+
 def test_fresh_card_shows_the_age_of_the_last_inbound(tmp_path, monkeypatch):
     p = tmp_path / "ages.db"
     live = time.time()
