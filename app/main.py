@@ -242,6 +242,11 @@ try:
         app.include_router(_panels_login_router)
         app.include_router(_tamapi_router)
         app.include_router(_jarvis_panel_router)
+        # Отказ панели обязан иметь выход: браузеру — форма входа, машине —
+        # прежний 401. Ставится здесь же, внутри гейта: обслуживать нечего,
+        # пока панелей нет.
+        from app.routers.panels_auth import install_panel_auth_redirect
+        install_panel_auth_redirect(app)
         print("[OK] Included routers: panels_login + tamapi_dashboard + jarvis_panel")
     else:
         print("[skip] panels disabled (JARVIS_PANELS_KEY not set)")

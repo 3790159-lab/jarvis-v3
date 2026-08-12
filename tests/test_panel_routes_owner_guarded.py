@@ -147,3 +147,23 @@ def test_panel_routers_actually_mounted_under_panel_prefix():
     assert len(panel_paths) >= 3, f"ожидали ручки под /panel, нашли: {paths}"
     assert DOORS <= set(panel_paths), (
         f"дверь исчезла из смонтированных ручек: {sorted(DOORS - set(panel_paths))}")
+
+
+def test_main_wires_the_panel_login_redirect():
+    """Обработчик отказа ставится явным вызовом, и забыть его легко: тесты
+    поднимают своё приложение и о `app/main.py` ничего не знают. Без вызова
+    панель снова отдаёт браузеру голый JSON — то самое, из чего нет выхода.
+
+    Сверяем ИСХОДНИК, а не импортируем `app.main`: импорт тянет весь бэкенд с
+    роутерами, планировщиком и сетью, и в юнит-прогоне это не тест, а запуск.
+    """
+    from pathlib import Path
+
+    src = (Path(__file__).resolve().parents[1] / "app" / "main.py").read_text(
+        encoding="utf-8")
+    block = src.split("if panels_enabled():", 1)
+    assert len(block) == 2, "блок монтирования панелей в app/main.py не найден"
+    mounted = block[1].split("else:", 1)[0]
+    assert "install_panel_auth_redirect(app)" in mounted, (
+        "панели смонтированы, а обработчик отказа не поставлен — 401 снова "
+        "станет тупиком для браузера")

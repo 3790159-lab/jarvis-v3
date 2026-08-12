@@ -43,6 +43,9 @@ def client(tmp_path, monkeypatch):
     api.include_router(pa.router)
     api.include_router(td.router)
     api.include_router(jp.router)
+    # Как в проде: обработчик отказа ставится там же, где монтируются роутеры.
+    # Что об этом не забыли в `app/main.py`, держит отдельный сторож ниже.
+    pa.install_panel_auth_redirect(api)
     return TestClient(api), str(db)
 
 
@@ -584,3 +587,77 @@ def test_panel_root_accepts_the_header_too(client):
     r = c.get("/panel", headers={"X-Panels-Key": KEY}, follow_redirects=False)
     assert r.status_code == 303
     assert r.headers["location"] == "/panel/tamapi"
+
+
+# ── 401 не должен быть тупиком ───────────────────────────────────────────────
+# Разбор 13.08: с телефона ходят ТРИ браузера (Chrome mobile, Samsung Internet,
+# Chrome в режиме «версия для ПК»). Cookie живёт в банке того браузера, где был
+# вход; в остальных любая панель отдавала голый JSON `{"detail":"owner key
+# required"}` — и выхода из него не было, ключ ввести негде. Набор адреса руками
+# это не лечило: дело не в способе перехода, а в том, чем открыто.
+
+HTML_ACCEPT = {"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"}
+
+
+def test_browser_without_cookie_is_sent_to_the_login_form(client):
+    c, _ = client
+    r = c.get("/panel/jarvis", headers=HTML_ACCEPT, follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"] == "/panel/login?next=%2Fpanel%2Fjarvis"
+
+
+def test_browser_without_cookie_on_the_client_panel_too(client):
+    """Отказывала не одна панель — к концу вечера и TAMAPI отдавала 401."""
+    c, _ = client
+    r = c.get("/panel/tamapi", headers=HTML_ACCEPT, follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"] == "/panel/login?next=%2Fpanel%2Ftamapi"
+
+
+def test_a_machine_client_still_gets_401_and_not_a_redirect(client):
+    """Приёмка ходит заголовком и ждёт 401 на неверном ключе. Редирект вместо
+    отказа превратил бы её красный в зелёный — сторож молчал бы о поломке."""
+    c, _ = client
+    r = c.get("/panel/jarvis", follow_redirects=False)          # Accept: */*
+    assert r.status_code == 401
+    r2 = c.get("/panel/jarvis", headers={"X-Panels-Key": "wrong"},
+               follow_redirects=False)
+    assert r2.status_code == 401
+
+
+def test_a_post_without_cookie_is_refused_not_redirected(client):
+    """Редирект на форму потерял бы тело действия: человек нажал «оплачено», а
+    вернулся бы на пустую форму и решил, что оплата записана."""
+    c, _ = client
+    r = c.post("/panel/tamapi/action", data={"data": "paidamt:750:777:volska"},
+               headers=HTML_ACCEPT, follow_redirects=False)
+    assert r.status_code == 401
+
+
+def test_the_return_target_stays_inside_the_whitelist(client):
+    """`next` уходит в ту же проверку белого списка, что и форма входа: иначе
+    ручка отказа становится генератором ссылок «куда угодно»."""
+    c, _ = client
+    r = c.get("/panel/jarvis/api/snapshot", headers=HTML_ACCEPT,
+              follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"] == "/panel/login?next=%2Fpanel%2Ftamapi"
+
+
+# ── связка панелей ──────────────────────────────────────────────────────────
+# Ссылки между панелями не было вовсе: путь на ферму приходилось набирать
+# руками, а руками его набирают в том браузере, который под рукой, — то есть
+# в чужой банке cookie. Связка убирает сам повод набирать адрес.
+
+def test_client_panel_links_to_the_farm(client):
+    c, _ = client
+    r = c.get("/panel/tamapi", headers={"X-Panels-Key": KEY})
+    assert r.status_code == 200
+    assert "href='/panel/jarvis'" in r.text
+
+
+def test_farm_links_back_to_the_client_panel(client):
+    c, _ = client
+    r = c.get("/panel/jarvis", headers={"X-Panels-Key": KEY})
+    assert r.status_code == 200
+    assert "href='/panel/tamapi'" in r.text

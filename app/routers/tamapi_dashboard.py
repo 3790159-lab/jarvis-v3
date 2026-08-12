@@ -441,7 +441,9 @@ async def main_screen(request: Request):
 <h2>Діалоги</h2>
 <div class='card'>{_feed_html(feed)}</div>
 
-<div style='margin-top:18px'><a href='/panel/tamapi/dynamics'>Динаміка →</a></div>
+<div style='margin-top:18px' class='row'>
+ <a href='/panel/tamapi/dynamics'>Динаміка →</a>
+ <a href='/panel/jarvis'>Ферма →</a></div>
 
 <div class='modal' id='pausebox' role='dialog' aria-modal='true'
      aria-labelledby='pausebox-title' tabindex='-1'

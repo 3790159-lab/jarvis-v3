@@ -16,9 +16,10 @@ from __future__ import annotations
 import html
 import os
 import secrets
+import urllib.parse
 
 from fastapi import APIRouter, Header, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 _ENV_KEY = "JARVIS_PANELS_KEY"
 _COOKIE = "panels_key"
@@ -45,6 +46,58 @@ def _same(provided: str, expected: str) -> bool:
         provided.strip().encode("utf-8"), expected.encode("utf-8"))
 
 
+class PanelLoginRequired(HTTPException):
+    """Отказ панели, из которого есть выход.
+
+    Наследник `HTTPException` намеренно: для всех, кто ходит машиной, это
+    прежний 401 и ничего больше. Отдельный класс нужен только затем, чтобы на
+    него можно было повесить свой обработчик, не трогая общий обработчик
+    приложения — панели не имеют права менять поведение остального бэкенда.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(status.HTTP_401_UNAUTHORIZED, "owner key required")
+
+
+def _wants_html(request) -> bool:
+    """Человек в браузере или машина.
+
+    Признак — `Accept: text/html` на GET. Браузер шлёт его при КАЖДОМ переходе;
+    приёмка и `curl` не шлют. Разводить обязательно: редирект вместо отказа
+    превратил бы красный сторожа в зелёный, а POST потерял бы тело действия —
+    человек нажал «оплачено», вернулся на пустую форму и решил, что записалось.
+    """
+    if request.method != "GET":
+        return False
+    return "text/html" in (request.headers.get("accept") or "")
+
+
+async def panel_login_redirect(request, exc):
+    """401 на `/panel/*` уводит браузер на форму входа вместо голого JSON.
+
+    Разбор 13.08: с телефона ходят три браузера (Chrome, Samsung Internet,
+    Chrome в режиме «версия для ПК»), cookie живёт в банке того, где был вход, —
+    и в остальных панель отдавала `{"detail":"owner key required"}`. Из этого
+    ответа нет выхода: ключ ввести негде, а набор адреса руками не помогает,
+    потому что дело не в способе перехода, а в том, чем открыто.
+
+    Куда вернуть — через тот же белый список, что и форма: иначе ручка отказа
+    становится генератором ссылок «куда угодно» с нашего же адреса.
+    """
+    if not _wants_html(request):
+        return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+    target = _safe_next(request.url.path)
+    return RedirectResponse(
+        f"/panel/login?next={urllib.parse.quote(target, safe='')}",
+        status_code=status.HTTP_303_SEE_OTHER)
+
+
+def install_panel_auth_redirect(app) -> None:
+    """Вешает обработчик. Зовётся там же, где монтируются роутеры панелей —
+    без ключа в окружении панелей нет, и обработчику нечего обслуживать."""
+    app.add_exception_handler(PanelLoginRequired, panel_login_redirect)
+
+
 def panels_enabled() -> bool:
     """Панели существуют, только если ключ задан. Без ключа роутеры не
     монтируются вовсе — «выключено» надёжнее, чем «включено, но защищено»."""
@@ -64,7 +117,7 @@ async def require_owner(
                             "panels disabled: JARVIS_PANELS_KEY not set")
     provided = x_panels_key or request.cookies.get(_COOKIE) or ""
     if not provided or not _same(provided, expected):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "owner key required")
+        raise PanelLoginRequired()
 
 
 COOKIE_NAME = _COOKIE

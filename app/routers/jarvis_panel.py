@@ -138,6 +138,8 @@ def panel():
 
 <div class='sub' style='margin-top:20px'>Фаза 0 — лише читання. Кнопок керування
  тут немає навмисно.</div>
+
+<div style='margin-top:16px'><a href='/panel/tamapi'>← Клієнти</a></div>
 """
     return HTMLResponse(page("Панель Джарвіса", body))
 
