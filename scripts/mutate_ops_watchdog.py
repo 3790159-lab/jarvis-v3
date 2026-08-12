@@ -6,14 +6,27 @@
 
 Механика и предохранители — те же: точечная замена, откат через git, отказ
 работать на грязном дереве.
+
+⚠️ 13.08: здесь стояла дыра DEV-26, которую до того чинили в платежах. Все
+семнадцать мутаций бьют в ОДИН файл, поэтому окно совпадения тут самое широкое
+из всех гейтов: две мутации одинакового размера, записанные в одну секунду,
+неотличимы для кэша байткода, и вторая исполняется байткодом первой. Гейт при
+этом печатает `[ok]`. Цифры прогонов до этой правки недостоверны.
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
+from itertools import count
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# Уникальный mtime на каждую запись: Python признаёт кэш байткода актуальным по
+# паре (mtime в целых секундах, размер исходника).
+_MTIME_BASE = 2_000_000_000
+_mtime_seq = count()
 
 WATCHDOG = "scripts/ops_watchdog.py"
 T_EVAL = "tests/test_ops_watchdog.py"
@@ -146,6 +159,17 @@ def assert_clean() -> None:
             "Закоммить их и повтори прогон:\n" + out)
 
 
+def write_mutant(path: Path, text: str) -> None:
+    """Записать мутанта и выдать ему СВОЙ mtime.
+
+    Без подписи два мутанта одинакового размера в одну секунду делят один
+    байткод, и второй прогон проверяет первый код. Сторож `[ok]` — ложный.
+    """
+    path.write_text(text, encoding="utf-8")
+    stamp = _MTIME_BASE + next(_mtime_seq)
+    os.utime(path, (stamp, stamp))
+
+
 def main() -> int:
     assert_clean()
     blind = []
@@ -156,7 +180,7 @@ def main() -> int:
             print("[!] МУТАЦИЯ НЕ ПРИМЕНИЛАСЬ: %s — фрагмент не найден" % name)
             blind.append((name, "фрагмент не найден"))
             continue
-        path.write_text(text.replace(old, new, 1), encoding="utf-8")
+        write_mutant(path, text.replace(old, new, 1))
         try:
             green = run(test)
         finally:
