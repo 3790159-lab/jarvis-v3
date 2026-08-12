@@ -465,3 +465,65 @@ def test_the_login_route_itself_is_dead_while_panels_are_disabled(tmp_path, monk
     r = c.post("/panel/login", data={"key": "что угодно"}, follow_redirects=False)
     assert r.status_code == 503
     assert "set-cookie" not in {k.lower() for k in r.headers}
+
+
+# ─────────────────────── узкий экран: страница не едет вбок ──────────────────
+
+def _rows_without_labels(html: str) -> list[str]:
+    """Строки таблиц, где непервая ячейка осталась без `data-l`.
+
+    На узком экране таблица перестраивается в карточку: заголовок колонки
+    исчезает, и подпись значению даёт ТОЛЬКО `data-l`. Ячейка без него
+    превращается в число без имени — «0.7» непонятно чего.
+    """
+    bad = []
+    for row in re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.S):
+        if "<th" in row:
+            continue
+        cells = re.findall(r"<td([^>]*)>", row)
+        if len(cells) < 2:
+            continue                      # одна ячейка — подписывать нечего
+        if any("colspan" in a for a in cells):
+            continue                      # строка-заглушка «немає даних»
+        for attrs in cells[1:]:
+            if "data-l=" not in attrs:
+                bad.append(row[:120])
+                break
+    return bad
+
+
+@pytest.mark.parametrize("path", ["/panel/tamapi", "/panel/jarvis"])
+def test_every_secondary_cell_carries_its_column_label(client, path):
+    c, _ = client
+    html = c.get(path, headers={"X-Panels-Key": KEY}).text
+    bad = _rows_without_labels(html)
+    assert not bad, (
+        f"{path}: ячейки без data-l — в мобильной раскладке они безымянны: {bad}")
+
+
+@pytest.mark.parametrize("path", ["/panel/tamapi", "/panel/jarvis"])
+def test_table_headers_live_in_thead(client, path):
+    """Перестройка гасит шапку через `thead`. Заголовок, оставленный голым
+    `<tr><th>`, на телефоне превратится в столбик слов над карточками."""
+    c, _ = client
+    html = c.get(path, headers={"X-Panels-Key": KEY}).text
+    for m in re.finditer(r"<table[^>]*>(.*?)</table>", html, re.S):
+        t = m.group(1)
+        if "<th" not in t:
+            continue
+        assert "<thead>" in t, f"{path}: таблица с <th> вне <thead>: {t[:120]}"
+
+
+def test_narrow_screen_rules_are_present(client):
+    """Сторож на сам медиазапрос: без него перестройка не включится ни на одном
+    телефоне, а разметка при этом останется «правильной» и все тесты выше
+    останутся зелёными."""
+    from app.routers.panels_ui import CSS
+    assert "@media(max-width:620px)" in CSS, "медиазапрос узкого экрана исчез"
+    assert "table td[data-l]::before" in CSS, "подписи колонок в карточке исчезли"
+    # Именно ЭТО правило, а не любое `min-width:0` в файле: проверка на голую
+    # подстроку пережила мутацию (правило снято, а подстрока осталась в
+    # соседних селекторах) — то есть не охраняла ничего.
+    flat = re.sub(r"\s+", "", CSS)
+    assert ".row>*,.grid>*,.funnel>*,.tile,.fstep{min-width:0}" in flat, (
+        "снят ограничитель на flex/grid-элементы — страница снова поедет вбок")

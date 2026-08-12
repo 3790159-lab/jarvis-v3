@@ -243,10 +243,10 @@ def _feed_html(feed: list[dict]) -> str:
         rows.append(
             f"<tr><td>{badge}<b>{esc(it['peer'])}</b><div class='sub'>"
             f"{esc((it['last_text'] or '')[:90])}</div></td>"
-            f"<td><span class='pill'>{esc(it['state'])}</span></td>"
-            f"<td class='sub'>{esc(ago(it['last_ts']))}</td></tr>")
-    return ("<table><tr><th>Лід</th><th>Стадія</th><th>Останнє</th></tr>"
-            + "".join(rows) + "</table>")
+            f"<td data-l='Стадія'><span class='pill'>{esc(it['state'])}</span></td>"
+            f"<td data-l='Останнє' class='sub'>{esc(ago(it['last_ts']))}</td></tr>")
+    return ("<table><thead><tr><th>Лід</th><th>Стадія</th><th>Останнє</th></tr>"
+            "</thead><tbody>" + "".join(rows) + "</tbody></table>")
 
 
 _JS = """

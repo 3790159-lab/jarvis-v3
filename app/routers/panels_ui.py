@@ -31,7 +31,16 @@ h2{font-size:15px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em
 .sub{color:var(--dim);font-size:13px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
   padding:14px 16px;margin-bottom:12px}
-.row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.row{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  flex-wrap:wrap}
+/* Флекс- и грид-элементы по умолчанию получают `min-width:auto` и отказываются
+   сжиматься уже своего содержимого — они выталкивают ВСЮ страницу в
+   горизонтальный скролл. На 390 px это резало не оформление, а факты и
+   действия: колонку «Останнє» целиком, половину кнопки «Зупинити всіх»,
+   «добовий ліміт», три из четырёх колонок таблицы арок. Ограничитель ставим
+   здесь, у источника; `overflow-x:hidden` на body был бы не починкой, а
+   заклеенным индикатором — контент так же остался бы обрезанным. */
+.row>*,.grid>*,.funnel>*,.tile,.fstep{min-width:0}
 .dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:8px;
   flex:0 0 auto}
 .ok{background:var(--ok)}.warn{background:var(--warn)}.bad{background:var(--bad)}
@@ -52,7 +61,7 @@ h2{font-size:15px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em
   padding:11px 12px;cursor:pointer;user-select:none}
 .tile.on{border-color:var(--sel,var(--acc));box-shadow:inset 0 0 0 1px var(--sel,var(--acc))}
 .tile .k{font-size:12px;color:var(--dim)}
-.tile .v{font-size:21px;font-weight:650;margin-top:3px}
+.tile .v{font-size:21px;font-weight:650;margin-top:3px;overflow-wrap:break-word}
 .tile .d{font-size:12px;margin-top:1px}
 .up{color:var(--ok)}.down{color:var(--bad)}.flat{color:var(--dim)}
 .funnel{display:flex;align-items:stretch;gap:6px;flex-wrap:wrap}
@@ -75,7 +84,10 @@ td,th{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left;
   vertical-align:top}
 th{color:var(--dim);font-weight:600;font-size:12px}
 tr:last-child td{border-bottom:none}
-.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+/* Пути worktree'ов и имена ключей — сплошные строки без пробелов: перенести
+   их не по чему, и на узком экране они распирают страницу в одиночку. */
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px;
+  overflow-wrap:anywhere}
 .empty{color:var(--dim);font-size:13px;padding:10px 2px}
 .note{background:#20242e;border-left:3px solid var(--warn);padding:9px 12px;
   border-radius:0 8px 8px 0;font-size:13px;color:#e8d9b6;margin-bottom:12px}
@@ -99,6 +111,37 @@ tr:last-child td{border-bottom:none}
    даёт 4.45 к фону — впритык мимо AA. */
 .slab{font-size:11px;color:var(--dim);text-transform:uppercase;
   letter-spacing:.04em;margin-right:7px}
+
+/* ─────────────────────────── Узкий экран (телефон) ───────────────────────
+   Основной сценарий панели — телефон, а не монитор: владелец открывает её на
+   ходу. Поэтому мобильная раскладка здесь не «деградация» широкой, а первый
+   класс.
+
+   Таблица на 3-5 колонок физически не умещается в 390 px: браузер не режет
+   её, он растягивает страницу, и вместе с таблицей за край уезжает ВЕСЬ
+   остальной экран. Единственная честная раскладка — строка становится
+   карточкой, а заголовок колонки переезжает в подпись перед значением
+   (`data-l`). Ячейка без `data-l` — главная в строке (имя лида, ветка), ей
+   подпись не нужна: она и так первая. */
+@media(max-width:620px){
+  body{padding:14px 12px}
+  .fstep{min-width:calc(50% - 3px)}
+  table{display:block}
+  thead{display:none}
+  table tr{display:block;padding:9px 0;border-bottom:1px solid var(--line)}
+  table tr:last-child{border-bottom:none}
+  /* Главная ячейка остаётся блоком: её содержимое (имя ветки + путь, имя лида
+     + последняя реплика) сверстано «одно под другим», и flex развернул бы эту
+     пару в строку. Ряд «подпись — значение» нужен только помеченным ячейкам. */
+  table td{display:block;border:none;padding:2px 0}
+  table td[data-l]{display:flex;gap:10px;align-items:baseline}
+  table td>*{min-width:0}
+  table td[data-l]::before{content:attr(data-l);flex:0 0 84px;
+    color:var(--dim);font-size:11px;text-transform:uppercase;
+    letter-spacing:.04em;line-height:1.5}
+  /* Пустая ячейка в карточке — просто пустая строка с подписью ни о чём. */
+  table td[data-l]:empty{display:none}
+}
 """
 
 # Слово к каждому состоянию. Без него строки «Ready · останній результат 0» и

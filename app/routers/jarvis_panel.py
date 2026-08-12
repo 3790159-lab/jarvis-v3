@@ -50,24 +50,25 @@ async def panel():
     arc_rows = "".join(
         f"<tr><td><b>{esc(a.get('branch', '—'))}</b>"
         f"<div class='sub mono'>{esc(a.get('path', ''))}</div></td>"
-        f"<td>{'🔴 брудне' if a.get('dirty') else '—'}</td>"
-        f"<td>{'✅' if a.get('merged') else '—'}</td>"
-        f"<td class='sub'>{esc(a.get('age_days'))} дн</td></tr>"
+        f"<td data-l='Дерево'>{'🔴 брудне' if a.get('dirty') else '—'}</td>"
+        f"<td data-l='Змерджена'>{'✅' if a.get('merged') else '—'}</td>"
+        f"<td data-l='Вік' class='sub'>{esc(a.get('age_days'))} дн</td></tr>"
         for a in arcs) or "<tr><td colspan=4 class='empty'>немає даних</td></tr>"
 
     ev_rows = "".join(
-        f"<tr><td class='sub'>{esc(e['src'])}</td><td>{esc(e['kind'])}</td>"
-        f"<td class='sub'>{esc((e['detail'] or '')[:110])}</td>"
-        f"<td class='sub'>{esc(ago(e['ts'], now)) if e['ts'] else '—'}</td></tr>"
+        f"<tr><td><b>{esc(e['kind'])}</b></td>"
+        f"<td data-l='Джерело' class='sub'>{esc(e['src'])}</td>"
+        f"<td data-l='Деталь' class='sub'>{esc((e['detail'] or '')[:110])}</td>"
+        f"<td data-l='Коли' class='sub'>{esc(ago(e['ts'], now)) if e['ts'] else '—'}</td></tr>"
         for e in snap["events"][:25]) or "<tr><td colspan=4 class='empty'>тихо</td></tr>"
 
     key_rows = "".join(
         f"<tr><td><span class='dot {_DOT.get(k['state'],'off')}'></span>{esc(k['name'])}</td>"
-        f"<td class='sub'>{esc(k['purpose'])}</td>"
-        f"<td>{esc(k['expires'] or '—')}"
+        f"<td data-l='Призначення' class='sub'>{esc(k['purpose'])}</td>"
+        f"<td data-l='Термін'>{esc(k['expires'] or '—')}"
         + (f" <span class='pill'>{k['days_left']} дн</span>" if k.get("days_left") is not None else "")
-        + f"</td><td class='sub'>{esc(k['auto'] or '—')}</td>"
-        f"<td class='sub'>{esc(k['note'])}</td></tr>"
+        + f"</td><td data-l='Авто' class='sub'>{esc(k['auto'] or '—')}</td>"
+        f"<td data-l='Нотатка' class='sub'>{esc(k['note'])}</td></tr>"
         for k in snap["keys"])
 
     body = f"""
@@ -87,21 +88,21 @@ async def panel():
 
 <h2>Арки в роботі</h2>
 <div class='card'><table>
-<tr><th>Гілка</th><th>Стан дерева</th><th>Змерджена</th><th>Вік</th></tr>
-{arc_rows}</table></div>
+<thead><tr><th>Гілка</th><th>Стан дерева</th><th>Змерджена</th><th>Вік</th></tr></thead>
+<tbody>{arc_rows}</tbody></table></div>
 
 <h2>Ключі API</h2>
 <div class='card'>
   <div class='sub' style='margin-bottom:8px'>Значення ключів тут не зберігаються,
    не розшифровуються і не показуються — лише метадані.</div>
-  <table><tr><th>Ключ</th><th>Призначення</th><th>Термін</th><th>Авто</th><th>Нотатка</th></tr>
-  {key_rows}</table>
+  <table><thead><tr><th>Ключ</th><th>Призначення</th><th>Термін</th><th>Авто</th>
+  <th>Нотатка</th></tr></thead><tbody>{key_rows}</tbody></table>
 </div>
 
 <h2>Стрічка подій</h2>
 <div class='card'><table>
-<tr><th>Джерело</th><th>Подія</th><th>Деталь</th><th>Коли</th></tr>
-{ev_rows}</table>
+<thead><tr><th>Подія</th><th>Джерело</th><th>Деталь</th><th>Коли</th></tr></thead>
+<tbody>{ev_rows}</tbody></table>
 <div class='sub' style='margin-top:8px'>⚠️ «Пораховано» ≠ «доїхало»: доставка
  алертів сьогодні не журналюється — це відомий пробіл, а не тиша.</div></div>
 
