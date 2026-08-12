@@ -14,6 +14,7 @@ Then serve ``app.main:app`` with uvicorn. Run by
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -26,12 +27,17 @@ import app.env_bootstrap  # noqa: E402,F401  side-effect: loads .env + .env.runp
 
 import uvicorn  # noqa: E402
 
-HOST = "127.0.0.1"
+from app.backend_bind import ENV_VAR, resolve_bind_host  # noqa: E402
+
 PORT = 8010
 
 
 def main() -> None:
-    uvicorn.run("app.main:app", host=HOST, port=PORT, log_level="info")
+    # Адрес — настройка `JARVIS_BACKEND_HOST` (.env, читается env_bootstrap выше),
+    # дефолт — петля. Подробности и грабли tailnet-bind'а — в app/backend_bind.py.
+    host = resolve_bind_host()
+    print(f"[backend] bind {host}:{PORT} ({ENV_VAR}={os.environ.get(ENV_VAR) or 'unset'})")
+    uvicorn.run("app.main:app", host=host, port=PORT, log_level="info")
 
 
 if __name__ == "__main__":

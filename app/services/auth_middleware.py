@@ -40,7 +40,15 @@ PUBLIC_EXACT = frozenset(
 # Prefixes whose whole subtree is public. /api/jarvis/ops/* is low-sensitivity
 # liveness (heartbeat / cloudflared / disk / restart-storm) polled by the
 # external Uptime Kuma monitor, which cannot easily carry a key.
-PUBLIC_PREFIXES = ("/api/jarvis/ops/",)
+#
+# /panel/* — панели владельца. «Public» здесь означает только «этот guard не
+# участвует»: он умеет единственный механизм, заголовок X-API-Key, а панель
+# открывается ключом владельца в query/cookie, которого guard не видит — и
+# потому глухо отдавал 401 ещё до роутера. Субтри закрыт зависимостью
+# `require_owner` на каждой ручке, кроме самой двери /panel/login (она сама
+# сверяет ключ и fail-closed'ит 503 без него). Что это остаётся правдой,
+# держит tests/test_panel_routes_owner_guarded.py.
+PUBLIC_PREFIXES = ("/api/jarvis/ops/", "/panel/")
 
 
 def _mode() -> str:
