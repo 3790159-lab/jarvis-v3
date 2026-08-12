@@ -18,6 +18,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.services import tamapi_metrics as M
+from chatter.payments.model import PaymentRecord, make_dedup_key
+from chatter.payments.money import from_major
 from chatter.storage.db import Store
 
 KEY = "test-owner-key"
@@ -70,11 +72,35 @@ def test_repeated_events_do_not_inflate_the_funnel(one_lead_many_events):
     assert f["handed"] == 1, "три карточки одного лида — это один человек"
 
 
-def test_no_step_can_exceed_the_cohort(one_lead_many_events):
+def test_no_step_can_exceed_the_cohort(tmp_path):
     """Инвариант держится КОНСТРУКЦИЕЙ: каждая ступень — подмножество когорты,
-    поэтому доля выше 100% невозможна, и зажимать её не нужно."""
-    f = M.summary(one_lead_many_events, now=NOW, period="week")["funnel"]
+    поэтому доля выше 100% невозможна, и зажимать её не нужно.
+
+    Данные подобраны так, чтобы проверка РАЗЛИЧАЛА: в когорте один свежий лид, а
+    события (переход, карточка, оплата) висят на ДВУХ лидах вне окна. Ступень,
+    посчитанная мимо когорты, даст 2 при когорте 1 — то есть 200%. Первая
+    версия теста этого не ловила: у неё событий вне когорты не было вовсе, и
+    мутация «оплаты мимо когорты» оставляла её зелёной (гейт DEV-26)."""
+    p = tmp_path / "cohort_guard.db"
+    s = Store(str(p))
+    s.get_or_create_contact("fresh:volska")
+    s.add_message("fresh:volska", "user", "сьогодні", ts=NOW - HOUR)
+    for i in range(2):
+        cid = f"old{i}:volska"
+        s.get_or_create_contact(cid)
+        s.add_message(cid, "user", "давно", ts=NOW - 9 * DAY)
+        s.record_transition(cid, from_state="qualifying", to_state="hot",
+                            signal="interested", ts=NOW - DAY)
+        s.add_card(msg_id=200 + i, contact_id=cid, kind="escalation", ts=NOW - DAY)
+        s.record_payment(PaymentRecord(
+            contact_id=cid, dedup_key=make_dedup_key("tap", 50 + i), ts=NOW - DAY,
+            confirmed_by="owner", amount=from_major("750", "USD")))
+    del s
+
+    f = M.summary(str(p), now=NOW, period="week")["funnel"]
+    assert f["dialogs"] == 1
     for step in ("qualified", "handed", "payments"):
+        assert f[step] == 0, f"ступень «{step}» посчитана мимо когорты"
         assert f[step] <= f["dialogs"]
 
 
