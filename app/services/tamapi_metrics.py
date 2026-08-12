@@ -57,6 +57,10 @@ class Series:
     points: list[tuple[float, float | None]] = field(default_factory=list)
     total: float | None = None
     prev_total: float | None = None
+    # Сколько наблюдений стоит за total/prev_total. «▼100%» при n=1 против n=1 —
+    # это два разных лида, а не падение; процент без основания не сравнение.
+    basis: int | None = None
+    prev_basis: int | None = None
     history_since: float | None = None   # с какого момента данные вообще есть
     available: bool = True               # False → «історія накопичується з …»
 
@@ -107,28 +111,58 @@ def _avg_length(conn, a: float, b: float) -> float | None:
     return round(statistics.mean([r["n"] for r in rows]), 1) if rows else None
 
 
-def _qualified(conn, a: float, b: float) -> float | None:
+# Все ступени воронки считают ЛЮДЕЙ, а не строки. 12.08 один лид дал «4
+# кваліфіковано» при «1 діалог» — 400%, потому что числитель считал СТРОКИ
+# переходов (он четырежды выпадал из hot и возвращался), а знаменатель людей.
+# Событийная правда не пропала: она живёт в блоке «Навантаження» (`load`).
+
+def _hot_people(conn, a: float, b: float) -> set[str] | None:
     if not _table_exists(conn, "funnel_transitions"):
         return None
-    row = conn.execute(
-        "SELECT COUNT(*) AS n FROM funnel_transitions "
-        "WHERE to_state='hot' AND ts >= ? AND ts < ?", (a, b)).fetchone()
-    return float(row["n"])
+    return {r["contact_id"] for r in conn.execute(
+        "SELECT DISTINCT contact_id FROM funnel_transitions "
+        "WHERE to_state='hot' AND ts >= ? AND ts < ?", (a, b))}
+
+
+def _carded_people(conn, a: float, b: float) -> set[str]:
+    return {r["contact_id"] for r in conn.execute(
+        "SELECT DISTINCT contact_id FROM console_cards "
+        "WHERE kind='escalation' AND ts >= ? AND ts < ?", (a, b))}
+
+
+def _paid_people(conn, a: float, b: float) -> set[str] | None:
+    if not _table_exists(conn, "payments"):
+        return None
+    return {r["contact_id"] for r in conn.execute(
+        "SELECT DISTINCT contact_id FROM payments WHERE ts >= ? AND ts < ?", (a, b))}
+
+
+def _qualified(conn, a: float, b: float) -> float | None:
+    people = _hot_people(conn, a, b)
+    return None if people is None else float(len(people))
 
 
 def _handed(conn, a: float, b: float) -> float | None:
-    row = conn.execute(
-        "SELECT COUNT(*) AS n FROM console_cards "
-        "WHERE kind='escalation' AND ts >= ? AND ts < ?", (a, b)).fetchone()
-    return float(row["n"])
+    return float(len(_carded_people(conn, a, b)))
 
 
 def _payments(conn, a: float, b: float) -> float | None:
-    if not _table_exists(conn, "payments"):
-        return None
-    row = conn.execute(
-        "SELECT COUNT(*) AS n FROM payments WHERE ts >= ? AND ts < ?", (a, b)).fetchone()
-    return float(row["n"])
+    people = _paid_people(conn, a, b)
+    return None if people is None else float(len(people))
+
+
+def _events(conn, a: float, b: float) -> dict:
+    """Нагрузка: СОБЫТИЯ за период. Отдельно от воронки и с явным именем —
+    «сколько раз это случилось», а не «со сколькими людьми»."""
+    cards = conn.execute(
+        "SELECT COUNT(*) AS n FROM console_cards "
+        "WHERE kind='escalation' AND ts >= ? AND ts < ?", (a, b)).fetchone()["n"]
+    trans = None
+    if _table_exists(conn, "funnel_transitions"):
+        trans = conn.execute(
+            "SELECT COUNT(*) AS n FROM funnel_transitions "
+            "WHERE to_state='hot' AND ts >= ? AND ts < ?", (a, b)).fetchone()["n"]
+    return {"transitions": trans, "cards": cards}
 
 
 def _avg_check(conn, a: float, b: float) -> float | None:
@@ -144,14 +178,22 @@ def _avg_check(conn, a: float, b: float) -> float | None:
     return round(row["a"] / 100.0, 1) if row and row["a"] is not None else None
 
 
-def _duration_days(conn, a: float, b: float) -> float | None:
-    """МЕДИАНА, не среднее: один заброшенный диалог, висящий месяц, утаскивает
-    среднее и делает метрику бесполезной (спека §6.4)."""
+def _duration_spans(conn, a: float, b: float) -> list[float]:
     rows = conn.execute(
         "SELECT contact_id, MIN(ts) AS f, MAX(ts) AS l FROM messages "
         "GROUP BY contact_id HAVING MAX(ts) >= ? AND MAX(ts) < ?", (a, b)).fetchall()
-    spans = [(r["l"] - r["f"]) / 86400.0 for r in rows if r["l"] > r["f"]]
-    return round(statistics.median(spans), 1) if spans else None
+    return [(r["l"] - r["f"]) / 86400.0 for r in rows if r["l"] > r["f"]]
+
+
+def _duration_days(conn, a: float, b: float) -> float | None:
+    """МЕДИАНА, не среднее: один заброшенный диалог, висящий месяц, утаскивает
+    среднее и делает метрику бесполезной (спека §6.4).
+
+    Результат НЕ округляется: округление до десятых ДНЯ схлопывало всё короче
+    2.4 часа в ноль, и на экране стояло «0 хв» при диалоге на десять минут.
+    Единицу выбирает показ (`_fmt_value`), а не хранение."""
+    spans = _duration_spans(conn, a, b)
+    return statistics.median(spans) if spans else None
 
 
 _CALC = {
@@ -162,6 +204,12 @@ _CALC = {
     "payments":  _payments,
     "avg_check": _avg_check,
     "duration":  _duration_days,
+}
+
+# Основание выборки там, где показатель — статистика по нескольким диалогам, а
+# не счёт. У счётчиков основание совпадает со значением и смысла не несёт.
+_BASIS = {
+    "duration": lambda c, a, b: len(_duration_spans(c, a, b)),
 }
 
 
@@ -191,19 +239,39 @@ def series_for(db_path, keys: list[str], period: str, *, now: float) -> list[Ser
                 t += bucket
             s.total = calc(conn, start, now)
             s.prev_total = calc(conn, start - span, start)
+            basis = _BASIS.get(key)
+            if basis is not None:
+                s.basis = basis(conn, start, now)
+                s.prev_basis = basis(conn, start - span, start)
             out.append(s)
     return out
 
 
 def summary(db_path, *, now: float, period: str = "week") -> dict:
-    """Всё для главного экрана + плиток «Динамики» одним проходом."""
+    """Всё для главного экрана + плиток «Динамики» одним проходом.
+
+    ВОРОНКА СЧИТАЕТ ЛЮДЕЙ И ТОЛЬКО ИЗ КОГОРТЫ. Когорта — первая ступень: те,
+    кто писал в окне. Каждая следующая ступень — пересечение с ней, поэтому
+    ступень физически не может быть больше когорты, а доля — больше 100%.
+    Инвариант держится КОНСТРУКЦИЕЙ, а не зажимом `min(pct, 100)`: зажим прячет
+    расхождение ровно там, где оно и означало ошибку счёта.
+
+    Доля каждой ступени считается ОТ КОГОРТЫ, а не от предыдущей строки. Иначе
+    «передан человеку, но классификатором не квалифицирован» даёт деление на
+    ноль, а на живых данных 12.08 давало правдоподобные «75%», за которыми не
+    стояло ничего.
+    """
     cfg = PERIODS.get(period) or PERIODS["week"]
     start = now - cfg["span"]
     with _ro(db_path) as conn:
         dialogs = _dialogs(conn, start, now)
-        qualified = _qualified(conn, start, now)
-        handed = _handed(conn, start, now)
-        pays = _payments(conn, start, now)
+        cohort = set(dialogs)
+        hot = _hot_people(conn, start, now)
+        carded = _carded_people(conn, start, now)
+        paid = _paid_people(conn, start, now)
+        qualified = None if hot is None else float(len(cohort & hot))
+        handed = float(len(cohort & carded))
+        pays = None if paid is None else float(len(cohort & paid))
         paid_rows = (conn.execute(
             "SELECT amount_minor FROM payments WHERE ts >= ? AND ts < ?", (start, now)
         ).fetchall() if _table_exists(conn, "payments") else [])
@@ -221,6 +289,7 @@ def summary(db_path, *, now: float, period: str = "week") -> dict:
                 "handed": handed,
                 "payments": pays,
             },
+            "load": _events(conn, start, now),
             "avg_check": (round(statistics.mean(with_amount), 1) if with_amount else None),
             "avg_check_basis": (len(with_amount), len(paid_rows)),
             "outbound_today": out_today,
@@ -231,12 +300,24 @@ def summary(db_path, *, now: float, period: str = "week") -> dict:
         }
 
 
-def needs_attention(db_path, *, now: float, limit: int = 10) -> list[dict]:
+# Порог свежести карточки (решение владельца 12.08). Всё старше — «застаріле»:
+# не удаляется и не гасится молча (тихо закрытый чужой долг — отдельный класс
+# бага, P17), но и не лежит вперемешку со свежим.
+STALE_AFTER = 48 * 3600.0
+
+
+def needs_attention(db_path, *, now: float, limit: int = 50) -> list[dict]:
     """Блок «Требует вас»: контакты с ОТКРЫТОЙ карточкой эскалации.
 
     Открытость определяется рабочим флагом `esc_active:<contact>` — тем же, по
     которому дедуплицируются карточки в пульте: решающее действие владельца его
-    чистит. Так веб и TG показывают одно и то же множество."""
+    чистит. Так веб и TG показывают одно и то же множество.
+
+    Возрастов ДВА, и это разные вопросы: `card_ts` — когда бот поднял руку,
+    `last_ts` — сколько человек ждёт ответа. Живьём 12.08 в блоке висели
+    карточки 8- и 14-дневной давности вперемешку со свежей, причём одна — на
+    контакте в терминальном состоянии: бот с ним уже не работает, а карточка
+    открыта. Такое противоречие помечается, а не прячется."""
     with _ro(db_path) as conn:
         rows = conn.execute(
             "SELECT key, value FROM runtime_flags WHERE key LIKE 'esc_active:%'"
@@ -253,14 +334,18 @@ def needs_attention(db_path, *, now: float, limit: int = 10) -> list[dict]:
                 "SELECT ts FROM console_cards WHERE contact_id=? AND kind='escalation' "
                 "ORDER BY msg_id DESC LIMIT 1", (contact_id,)).fetchone()
             who = conn.execute(
-                "SELECT display_name FROM contacts WHERE contact_id=?",
+                "SELECT display_name, state FROM contacts WHERE contact_id=?",
                 (contact_id,)).fetchone()
+            card_ts = card["ts"] if card else None
             out.append({
                 "contact_id": contact_id,
                 "peer": _peer(contact_id, who["display_name"] if who else None),
                 "last_text": (last["text"] if last else ""),
                 "last_ts": (last["ts"] if last else None),
-                "card_ts": (card["ts"] if card else None),
+                "card_ts": card_ts,
+                "stale": bool(card_ts is not None and now - card_ts > STALE_AFTER),
+                "dead": bool(who is not None
+                             and (who["state"] or "") in TERMINAL_STATES),
             })
         out.sort(key=lambda x: x["card_ts"] or 0, reverse=True)
         return out[:limit]

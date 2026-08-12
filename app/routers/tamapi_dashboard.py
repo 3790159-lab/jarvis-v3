@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import time
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Form, Query, Request
@@ -74,25 +75,50 @@ def _status() -> dict:
             "sub": "відповідає", "age": age}
 
 
-def _package() -> dict:
+def _month_start(now: float) -> float:
+    """Начало КАЛЕНДАРНОГО месяца в локальном времени.
+
+    Было скользящее окно `now - 30*86400`: оно не обнуляется первого числа, то
+    есть бар жил не по тому счёту, который клиент оплачивает. Локальное время, а
+    не UTC: месяц у клиента заканчивается по его календарю."""
+    d = datetime.fromtimestamp(now)
+    return d.replace(day=1, hour=0, minute=0, second=0,
+                     microsecond=0).timestamp()
+
+
+def _package(now: float | None = None) -> dict:
     """Пакет-бар. Месячного пакета в конфиге нет (он биллинговый, живёт в
     control-plane) — до его появления берём из env, а суточный cap показываем
     как есть. Исчерпание НЕ отключает бота (решение владельца): 80/100 % —
-    уведомления, сверх — пометка перерасхода, отключение только вручную."""
+    уведомления, сверх — пометка перерасхода, отключение только вручную.
+
+    Считаем УНИКАЛЬНЫХ ЛИДОВ за календарный месяц. Мера та же, что у первой
+    ступени воронки, но окно другое — поэтому и подпись обязана быть другой:
+    «1 діалог» в воронке и «4 діалоги» в баре читались как противоречие, хотя
+    противоречия не было."""
     cfg = _cfg()
+    now = time.time() if now is None else now
     limit = int(os.getenv("TAMAPI_PACKAGE", "500"))
+    since = _month_start(now)
     used = 0
     try:
         with M._ro(_db_path()) as c:
-            month_start = time.time() - 30 * 86400
             used = c.execute(
                 "SELECT COUNT(DISTINCT contact_id) AS n FROM messages "
-                "WHERE role='user' AND ts >= ?", (month_start,)).fetchone()["n"]
+                "WHERE role='user' AND ts >= ? AND ts < ?",
+                (since, now)).fetchone()["n"]
     except Exception:
         pass
     pct = (used / limit * 100.0) if limit else 0.0
+    over = max(0, used - limit)
     return {"used": used, "limit": limit, "pct": pct,
-            "over": max(0, used - limit),
+            "over": over,
+            # Доля перерасхода от пакета — чтобы полоска могла его НАРИСОВАТЬ.
+            # Раньше ширина резалась `min(pct, 100)`, и перерасход существовал
+            # только в тексте примечания: полоска показывала ровно «всё в норме».
+            "over_pct": (over / limit * 100.0) if limit else 0.0,
+            "since": since,
+            "since_label": datetime.fromtimestamp(since).strftime("%d.%m"),
             "daily_cap": (cfg.settings.limits.daily_cap if cfg else None)}
 
 
@@ -108,10 +134,11 @@ def _funnel_html(sm: dict) -> str:
     # 31.07, спека §2.3): это мнение КЛАССИФИКАТОРА, а не отметка человека.
     # Без подписи клиент прочтёт оценку модели как проверенный факт, и первое
     # же расхождение будет стоить доверия ко всему экрану.
-    steps = [("Діалоги", f["dialogs"], ""),
+    steps = [("Ліди", f["dialogs"], "унікальні за 7 днів"),
              ("Кваліфіковано", f["qualified"], "за оцінкою асистента"),
              ("Передано вам", f["handed"], ""),
              ("Оплати", f["payments"], "")]
+    cohort = f["dialogs"]
     out = []
     for i, (label, val, note) in enumerate(steps):
         if val is None:
@@ -121,32 +148,82 @@ def _funnel_html(sm: dict) -> str:
         else:
             body = f"<div class='n'>{val:g}</div>"
         pct = ""
-        if i and val is not None and steps[i-1][1]:
-            pct = f"<div class='p'>{val / steps[i-1][1] * 100:.0f}%</div>"
+        # Доля — от КОГОРТЫ (первой ступени), а не от предыдущей строки: все
+        # ступени считают людей из одного и того же множества, поэтому доля
+        # больше 100% невозможна по построению и зажимать её нечем.
+        if i and val is not None and cohort:
+            pct = f"<div class='p'>{val / cohort * 100:.0f}%</div>"
         note_html = (f"<div class='sub'>{esc(note)}</div>" if note else "")
         out.append(f"<div class='fstep'>{body}<div class='l'>{esc(label)}</div>"
                    f"{note_html}{pct}</div>")
     return f"<div class='funnel'>{''.join(out)}</div>"
 
 
+def _load_html(sm: dict) -> str:
+    """Нагрузка = СОБЫТИЯ. Отдельный блок, потому что события и люди — разные
+    величины: 12.08 один лид дал четыре перехода в «гаряче» и три карточки, и
+    смешение этих чисел с людьми давало «400%». Выбрасывать события нельзя —
+    они и есть ответ на вопрос «почему цифры разошлись»."""
+    load = sm.get("load") or {}
+    people = sm["funnel"]["dialogs"]
+    rows = []
+    if load.get("transitions") is not None:
+        rows.append(("Переходів у «гаряче»", load["transitions"]))
+    rows.append(("Карток передачі вам", load["cards"]))
+    out = []
+    for label, n in rows:
+        per = f" · {n / people:.1f} на ліда" if people else ""
+        out.append(f"<div class='row'><span>{esc(label)}</span>"
+                   f"<span class='sub'>{n:g} подій{esc(per)}</span></div>")
+    return "".join(out)
+
+
+def _attention_card(it: dict) -> str:
+    cid = esc(it["contact_id"])
+    # Два возраста, а не один: «підняв руку» — когда бот попросил вмешаться,
+    # «чекає» — сколько человек ждёт ответа. Раньше было видно только первое.
+    dead = ("<div class='sub' style='color:var(--bad)'>"
+            "лід мертвий, картку не закрито</div>") if it.get("dead") else ""
+    return (
+        "<div class='card' style='background:var(--panel2)'>"
+        f"<div class='row'><b>{esc(it['peer'])}</b>"
+        f"<span class='sub'>підняв руку {esc(ago(it['card_ts']))}"
+        f" · чекає {esc(ago(it['last_ts']))}</span></div>"
+        f"{dead}"
+        f"<div class='sub' style='margin:6px 0'>Останнє: "
+        f"«{esc((it['last_text'] or '')[:120])}»</div>"
+        "<div style='display:flex;gap:6px;flex-wrap:wrap'>"
+        f"<button class='btn sm' onclick=\"act('resume:{cid}')\">▶️ Повернути</button>"
+        f"<button class='btn sm' onclick=\"act('snooze:{cid}')\">⏸ Ще 1год</button>"
+        f"<button class='btn sm' onclick=\"act('keep:{cid}')\">✅ Лишити боту</button>"
+        f"<button class='btn sm' onclick=\"paid('{cid}')\">💰 Оплачено</button>"
+        "</div></div>")
+
+
 def _attention_html(items: list[dict], lang: str) -> str:
+    """Свежее — карточками, застарелое — счётчиком под свёрткой.
+
+    Порог `STALE_AFTER` (48 годин). Застарелое НЕ удаляется и не гасится: тихо
+    закрытый чужой долг — отдельный класс бага. Но и лежать вперемешку со
+    свежим оно не имеет права: 12.08 в блоке стояли карточки 8- и 14-дневной
+    давности, и «Требує вас» читалось как «требует прямо сейчас»."""
     if not items:
         return ("<div class='empty'>Зараз нічого не потребує вашої уваги.</div>")
-    out = []
-    for it in items:
-        cid = esc(it["contact_id"])
+    fresh = [i for i in items if not i.get("stale")]
+    stale = [i for i in items if i.get("stale")]
+    out = [_attention_card(it) for it in fresh]
+    if not fresh:
+        out.append("<div class='empty'>Свіжого — нічого.</div>")
+    if stale:
+        rows = "".join(
+            f"<div class='row'><span>{esc(it['peer'])}</span>"
+            f"<span class='sub'>{esc(ago(it['card_ts']))}"
+            + (" · лід мертвий" if it.get("dead") else "")
+            + "</span></div>" for it in stale)
         out.append(
-            "<div class='card' style='background:var(--panel2)'>"
-            f"<div class='row'><b>{esc(it['peer'])}</b>"
-            f"<span class='sub'>{esc(ago(it['card_ts']))}</span></div>"
-            f"<div class='sub' style='margin:6px 0'>Останнє: "
-            f"«{esc((it['last_text'] or '')[:120])}»</div>"
-            "<div style='display:flex;gap:6px;flex-wrap:wrap'>"
-            f"<button class='btn sm' onclick=\"act('resume:{cid}')\">▶️ Повернути</button>"
-            f"<button class='btn sm' onclick=\"act('snooze:{cid}')\">⏸ Ще 1год</button>"
-            f"<button class='btn sm' onclick=\"act('keep:{cid}')\">✅ Лишити боту</button>"
-            f"<button class='btn sm' onclick=\"paid('{cid}')\">💰 Оплачено</button>"
-            "</div></div>")
+            "<details class='card' style='background:var(--panel2)'>"
+            f"<summary>Застарілі ({len(stale)}) · старші за 48 годин</summary>"
+            f"{rows}</details>")
     return "".join(out)
 
 
@@ -233,11 +310,15 @@ async def main_screen(request: Request):
     sm = M.summary(db, now=now, period="week")
     cfg = _cfg()
     lang = cfg.settings.language if cfg else "uk"
-    pkg = _package()
+    pkg = _package(now=now)
     att = M.needs_attention(db, now=now)
     feed = M.dialog_feed(db, now=now, limit=12)
 
     bar_cls = "bar" + (" b" if pkg["pct"] >= 100 else (" w" if pkg["pct"] >= 80 else ""))
+    # Перерасход рисуется отдельным сегментом поверх полной шкалы: `min(pct,100)`
+    # оставлял его существовать только в тексте примечания.
+    over_seg = (f"<b class='over' style='width:{min(pkg['over_pct'], 100):.0f}%'></b>"
+                if pkg["over"] else "")
     over_note = ""
     if pkg["pct"] >= 100:
         over_note = ("<div class='note'>Пакет вичерпано. Бот <b>продовжує працювати</b> — "
@@ -293,12 +374,16 @@ async def main_screen(request: Request):
 <h2>Воронка · 7 днів</h2>
 <div class='card'>{_funnel_html(sm)}</div>
 
+<h2>Навантаження · 7 днів</h2>
+<div class='card'>{_load_html(sm)}</div>
+
 <h2>Пакет</h2>
 <div class='card'>
-  <div class='row'><span>{pkg['used']} / {pkg['limit']} діалогів</span>
+  <div class='row'><span>{pkg['used']} / {pkg['limit']} унікальних лідів цього місяця</span>
     <span class='sub'>добовий ліміт: {esc(pkg['daily_cap'])}</span></div>
+  <div class='sub'>з {esc(pkg['since_label'])}</div>
   <div class='{bar_cls}' style='margin-top:8px'>
-    <i style='width:{min(pkg['pct'], 100):.0f}%'></i></div>
+    <i style='width:{min(pkg['pct'], 100):.0f}%'></i>{over_seg}</div>
 </div>
 
 <h2>Діалоги</h2>
@@ -384,6 +469,11 @@ async def dynamics(request: Request,
         else:
             val = f"<div class='v'>{_fmt_value(d, s.total)}</div>"
             dl = delta_html(s.total, s.prev_total)
+            # Процент без основания выборки — не сравнение: «▼100%» при n=1
+            # против n=1 это два разных лида, а не падение показателя.
+            if s.basis is not None:
+                dl += (f"<div class='sub'>n={s.basis} проти "
+                       f"n={s.prev_basis if s.prev_basis is not None else 0}</div>")
         nxt = [k for k in keys if k != d.key] if on else keys[:2] + [d.key]
         q = "&".join(f"m={k}" for k in (nxt or ["dialogs"]))
         tiles.append(

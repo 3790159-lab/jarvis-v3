@@ -61,10 +61,15 @@ h2{font-size:15px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em
 .fstep .n{font-size:20px;font-weight:650}
 .fstep .l{font-size:12px;color:var(--dim)}
 .fstep .p{font-size:12px;color:var(--acc);margin-top:2px}
+/* Полоска пакета: основная часть + СЕГМЕНТ ПЕРЕРАСХОДА. Оба видимы разом,
+   поэтому flex, а не абсолютное позиционирование: перерасход не имеет права
+   быть невидимым, как было при `min(pct,100)` на одной шкале. */
 .bar{height:10px;background:var(--panel2);border-radius:6px;overflow:hidden;
-  border:1px solid var(--line)}
+  border:1px solid var(--line);display:flex}
 .bar>i{display:block;height:100%;background:var(--ok)}
 .bar.w>i{background:var(--warn)}.bar.b>i{background:var(--bad)}
+.bar>b.over{display:block;height:100%;background:repeating-linear-gradient(
+  45deg,var(--bad),var(--bad) 3px,transparent 3px,transparent 6px)}
 table{width:100%;border-collapse:collapse;font-size:13px}
 td,th{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left;
   vertical-align:top}
