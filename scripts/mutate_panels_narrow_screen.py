@@ -81,10 +81,15 @@ def write_mutant(path: Path, text: str) -> None:
 
 def run(test: str) -> bool:
     """True = тест зелёный."""
+    # encoding задан явно: под Windows `text=True` берёт cp1251, и первый же
+    # кириллический ассерт в выводе pytest роняет читающий поток
+    # UnicodeDecodeError. Прогон при этом «проходит», но вывод теряется —
+    # диагностика слепнет ровно там, где мутация что-то нашла.
     p = subprocess.run(
         [sys.executable, "-m", "pytest", test, "-q", "--no-header",
          "-p", "no:cacheprovider"],
-        cwd=ROOT, capture_output=True, text=True)
+        cwd=ROOT, capture_output=True, text=True,
+        encoding="utf-8", errors="replace")
     return p.returncode == 0
 
 
