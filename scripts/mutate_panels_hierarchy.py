@@ -176,9 +176,17 @@ MUTATIONS = [
 
     ("суточный лимит снова печатается пустотой", TD,
      [("""    cap_txt = (f"добовий ліміт: {esc(pkg['daily_cap'])}"
-               if pkg["daily_cap"] is not None else "добовий ліміт не заданий")""",
+               if pkg["daily_cap"] is not None else "конфіг клієнта не прочитано")""",
        """    cap_txt = f"добовий ліміт: {esc(pkg['daily_cap'])}\"""")],
-     f"{T}::test_a_missing_daily_cap_says_so_instead_of_an_empty_value"),
+     f"{T}::test_an_unreadable_client_config_says_so_instead_of_an_empty_value"),
+
+    # Парная: заглушка обязана называть причину. Возврат к «ліміт не заданий»
+    # — не косметика: это спокойная формулировка там, где экран не знает о
+    # клиенте ничего, то есть тревога, замаскированная под настройку.
+    ("заглушка снова врёт спокойной формулировкой", TD,
+     [("""else "конфіг клієнта не прочитано")""",
+       """else "добовий ліміт не заданий")""")],
+     f"{T}::test_an_unreadable_client_config_says_so_instead_of_an_empty_value"),
 
     ("график из одной точки снова рисуется", UI,
      [("    return sum(1 for _, v in s.points if v is not None) >= 2",
