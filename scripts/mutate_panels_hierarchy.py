@@ -31,6 +31,7 @@ _mtime_seq = count()
 UI = "app/routers/panels_ui.py"
 JP = "app/routers/jarvis_panel.py"
 TD = "app/routers/tamapi_dashboard.py"
+FARM = "app/services/jarvis_farm.py"
 T = "tests/chatter/test_panels_hierarchy.py"
 
 # Блок статуса целиком — для мутации «порядок блоков». Переставляем его ВЫШЕ
@@ -199,7 +200,105 @@ MUTATIONS = [
      [("    return sum(1 for _, v in s.points if v is not None) >= 2",
        "    return sum(1 for _, v in s.points if v is not None) >= 3")],
      f"{T}::test_two_points_still_draw"),
+
+    # ══════════ заход 1: ответ по лестнице, аномалии, быстрое/медленное ══════
+    #
+    # Мутации бьют по РЕШЕНИЯМ, а не по словам: порядок уровней, порог ключа,
+    # правило «аномалия или состояние», изоляция медленного сбора. Каждая пара
+    # «сделали строже / сделали мягче» стоит рядом — односторонняя проверка
+    # порога зеленеет на выключенном пороге.
+
+    ("внешний сторож снова стал ответом", JP,
+     [('    procs = list(fast["processes"])',
+       '    if fast["external"].state != "ok":\n'
+       '        return Answer(0, "Зовнішній сторож не налаштований", "broken", "")\n'
+       '    procs = list(fast["processes"])')],
+     f"{T}::test_an_always_true_condition_never_becomes_the_answer"),
+
+    ("слепой сборщик перестал перебивать всё", JP,
+     [('    if any(r.key == "procs" for r in procs):', '    if False:')],
+     f"{T}::test_a_blind_collector_outranks_everything"),
+
+    ("упавший раннер перестал перебивать сторожей", JP,
+     [('    if any(r.key == "chatter" for r in bad):',
+       '    if False and any(r.key == "chatter" for r in bad):')],
+     f"{T}::test_a_dead_runner_outranks_a_lying_guardian"),
+
+    ("падение с живым гардианом снова неотличимо от сиротского", JP,
+     [('        if orphan:\n'
+       '            return Answer(3, f"Впало: {len(bad)}, сам не підніметься", "broken",\n'
+       '                          _lift_line(bad, guards))\n'
+       '        return Answer(3, f"Впало: {len(bad)}, підніметься сам", "wait",\n'
+       '                      _lift_line(bad, guards))',
+       '        return Answer(3, f"Впало: {len(bad)}, сам не підніметься", "broken",\n'
+       '                      _lift_line(bad, guards))')],
+     f"{T}::test_a_fallen_process_reads_differently_when_a_guardian_is_alive"),
+
+    ("ETA гардиана исчезла из второй строки", JP,
+     [('            eta_txt = f", ~{eta} с" if eta else ""', '            eta_txt = ""')],
+     f"{T}::test_the_second_line_names_the_guardian_and_the_eta"),
+
+    ("спокойный ответ перестал перечислять проверенное", JP,
+     [('    return Answer(6, "Ферма ціла", "calm", _checked_line(fast, slow))',
+       '    return Answer(6, "Ферма ціла", "calm", "")')],
+     f"{T}::test_the_calm_answer_lists_what_was_checked"),
+
+    # Порог ключа — пара. 7 в ОТВЕТ, 30 в аномалии (решение владельца 14.08).
+    ("порог ключа в ответе поднят до месяца", FARM,
+     [("KEY_EXPIRY_ANSWER = 7", "KEY_EXPIRY_ANSWER = 30")],
+     f"{T}::test_a_key_reaches_the_answer_only_under_seven_days"),
+
+    ("порог ключа в ответе опущен до нуля", FARM,
+     [("KEY_EXPIRY_ANSWER = 7", "KEY_EXPIRY_ANSWER = 0")],
+     f"{T}::test_a_key_reaches_the_answer_only_under_seven_days"),
+
+    ("непрочитанное медленное снова молчит", JP,
+     [('        slow_note = "задачі, арки, ключі: ще не зчитані"', '        slow_note = ""')],
+     f"{T}::test_a_stale_slow_cache_skips_the_level_and_says_so"),
+
+    # Правило «аномалия или состояние» — пара в обе стороны: и «выделено всё»,
+    # и «не выделено ничего» выглядят на экране одинаково опрятно.
+    ("аномалией стало всё подряд", FARM,
+     [('    if kind in ("process", "guardian"):\n        return item.state != "ok"',
+       '    if kind in ("process", "guardian"):\n        return True')],
+     f"{T}::test_healthy_rows_stay_off_the_first_screen"),
+
+    ("аномалий не стало вовсе", FARM,
+     [('    if kind in ("process", "guardian"):\n        return item.state != "ok"',
+       '    if kind in ("process", "guardian"):\n        return False')],
+     f"{T}::test_an_anomaly_is_never_hidden_in_the_state_block"),
+
+    ("отставленный снайпер снова требует внимания", FARM,
+     [('        return item.state not in ("ok", "off")', '        return item.state != "ok"')],
+     f"{T}::test_a_retired_task_is_not_an_anomaly"),
+
+    ("грязное дерево перестало быть аномалией", FARM,
+     [('        return bool(item.get("dirty"))', '        return False')],
+     f"{T}::test_a_dirty_worktree_is_an_anomaly_and_its_age_is_not"),
+
+    ("аномалией стала любая ветка, включая просто старую", FARM,
+     [('        return bool(item.get("dirty"))', '        return True')],
+     f"{T}::test_a_dirty_worktree_is_an_anomaly_and_its_age_is_not"),
+
+    ("первый экран снова ждёт git и PowerShell", JP,
+     [("    slow = F.slow_cached()", "    slow = F.snapshot_slow()")],
+     f"{T}::test_the_panel_answers_while_git_and_powershell_hang"),
+
+    ("порог второй колонки снова привязан к устройству", UI,
+     [("minmax(340px,1fr)", "minmax(760px,1fr)")],
+     f"{T}::test_the_second_column_appears_by_content_not_by_device"),
+
+    ("слот заходa 2 вернулся пустой рамкой", JP,
+     [("<div class='sub second'>{esc(ans.second)}</div>",
+       "<div class='sub second'>{esc(ans.second)}</div>\n"
+       "<div class='note'>поки тебе не було: —</div>")],
+     f"{T}::test_no_empty_slot_pretends_there_were_no_events"),
+
+    ("служебная ширина экрана исчезла из футера", JP,
+     [("<div class='sub'>ширина екрана: <span id='vw'>—</span> px</div>", "")],
+     f"{T}::test_the_viewport_width_is_printed_for_the_next_layout_pass"),
 ]
+
 
 
 def write_mutant(path: Path, text: str) -> None:

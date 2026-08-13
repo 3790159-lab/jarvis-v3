@@ -217,10 +217,15 @@ def test_a_dead_heartbeat_outranks_everything_in_the_answer(tmp_path, monkeypatc
 
 
 def test_jarvis_panel_answers_before_it_lists(tmp_path, monkeypatch):
-    body = _visible(_page(_client(tmp_path / "j.db", monkeypatch), "/panel/jarvis"))
+    """Ферма подменена (стенд `_jarvis` ниже): прежняя версия сторожа смотрела
+    в ЖИВУЮ ферму, и её вердикт зависел от того, поднят ли сейчас раннер на
+    машине разработчика. Заодно словарь ответов расширился до лестницы из
+    шести уровней (заход 1)."""
+    body = _visible(_page(_jarvis(tmp_path, monkeypatch), "/panel/jarvis"))
     m = re.search(r"<h1 class='ans[^']*'>(.*?)</h1>", body, re.S)
     assert m, "панель Джарвиса начинается не с ответа"
-    assert re.search(r"ціла|Впало|уваги", m.group(1)), m.group(1)
+    assert re.search(r"ціла|Впало|Ліди|Не бачу|Сторож|Немає кому|Ключ|Автоматика",
+                     m.group(1)), m.group(1)
 
 
 # ───────────────── C. долг → деньги → статус, статус в строку ───────────────
@@ -461,3 +466,274 @@ def test_two_points_still_draw(tmp_path, monkeypatch):
     from app.services.tamapi_metrics import Series
     s = Series(key="dialogs", label="Діалоги", unit="", money=False, points=[(0.0, 3.0), (1.0, 5.0)])
     assert "<svg" in line_chart([s])
+
+
+# ══════════════════ D. Панель Джарвиса: ответ по лестнице ═══════════════════
+#
+# Заход 1 (спека 2026-08-14-jarvis-panel-answer-view.md). Ферма подменяется
+# целиком: сторожа обязаны судить о ВЁРСТКЕ и ПРИОРИТЕТЕ, а не о том, что
+# сегодня запущено на машине разработчика. Прежний сторож
+# `test_jarvis_panel_answers_before_it_lists` смотрел в живую ферму, и его
+# вердикт зависел от того, поднят ли сейчас раннер.
+
+def _row(key, state, detail="", **extra):
+    from app.services.jarvis_farm import Row
+    return Row(key, key, state, detail, extra)
+
+
+def _jarvis(tmp_path, monkeypatch, *, procs=None, guards=None, external=None,
+            tasks=None, keys=None, arcs=None, slow_fresh=True):
+    """Клиент панели Джарвиса с ПОЛНОСТЬЮ подменённой фермой.
+
+    slow_fresh=False — медленный кэш протух: задачи и ключи не прочитаны, и
+    экран обязан сказать это словами, а не показать пустоту."""
+    import app.services.jarvis_farm as F
+
+    c = _client(tmp_path / "jarvis.db", monkeypatch)
+    fast = {
+        "collected_at": time.time(),
+        "external": external or _row("ext", "bad", "НЕ налаштований"),
+        "processes": procs if procs is not None else [
+            _row("backend", "ok", "PID 1"), _row("bot", "ok", "PID 2"),
+            _row("chatter", "ok", "PID 3")],
+        "guardians": guards if guards is not None else [
+            _row("backend_guardian", "ok"), _row("bot_guardian", "ok"),
+            _row("chatter_guardian", "ok"), _row("ops_watchdog", "ok")],
+    }
+    slow = None if not slow_fresh else {
+        "collected_at": time.time(),
+        "tasks": tasks if tasks is not None else [_row("JarvisBotGuardian", "ok", "Running")],
+        "keys": keys if keys is not None else [
+            {"name": "ANTHROPIC_API_KEY", "purpose": "brain", "expires": None,
+             "auto": None, "note": "", "days_left": None, "state": "ok"}],
+        "arcs": arcs if arcs is not None else [],
+        "events": [],
+    }
+    monkeypatch.setattr(F, "snapshot_fast", lambda: fast)
+    monkeypatch.setattr(F, "slow_cached", lambda: slow)
+    return c
+
+
+def _ans(body: str) -> str:
+    m = re.search(r"<h1 class='ans[^']*'>(.*?)</h1>", body, re.S)
+    assert m, "ответа сверху нет"
+    return m.group(1)
+
+
+def _tone(body: str) -> str:
+    return re.search(r"<h1 class='ans ([^']*)'>", body).group(1)
+
+
+def _second(body: str) -> str:
+    """Вторая строка — сразу под ответом, до служебной подписи."""
+    m = re.search(r"</h1>\s*<div class='sub second'>(.*?)</div>", body, re.S)
+    assert m, "второй строки под ответом нет"
+    return m.group(1)
+
+
+def _state_block(body: str) -> str:
+    """Свёрнутое состояние. Всё, что внутри, на первом экране не видно."""
+    m = re.search(r"<details class='state'>(.*?)</details>", body, re.S)
+    return m.group(1) if m else ""
+
+
+def _first_screen(body: str) -> str:
+    """То, что видно без разворота: страница минус свёрнутое состояние."""
+    vis = _visible(body)
+    return re.sub(r"<details class='state'>.*?</details>", "", vis, flags=re.S)
+
+
+# ── лестница: каждый уровень перебивает нижние ──────────────────────────────
+
+def test_a_blind_collector_outranks_everything(tmp_path, monkeypatch):
+    """L1. psutil лёг — ферма собрана наполовину, и говорить о ней рано.
+    Ровно та же идиома, что «немає зв'язку перебиває чергу» на клиентской."""
+    c = _jarvis(tmp_path, monkeypatch,
+                procs=[_row("procs", "warn", "psutil недоступний")],
+                guards=[_row("chatter_guardian", "bad", "не працює")])
+    body = _page(c, "/panel/jarvis")
+    assert "Не бачу ферму" in _ans(body), _ans(body)
+    assert _tone(body) == "broken"
+
+
+def test_a_dead_runner_outranks_a_lying_guardian(tmp_path, monkeypatch):
+    """L2 > L4. Упавший раннер chatter — это лиды без ответа, то есть деньги;
+    расхождение сторожей ждёт своей очереди."""
+    c = _jarvis(tmp_path, monkeypatch,
+                procs=[_row("backend", "ok"), _row("bot", "ok"),
+                       _row("chatter", "bad", "процес не знайдено")],
+                guards=[_row("chatter_guardian", "warn", "heartbeat протух")])
+    assert "Ліди без відповіді" in _ans(_page(c, "/panel/jarvis"))
+
+
+def test_a_fallen_process_reads_differently_when_a_guardian_is_alive(tmp_path, monkeypatch):
+    """L3, две половины одного уровня. 14.08 в 00:45 раннер упал и поднялся сам
+    за 61 с — это НЕ то же событие, что падение без живого гардиана, и ответ
+    обязан различать их тоном, а не только словом."""
+    lifted = _jarvis(tmp_path, monkeypatch,
+                     procs=[_row("bot", "bad", "процес не знайдено")],
+                     guards=[_row("bot_guardian", "ok", "PID 9")])
+    b1 = _page(lifted, "/panel/jarvis")
+    assert "підніметься" in _ans(b1), _ans(b1)
+    assert _tone(b1) == "wait", "самоподнимающееся падение — не авария"
+
+    orphan = _jarvis(tmp_path, monkeypatch,
+                     procs=[_row("bot", "bad", "процес не знайдено")],
+                     guards=[_row("bot_guardian", "bad", "не працює")])
+    b2 = _page(orphan, "/panel/jarvis")
+    assert "сам не підніметься" in _ans(b2), _ans(b2)
+    assert _tone(b2) == "broken"
+
+
+def test_the_second_line_names_the_guardian_and_the_eta(tmp_path, monkeypatch):
+    c = _jarvis(tmp_path, monkeypatch,
+                procs=[_row("chatter", "bad", "процес не знайдено")],
+                guards=[_row("chatter_guardian", "ok", "PID 7")])
+    s = _second(_page(c, "/panel/jarvis"))
+    assert "chatter_guardian" in s and "90" in s, s
+
+
+def test_the_second_line_says_when_nobody_will_lift_it(tmp_path, monkeypatch):
+    c = _jarvis(tmp_path, monkeypatch,
+                procs=[_row("chatter", "bad", "процес не знайдено")],
+                guards=[_row("chatter_guardian", "bad", "не працює")])
+    s = _second(_page(c, "/panel/jarvis"))
+    assert "не підніметься" in s and "chatter_guardian" in s, s
+
+
+def test_an_always_true_condition_never_becomes_the_answer(tmp_path, monkeypatch):
+    """Внешний сторож не настроен со дня рождения панели. Ответ, который не
+    меняется, перестаёт быть ответом — это ровно тот вечно-красный, из-за
+    которого красный теряет смысл. Строка остаётся, ответ — нет."""
+    c = _jarvis(tmp_path, monkeypatch,
+                external=_row("ext", "bad", "НЕ налаштований — панель не бачить смерті машини"))
+    body = _page(c, "/panel/jarvis")
+    assert "Ферма ціла" in _ans(body), _ans(body)
+    assert "НЕ налаштований" in body, "строка о слепоте панели пропала совсем"
+
+
+def test_a_key_reaches_the_answer_only_under_seven_days(tmp_path, monkeypatch):
+    """Порог решением владельца: 7 дней — в ОТВЕТ, 30 — в аномалии."""
+    def key(days):
+        return [{"name": "Instagram", "purpose": "IG", "expires": "2026-09-09",
+                 "auto": None, "note": "", "days_left": days, "state": "warn"}]
+
+    soon = _page(_jarvis(tmp_path, monkeypatch, keys=key(6)), "/panel/jarvis")
+    assert "Instagram" in _ans(soon), _ans(soon)
+
+    later = _page(_jarvis(tmp_path, monkeypatch, keys=key(20)), "/panel/jarvis")
+    assert "Ферма ціла" in _ans(later), _ans(later)
+    assert "Instagram" in _first_screen(later), "ключ на 20 дней пропал и из аномалий"
+
+
+def test_a_stale_slow_cache_skips_the_level_and_says_so(tmp_path, monkeypatch):
+    """Медленное не прочитано — уровень пропускается, но МОЛЧАТЬ нельзя:
+    иначе «Ферма ціла» тихо означает «про задачи и ключи не знаю»."""
+    body = _page(_jarvis(tmp_path, monkeypatch, slow_fresh=False), "/panel/jarvis")
+    assert "Ферма ціла" in _ans(body)
+    assert "ще не зчитані" in _first_screen(body), "экран молчит о том, чего не знает"
+
+
+def test_the_calm_answer_lists_what_was_checked(tmp_path, monkeypatch):
+    """Заход 1: перечень проверенного. Дата последнего падения честнее, но без
+    журнала мы её не знаем, и печатать её значит соврать (заход 2)."""
+    s = _second(_page(_jarvis(tmp_path, monkeypatch), "/panel/jarvis"))
+    assert "3 процеси" in s and "4 гардіани" in s, s
+
+
+# ── аномалия против состояния ───────────────────────────────────────────────
+
+def test_healthy_rows_stay_off_the_first_screen(tmp_path, monkeypatch):
+    """Двадцать зелёных строк выделяют ровно ничего. «heartbeat 12 с тому»
+    меняется на каждый запрос, а смысл не меняется ни разу."""
+    body = _page(_jarvis(tmp_path, monkeypatch,
+                         guards=[_row("bot_guardian", "ok", "PID 9 · heartbeat 12 с тому")]),
+                 "/panel/jarvis")
+    assert "heartbeat 12 с тому" in _state_block(body), "состояние не свёрнуто"
+    assert "heartbeat 12 с тому" not in _first_screen(body)
+
+
+def test_an_anomaly_is_never_hidden_in_the_state_block(tmp_path, monkeypatch):
+    body = _page(_jarvis(tmp_path, monkeypatch,
+                         procs=[_row("bot", "bad", "процес не знайдено")],
+                         guards=[_row("bot_guardian", "bad", "не працює")]),
+                 "/panel/jarvis")
+    assert "процес не знайдено" in _first_screen(body)
+    assert "процес не знайдено" not in _state_block(body)
+
+
+def test_a_retired_task_is_not_an_anomaly(tmp_path, monkeypatch):
+    """Снайпер отставлен НАМЕРЕННО. Панель, красящая это жёлтым, ежедневно
+    требует чинить нечинимое, и её перестают читать."""
+    body = _page(_jarvis(tmp_path, monkeypatch,
+                         tasks=[_row("JarvisSniperDetached", "off", "RunPod-півот")]),
+                 "/panel/jarvis")
+    assert "JarvisSniperDetached" in _state_block(body)
+    assert "Ферма ціла" in _ans(body)
+
+
+def test_a_dirty_worktree_is_an_anomaly_and_its_age_is_not(tmp_path, monkeypatch):
+    """Грязное дерево слепит гейт (1669 циклов сторожа). Возраст ветки растёт
+    сам собой — это не событие."""
+    body = _page(_jarvis(tmp_path, monkeypatch, arcs=[
+        {"branch": "arc/dirty", "path": "C:/wt/dirty", "dirty": True,
+         "merged": False, "age_days": 1.0},
+        {"branch": "arc/old", "path": "C:/wt/old", "dirty": False,
+         "merged": False, "age_days": 99.0}]), "/panel/jarvis")
+    assert "arc/dirty" in _first_screen(body)
+    assert "arc/old" not in _first_screen(body)
+    assert "arc/old" in _state_block(body)
+
+
+# ── быстрое и медленное ─────────────────────────────────────────────────────
+
+def test_the_panel_answers_while_git_and_powershell_hang(tmp_path, monkeypatch):
+    """Медленные источники изолированы: сегодня исключение в `arcs()` или
+    зависший PowerShell уронили бы страницу целиком вместе с ответом."""
+    import app.services.jarvis_farm as F
+
+    def boom(*a, **k):
+        raise RuntimeError("git висит")
+
+    c = _client(tmp_path / "slow.db", monkeypatch)
+    monkeypatch.setattr(F, "arcs", boom)
+    monkeypatch.setattr(F, "scheduled_tasks", boom)
+    monkeypatch.setattr(F, "events", boom)
+    monkeypatch.setattr(F, "_slow_cache", None, raising=False)
+    body = _page(c, "/panel/jarvis")
+    assert re.search(r"ціла|Впало|Ліди|Не бачу|Сторож|Ключ|Немає кому", _ans(body)), _ans(body)
+
+
+def test_the_two_ages_are_printed_separately(tmp_path, monkeypatch):
+    """Один общий возраст соврёт ровно тогда, когда встанет медленный сборщик."""
+    body = _page(_jarvis(tmp_path, monkeypatch), "/panel/jarvis")
+    assert "ферма зібрана" in body and "задачі, арки, ключі" in body, body[:400]
+
+
+def test_the_slow_route_is_owner_guarded(tmp_path, monkeypatch):
+    c = _jarvis(tmp_path, monkeypatch)
+    assert c.get("/panel/jarvis/slow").status_code in (401, 403)
+    assert c.get("/panel/jarvis/slow", headers={"X-Panels-Key": KEY}).status_code == 200
+
+
+# ── место под заход 2 и раскладка ───────────────────────────────────────────
+
+def test_no_empty_slot_pretends_there_were_no_events(tmp_path, monkeypatch):
+    """Слот «поки тебе не було» — заход 2. Пустая рамка читается как «ничего не
+    случилось», а мы этого не знаем."""
+    body = _page(_jarvis(tmp_path, monkeypatch), "/panel/jarvis")
+    assert "поки тебе не було" not in body.lower()
+
+
+def test_the_second_column_appears_by_content_not_by_device():
+    """Порог выводится из КОНТЕНТА: минимальная комфортная колонка ×2 + gap.
+    Медиазапрос под конкретную модель телефона врёт на любой другой."""
+    from app.routers.panels_ui import CSS
+    m = re.search(r"\.two\{[^}]*minmax\((\d+)px", CSS)
+    assert m, "второй столбец не выводится из ширины колонки"
+    assert 320 <= int(m.group(1)) <= 360, m.group(1)
+
+
+def test_the_viewport_width_is_printed_for_the_next_layout_pass(tmp_path, monkeypatch):
+    body = _page(_jarvis(tmp_path, monkeypatch), "/panel/jarvis")
+    assert "innerWidth" in body and "ширина екрана" in body

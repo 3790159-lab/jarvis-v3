@@ -94,6 +94,24 @@ h2{font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em
 .btn.sm{padding:6px 10px;font-size:12px}
 .pill{font-size:12px;color:var(--dim);border:1px solid var(--line);
   border-radius:20px;padding:2px 9px;display:inline-block}
+/* ДВЕ КОЛОНКИ ПО МЕСТУ, А НЕ ПО УСТРОЙСТВУ.
+   Порог выведен из КОНТЕНТА, а не из модели телефона: 340 px — минимальная
+   ширина, на которой карточка фермы ещё читается (телефон 390 минус 2×18
+   отступа даёт 354, и 340 оставляет запас). Второй столбец появляется, когда
+   для него хватает места: 340×2 + 14 gap + 2×18 padding ≈ 730 px. Медиазапрос
+   под конкретную ширину врал бы на любом другом устройстве, а Fold меняет
+   ширину прямо во время просмотра — здесь раскладка меняется вместе с ним.
+   Число 340 продублировано в _JS панели (порог свёртки состояния) — оно одно
+   и то же по смыслу, поэтому и там записано как 730 = 340×2+14+36. */
+.two{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));
+  align-items:start}
+/* Свёртка состояния: заголовок кликабелен, но выглядит подписью раздела —
+   она не действие, а «показать остальное». */
+details.state>summary{list-style:none;cursor:pointer;color:var(--dim);font-size:12px;
+  text-transform:uppercase;letter-spacing:.06em;font-weight:600;padding:6px 0}
+details.state>summary::-webkit-details-marker{display:none}
+details.state>summary::before{content:'▸ ';}
+details.state[open]>summary::before{content:'▾ ';}
 .grid{display:grid;gap:10px}
 .tiles{grid-template-columns:repeat(4,1fr)}
 @media(max-width:760px){.tiles{grid-template-columns:repeat(2,1fr)}}

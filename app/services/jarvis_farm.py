@@ -39,6 +39,33 @@ GUARDIAN_SPECS = [
 # красным, ежедневно требует чинить нечинимое, и её перестают читать.
 RETIRED = {"JarvisSniperDetached": "RunPod-півот: тригерів немає, сам не підніметься"}
 
+# ─────────────────── Кто кого поднимает (заход 1, §1.1) ─────────────────────
+#
+# Связи процесс↔гардиан в коде не было вовсе, и панель не могла отличить два
+# РАЗНЫХ события: «упало и поднимется само через полторы минуты» (14.08 00:45,
+# раннер вернулся за 61 с) и «упало, поднимать некому». Оба давали «Впало: 1».
+PAIRS = {"backend": "backend_guardian", "bot": "bot_guardian",
+         "chatter": "chatter_guardian"}   # ops_watchdog пары не имеет: он сторожит сторожей
+
+# Через сколько секунд живой гардиан поднимет упавшее. Числа — ИЗ КОНСТАНТ
+# самих гардианов, а не на глаз:
+#   scripts/chatter_guardian_detached.ps1 : IntervalSeconds=30 × DebounceFailures=3
+#   scripts/bot_guardian_detached.ps1     : IntervalSeconds=30 × DebounceFailures=3
+#   scripts/backend_guardian_detached.ps1 : IntervalSeconds=15
+# ⚠️ Числа продублированы в PowerShell и здесь. Разъедутся — соврёт вторая
+# строка ответа, а код при этом не упадёт; поэтому путь к источнику записан
+# рядом, и правку делать в ОБОИХ местах.
+GUARDIAN_ETA = {"backend_guardian": 15, "bot_guardian": 90, "chatter_guardian": 90}
+
+# ─────────────────── Пороги «аномалия или состояние» ────────────────────────
+#
+# Тест принадлежности один: изменит ли это моё поведение в ближайший час?
+# Пороги живут ЗДЕСЬ именованными константами, а не литералами по коду и не в
+# глазах смотрящего.
+KEY_EXPIRY_ANSWER = 7     # ключ спливає раньше — уходит в ОТВЕТ (L5)
+KEY_EXPIRY_ANOMALY = 30   # раньше — в блок аномалий, но не в ответ
+SLOW_TTL = 300.0          # медленный кэш старше — считается непрочитанным
+
 
 @dataclass
 class Row:
@@ -66,21 +93,50 @@ def _own_pids() -> set[int]:
     return out
 
 
-def processes() -> list[Row]:
+# Имена процессов, чью КОМАНДНУЮ СТРОКУ вообще имеет смысл читать.
+#
+# Замер 14.08: `process_iter(["pid","name"])` по 217 процессам — 0.00 с, тот же
+# обход с `cmdline` — 1.05 с (psutil открывает PEB каждого процесса), и панель
+# делала его ДВАЖДЫ: отдельно в `processes()` и отдельно в `guardians()`. Отсюда
+# 2.2 с «быстрой» части, которая по замыслу должна стоить миллисекунды.
+#
+# Сузить безопасно: все маркеры фермы — это python-раннеры (PROC_SPECS, все с
+# py_only) и powershell-гардианы (GUARDIAN_SPECS, все `*.ps1`). Процесс с любым
+# другим именем не мог бы совпасть с маркером и без этого фильтра. Появится
+# служба под собственным .exe — её имя надо будет добавить СЮДА, иначе она
+# станет невидимой молча.
+_CMDLINE_NAMES = ("python", "pythonw", "powershell", "pwsh")
+
+
+def _proc_table() -> list[tuple]:
+    """(pid, имя, командная строка, время старта, ppid) — один обход на оба
+    сборщика. Пустой список означает «psutil не отдал ничего», и это НЕ то же
+    самое, что «psutil недоступен»: второе ловится отдельно, в `processes()`."""
     try:
         import psutil
+    except Exception:
+        return []
+    out = []
+    for p in psutil.process_iter(["pid", "name", "create_time", "ppid"]):
+        try:
+            nm = (p.info["name"] or "").lower()
+            if not nm.startswith(_CMDLINE_NAMES):
+                continue
+            out.append((p.info["pid"], nm, " ".join(p.cmdline() or []),
+                        p.info["create_time"], p.info["ppid"]))
+        except Exception:
+            continue
+    return out
+
+
+def processes(table: list[tuple] | None = None) -> list[Row]:
+    try:
+        import psutil  # noqa: F401 — проверка доступности, обход в _proc_table
     except Exception:
         return [Row("procs", "процеси", "warn", "psutil недоступний")]
 
     mine = _own_pids()
-    snap = []
-    for p in psutil.process_iter(["pid", "name", "cmdline", "create_time", "ppid"]):
-        try:
-            snap.append((p.info["pid"], (p.info["name"] or "").lower(),
-                         " ".join(p.info["cmdline"] or []), p.info["create_time"],
-                         p.info["ppid"]))
-        except Exception:
-            continue
+    snap = _proc_table() if table is None else table
 
     rows = []
     for key, label, marker, py_only in PROC_SPECS:
@@ -100,15 +156,13 @@ def processes() -> list[Row]:
     return rows
 
 
-def guardians() -> list[Row]:
+def guardians(table: list[tuple] | None = None) -> list[Row]:
     rows = []
     mine = _own_pids()
-    try:
-        import psutil
-        snap = [(p.info["pid"], " ".join(p.info["cmdline"] or []))
-                for p in psutil.process_iter(["pid", "cmdline"])]
-    except Exception:
-        snap = []
+    # Тот же обход процессов, что у `processes()`: раньше здесь был ВТОРОЙ
+    # полный проход с чтением cmdline — ровно та секунда, которую первый экран
+    # платил дважды ни за что.
+    snap = [(r[0], r[2]) for r in (_proc_table() if table is None else table)]
     for key, script, hb in GUARDIAN_SPECS:
         alive = [s for s in snap if script in s[1] and s[0] not in mine]
         age = heartbeat_age(hb)
@@ -304,14 +358,98 @@ def external_watchdog() -> Row:
     return Row("ext", "Зовнішній сторож", "ok", f"пінг {int(age)} с тому")
 
 
-def snapshot() -> dict:
+def is_anomaly(kind: str, item) -> bool:
+    """Единственная точка решения «аномалия или состояние».
+
+    Аномалия = то, что может изменить моё поведение в ближайший час. Возраст
+    ветки растёт сам собой, а «heartbeat 12 с тому» меняется на каждый запрос,
+    не меняя смысла ни разу — это состояние, и его место в свёртке.
+
+    `external` не проходит ни по одной ветке НАМЕРЕННО: «внешний сторож не
+    настроен» истинно всегда, и в аномалиях оно каждый день требовало бы
+    внимания, которого не заслуживает. Строка о нём рисуется отдельной note —
+    видимой, но не претендующей ни на ответ, ни на список аномалий.
+    """
+    if kind in ("process", "guardian"):
+        return item.state != "ok"
+    if kind == "task":
+        # off — это RETIRED: отставлено осознанно, чинить нечего.
+        return item.state not in ("ok", "off")
+    if kind == "key":
+        days = item.get("days_left")
+        return (days is not None and days < KEY_EXPIRY_ANOMALY) or "⚠️" in (item.get("note") or "")
+    if kind == "arc":
+        # Грязное дерево слепит мерж-гейт (сторож крутил 1669 циклов вхолостую).
+        # Возраст и «не смержена» — состояние: они не про ближайший час.
+        return bool(item.get("dirty"))
+    return False
+
+
+def snapshot_fast() -> dict:
+    """Миллисекунды: psutil + два `stat`. Этого достаточно для ответа сверху.
+
+    Разрез появился потому, что полный снапшот собирается 6.8 с (git по 21
+    worktree + PowerShell), и первый экран платил их целиком — при том что
+    ответ «что происходит и надо ли бежать» из медленной части почти не
+    зависит."""
+    table = _proc_table()          # ОДИН обход процессов на оба сборщика
     return {
         "collected_at": _now(),
         "external": external_watchdog(),
-        "processes": processes(),
-        "guardians": guardians(),
-        "tasks": scheduled_tasks(),
-        "arcs": arcs(),
-        "events": events(),
-        "keys": api_keys(),
+        "processes": processes(table),
+        "guardians": guardians(table),
     }
+
+
+# Кэш медленной части в памяти процесса. Не файл и не таблица: заход 1 не
+# заводит новых сущностей, а переживать рестарт бэкенда этому кэшу незачем.
+_slow_cache: dict | None = None
+
+
+def slow_cached(*, max_age: float = SLOW_TTL) -> dict | None:
+    """Медленная часть, ТОЛЬКО если она свежая. Ничего не собирает.
+
+    None означает «не прочитано» — и экран обязан сказать это словами. Молча
+    показать ноль задач и ноль ключей значит соврать ровно в том случае, ради
+    которого панель существует."""
+    snap = _slow_cache
+    if snap and (_now() - snap["collected_at"]) < max_age:
+        return snap
+    return None
+
+
+def snapshot_slow(*, force: bool = False) -> dict:
+    """Медленная часть: PowerShell, git по всем worktree, sqlite, ключи.
+
+    Каждый источник изолирован: упавший git не имеет права унести с собой
+    задачи и ключи, а тем более — страницу целиком (DEV-18: провал видно в
+    самой секции, а не в тишине)."""
+    global _slow_cache
+    if not force:
+        fresh = slow_cached()
+        if fresh is not None:
+            return fresh
+
+    def _safe(fn, fallback):
+        try:
+            return fn()
+        except Exception as e:                       # noqa: BLE001 — источник внешний
+            return fallback(f"{type(e).__name__}: {e}")
+
+    snap = {
+        "collected_at": _now(),
+        "tasks": _safe(scheduled_tasks,
+                       lambda m: [Row("tasks", "планові задачі", "warn", f"не зчитано: {m}")]),
+        "arcs": _safe(arcs, lambda m: []),
+        "events": _safe(events, lambda m: []),
+        "keys": _safe(api_keys, lambda m: []),
+    }
+    _slow_cache = snap
+    return snap
+
+
+def snapshot() -> dict:
+    """Полный снапшот одним куском — для `/api/snapshot` и совместимости."""
+    slow = snapshot_slow(force=True)
+    return {**snapshot_fast(), **{k: v for k, v in slow.items() if k != "collected_at"},
+            "slow_collected_at": slow["collected_at"]}

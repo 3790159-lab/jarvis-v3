@@ -35,8 +35,8 @@ PROBE_MAX_S = BLOCK_S / 3
 MARKER = "ferma-pidmineno"
 
 
-def _fake_snapshot(farm):
-    """Снимок ровно той формы, что читает ручка, но без единого git-вызова."""
+def _fake_fast(farm):
+    """Быстрая часть ровно той формы, что читает ручка, но без psutil."""
     ext = farm.Row(key="external", label="Зовнішній сторож", state="ok",
                    detail=MARKER)
     return {
@@ -44,11 +44,28 @@ def _fake_snapshot(farm):
         "external": ext,
         "processes": [farm.Row(key="backend", label="backend", state="ok")],
         "guardians": [farm.Row(key="g", label="гардіан", state="ok")],
-        "tasks": [farm.Row(key="t", label="таск", state="ok")],
+    }
+
+
+def _fake_slow(farm):
+    """Медленная часть — та, внутри которой живут git и PowerShell. После
+    разреза (заход 1) именно она осталась опасной для event loop'а, поэтому
+    сторож накрывает и её отдельную ручку."""
+    return {
+        "collected_at": time.time(),
+        "tasks": [farm.Row(key="t", label="таск", state="ok", detail=MARKER)],
         "arcs": [],
         "events": [],
         "keys": [],
     }
+
+
+def _fake_snapshot(farm):
+    """Полный снимок для `/api/snapshot` — форма склейки быстрого и медленного."""
+    slow = _fake_slow(farm)
+    return {**_fake_fast(farm),
+            **{k: v for k, v in slow.items() if k != "collected_at"},
+            "slow_collected_at": slow["collected_at"]}
 
 
 @pytest.fixture()
@@ -64,7 +81,18 @@ def api(monkeypatch):
         time.sleep(BLOCK_S)          # ровно то, чем занят настоящий snapshot()
         return _fake_snapshot(jp.F)
 
+    def slow_fast():
+        time.sleep(BLOCK_S)          # даже быстрая часть не имеет права держать loop
+        return _fake_fast(jp.F)
+
+    def slow_slow(*, force: bool = False):
+        time.sleep(BLOCK_S)          # git по всем worktree + Get-ScheduledTask
+        return _fake_slow(jp.F)
+
     monkeypatch.setattr(jp.F, "snapshot", slow_snapshot)
+    monkeypatch.setattr(jp.F, "snapshot_fast", slow_fast)
+    monkeypatch.setattr(jp.F, "snapshot_slow", slow_slow)
+    monkeypatch.setattr(jp.F, "slow_cached", lambda: None)
 
     app = FastAPI()
     app.include_router(pa.router)
@@ -131,3 +159,13 @@ def test_loop_stays_free_while_snapshot_api_runs(api):
     assert status == 200
     assert stall < PROBE_MAX_S, (
         f"event loop простоял {stall:.2f} с на /api/snapshot")
+
+
+def test_loop_stays_free_while_the_slow_fragment_runs(api):
+    """После разреза (заход 1) git и PowerShell живут ЗДЕСЬ. Опасность никуда
+    не делась — она переехала, и сторож обязан переехать за ней: `async def`
+    на этой ручке уронил бы прод ровно так же, как раньше на самой панели."""
+    stall, status = _probe_while_panel_renders(api, "/panel/jarvis/slow")
+    assert status == 200
+    assert stall < PROBE_MAX_S, (
+        f"event loop простоял {stall:.2f} с на /panel/jarvis/slow")
