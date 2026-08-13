@@ -285,7 +285,13 @@ MUTATIONS = [
      f"{T}::test_the_panel_answers_while_git_and_powershell_hang"),
 
     ("порог второй колонки снова привязан к устройству", UI,
-     [("minmax(340px,1fr)", "minmax(760px,1fr)")],
+     [("minmax(min(340px,100%),1fr)", "minmax(min(760px,100%),1fr)")],
+     f"{T}::test_the_second_column_appears_by_content_not_by_device"),
+
+    # Парная: колонка снова разучилась сжиматься. На 344 px (внешний экран
+    # Fold) страница уезжала вбок на 32 px, и выглядело это опрятно.
+    ("колонка снова не умеет быть уже своего минимума", UI,
+     [("minmax(min(340px,100%),1fr)", "minmax(340px,1fr)")],
      f"{T}::test_the_second_column_appears_by_content_not_by_device"),
 
     ("слот заходa 2 вернулся пустой рамкой", JP,
@@ -293,6 +299,16 @@ MUTATIONS = [
        "<div class='sub second'>{esc(ans.second)}</div>\n"
        "<div class='note'>поки тебе не було: —</div>")],
      f"{T}::test_no_empty_slot_pretends_there_were_no_events"),
+
+    # Группировка (принцип Sentry) — пара: и «выложили списком», и «свернули
+    # всё подряд» одинаково опрятны на вид.
+    ("одинаковые аномалии снова выкладываются списком", JP,
+     [("GROUP_FROM = 3", "GROUP_FROM = 999")],
+     f"{T}::test_a_bulk_anomaly_is_grouped_with_a_counter"),
+
+    ("под счётчик уехали даже две строки", JP,
+     [("GROUP_FROM = 3", "GROUP_FROM = 1")],
+     f"{T}::test_a_couple_of_anomalies_are_not_hidden_behind_a_counter"),
 
     ("служебная ширина экрана исчезла из футера", JP,
      [("<div class='sub'>ширина екрана: <span id='vw'>—</span> px</div>", "")],

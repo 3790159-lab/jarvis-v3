@@ -51,9 +51,22 @@ PROBE = """() => {
               right: Math.round(r.right),
               text: (el.textContent || '').trim().slice(0, 60)});
   }
+  const two = document.querySelector('.two');
   return {vw, scroll: document.documentElement.scrollWidth,
-          offenders: out.slice(0, 12)};
+          offenders: out.slice(0, 12),
+          // Сколько колонок НА САМОМ ДЕЛЕ насчитал браузер. Проверять это по
+          // тексту CSS бесполезно: 14.08 лишний `*/` в комментарии заставил
+          // парсер выбросить всё правило `.two` целиком — исходник выглядел
+          // правильным, юнит-тест по нему проходил, а страница молча осталась
+          // одноколоночной на любой ширине. Переполнения при этом тоже не было.
+          cols: two ? getComputedStyle(two).gridTemplateColumns.split(' ').length : 0,
+          grid: two ? getComputedStyle(two).display : ''};
 }"""
+
+# Ниже этой ширины второй колонке негде поместиться (340×2 + 14 gap + 36
+# padding), выше — она обязана появиться. Числа выведены из ширины колонки,
+# см. `.two` в panels_ui.CSS.
+TWO_COLUMN_AT = 730
 
 
 def main() -> int:
@@ -86,8 +99,22 @@ def main() -> int:
                 pg.screenshot(path=str(shots / f"{slug}.png"), full_page=True)
             res = pg.evaluate(PROBE)
             over = res["scroll"] - res["vw"]
+
+            # Раскладка: страница без переполнения ещё не значит «раскладка
+            # работает». Одноколоночная страница не переполняется НИКОГДА —
+            # именно так и выглядела сломанная CSS-правка 14.08.
+            if res["cols"]:
+                want = 2 if res["vw"] >= TWO_COLUMN_AT else 1
+                if res["grid"] != "grid" or res["cols"] != want:
+                    bad += 1
+                    print(f"[!!] {title}: при окне {res['vw']} px ожидали "
+                          f"{want} колон., браузер насчитал {res['cols']} "
+                          f"(display: {res['grid'] or '—'})")
+                    continue
+
             if over <= SLACK and not res["offenders"]:
-                print(f"[ok] {title}: окно {res['vw']} px, за краем ничего")
+                cols = f", колонок {res['cols']}" if res["cols"] else ""
+                print(f"[ok] {title}: окно {res['vw']} px, за краем ничего{cols}")
                 continue
             bad += 1
             print(f"[!!] {title}: страница {res['scroll']} px при окне "

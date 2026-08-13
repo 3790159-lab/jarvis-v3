@@ -74,7 +74,7 @@ h2{font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em
    «добовий ліміт», три из четырёх колонок таблицы арок. Ограничитель ставим
    здесь, у источника; `overflow-x:hidden` на body был бы не починкой, а
    заклеенным индикатором — контент так же остался бы обрезанным. */
-.row>*,.grid>*,.funnel>*,.tile,.fstep{min-width:0}
+.row>*,.grid>*,.two>*,.funnel>*,.tile,.fstep{min-width:0}
 .dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:8px;
   flex:0 0 auto}
 /* Норма — нейтральная точка, а не зелёная: зелёный отдан деньгам. Выключенное
@@ -102,8 +102,14 @@ h2{font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em
    под конкретную ширину врал бы на любом другом устройстве, а Fold меняет
    ширину прямо во время просмотра — здесь раскладка меняется вместе с ним.
    Число 340 продублировано в _JS панели (порог свёртки состояния) — оно одно
-   и то же по смыслу, поэтому и там записано как 730 = 340×2+14+36. */
-.two{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));
+   и то же по смыслу, поэтому и там записано как 730 = 340×2+14+36.
+
+   ⚠️ `min(340px,100%)`, а НЕ голые 340px: minmax(340px,·) не умеет сжиматься
+   ниже своего минимума, и на внешнем экране Fold (344 px, контент 308) колонка
+   осталась 340-пиксельной, а страница уехала вбок на 32 px — приёмка
+   `panels_mobile_check --width 344` поймала это красным. */
+.two{display:grid;gap:14px;
+  grid-template-columns:repeat(auto-fit,minmax(min(340px,100%),1fr));
   align-items:start}
 /* Свёртка состояния: заголовок кликабелен, но выглядит подписью раздела —
    она не действие, а «показать остальное». */
@@ -112,6 +118,13 @@ details.state>summary{list-style:none;cursor:pointer;color:var(--dim);font-size:
 details.state>summary::-webkit-details-marker{display:none}
 details.state>summary::before{content:'▸ ';}
 details.state[open]>summary::before{content:'▾ ';}
+/* Сводка со счётчиком: одиннадцать одинаковых аномалий это одна проблема, а
+   не одиннадцать. Кегль обычного текста — это НЕ подпись раздела, а сама
+   аномалия, просто сложенная. */
+details.grp>summary{list-style:none;cursor:pointer;padding:6px 0}
+details.grp>summary::-webkit-details-marker{display:none}
+details.grp>summary::before{content:'▸ ';color:var(--dim)}
+details.grp[open]>summary::before{content:'▾ ';color:var(--dim)}
 .grid{display:grid;gap:10px}
 .tiles{grid-template-columns:repeat(4,1fr)}
 @media(max-width:760px){.tiles{grid-template-columns:repeat(2,1fr)}}
@@ -163,8 +176,13 @@ details.state[open]>summary::before{content:'▾ ';}
 .bar.wait>b.over{background:repeating-linear-gradient(
   45deg,var(--warn),var(--warn) 3px,transparent 3px,transparent 6px)}
 table{width:100%;border-collapse:collapse;font-size:15px}
+/* `anywhere` на ЛЮБОЙ ширине, а не только на телефоне. Раньше таблицы жили во
+   всю ширину body (1080), и машинная строка без пробелов
+   («deadline:30,price:40,…», 56 символов) помещалась. В двухколоночной
+   раскладке колонка вдвое уже — и та же строка распирала страницу до 1137 px
+   при окне 1024 (поймано `panels_mobile_check --width 1024`). */
 td,th{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left;
-  vertical-align:top}
+  vertical-align:top;overflow-wrap:anywhere}
 th{color:var(--dim);font-weight:600;font-size:12px}
 tr:last-child td{border-bottom:none}
 /* Пути worktree'ов и имена ключей — сплошные строки без пробелов: перенести
@@ -226,9 +244,13 @@ tr:last-child td{border-bottom:none}
   table td{display:block;border:none;padding:2px 0;overflow-wrap:anywhere}
   table td[data-l]{display:flex;gap:10px;align-items:baseline}
   table td>*{min-width:0}
-  table td[data-l]::before{content:attr(data-l);flex:0 0 84px;
+  /* `anywhere` на ячейке нужен машинным строкам без пробелов, но на ПОДПИСИ
+     он рвал слово посреди: «ПРИЗНАЧЕНН/Я» в таблице ключей. Подпись — одно
+     слово, ей переносить нечего, поэтому здесь правило снимается, а колонка
+     чуть шире, чтобы самое длинное («ПРИЗНАЧЕННЯ») помещалось целиком. */
+  table td[data-l]::before{content:attr(data-l);flex:0 0 92px;
     color:var(--dim);font-size:12px;text-transform:uppercase;
-    letter-spacing:.04em;line-height:1.5}
+    letter-spacing:.04em;line-height:1.5;overflow-wrap:normal}
   /* Пустая ячейка в карточке — просто пустая строка с подписью ни о чём. */
   table td[data-l]:empty{display:none}
 }

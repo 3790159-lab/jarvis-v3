@@ -727,13 +727,48 @@ def test_no_empty_slot_pretends_there_were_no_events(tmp_path, monkeypatch):
 
 def test_the_second_column_appears_by_content_not_by_device():
     """Порог выводится из КОНТЕНТА: минимальная комфортная колонка ×2 + gap.
-    Медиазапрос под конкретную модель телефона врёт на любой другой."""
+    Медиазапрос под конкретную модель телефона врёт на любой другой.
+
+    `min(340px,100%)` — не украшение: minmax(340px,·) не сжимается ниже своего
+    минимума, и на внешнем экране Fold (344 px) страница уезжала вбок на 32 px
+    (поймано `panels_mobile_check --width 344`)."""
     from app.routers.panels_ui import CSS
-    m = re.search(r"\.two\{[^}]*minmax\((\d+)px", CSS)
-    assert m, "второй столбец не выводится из ширины колонки"
+    m = re.search(r"\.two\{[^}]*minmax\(min\((\d+)px,\s*100%\)", CSS, re.S)
+    assert m, "второй столбец не выводится из ширины колонки (или не умеет сжиматься)"
     assert 320 <= int(m.group(1)) <= 360, m.group(1)
 
 
 def test_the_viewport_width_is_printed_for_the_next_layout_pass(tmp_path, monkeypatch):
     body = _page(_jarvis(tmp_path, monkeypatch), "/panel/jarvis")
     assert "innerWidth" in body and "ширина екрана" in body
+
+
+def test_a_bulk_anomaly_is_grouped_with_a_counter(tmp_path, monkeypatch):
+    """Sentry-правило: не 1000 ошибок, а 5 проблем со счётчиками.
+
+    Живой скриншот 14.08: 11 грязных worktree из 17 заняли ВЕСЬ первый экран и
+    вытеснили с него ответ. Грязное дерево остаётся аномалией (оно слепит
+    мерж-гейт), но одиннадцать одинаковых аномалий — это ОДНА проблема со
+    счётчиком, а не одиннадцать проблем."""
+    arcs = [{"branch": f"arc/d{i}", "path": f"C:/wt/d{i}", "dirty": True,
+             "merged": False, "age_days": 3.0} for i in range(11)]
+    body = _page(_jarvis(tmp_path, monkeypatch, arcs=arcs), "/panel/jarvis")
+    first = _first_screen(body)
+    m = re.search(r"<details class='grp'><summary>(.*?)</summary>", first, re.S)
+    assert m, "одиннадцать одинаковых аномалий выложены списком, а не свёрнуты"
+    assert "11" in m.group(1), m.group(1)
+    # Свёрнуто — но не спрятано: имена веток остаются в разметке под сводкой.
+    assert "arc/d7" in first
+
+
+def test_a_couple_of_anomalies_are_not_hidden_behind_a_counter(tmp_path, monkeypatch):
+    """Парный сторож. Свёртка по счётчику не имеет права проглатывать две
+    строки: тогда на первом экране не остаётся НИЧЕГО, кроме числа, и панель
+    снова требует лишнего тапа там, где всё помещалось."""
+    arcs = [{"branch": "arc/one", "path": "C:/wt/one", "dirty": True,
+             "merged": False, "age_days": 3.0},
+            {"branch": "arc/two", "path": "C:/wt/two", "dirty": True,
+             "merged": False, "age_days": 4.0}]
+    first = _first_screen(_page(_jarvis(tmp_path, monkeypatch, arcs=arcs), "/panel/jarvis"))
+    assert "<details class='grp'>" not in first, "две аномалии свёрнуты без нужды"
+    assert "arc/one" in first and "arc/two" in first

@@ -197,6 +197,25 @@ def _card(rows, now: float) -> str:
     return f"<div class='card'>{_rows_html(rows, now)}</div>" if rows else ""
 
 
+# Начиная со скольких одинаковых аномалий показываем СВОДКУ вместо списка.
+#
+# Живой прогон 14.08: 11 грязных worktree из 17 заняли весь первый экран и
+# вытеснили с него ответ. Грязное дерево остаётся аномалией — оно слепит
+# мерж-гейт, — но одиннадцать одинаковых аномалий это ОДНА проблема со
+# счётчиком, а не одиннадцать проблем. Порог именно 3, а не 1: свернуть две
+# строки значит оставить на экране одно число и потребовать лишний тап там,
+# где всё помещалось.
+GROUP_FROM = 3
+
+
+def _group(summary: str, inner: str, count: int) -> str:
+    """Сводка со счётчиком вместо длинного одинакового списка (принцип Sentry:
+    не 1000 ошибок, а 5 проблем). Список никуда не девается — он под сводкой."""
+    if count < GROUP_FROM:
+        return inner
+    return f"<details class='grp'><summary>{esc(summary)}</summary>{inner}</details>"
+
+
 def _arc_table(arcs: list[dict]) -> str:
     body = "".join(
         f"<tr><td><b>{esc(a.get('branch', '—'))}</b>"
@@ -256,9 +275,15 @@ def _slow_parts(slow: dict | None, now: float) -> tuple[str, str]:
     arcs_ok = [a for a in slow["arcs"] if not F.is_anomaly("arc", a)]
 
     anomalies = "".join([
-        f"<h2>Автоматизації</h2>{_card(tasks_bad, now)}" if tasks_bad else "",
-        f"<h2>Ключі</h2>{_key_table(keys_bad)}" if keys_bad else "",
-        f"<h2>Брудні дерева</h2>{_arc_table(arcs_bad)}" if arcs_bad else "",
+        f"<h2>Автоматизації</h2>" + _group(
+            _plural(len(tasks_bad), "задача", "задачі", "задач") + " не в нормі",
+            _card(tasks_bad, now), len(tasks_bad)) if tasks_bad else "",
+        f"<h2>Ключі</h2>" + _group(
+            _plural(len(keys_bad), "ключ", "ключі", "ключів") + " потребують уваги",
+            _key_table(keys_bad), len(keys_bad)) if keys_bad else "",
+        f"<h2>Брудні дерева</h2>" + _group(
+            _plural(len(arcs_bad), "брудне дерево", "брудні дерева", "брудних дерев")
+            + " — мерж-гейт сліпне", _arc_table(arcs_bad), len(arcs_bad)) if arcs_bad else "",
     ])
     state = "".join([
         f"<h2>Автоматизації</h2>{_card(tasks_ok, now)}" if tasks_ok else "",
