@@ -34,12 +34,36 @@ SCALE = {32, 24, 15, 12}
 
 # ─────────────────────────────── стенд ──────────────────────────────────────
 
+def _make_client_dir(root, *, slug: str = "volska", daily_cap: int | None = None):
+    """Минимальный клиент на диске. Нужен там, где проверяется, ЧТО экран берёт
+    из конфига: иначе тест читает конфиг живого клиента и его выводы зависят от
+    того, что сегодня лежит в `chatter/clients` (см. тесты про добовий ліміт)."""
+    d = root / "clients" / slug
+    d.mkdir(parents=True)
+    (d / "persona.md").write_text("Ольга.", encoding="utf-8")
+    (d / "knowledge.md").write_text("SMM — 900 $.", encoding="utf-8")
+    (d / "playbook.md").write_text("Етапи воронки.", encoding="utf-8")
+    limits = "" if daily_cap is None else f"limits: {{daily_cap: {daily_cap}}}\n"
+    (d / "settings.yaml").write_text(
+        f'model: claude-haiku-4-5\nlanguage: uk\nowner_id: "owner"\n'
+        f'persona_name: "Ольга"\n{limits}', encoding="utf-8")
+    return d.parent
+
+
 def _client(db_path, monkeypatch, *, heartbeat: str | None = "fresh",
-            package: str = "500"):
-    """heartbeat: 'fresh' — бот на связи, None — связи нет (единственная авария)."""
+            package: str = "500", clients_dir=None, slug: str | None = None):
+    """heartbeat: 'fresh' — бот на связи, None — связи нет (единственная авария).
+
+    clients_dir/slug — откуда экран берёт конфиг клиента. По умолчанию НЕ
+    трогаем: подавляющее большинство сторожей здесь про вёрстку и конфиг им
+    безразличен."""
     monkeypatch.setenv("JARVIS_PANELS_KEY", KEY)
     monkeypatch.setenv("TAMAPI_DB", str(db_path))
     monkeypatch.setenv("TAMAPI_PACKAGE", package)
+    if clients_dir is not None:
+        monkeypatch.setenv("CHATTER_CLIENTS_DIR", str(clients_dir))
+    if slug is not None:
+        monkeypatch.setenv("TAMAPI_SLUG", slug)
     hb = str(db_path) + ".hb"
     if heartbeat == "fresh":
         with open(hb, "w", encoding="utf-8") as f:
@@ -387,13 +411,32 @@ def test_a_missing_delta_says_why_instead_of_drawing_a_dash(tmp_path, monkeypatc
 
 
 def test_a_missing_daily_cap_says_so_instead_of_an_empty_value(tmp_path, monkeypatch):
-    """Конфига клиента на стенде нет — строка «добовий ліміт:» оставалась
-    висеть с пустотой после двоеточия."""
+    """Конфиг клиента не прочитан — строка «добовий ліміт:» оставалась висеть
+    с пустотой после двоеточия.
+
+    ⚠️ Каталог клиентов задаём ЯВНО (пустой). Прежняя редакция полагалась на
+    то, что конфига volska нет на стенде, — то есть кодировала СОСТОЯНИЕ диска,
+    а не инвариант: на машине с живым клиентом тест краснел, в worktree без
+    него — зеленел. Тот же класс, что 22 ложных падения без requisites.yaml."""
     p = tmp_path / "cap.db"
     _seed(p, leads=1)
-    body = _visible(_page(_client(p, monkeypatch)))
+    (tmp_path / "clients").mkdir()
+    c = _client(p, monkeypatch, clients_dir=tmp_path / "clients", slug="volska")
+    body = _visible(_page(c))
     assert "добовий ліміт не заданий" in body
     assert "добовий ліміт: </span>" not in body
+
+
+def test_a_known_daily_cap_is_shown_with_its_number(tmp_path, monkeypatch):
+    """Парный сторож: конфиг ЕСТЬ — на экране число из него, а не заглушка.
+    Без этой половины «не заданий» проходил бы и в случае, когда экран разучился
+    читать конфиг вовсе."""
+    p = tmp_path / "cap2.db"
+    _seed(p, leads=1)
+    clients = _make_client_dir(tmp_path, slug="volska", daily_cap=137)
+    body = _visible(_page(_client(p, monkeypatch, clients_dir=clients, slug="volska")))
+    assert "добовий ліміт: 137" in body
+    assert "добовий ліміт не заданий" not in body
 
 
 def test_a_single_point_series_is_not_drawn_as_a_chart():
