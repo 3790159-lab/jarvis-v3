@@ -87,7 +87,7 @@ MUTATIONS = [
      f"{T}::test_a_dead_heartbeat_outranks_everything_in_the_answer"),
 
     ("панель Джарвиса снова начинается со списка", JP,
-     [("<h1 class='ans {tone}'>{esc(ans)}</h1>", "<h1>Панель Джарвіса</h1>")],
+     [("<h1 class='ans {ans.tone}'>{esc(ans.text)}</h1>", "<h1>Панель Джарвіса</h1>")],
      f"{T}::test_jarvis_panel_answers_before_it_lists"),
 
     # ── порядок и статус-строка ──────────────────────────────────────────
