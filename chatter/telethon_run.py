@@ -1446,9 +1446,14 @@ class TelethonRunner:
     def toggle_persona(self, sender_id: int) -> str:
         """Flip demo<->demo2 for this sender. Requires exactly the two-persona
         case described in spec S7; with >2 personas loaded this picks the
-        first other slug deterministically (dict insertion order)."""
+        first other slug deterministically (dict insertion order).
+
+        Состав из ОДНОЙ персоны — сегодняшний прод (`CHATTER_PERSONAS=volska`),
+        и переключать там не на кого. Без дефолта `next()` бросал StopIteration
+        прямо в обработчик события: лид получал тишину, причина оставалась в
+        логе. Возвращаем текущую — ack скажет, кто отвечает, и это правда."""
         current = self.persona_for(sender_id)
-        other = next(slug for slug in self.personas if slug != current)
+        other = next((slug for slug in self.personas if slug != current), current)
         self._sender_persona[sender_id] = other
         return other
 
