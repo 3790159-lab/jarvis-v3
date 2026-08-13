@@ -859,11 +859,13 @@ MUTATIONS = [
 
     ("панель: cookie входа доступна скрипту (HttpOnly снят)",
      "app/routers/panels_auth.py", "        httponly=True,", "        httponly=False,",
-     "tests/chatter/test_panels_web.py::test_the_cookie_is_httponly_and_samesite_strict"),
+     "tests/chatter/test_panels_web.py"
+     "::test_the_cookie_is_httponly_samesite_strict_and_panel_scoped"),
 
     ("панель: cookie уходит на чужие сайты (SameSite ослаблен)",
      "app/routers/panels_auth.py", '        samesite="strict",', '        samesite="lax",',
-     "tests/chatter/test_panels_web.py::test_the_cookie_is_httponly_and_samesite_strict"),
+     "tests/chatter/test_panels_web.py"
+     "::test_the_cookie_is_httponly_samesite_strict_and_panel_scoped"),
 
     ("панель: открытый редирект с ручки входа",
      "app/routers/panels_auth.py",
@@ -1080,11 +1082,18 @@ MUTATIONS = [
 ]
 
 
-def run(test: str) -> bool:
-    """True = тест зелёный."""
+def run(test: str) -> int:
+    """Код возврата pytest. 0 = зелёный, 1 = красный, ОСТАЛЬНОЕ = харнесс врёт.
+
+    Второй способ соврать (13.08): мутация целится в ПЕРЕИМЕНОВАННЫЙ тест.
+    pytest не находит узел, выходит с 4 — и прежнее `returncode == 0` читало
+    это как «сторож покраснел». Две мутации cookie панели (HttpOnly, SameSite)
+    отчитывались `[ok]` с 12.08, ни разу не выполнив ни одной проверки.
+    Поэтому «не 0» больше не значит «красный»: красный — это РОВНО 1.
+    """
     p = subprocess.run([sys.executable, "-m", "pytest", test, "-q", "--no-header", "-p", "no:cacheprovider"],
                        cwd=ROOT, capture_output=True, text=True)
-    return p.returncode == 0
+    return p.returncode
 
 
 def revert(rel: str) -> None:
@@ -1118,14 +1127,20 @@ def main() -> int:
             continue
         write_mutant(path, text.replace(old, new, 1))
         try:
-            green = run(test)
+            rc = run(test)
         finally:
             revert(rel)
-        if green:
+        if rc == 0:
             print(f"[СЛЕП] {name}\n        {test} остался ЗЕЛЁНЫМ")
             blind.append((name, test))
-        else:
+        elif rc == 1:
             print(f"[ok]   {name} → сторож покраснел")
+        else:
+            # 4 = узла нет (переименовали тест), 5 = ничего не собралось,
+            # 2/3 = сам pytest сломался. Ни одно из этого не «поймал».
+            print(f"[ВРЁТ] {name}\n        {test} — pytest вышел с {rc}, "
+                  f"проверка НЕ выполнялась")
+            blind.append((name, f"{test} (pytest rc={rc})"))
     print()
     if blind:
         print(f"СЛЕПЫХ СТОРОЖЕЙ: {len(blind)} из {len(MUTATIONS)}")
