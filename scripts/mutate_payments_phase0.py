@@ -853,7 +853,7 @@ MUTATIONS = [
 
     ("панель: ручка входа не проверяет ключ вовсе",
      "app/routers/panels_auth.py",
-     "    if not key or not _same(key, expected):",
+     "    if not key.strip() or not _same(key, _expected()):",
      "    if False:",
      "tests/chatter/test_panels_web.py::test_a_wrong_key_is_refused_and_sets_nothing"),
 
@@ -869,19 +869,20 @@ MUTATIONS = [
 
     ("панель: открытый редирект с ручки входа",
      "app/routers/panels_auth.py",
-     "    target = next if next in _NEXT_ALLOWED else _NEXT_DEFAULT",
-     "    target = next or _NEXT_DEFAULT",
+     "    target = _safe_next(str(form.get(\"next\") or _NEXT_DEFAULT))",
+     "    target = str(form.get(\"next\") or _NEXT_DEFAULT)",
      "tests/chatter/test_panels_web.py::test_the_redirect_target_cannot_be_an_arbitrary_site"),
 
     ("панель: вход работает при выключенных панелях",
      "app/routers/panels_auth.py",
-     "    expected = _expected()\n"
-     "    if not expected:\n"
-     "        # Симметрия с `require_owner`: выключенная панель не имеет права\n"
-     "        # оставить открытой хотя бы одну дверь.\n"
+     # Логика переехала в отдельный `_require_enabled()` (её зовут и страница
+     # формы, и её приём). Мутируем ИМЕННО тело: пустой ключ перестаёт быть
+     # причиной отказа, и обе двери открываются при выключенных панелях.
+     "    if not _expected():\n"
      "        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,\n"
      '                            "panels disabled: JARVIS_PANELS_KEY not set")',
-     '    expected = _expected() or "любой сойдёт"',
+     "    if False:\n"
+     "        pass",
      "tests/chatter/test_panels_web.py"
      "::test_the_login_route_itself_is_dead_while_panels_are_disabled"),
 
@@ -932,8 +933,8 @@ MUTATIONS = [
 
     ("панель: подпись «за оцінкою асистента» пропала",
      "app/routers/tamapi_dashboard.py",
-     '("Кваліфіковано", f["qualified"], "за оцінкою асистента"),',
-     '("Кваліфіковано", f["qualified"], ""),',
+     '("Кваліфіковано", f["qualified"], "за оцінкою асистента", ""),',
+     '("Кваліфіковано", f["qualified"], "", ""),',
      "tests/chatter/test_panels_web.py"
      "::test_qualified_is_labelled_as_the_assistants_opinion"),
 
