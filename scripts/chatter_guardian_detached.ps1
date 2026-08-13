@@ -66,6 +66,31 @@ if (Test-Path $semidemoFlag) {
     $rOut = Join-Path $logDir 'chatter_volska.stdout.log'
 }
 
+# --- DEMO OVERRIDE (yarina, третий клиент) ----------------------------------
+# Демо новой персоны на ТОМ ЖЕ аккаунте. Ставится ПОСЛЕ блока Ольги намеренно:
+# её прод-флаг стоит всегда, и блок, идущий раньше, молча проиграл бы ему.
+#
+# Персона в раннере НЕ роутится по контакту (`persona_for` отдаёт primary_slug
+# всем, переопределение — только ручным `/switch`), а БД одна на процесс и
+# панель TAMAPI фильтра по слугу не имеет. Поэтому демо — это ВРЕМЕННАЯ
+# подмена состава, а не вторая персона рядом: СВОЯ база (иначе диалоги демо
+# попадут в счётчики и ленту панели Ольги), свои логи, та же сессия аккаунта.
+#
+# Пока флаг стоит, Ольга НЕ РАБОТАЕТ. Снять: run_yarina_demo.ps1 -Revert.
+$yarinaFlag = Join-Path $stateDir 'chatter_demo_yarina.flag'
+if (Test-Path $yarinaFlag) {
+    if (Test-Path $semidemoFlag) {
+        # Write-G здесь ещё не объявлена (функции ниже по файлу) — копим в
+        # переменную и печатаем в стартовом логе.
+        $rosterNote = 'ДЕМО ЯРИНЫ: стоят ОБА флага - поднимаю yarina, Ольга НЕ работает'
+    }
+    $env:CHATTER_PERSONAS = 'yarina'
+    $env:TELETHON_SESSION = '.secrets\demo.session'
+    $env:CHATTER_DB       = '.secrets\yarina.db'
+    $rErr = Join-Path $logDir 'chatter_yarina.log'
+    $rOut = Join-Path $logDir 'chatter_yarina.stdout.log'
+}
+
 # --- СЛОТ ОБЯЗАТЕЛЬСТВ (арка «б», принята Д-10 2026-07-24) -------------------
 # Слот в проде. Флаг остаётся рубильником отката: убрать строку + рестарт таска
 # → §8-строка молчит, блок в промпт не инъектится (byte-identical к до-арке).
@@ -113,6 +138,12 @@ if (-not $NoLoop) {
     $PID | Out-File -FilePath $lockFile -Encoding ascii -Force
     Write-GuardianBeat
     Write-G "chatter guardian started (PID $PID), heartbeat<=${HeartbeatMaxAgeSec}s every ${IntervalSeconds}s, debounce=${DebounceFailures}"
+    # Чей раннер поднимаем — в лог ЯВНО. Подмена состава флагом видна только
+    # здесь: без этой строки «Ольга молчит» ищут в Telegram, а не в флаге.
+    $roster = if ($env:CHATTER_PERSONAS) { "$env:CHATTER_PERSONAS (флаг)" }
+              else { 'active.yaml' }
+    Write-G "состав: CHATTER_PERSONAS=$roster, db=$(if ($env:CHATTER_DB) { $env:CHATTER_DB } else { 'по первому слагу' })"
+    if ($rosterNote) { Write-G $rosterNote }
 }
 
 function Invoke-WatchCheck {
