@@ -347,6 +347,35 @@ def parse_log_ts(line: str) -> float | None:
         return None
 
 
+# Что из лога гардиана считается СОБЫТИЕМ, а что — его собственным шумом.
+#
+# Замер 14.08 по живому логу (421 строка): 163 строки, то есть 39%, — это
+# «runner check failed (N/3) - debouncing», по две на каждый несостоявшийся
+# инцидент. Прежний фильтр искал подстроки `DOWN`/`launched`/`failed`, ловил
+# дебаунс целиком, и в последних 40 строках под него попадали 28 — почти все
+# шумовые. Настоящие падения вытеснялись с экрана шумом сторожа.
+#
+# Список ИМЕНОВАННЫЙ намеренно: новый вид строки не попадёт в ленту молча —
+# его придётся добавить сюда осознанно. Суп из подстрок делал обратное.
+GUARDIAN_DECISIONS = (
+    "runner DOWN",                 # решение поднимать
+    "launched chatter runner",     # подъём состоялся
+    "chatter guardian started",    # рестарт самого сторожа
+    "heartbeat NOT fresh",         # настоящий провал подъёма
+    "CHATTER_PERSONAS=",           # строка «Состав: … db=…», называет активную базу
+)
+# Строки, которые под маску решения попадают, но событием не являются.
+# Проверяется ПЕРВЫМ: «runner check failed» содержит и шум, и слово из маски.
+GUARDIAN_NOISE = ("debouncing", "runner alive", "heartbeat fresh after")
+
+
+def is_decision(line: str) -> bool:
+    """Решение гардиана против его же дебаунс-шума."""
+    if any(noise in line for noise in GUARDIAN_NOISE):
+        return False
+    return any(mark in line for mark in GUARDIAN_DECISIONS)
+
+
 def events(limit: int = 40) -> list[dict]:
     """Лента: control_events клиента + строки гардианов. «Посчитано ≠ доехало» —
     доставку алертов мы сегодня не журналируем, и это помечено как пробел."""

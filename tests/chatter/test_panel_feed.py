@@ -43,3 +43,40 @@ def test_garbage_input_never_raises():
     функции — «на любом мусоре None, не исключение») туда же."""
     assert F.parse_log_ts("9999-12-31 23:59:59 | x") is None
     assert F.parse_log_ts(None) is None
+
+
+# Реальные виды строк из logs/chatter_guardian.stdout.log с их частотой на
+# 14.08. Тест держит РЕШЕНИЕ по каждому виду, а не абстрактный «фильтр».
+KEEP = [
+    "2026-08-14 00:45:08 | runner DOWN - restarting",
+    "2026-08-14 00:45:09 | launched chatter runner (PID 6864) -> C:\\jarvis\\logs\\chatter_volska.log",
+    "2026-08-13 21:04:11 | chatter guardian started (PID 5724), heartbeat<=180s every 30s, debounce=3",
+    "2026-08-12 09:10:00 | runner heartbeat NOT fresh after 45s - will retry next cycle",
+    "2026-08-14 00:40:00 | Состав: CHATTER_PERSONAS=volska (файл), db=.secrets\\demo.db",
+]
+DROP = [
+    "2026-08-14 00:44:08 | runner check failed (1/3) - debouncing, not relaunching yet",
+    "2026-08-14 00:44:38 | runner check failed (2/3) - debouncing, not relaunching yet",
+    "2026-08-14 00:45:10 | runner heartbeat fresh after ~0s",
+    "2026-08-13 22:00:00 | runner alive",
+]
+
+
+def test_decisions_of_the_guardian_reach_the_feed():
+    for line in KEEP:
+        assert F.is_decision(line), f"решение выброшено из ленты: {line}"
+
+
+def test_the_guardians_own_debounce_noise_never_reaches_the_feed():
+    """163 из 421 строки лога — дебаунс. Он и съедал окно: настоящие
+    DOWN/launched вытеснялись собственным шумом сторожа."""
+    for line in DROP:
+        assert not F.is_decision(line), f"шум попал в ленту: {line}"
+
+
+def test_the_composition_line_survives_because_it_names_the_database():
+    """Парный к дефекту выбора базы: строка «Состав: … db=…» — единственное
+    место, где лог прямо называет активную базу. Выбросить её значит оставить
+    слепое пятно ровно там, где мы его чиним."""
+    line = "2026-08-14 00:40:00 | Состав: CHATTER_PERSONAS=volska (файл), db=.secrets\\demo.db"
+    assert F.is_decision(line)
