@@ -402,6 +402,49 @@ def is_decision(line: str) -> bool:
     return any(mark in line for mark in GUARDIAN_DECISIONS)
 
 
+# Сколько байт хвоста лога читаем. Ротации у chatter_guardian_detached.ps1 нет
+# ВООБЩЕ (проверено 14.08: ни Clear-Content, ни лимита), лог растёт вечно, и
+# `read_text()` дорожал бы с каждым днём. 64 КБ — это порядка 700 строк лога,
+# заведомо больше окна ленты и заведомо дёшево.
+GUARDIAN_LOG_WINDOW = 64 * 1024
+
+
+def read_tail(path, limit: int = GUARDIAN_LOG_WINDOW) -> tuple[list[str], bool]:
+    """(строки хвоста, файл_длиннее_окна).
+
+    КОДИРОВКА: utf-8, при провале — cp1251 на ВЕСЬ блок. Порядок не
+    переставляется: cp1251 декодирует любой байт и никогда не бросает
+    исключение, поэтому первым он молча превратил бы нормальный utf-8 в мусор,
+    и выглядело бы это как «так и было в логе».
+
+    Фолбэк на блок, а не на строку: смешанный файл прочтётся как cp1251
+    целиком, и это лучше ровного ряда `�` от errors="replace" — cp1251 верно
+    читает латиницу, цифры и пути, то есть `CHATTER_PERSONAS`, PID и db=.
+    """
+    p = Path(path)
+    try:
+        size = p.stat().st_size
+        with open(p, "rb") as f:
+            if size > limit:
+                f.seek(size - limit)
+            raw = f.read()
+    except OSError:
+        return [], False
+
+    truncated = size > limit
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        text = raw.decode("cp1251", errors="replace")
+
+    lines = text.splitlines()
+    if truncated and lines:
+        # Срез по байтам рассекает строку посередине: обрубок в ленте выглядит
+        # как событие с потерянным началом.
+        lines = lines[1:]
+    return lines, truncated
+
+
 def events(limit: int = 40) -> list[dict]:
     """Лента: control_events клиента + строки гардианов. «Посчитано ≠ доехало» —
     доставку алертов мы сегодня не журналируем, и это помечено как пробел."""

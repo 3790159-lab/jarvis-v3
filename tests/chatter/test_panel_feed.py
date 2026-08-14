@@ -115,3 +115,56 @@ def test_debounce_noise_survives_even_though_uppercase_failed_is_now_a_decision_
     чтобы правку регистра нельзя было провести незаметно."""
     assert not F.is_decision(
         "2026-08-14 00:44:08 | runner check failed (1/3) - debouncing, not relaunching yet")
+
+
+def test_a_utf8_log_is_read_as_utf8(tmp_path):
+    """Парный сторож к фолбэку. cp1251 декодирует ЛЮБОЙ байт и никогда не
+    бросит — поставь его первым, и нормальный utf-8 молча станет мусором,
+    причём выглядеть это будет как «так и было в логе»."""
+    p = tmp_path / "g.log"
+    p.write_text("2026-08-14 00:45:08 | Состав: CHATTER_PERSONAS=volska\n",
+                 encoding="utf-8")
+    lines, truncated = F.read_tail(p)
+    assert truncated is False
+    assert "Состав: CHATTER_PERSONAS=volska" in lines[0]
+
+
+def test_a_cp1251_log_is_still_readable(tmp_path):
+    """-Encoding utf8 в гардиане чинит только БУДУЩИЕ строки. Прошлое
+    чинится фолбэком при чтении — иначе строка, называющая активную базу,
+    остаётся нечитаемой навсегда."""
+    p = tmp_path / "g.log"
+    p.write_bytes("2026-08-14 00:40:00 | Состав: CHATTER_PERSONAS=volska, db=.secrets\\demo.db\n"
+                  .encode("cp1251"))
+    lines, truncated = F.read_tail(p)
+    assert "Состав: CHATTER_PERSONAS=volska" in lines[0], lines[0]
+    assert "�" not in lines[0], "фолбэк не сработал, строка испорчена"
+
+
+def test_a_log_longer_than_the_window_is_read_from_the_end(tmp_path):
+    """Ротации у гардиана нет — лог растёт вечно, и чтение целиком дорожает
+    каждый день. Читаем хвост и ГОВОРИМ, что файл длиннее окна."""
+    p = tmp_path / "g.log"
+    p.write_text("".join(f"2026-08-14 00:{i % 60:02d}:00 | строка {i}\n"
+                         for i in range(4000)), encoding="utf-8")
+    lines, truncated = F.read_tail(p, limit=2048)
+    assert truncated is True
+    assert len(lines) < 4000
+    assert "строка 3999" in lines[-1]
+
+
+def test_the_first_partial_line_of_the_window_is_dropped(tmp_path):
+    """Срез по байтам рассекает строку посередине. Обрубок в ленте выглядит
+    как настоящее событие с потерянным началом."""
+    p = tmp_path / "g.log"
+    p.write_text("A" * 3000 + "\n2026-08-14 00:45:08 | runner DOWN - restarting\n",
+                 encoding="utf-8")
+    lines, truncated = F.read_tail(p, limit=1024)
+    assert truncated is True
+    assert not any(set(line) == {"A"} for line in lines), lines
+
+
+def test_a_missing_log_is_not_an_exception(tmp_path):
+    """Лог может отсутствовать на машине без chatter. Это пустая лента, а не
+    падение страницы."""
+    assert F.read_tail(tmp_path / "нет-такого.log") == ([], False)
