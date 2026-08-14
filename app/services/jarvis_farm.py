@@ -840,7 +840,12 @@ def _share_window(groups: list[list[dict]], budget: int) -> list[dict]:
     """
     if budget <= 0 or not groups:
         return []
-    quota = max(1, budget // len(groups))
+    # Без `max(1, …)`: при бюджете меньше числа групп подпорка выдавала КАЖДОЙ
+    # группе по строке и отдавала БОЛЬШЕ бюджета (`budget=1` → 2 строки).
+    # Наружу это маскировал финальный `out[:limit]` в `events()`, а съедала
+    # маскировка как раз строки ВНЕ бюджета — те, что говорят про сейчас.
+    # Раздача остатка ниже сама разберёт бюджет, включая нулевую квоту.
+    quota = budget // len(groups)
     taken = [g[:quota] for g in groups]
     spare = budget - sum(len(t) for t in taken)
     for group, part in zip(groups, taken):
@@ -864,6 +869,11 @@ def _share_window(groups: list[list[dict]], budget: int) -> list[dict]:
 # 25 — ровно то, что экран показывает сегодня: размер первого экрана эта правка
 # не меняет, она убирает ВТОРОЕ число.
 FEED_LIMIT = 25
+
+# Предел длины детали — ОДИН на оба источника: колонка «Деталь» на экране одна.
+# Строки гардиана резались всегда, клиентские ехали целиком (замерено: 5000
+# символов доезжали до сортировки).
+FEED_DETAIL_LIMIT = 120
 
 
 def events(limit: int = FEED_LIMIT, table: list[tuple] | None = None) -> list[dict]:
@@ -890,6 +900,10 @@ def events(limit: int = FEED_LIMIT, table: list[tuple] | None = None) -> list[di
     # бюджета, потому что говорят про СЕЙЧАС, — попади они в общую очередь на
     # равных, поток свежих событий вытеснил бы аварию конфигурации, и она
     # выглядела бы тишиной (DEV-18).
+    # `LIMIT -1` в sqlite означает «БЕЗ ПРЕДЕЛА»: словари строились бы по всей
+    # таблице `control_events` и тут же выбрасывались срезом. Тихо и дорого.
+    limit = max(0, limit)
+
     fixed: list[dict] = []
     client: list[dict] = []
     guard: list[dict] = []
@@ -910,7 +924,8 @@ def events(limit: int = FEED_LIMIT, table: list[tuple] | None = None) -> list[di
                         "SELECT kind, contact_id, detail, ts FROM control_events "
                         "ORDER BY id DESC LIMIT ?", (limit,)):
                     client.append({"src": "chatter", "kind": r["kind"],
-                                   "detail": r["detail"] or r["contact_id"] or "",
+                                   "detail": (r["detail"] or r["contact_id"]
+                                              or "")[:FEED_DETAIL_LIMIT],
                                    # Нормализуем НА ИСТОЧНИКЕ, а не только в
                                    # ключе сортировки: ниже по течению время
                                    # берёт ещё и разметка (`_ago`), и чинить
@@ -931,7 +946,7 @@ def events(limit: int = FEED_LIMIT, table: list[tuple] | None = None) -> list[di
                       # Префикс времени вырезается: оно уехало в свою колонку
                       # («Когда» в `_events_table`), и дублировать его в узкой
                       # колонке детали значит занять её уже нарисованным.
-                      "detail": _LOG_TS_RE.sub("", ln)[:120],
+                      "detail": _LOG_TS_RE.sub("", ln)[:FEED_DETAIL_LIMIT],
                       "ts": parse_log_ts(ln)})
     if truncated:
         oldest = next((parse_log_ts(ln) for ln in kept if parse_log_ts(ln)), None)

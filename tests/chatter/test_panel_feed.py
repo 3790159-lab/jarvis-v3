@@ -1472,3 +1472,88 @@ def test_the_process_table_is_not_stamped_with_a_time_it_never_had(tmp_path, mon
     assert gap < SLOW / 2, (
         f"процессы обойдены, а подписаны на {gap:.2f} с позже — "
         f"через всю медленную половину")
+
+
+# ───────────── бюджет окна: раздать РОВНО столько, сколько дали ──────────────
+
+
+def test_the_window_never_hands_out_more_than_the_budget():
+    """`quota = max(1, budget // len(groups))` при бюджете меньше числа групп
+    выдавал КАЖДОЙ группе по строке: `budget=1` → отдано 2. Наружу это
+    маскировалось финальным `out[:limit]` в `events()`, но маскировка съедала
+    как раз строки ВНЕ бюджета — те самые, что говорят про сейчас.
+
+    Проверяется сама функция, а не лента вокруг: под `events()` дефект виден
+    только на редких мелких `limit`, и вернуть `max(1, …)` можно было бы
+    бесследно. Раздача остатка сама разбирает бюджет — подпорка не нужна."""
+    two = [[{"n": f"a{i}"} for i in range(5)], [{"n": f"b{i}"} for i in range(5)]]
+    for budget in (1, 2, 3, 4, 5):
+        got = F._share_window(two, budget)
+        assert len(got) == budget, f"бюджет {budget}, отдано {len(got)}"
+
+    three = two + [[{"n": f"c{i}"} for i in range(5)]]
+    for budget in (1, 2, 3, 7):
+        got = F._share_window(three, budget)
+        assert len(got) == budget, f"бюджет {budget} на три группы, отдано {len(got)}"
+
+    # Нулевой и отрицательный бюджет — это «места нет», а не «по строке всем».
+    assert F._share_window(two, 0) == []
+    assert F._share_window(two, -3) == []
+
+
+def test_a_negative_limit_never_becomes_an_unbounded_sql_query(tmp_path, monkeypatch):
+    """`LIMIT -1` в sqlite означает «БЕЗ ПРЕДЕЛА»: по всей таблице
+    `control_events` строятся словари, и тут же выбрасываются финальным
+    срезом. Тихо и дорого, а снаружи выглядит ровно как пустая лента — поэтому
+    сторож смотрит на ЗАПРОС, а не на возврат."""
+    import app.services.tamapi_metrics as M
+
+    asked = []
+    real_ro = M._ro
+
+    class _Spy:
+        def __init__(self, conn):
+            self._conn = conn
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self._conn.close()
+            return False
+
+        def execute(self, sql, params=()):
+            asked.append((sql, params))
+            return self._conn.execute(sql, params)
+
+    monkeypatch.setattr(M, "_ro", lambda db: _Spy(real_ro(db)))
+    _clients_dir(tmp_path, "demo")
+    _client_db(tmp_path, "demo",
+               [("пауза", f"c{i}", f"клиентское событие {i}", 2e9 + i) for i in range(50)])
+    _guardian_log(tmp_path, "")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+
+    F.events(limit=-1, table=[])
+    assert asked, "к базе клиента не ходили вовсе — сторож проверяет не то"
+    sql, params = asked[0]
+    assert "LIMIT" in sql, sql
+    assert params[0] >= 0, f"в sqlite уехал LIMIT {params[0]} — это «без предела»"
+
+
+def test_a_giant_client_detail_is_cut_at_the_source(tmp_path, monkeypatch):
+    """Строки гардиана режутся `[:120]`, клиентские ехали целиком (замерено:
+    5000 символов доезжало до сортировки). Предел один и тот же, потому что
+    колонка «Деталь» на экране одна."""
+    _clients_dir(tmp_path, "demo")
+    _client_db(tmp_path, "demo", [("пауза", "c1", "щ" * 5000, 2e9)])
+    _guardian_log(tmp_path,
+                  "2026-08-14 00:45:08 | runner DOWN - restarting " + "x" * 5000 + "\n")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+
+    rows = F.events(table=[])
+    client = [r for r in rows if r["src"] == "chatter"][0]
+    guard = [r for r in rows if r["src"] == "гардиан"][0]
+    assert len(client["detail"]) == F.FEED_DETAIL_LIMIT, len(client["detail"])
+    assert len(guard["detail"]) == F.FEED_DETAIL_LIMIT, len(guard["detail"])
