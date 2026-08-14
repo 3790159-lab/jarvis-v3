@@ -279,6 +279,22 @@ def test_a_missing_log_is_not_an_exception(tmp_path):
     assert F.read_tail(tmp_path / "нет-такого.log") == ([], False)
 
 
+# ───────────── какую базу читает лента: лестница «факт → догадка» ────────────
+#
+# Панель и раннер — СИБЛИНГИ, а не родня: раннера поднимает
+# chatter_guardian_detached.ps1, панель живёт в run_backend_detached.py под
+# ДРУГИМ гардианом. Общего окружения у них нет вовсе (проверено 14.08 на живых
+# PID: у раннера CHATTER_PERSONAS='volska' и CHATTER_DB='.secrets\demo.db', у
+# панели обе переменные None, в реестре USER/MACHINE их тоже нет).
+#
+# Поэтому стенд ниже подсовывает ФАЛЬШИВУЮ таблицу процессов и фальшивый
+# `environ`. Спрашивать живые процессы машины тестам нельзя: на ней прямо
+# сейчас крутится раннер volska, и сторож зеленел бы или краснел от того, что
+# сегодня в проде, а не от кода.
+
+PY = r"C:\jarvis\.venv\Scripts\python.exe"
+
+
 def _clients_dir(tmp_path, *slugs):
     """Склад клиентов в том же виде, в каком его читает раннер: `clients:` со
     списком слагов, ПЕРВЫЙ — первичный."""
@@ -289,20 +305,255 @@ def _clients_dir(tmp_path, *slugs):
     return d
 
 
+def _guardian_log(tmp_path, text: str):
+    """Лог гардиана В ПОДМЕНЁННОМ ROOT. Живой лог фермы тесты не читают: он
+    меняется каждые 30 секунд, и сторож на нём проверял бы прод, а не код."""
+    logs = tmp_path / "logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    p = logs / "chatter_guardian.stdout.log"
+    p.write_text(text, encoding="utf-8")
+    return p
+
+
+def _runner_row(pid):
+    """Строка таблицы процессов ровно в форме `_proc_table` — живой раннер,
+    поднятый модулем: scripts/chatter_guardian_detached.ps1:226 запускает его
+    как `-u -m chatter.telethon_run --llm real`."""
+    return (pid, "python.exe", [PY, "-u", "-m", "chatter.telethon_run",
+                                "--llm", "real"], 1.0, 1)
+
+
+def _environs(monkeypatch, by_pid):
+    """Подмена `psutil.Process(pid).environ()`: словарь отдаётся, исключение
+    бросается. Проверено на живых PID фермы, что настоящий `environ()` на этой
+    машине работает без повышения прав, — но AccessDenied остаётся законным
+    ответом Windows на чужой процесс, и он тоже разыгрывается здесь."""
+    import psutil
+
+    class _FakeProcess:
+        def __init__(self, pid):
+            self._pid = pid
+
+        def environ(self):
+            answer = by_pid[self._pid]
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+
+    monkeypatch.setattr(psutil, "Process", _FakeProcess)
+
+
+def _bare_panel_env(monkeypatch):
+    """Окружение панели в проде: ни одной из трёх переменных в нём нет."""
+    for var in ("TAMAPI_DB", "CHATTER_DB", "CHATTER_PERSONAS"):
+        monkeypatch.delenv(var, raising=False)
+
+
+# ─────────────────────── шаг 2: ЖИВОЙ раннер — факт ──────────────────────────
+
+def test_the_live_runner_outranks_the_clients_file(tmp_path, monkeypatch):
+    """Источник истины — тот процесс, который базу и обслуживает. Файл состава
+    говорит, что раннер прочитал БЫ, если бы стартовал сейчас; живой раннер
+    стартовал вчера и с тех пор мог быть запущен с чем угодно."""
+    _clients_dir(tmp_path, "demo")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+    _environs(monkeypatch, {6864: {"CHATTER_DB": r".secrets\yarina.db"}})
+    path, note = F.client_db_path([_runner_row(6864)])
+    assert note == ""
+    # Путь раннера ОТНОСИТЕЛЬНЫЙ и живёт в его системе координат (cwd C:\jarvis);
+    # cwd панели может быть любым, поэтому сверяем абсолютный.
+    assert path == str(tmp_path / ".secrets" / "yarina.db"), path
+
+
+def test_a_live_runner_without_an_explicit_db_is_asked_about_its_personas(tmp_path, monkeypatch):
+    """У раннера в проде CHATTER_DB задан не всегда — тогда он выводит базу из
+    первичного slug'а сам, и панель обязана вывести её тем же способом."""
+    _clients_dir(tmp_path, "demo")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+    _environs(monkeypatch, {6864: {"CHATTER_PERSONAS": "volska"}})
+    path, note = F.client_db_path([_runner_row(6864)])
+    assert note == ""
+    assert path == str(tmp_path / ".secrets" / "volska.db"), path
+
+
+def test_the_yarina_demo_scenario_reads_the_database_the_runner_serves(tmp_path, monkeypatch):
+    """ТОТ САМЫЙ дефект, ради которого функция переписана. 14.08 раннер
+    обслуживал `yarina`, а `active.yaml` называл `demo` — и панель показывала
+    ленту demo.db, выдавая её за текущую. Проверено фактом: в `.secrets/demo.db`
+    35 control_events, в `.secrets/yarina.db` — ровно ноль."""
+    _clients_dir(tmp_path, "demo")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+    _environs(monkeypatch, {6864: {"CHATTER_PERSONAS": "yarina"}})
+    path, note = F.client_db_path([_runner_row(6864)])
+    assert note == "", note
+    assert path == str(tmp_path / ".secrets" / "yarina.db"), path
+
+
+def test_the_panel_derives_the_file_exactly_as_the_runner_does(tmp_path, monkeypatch):
+    """Паритет со схемой имён РАННЕРА, а не с докстрингом о ней. Пока равенство
+    держалось только словами, переименование `.secrets/<slug>.db` в
+    `chatter/telethon_run.py` молча вернуло бы дефект: панель продолжила бы
+    читать файл, которого раннер больше не пишет.
+
+    Импорт внутри теста: `chatter.telethon_run` тянет telethon и половину
+    chatter — платить за это на сборе всего файла ленты незачем."""
+    from chatter.telethon_run import derive_db_path
+
+    _clients_dir(tmp_path, "demo")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+    _environs(monkeypatch, {6864: {"CHATTER_PERSONAS": "yarina"}})
+    path, _ = F.client_db_path([_runner_row(6864)])
+    assert path == derive_db_path("yarina", secrets_dir=tmp_path / ".secrets")
+
+
+def test_two_runners_that_disagree_are_named_an_accident(tmp_path, monkeypatch):
+    """ДВА PID у раннера — норма фермы (лаунчер + сам сервис), и одинаковый
+    ответ обоих ничего не значит. А вот РАЗНЫЙ означает, что живут две сессии
+    на разных базах: половина ленты будет не о том клиенте, и молчать об этом
+    нельзя."""
+    _clients_dir(tmp_path, "demo")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+    _environs(monkeypatch, {6864: {"CHATTER_PERSONAS": "yarina"},
+                            9456: {"CHATTER_PERSONAS": "volska"}})
+    path, note = F.client_db_path([_runner_row(6864), _runner_row(9456)])
+    assert path == str(tmp_path / ".secrets" / "yarina.db"), path
+    assert note, "расхождение двух раннеров проглочено"
+    assert "yarina.db" in note and "volska.db" in note, note
+
+
+def test_two_runners_that_agree_are_not_an_accident(tmp_path, monkeypatch):
+    """Парный сторож: два PID одного сервиса — обычный день фермы. Красить его
+    аварией значит приучить читать пояснение как шум."""
+    _clients_dir(tmp_path, "demo")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+    _environs(monkeypatch, {6864: {"CHATTER_PERSONAS": "volska"},
+                            9456: {"CHATTER_PERSONAS": "volska"}})
+    path, note = F.client_db_path([_runner_row(6864), _runner_row(9456)])
+    assert note == "", note
+    assert path == str(tmp_path / ".secrets" / "volska.db"), path
+
+
+def test_a_runner_we_may_not_question_says_so_instead_of_going_quiet(tmp_path, monkeypatch):
+    """DEV-18: `environ()` вправе бросить AccessDenied. Ответ при этом даётся —
+    из active.yaml, — но он ДОГАДКА, и разница между «спросил раннера» и «не
+    смог спросить» обязана быть видна в ленте."""
+    import psutil
+
+    _clients_dir(tmp_path, "demo")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+    _environs(monkeypatch, {6864: psutil.AccessDenied(6864)})
+    path, note = F.client_db_path([_runner_row(6864)])
+    assert path == str(tmp_path / ".secrets" / "demo.db"), path
+    assert "AccessDenied" in note, note
+    assert "жив" in note, note
+
+
+def test_a_process_that_only_mentions_the_runner_is_not_asked(tmp_path, monkeypatch):
+    """ГРАБЛЯ 1 файла: маркер внутри `-c` — разговор О раннере, а не раннер.
+    Спросить окружение такого процесса значит взять базу у диагностического
+    однострочника. Поиск идёт тем же `_launches`, что у `processes()`, — второго
+    способа искать процессы в файле быть не должно."""
+    _clients_dir(tmp_path, "demo")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+    talker = (4242, "python.exe",
+              [PY, "-c", "print('chatter.telethon_run is what we grep')"], 1.0, 1)
+    _environs(monkeypatch, {4242: {"CHATTER_PERSONAS": "yarina"}})
+    path, note = F.client_db_path([talker])
+    assert path == str(tmp_path / ".secrets" / "demo.db"), path
+    assert "раннер не запущен" in note, note
+
+
+# ───────────────── шаг 3: раннера нет — что помнит лог гардиана ──────────────
+
+def test_a_dead_runner_leaves_its_database_named_in_the_guardian_log(tmp_path, monkeypatch):
+    """Раннер упал — но гардиан при старте записал, кого он поднимает
+    (chatter_guardian_detached.ps1:145). Это вчерашний факт, и он вернее
+    сегодняшней догадки по файлу состава."""
+    _clients_dir(tmp_path, "demo")
+    _guardian_log(tmp_path,
+                  "2026-08-14 00:40:00 | chatter guardian started (PID 5724)\n"
+                  "2026-08-14 00:44:08 | состав: CHATTER_PERSONAS=yarina (флаг), "
+                  "db=.secrets\\yarina.db\n")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+    path, note = F.client_db_path([])
+    assert path == str(tmp_path / ".secrets" / "yarina.db"), path
+    assert "лога гардиана" in note, note
+    assert "14.08 00:44" in note, note
+
+
+def test_the_log_line_names_the_database_even_when_it_only_names_the_roster(tmp_path, monkeypatch):
+    """Гардиан пишет `db=по первому слагу`, когда CHATTER_DB не задан вовсе, —
+    это самый частый вид строки в живом логе. Базу тогда даёт состав из той же
+    строки; принять «по первому слагу» за путь значит показать ленту файла с
+    таким именем."""
+    _clients_dir(tmp_path, "demo")
+    _guardian_log(tmp_path,
+                  "2026-08-14 00:44:08 | состав: CHATTER_PERSONAS=yarina (флаг), "
+                  "db=по первому слагу\n")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+    path, note = F.client_db_path([])
+    assert path == str(tmp_path / ".secrets" / "yarina.db"), path
+    assert "лога гардиана" in note, note
+
+
+def test_a_log_that_only_points_back_at_the_clients_file_adds_nothing(tmp_path, monkeypatch):
+    """`CHATTER_PERSONAS=active.yaml` в логе означает «состав взят файлом» —
+    лог не знает ничего сверх шага 4, и выдавать его за источник нельзя."""
+    _clients_dir(tmp_path, "yarina", "demo")
+    _guardian_log(tmp_path,
+                  "2026-08-14 00:44:08 | состав: CHATTER_PERSONAS=active.yaml, "
+                  "db=по первому слагу\n")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+    path, note = F.client_db_path([])
+    assert path == str(tmp_path / ".secrets" / "yarina.db"), path
+    assert "active.yaml" in note, note
+    assert "лога гардиана" not in note, note
+
+
+# ─────────────── шаг 4: ни раннера, ни лога — догадка вслух ──────────────────
+
 def test_the_database_follows_the_primary_slug(tmp_path, monkeypatch):
     """Первичный slug МЕНЯЕТСЯ: 14.08 во время демо Ярины он был `yarina`.
     Панель с прибитым литералом в такой момент читает не ту базу и печатает
     «тихо» вместо ленты — тишина, неотличимая от здоровья. Проверено фактом:
     рядом с `.secrets/demo.db` (35 control_events) лежит `.secrets/yarina.db`
-    ровно с нулём — на нём лента и была бы пустой."""
+    ровно с нулём — на нём лента и была бы пустой.
+
+    Сверяется ПОЛНЫЙ путь, а не хвост `.endswith("yarina.db")`: под хвостовую
+    проверку пролезает и заново прибитый литерал `C:/jarvis/.secrets/yarina.db`,
+    то есть ровно тот дефект, который здесь сторожат."""
     _clients_dir(tmp_path, "yarina", "demo")
     monkeypatch.setattr(F, "ROOT", tmp_path)
-    monkeypatch.delenv("TAMAPI_DB", raising=False)
-    monkeypatch.delenv("CHATTER_DB", raising=False)
-    monkeypatch.delenv("CHATTER_PERSONAS", raising=False)
-    path, note = F.client_db_path()
-    assert note == ""
-    assert path.endswith("yarina.db"), path
+    _bare_panel_env(monkeypatch)
+    path, note = F.client_db_path([])
+    assert path == str(tmp_path / ".secrets" / "yarina.db"), path
+    # Ответ БЕЗ живого раннера — догадка, и лента обязана назвать её догадкой.
+    assert "active.yaml" in note, note
+
+
+def test_a_missing_clients_file_admits_it_took_the_legacy_default(tmp_path, monkeypatch):
+    """`chatter/config/active.py` при отсутствии файла ТИХО отдаёт
+    LEGACY_PERSONAS (['demo','demo2']) — страховка, осмысленная для раннера
+    (прод не падает на первом же рестарте) и ядовитая для панели: она выдала бы
+    demo.db за прочитанный состав. Раннера не трогаем, но молчать не имеем
+    права."""
+    monkeypatch.setattr(F, "ROOT", tmp_path)     # склада клиентов тут нет вовсе
+    _bare_panel_env(monkeypatch)
+    path, note = F.client_db_path([])
+    assert path == str(tmp_path / ".secrets" / "demo.db"), path
+    assert "legacy" in note, note
+    assert "не найден" in note, note
 
 
 def test_an_explicit_env_database_still_wins(tmp_path, monkeypatch):
@@ -314,11 +565,34 @@ def test_an_explicit_env_database_still_wins(tmp_path, monkeypatch):
     assert F.client_db_path() == ("state/panels_demo.db", "")
 
 
+def test_the_panels_own_override_outranks_the_runners_one(tmp_path, monkeypatch):
+    """TAMAPI_DB > CHATTER_DB, и порядок несущий: обе переменные разом стоят на
+    демо-стенде, запущенном в окружении раннера. Ни один сторож их вместе не
+    выставлял — приоритет держался порядком слагаемых в одной строке `or`."""
+    _clients_dir(tmp_path, "demo")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    monkeypatch.setenv("TAMAPI_DB", "state/panels_demo.db")
+    monkeypatch.setenv("CHATTER_DB", ".secrets/volska.db")
+    assert F.client_db_path() == ("state/panels_demo.db", "")
+
+
+def test_an_empty_override_is_not_a_path(tmp_path, monkeypatch):
+    """`TAMAPI_DB=''` — это «не выставлена», а не «база в пустом файле».
+    Ужесточение `if env_db:` до `is not None` вернуло бы пустой путь, и лента
+    молча опустела бы: sqlite открывает пустое имя без единой ошибки на месте
+    чтения."""
+    _clients_dir(tmp_path, "demo")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    monkeypatch.setenv("TAMAPI_DB", "")
+    monkeypatch.setenv("CHATTER_DB", ".secrets/yarina.db")
+    assert F.client_db_path() == (".secrets/yarina.db", "")
+
+
 def test_the_runners_own_env_override_moves_the_panel_too(tmp_path, monkeypatch):
     """CHATTER_DB — переопределение САМОГО раннера (telethon_run.py,
-    `resolve_runtime_paths`: явный флаг > CHATTER_DB > вывод из slug'а). Пока
-    панель его не знает, разовый запуск раннера на другой базе делает ленту
-    рассказом о чужой базе."""
+    `resolve_runtime_paths`: явный флаг > CHATTER_DB > вывод из slug'а). В
+    окружении панели он стоит только при ручном запуске из той же консоли — и
+    тогда спрашивать кого-то ещё незачем."""
     _clients_dir(tmp_path, "demo")
     monkeypatch.setattr(F, "ROOT", tmp_path)
     monkeypatch.delenv("TAMAPI_DB", raising=False)
@@ -329,16 +603,19 @@ def test_the_runners_own_env_override_moves_the_panel_too(tmp_path, monkeypatch)
 def test_the_composition_env_moves_the_panel_like_it_moves_the_runner(tmp_path, monkeypatch):
     """CHATTER_PERSONAS перебивает active.yaml у раннера
     (`chatter.config.active.resolve_personas`), и первичным становится первый
-    slug из переменной. Панель обязана ехать туда же, иначе разовый запуск
-    состава «не как в файле» снова разводит их по разным базам."""
+    slug из переменной. Панель обязана ехать туда же.
+
+    Пояснение здесь НЕПУСТОЕ, и это правка по факту: переменная в окружении
+    ПАНЕЛИ говорит о панели, а не о живом раннере, — то есть ответ остаётся
+    догадкой, и лента обязана назвать её источник."""
     _clients_dir(tmp_path, "demo")
     monkeypatch.setattr(F, "ROOT", tmp_path)
     monkeypatch.delenv("TAMAPI_DB", raising=False)
     monkeypatch.delenv("CHATTER_DB", raising=False)
     monkeypatch.setenv("CHATTER_PERSONAS", "yarina,demo")
-    path, note = F.client_db_path()
-    assert note == ""
-    assert path.endswith("yarina.db"), path
+    path, note = F.client_db_path([])
+    assert path == str(tmp_path / ".secrets" / "yarina.db"), path
+    assert "CHATTER_PERSONAS" in note, note
 
 
 def test_a_broken_composition_says_so_instead_of_falling_back_silently(tmp_path, monkeypatch):
@@ -348,10 +625,8 @@ def test_a_broken_composition_says_so_instead_of_falling_back_silently(tmp_path,
     d.mkdir(parents=True)
     (d / "active.yaml").write_text("clients: [](((битый", encoding="utf-8")
     monkeypatch.setattr(F, "ROOT", tmp_path)
-    monkeypatch.delenv("TAMAPI_DB", raising=False)
-    monkeypatch.delenv("CHATTER_DB", raising=False)
-    monkeypatch.delenv("CHATTER_PERSONAS", raising=False)
-    path, note = F.client_db_path()
+    _bare_panel_env(monkeypatch)
+    path, note = F.client_db_path([])
     assert path is None
     assert "не прочитан" in note, note
     assert "demo.db" not in note
@@ -367,9 +642,7 @@ def test_an_empty_composition_is_a_note_not_an_IndexError(tmp_path, monkeypatch)
     _clients_dir(tmp_path, "demo")
     monkeypatch.setattr(F, "ROOT", tmp_path)
     monkeypatch.setattr(A, "resolve_personas", lambda **kw: [])
-    monkeypatch.delenv("TAMAPI_DB", raising=False)
-    monkeypatch.delenv("CHATTER_DB", raising=False)
-    monkeypatch.delenv("CHATTER_PERSONAS", raising=False)
-    path, note = F.client_db_path()
+    _bare_panel_env(monkeypatch)
+    path, note = F.client_db_path([])
     assert path is None
     assert "не прочитан" in note, note

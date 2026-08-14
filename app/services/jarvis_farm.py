@@ -23,11 +23,17 @@ from pathlib import Path
 ROOT = Path(os.getenv("JARVIS_ROOT", "C:/jarvis"))
 HEARTBEAT_FRESH = 90.0
 
+# Маркер запуска раннера chatter. Именованный, потому что адресуется из ДВУХ
+# мест: списка процессов и `client_db_path`, которая спрашивает у живого раннера
+# его базу. Разъехавшись, литералы дали бы панель, которая раннера видит, но
+# спросить не может.
+CHATTER_RUNNER = "chatter.telethon_run"
+
 # Процессы фермы: (ключ, подпись, маркер в командной строке, только python?)
 PROC_SPECS = [
     ("backend",  "backend :8010",  "run_backend_detached", True),
     ("bot",      "главный бот",    "jarvis_smart_telegram_control", True),
-    ("chatter",  "chatter раннер", "chatter.telethon_run", True),
+    ("chatter",  "chatter раннер", CHATTER_RUNNER, True),
 ]
 
 GUARDIAN_SPECS = [
@@ -487,52 +493,211 @@ def read_tail(path: "Path | str",
     return text.splitlines(), truncated
 
 
-# \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 \u041b\u0435\u043d\u0442\u0430: \u043a\u0430\u043a\u0443\u044e \u0431\u0430\u0437\u0443 \u0447\u0438\u0442\u0430\u0435\u043c \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-def client_db_path() -> tuple[str | None, str]:
-    """(\u043f\u0443\u0442\u044c \u043a \u0431\u0430\u0437\u0435 \u043a\u043b\u0438\u0435\u043d\u0442\u043e\u0432, \u043f\u043e\u044f\u0441\u043d\u0435\u043d\u0438\u0435 \u043e\u0431 \u043e\u0448\u0438\u0431\u043a\u0435).
+# ───────────────── Лента: какую базу читаем (лестница фактов) ────────────────
+#
+# Панель и раннер — СИБЛИНГИ, а не родня: раннера поднимает
+# `scripts/chatter_guardian_detached.ps1`, панель живёт в
+# `scripts/run_backend_detached.py` под ДРУГИМ гардианом. Общего окружения у них
+# нет вовсе — проверено 14.08 на живых PID: у раннера (6864/9456)
+# CHATTER_PERSONAS='volska' и CHATTER_DB='.secrets\demo.db', у панели (8908) обе
+# переменные None, и в реестре USER/MACHINE их тоже нет.
+#
+# Поэтому прежняя редакция, спрашивавшая СВОЁ окружение, была инертна: 14.08 во
+# время демо Ярины она прочитала бы demo.db, пока раннер обслуживал yarina.db, —
+# то есть чинила дефект ровно тем способом, которым он и возникал.
+#
+# Лестница ниже спрашивает сам раннер, а догадки называет вслух:
+#   1. TAMAPI_DB / CHATTER_DB своего окружения — стенд или ручной запуск;
+#   2. ЖИВОЙ раннер: `psutil.Process(pid).environ()` — ФАКТ (на этой машине
+#      читается без повышения прав, проверено на живых PID);
+#   3. лог гардиана: последняя строка «состав: … db=…» — вчерашний факт;
+#   4. `active.yaml` — догадка о том, что раннер прочитал БЫ, стартуй он сейчас.
+#
+# Пустое пояснение = ответу можно верить (шаги 1–2). Непустое Task 5 ставит
+# строкой ленты с источником «панель»: догадка, названная догадкой, — это не то
+# же самое, что догадка, выданная за факт.
+#
+# `--db` в argv раннера панель НЕ разбирает: гардиан его не передаёт вовсе
+# (`chatter_guardian_detached.ps1:226` запускает `-u -m chatter.telethon_run
+# --llm real`), а ручной запуск с флагом останется невидимым — пробел названный,
+# а не забытый.
 
-    \u041f\u0443\u0442\u044c \u0412\u042b\u0412\u041e\u0414\u0418\u0422\u0421\u042f \u0442\u0430\u043a \u0436\u0435, \u043a\u0430\u043a \u0435\u0433\u043e \u0432\u044b\u0432\u043e\u0434\u0438\u0442 \u0440\u0430\u043d\u043d\u0435\u0440, \u0430 \u043d\u0435 \u043f\u0438\u0448\u0435\u0442\u0441\u044f \u043b\u0438\u0442\u0435\u0440\u0430\u043b\u043e\u043c:
-    `chatter.config.active.resolve_personas` \u2192 \u043f\u0435\u0440\u0432\u044b\u0439 slug \u043f\u0435\u0440\u0432\u0438\u0447\u043d\u044b\u0439 \u2192
-    `.secrets/<slug>.db` (`chatter/telethon_run.py:derive_db_path`).
+# Что гардиан пишет вместо пути, когда CHATTER_DB не задан (ps1:145). Принять
+# эту фразу за путь значит показать ленту файла с таким именем.
+LOG_DB_UNSET = "по первому слагу"
+# Строка состава из лога гардиана. Формат писателя — там же, ps1:145:
+#   «состав: CHATTER_PERSONAS=<roster>, db=<путь|по первому слагу>»
+_LOG_ROSTER_RE = re.compile(r"состав: CHATTER_PERSONAS=(?P<roster>.*?), db=(?P<db>.*)$")
 
-    \u041f\u043e\u0440\u044f\u0434\u043e\u043a \u043f\u0440\u0438\u043e\u0440\u0438\u0442\u0435\u0442\u043e\u0432 \u0434\u0435\u0440\u0436\u0438\u0442\u0441\u044f \u0437\u0430 \u0440\u0430\u043d\u043d\u0435\u0440\u043e\u043c (`resolve_runtime_paths`: \u044f\u0432\u043d\u044b\u0439
-    \u0444\u043b\u0430\u0433 `--db` > `CHATTER_DB` > \u0432\u044b\u0432\u043e\u0434 \u0438\u0437 \u043f\u0435\u0440\u0432\u0438\u0447\u043d\u043e\u0433\u043e slug'\u0430). `--db` \u043f\u0430\u043d\u0435\u043b\u044c
-    \u0443\u0432\u0438\u0434\u0435\u0442\u044c \u043d\u0435 \u043c\u043e\u0436\u0435\u0442 \u2014 \u044d\u0442\u043e \u0430\u0440\u0433\u0443\u043c\u0435\u043d\u0442 \u0447\u0443\u0436\u043e\u0433\u043e \u043f\u0440\u043e\u0446\u0435\u0441\u0441\u0430; `CHATTER_DB` \u0438 \u0441\u043e\u0441\u0442\u0430\u0432
-    (`CHATTER_PERSONAS`, \u0435\u0433\u043e \u0447\u0438\u0442\u0430\u0435\u0442 \u0441\u0430\u043c\u0430 `resolve_personas` \u0438\u0437 \u043f\u0435\u0440\u0435\u0434\u0430\u043d\u043d\u043e\u0433\u043e
-    `env`) \u043e\u043d\u0430 \u0447\u0438\u0442\u0430\u0435\u0442 \u0438\u0437 \u0442\u043e\u0433\u043e \u0436\u0435 \u043e\u043a\u0440\u0443\u0436\u0435\u043d\u0438\u044f. `TAMAPI_DB` \u2014 \u043f\u0435\u0440\u0435\u043e\u043f\u0440\u0435\u0434\u0435\u043b\u0435\u043d\u0438\u0435
-    \u0441\u0430\u043c\u043e\u0439 \u043f\u0430\u043d\u0435\u043b\u0438, \u0435\u0433\u043e \u0434\u0435\u0440\u0436\u0438\u0442 \u0434\u0435\u043c\u043e-\u0441\u0442\u0435\u043d\u0434 `scripts/panels_demo.py`, \u0438 \u0440\u0430\u043d\u043d\u0435\u0440 \u043e
-    \u043d\u0451\u043c \u043d\u0435 \u0437\u043d\u0430\u0435\u0442 \u0432\u043e\u0432\u0441\u0435.
 
-    \u041f\u0435\u0440\u0432\u0438\u0447\u043d\u044b\u0439 slug \u041c\u0415\u041d\u042f\u0415\u0422\u0421\u042f. 14.08 \u0432\u043e \u0432\u0440\u0435\u043c\u044f \u0434\u0435\u043c\u043e \u042f\u0440\u0438\u043d\u044b \u043e\u043d \u0431\u044b\u043b `yarina`, \u0438
-    \u0440\u044f\u0434\u043e\u043c \u0434\u043e \u0441\u0438\u0445 \u043f\u043e\u0440 \u043b\u0435\u0436\u0438\u0442 `.secrets/yarina.db` \u2014 \u043f\u0440\u043e\u0432\u0435\u0440\u0435\u043d\u043e: \u0440\u043e\u0432\u043d\u043e 0
-    control_events \u043f\u0440\u043e\u0442\u0438\u0432 35 \u0432 `.secrets/demo.db`. \u041f\u0430\u043d\u0435\u043b\u044c \u0441 \u043b\u0438\u0442\u0435\u0440\u0430\u043b\u043e\u043c \u0432 \u0442\u0430\u043a\u043e\u0439
-    \u043c\u043e\u043c\u0435\u043d\u0442 \u0447\u0438\u0442\u0430\u0435\u0442 \u043d\u0435 \u0442\u0443 \u0431\u0430\u0437\u0443 \u0438 \u043f\u0435\u0447\u0430\u0442\u0430\u0435\u0442 \u00ab\u0442\u0438\u0445\u043e\u00bb \u2014 \u0442\u0438\u0448\u0438\u043d\u0443, \u043d\u0435\u043e\u0442\u043b\u0438\u0447\u0438\u043c\u0443\u044e \u043e\u0442
-    \u0437\u0434\u043e\u0440\u043e\u0432\u044c\u044f.
+def _abs_db(raw: str) -> str:
+    """Путь раннера — в ЕГО системе координат: он держит `CHATTER_DB` вида
+    `.secrets\\demo.db` при cwd `C:\\jarvis`. Панель поднимает другой гардиан, и
+    её cwd может быть любым, поэтому относительный путь домысливается от ROOT, а
+    не от текущего каталога процесса."""
+    p = Path(raw.strip().strip('"'))
+    return str(p if p.is_absolute() else ROOT / p)
 
-    \u0418\u043c\u043f\u043e\u0440\u0442 \u041b\u0415\u041d\u0418\u0412\u042b\u0419 \u0438 \u0432\u043d\u0443\u0442\u0440\u0438 \u0444\u0443\u043d\u043a\u0446\u0438\u0438 \u2014 \u043a\u0430\u043a \u0432 `tamapi_dashboard`: \u0441\u043b\u043e\u043c\u0430\u043d\u043d\u043e\u0435
-    \u0434\u0435\u0440\u0435\u0432\u043e chatter \u043d\u0435 \u0438\u043c\u0435\u0435\u0442 \u043f\u0440\u0430\u0432\u0430 \u0443\u0440\u043e\u043d\u0438\u0442\u044c \u0438\u043c\u043f\u043e\u0440\u0442 \u043f\u0430\u043d\u0435\u043b\u0438 \u0444\u0435\u0440\u043c\u044b.
 
-    DEV-18: \u043e\u0448\u0438\u0431\u043a\u0430 \u0447\u0442\u0435\u043d\u0438\u044f \u0441\u043e\u0441\u0442\u0430\u0432\u0430 \u2014 \u042f\u0412\u041d\u0410\u042f \u0441\u0442\u0440\u043e\u043a\u0430, \u0430 \u043d\u0435 \u0442\u0438\u0445\u0438\u0439 \u043e\u0442\u043a\u0430\u0442 \u043d\u0430 demo.db;
-    \u0442\u0438\u0445\u0438\u0439 \u043e\u0442\u043a\u0430\u0442 \u0438 \u0435\u0441\u0442\u044c \u043f\u043e\u0447\u0438\u043d\u044f\u0435\u043c\u044b\u0439 \u0434\u0435\u0444\u0435\u043a\u0442.
+def _db_from_slug(slug: str) -> str:
+    """`.secrets/<slug>.db` — ровно то, что выводит сам раннер
+    (`chatter/telethon_run.py:derive_db_path`). Равенство держит СТОРОЖ ПАРИТЕТА
+    (`test_the_panel_derives_the_file_exactly_as_the_runner_does`), а не это
+    предложение: смена схемы имён у раннера обязана красить тест, а не молча
+    возвращать дефект."""
+    return str(ROOT / ".secrets" / f"{slug}.db")
+
+
+def _db_from_runner_env(env: dict) -> str | None:
+    """Какую базу называет ОКРУЖЕНИЕ раннера. Порядок — как у него самого
+    (`resolve_runtime_paths`: CHATTER_DB > вывод из первичного slug'а)."""
+    db = (env.get("CHATTER_DB") or "").strip()
+    if db:
+        return _abs_db(db)
+    slug = (env.get("CHATTER_PERSONAS") or "").split(",")[0].strip()
+    return _db_from_slug(slug) if slug else None
+
+
+def _db_from_live_runner(table: list[tuple] | None) -> tuple[str | None, str]:
+    """(путь, почему не факт). Спрашиваем ЖИВОЙ раннер — единственный источник,
+    который знает ответ наверняка, потому что базу он и обслуживает.
+
+    Поиск процесса — тем же `_launches`, что у `processes()`: ГРАБЛЯ 1 файла
+    (маркер в теле `-c` — разговор О раннере, а не раннер) стоила ложных выводов
+    уже дважды, и второй способ искать процессы завёл бы её обратно.
+
+    Раннеров штатно ДВА PID (лаунчер + сам сервис) — это норма фермы, а не
+    двойник. Совпали ответы — берём; разошлись — живут две сессии на разных
+    базах, и половина ленты будет не о том клиенте."""
+    try:
+        import psutil                    # ЛЕНИВО: панель не умирает без psutil
+    except Exception:
+        return None, "psutil недоступен — живой раннер не опрошен"
+
+    snap = _proc_table() if table is None else table
+    pids = [row[0] for row in snap
+            if row[1].startswith("python") and _launches(CHATTER_RUNNER, row)]
+    if not pids:
+        return None, ""                  # пусто = «раннера нет», а не «не смогли»
+
+    answers, denied = [], []
+    for pid in pids:
+        try:
+            env = psutil.Process(pid).environ() or {}
+        except Exception as exc:         # noqa: BLE001 — источник внешний
+            # DEV-18: AccessDenied/NoSuchProcess не глотаем. Ответ ниже по
+            # лестнице всё равно будет, но он ДОГАДКА, и разница обязана
+            # доехать до ленты словами.
+            denied.append(f"PID {pid}: {type(exc).__name__}")
+            continue
+        db = _db_from_runner_env(env)
+        if db is not None:
+            answers.append((pid, db))
+
+    if not answers:
+        if denied:
+            return None, ("раннер жив, но его окружение не прочитать "
+                          f"({', '.join(denied)})")
+        return None, "раннер жив, но базу в своём окружении не называет"
+    if len({db for _, db in answers}) > 1:
+        listed = "; ".join(f"PID {pid} — {db}" for pid, db in answers)
+        return answers[0][1], (f"живые раннеры называют РАЗНЫЕ базы ({listed}) "
+                               "— взята первая, лента может быть не о том клиенте")
+    return answers[0][1], ""
+
+
+def _db_from_guardian_log() -> tuple[str | None, float | None]:
+    """(путь, время строки) из последней строки «состав: … db=…».
+
+    Читается тем же `read_tail`, что и лента: у растущего вечно лога второго
+    способа чтения быть не должно.
+
+    Берётся ПОСЛЕДНЯЯ подходящая строка и на ней разбор кончается: она написана
+    текущим запуском гардиана, а всё, что выше, — прошлые составы. Если она
+    называет `active.yaml`, лог не знает ничего сверх шага 4."""
+    lines, _ = read_tail(ROOT / "logs" / "chatter_guardian.stdout.log")
+    for line in reversed(lines):
+        m = _LOG_ROSTER_RE.search(line)
+        if not m:
+            continue
+        db = m.group("db").strip()
+        if db and db != LOG_DB_UNSET:
+            return _abs_db(db), parse_log_ts(line)
+        # `volska (флаг)` — состав пришёл переменной; `active.yaml` — файлом.
+        roster = m.group("roster").strip().split(" (")[0].strip()
+        if roster and roster != "active.yaml":
+            slug = roster.split(",")[0].strip()
+            if slug:
+                return _db_from_slug(slug), parse_log_ts(line)
+        return None, None
+    return None, None
+
+
+def client_db_path(table: list[tuple] | None = None) -> tuple[str | None, str]:
+    """(путь к базе клиентов, пояснение).
+
+    Пустое пояснение означает «ответу можно верить»: он либо задан явно, либо
+    взят у живого раннера. Непустое — ответ есть, но он выведен, и лента обязана
+    сказать, откуда. `None` в пути — ответа нет вовсе.
+
+    `table` — уже собранная таблица процессов (как у `processes`/`guardians`):
+    сборщику ленты не за что платить второй обход, он стоит ~1 с.
+
+    Импорт `psutil` и `chatter.config.active` ЛЕНИВЫЙ и внутри функции —
+    сломанное дерево chatter или отсутствующий psutil не имеют права уронить
+    импорт панели фермы.
+
+    DEV-18: ошибка чтения состава — ЯВНАЯ строка, а не тихий откат на demo.db;
+    тихий откат и есть починяемый дефект.
     """
     env_db = os.getenv("TAMAPI_DB") or os.getenv("CHATTER_DB")
     if env_db:
+        # Пустая строка — это «не выставлена», а не «база в файле с пустым
+        # именем»: sqlite открыл бы такое имя без единой жалобы, и лента молча
+        # опустела бы.
         return env_db, ""
+
+    live_db, why = _db_from_live_runner(table)
+    if live_db is not None:
+        return live_db, why              # непусто только при расхождении раннеров
+    reason = why or "раннер не запущен"
+
+    log_db, log_ts = _db_from_guardian_log()
+    if log_db is not None:
+        when = (time.strftime("%d.%m %H:%M", time.localtime(log_ts)) if log_ts
+                else "неразобранного времени")
+        return log_db, f"{reason}, база из лога гардиана от {when}"
+
+    clients_dir = ROOT / "chatter" / "clients"
+    # Проверяем ДО вызова: `resolve_personas` при отсутствии файла ТИХО отдаёт
+    # LEGACY_PERSONAS (['demo','demo2']) — страховка, осмысленная для раннера
+    # (прод не падает на первом же рестарте) и ядовитая для панели, которая
+    # выдала бы demo.db за прочитанный состав. Поведение раннера не трогаем,
+    # молчать об этом — не имеем права.
+    file_missing = not (clients_dir / "active.yaml").exists()
     try:
         from chatter.config.active import resolve_personas
-        slugs = resolve_personas(clients_dir=ROOT / "chatter" / "clients",
-                                 env=os.environ)
-    except Exception as exc:                       # noqa: BLE001 \u2014 \u0438\u0441\u0442\u043e\u0447\u043d\u0438\u043a \u0432\u043d\u0435\u0448\u043d\u0438\u0439
-        return None, (f"\u0441\u043a\u043b\u0430\u0434 \u043a\u043b\u0438\u0435\u043d\u0442\u043e\u0432 \u043d\u0435 \u043f\u0440\u043e\u0447\u0438\u0442\u0430\u043d ({type(exc).__name__}: {exc}) "
-                      f"\u2014 \u043a\u0430\u043a\u0443\u044e \u0431\u0430\u0437\u0443 \u0447\u0438\u0442\u0430\u0442\u044c, \u043d\u0435\u0438\u0437\u0432\u0435\u0441\u0442\u043d\u043e")
+        slugs = resolve_personas(clients_dir=clients_dir, env=os.environ)
+    except Exception as exc:                       # noqa: BLE001 — источник внешний
+        return None, (f"склад клиентов не прочитан ({type(exc).__name__}: {exc}) "
+                      f"— какую базу читать, неизвестно")
     if not slugs:
-        # \u0421\u0435\u0433\u043e\u0434\u043d\u044f \u043f\u0443\u0441\u0442\u043e\u0439 \u0441\u043e\u0441\u0442\u0430\u0432 `resolve_personas` \u043d\u0435 \u0432\u043e\u0437\u0432\u0440\u0430\u0449\u0430\u0435\u0442 \u2014 \u043e\u043d\u0430 \u043d\u0430 \u043d\u0451\u043c
-        # \u043a\u0440\u0438\u0447\u0438\u0442 ActiveClientsError. \u041d\u043e `slugs[0]` \u0434\u0435\u0440\u0436\u0438\u0442\u0441\u044f \u043d\u0430 \u044d\u0442\u043e\u043c \u043e\u0431\u0435\u0449\u0430\u043d\u0438\u0438
-        # \u0427\u0423\u0416\u041e\u0413\u041e \u043c\u043e\u0434\u0443\u043b\u044f, \u0438 \u0432 \u0434\u0435\u043d\u044c, \u043a\u043e\u0433\u0434\u0430 \u043e\u0431\u0435\u0449\u0430\u043d\u0438\u0435 \u0438\u0437\u043c\u0435\u043d\u0438\u0442\u0441\u044f, \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0430 \u0444\u0435\u0440\u043c\u044b
-        # \u0443\u043f\u0430\u0434\u0451\u0442 IndexError'\u043e\u043c \u0446\u0435\u043b\u0438\u043a\u043e\u043c \u0432\u043c\u0435\u0441\u0442\u043e \u043e\u0434\u043d\u043e\u0439 \u0441\u0442\u0440\u043e\u043a\u0438 \u0432 \u043b\u0435\u043d\u0442\u0435.
-        return None, ("\u0441\u043a\u043b\u0430\u0434 \u043a\u043b\u0438\u0435\u043d\u0442\u043e\u0432 \u043d\u0435 \u043f\u0440\u043e\u0447\u0438\u0442\u0430\u043d (\u0441\u043f\u0438\u0441\u043e\u043a \u043a\u043b\u0438\u0435\u043d\u0442\u043e\u0432 \u043f\u0443\u0441\u0442) "
-                      "\u2014 \u043a\u0430\u043a\u0443\u044e \u0431\u0430\u0437\u0443 \u0447\u0438\u0442\u0430\u0442\u044c, \u043d\u0435\u0438\u0437\u0432\u0435\u0441\u0442\u043d\u043e")
-    return str(ROOT / ".secrets" / f"{slugs[0]}.db"), ""
+        # Сегодня пустой состав `resolve_personas` не возвращает — она на нём
+        # кричит ActiveClientsError. Но `slugs[0]` держится на этом обещании
+        # ЧУЖОГО модуля, и в день, когда обещание изменится, страница фермы
+        # упадёт IndexError'ом целиком вместо одной строки в ленте.
+        return None, ("склад клиентов не прочитан (список клиентов пуст) "
+                      "— какую базу читать, неизвестно")
+
+    env_roster = (os.getenv("CHATTER_PERSONAS") or "").strip()
+    if file_missing and not env_roster:
+        return _db_from_slug(slugs[0]), (
+            f"склад клиентов не найден, взято legacy-умолчание {slugs[0]} "
+            "— лента может быть не той базы")
+    # CHATTER_PERSONAS в окружении ПАНЕЛИ говорит о панели, а не о раннере:
+    # источник называем тот, который сработал на самом деле.
+    src = "CHATTER_PERSONAS панели" if env_roster else "active.yaml"
+    return _db_from_slug(slugs[0]), f"{reason} и лог молчит — база выведена из {src}"
 
 
 def events(limit: int = 40) -> list[dict]:
