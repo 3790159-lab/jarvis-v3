@@ -1729,3 +1729,48 @@ def test_the_detail_limit_is_a_single_number_from_source_to_screen():
     drawn = cell.count("я")
     assert drawn == F.FEED_DETAIL_LIMIT, \
         f"разметка нарисовала {drawn} символов при пределе {F.FEED_DETAIL_LIMIT}"
+
+
+def test_short_columns_of_the_feed_are_not_broken_mid_word():
+    """`overflow-wrap:anywhere` стоит на ВСЕХ ячейках — он нужен машинным
+    строкам без пробелов («deadline:30,price:40,…»), которые иначе распирают
+    страницу. Но он же ломает посреди слова короткие подписи: на 707 px
+    колонка «Источник» ужималась под широкую «Деталь», и «гардиан» рисовался
+    как «гардиа/н», а шапка — как «Источ/ник».
+
+    Набор источников закрытый и короткий, поэтому отмена там точечная и
+    безопасная. Сторож держит ОБА конца: класс проставлен в разметке И
+    определён в CSS — определение без применения (или наоборот) молча
+    возвращает перенос."""
+    from app.routers import jarvis_panel as P
+    from app.routers import panels_ui as U
+
+    html = P._events_table(
+        [{"src": "гардиан", "kind": "раннер", "detail": "runner DOWN", "ts": time.time()}],
+        time.time())
+    assert "class='sub nobreak'>гардиан<" in html, html
+    assert "<th class='nobreak'>Источник</th>" in html, html
+    assert "<th class='nobreak'>Когда</th>" in html, html
+    assert ".nobreak{" in U.CSS, "класс проставлен, но в CSS его нет"
+    assert "white-space:nowrap" in U.CSS.split(".nobreak{")[1].split("}")[0]
+
+
+def test_a_machine_event_name_breaks_at_the_underscore_not_mid_word():
+    """`kind` клиентских событий — машинные имена (`stale_reply_cancelled`),
+    а `overflow-wrap:anywhere` рвёт их посреди слова: на снимке приёмки 707 px
+    это выглядело как «classifier_err/or» и «unbacked_re/dacted».
+
+    `<wbr>` даёт браузеру ЗАКОННОЕ место переноса. Сторож проверяет и то, что
+    подсказка ставится после экранирования: иначе `&` из чужого имени пришёл бы
+    в разметку сырым."""
+    from app.routers import jarvis_panel as P
+
+    html = P._events_table(
+        [{"src": "chatter", "kind": "stale_reply_cancelled",
+          "detail": "x", "ts": time.time()}], time.time())
+    assert "<b>stale_<wbr>reply_<wbr>cancelled</b>" in html, html
+
+    evil = P._events_table(
+        [{"src": "chatter", "kind": "a&b_c", "detail": "x", "ts": time.time()}],
+        time.time())
+    assert "<b>a&amp;b_<wbr>c</b>" in evil, evil

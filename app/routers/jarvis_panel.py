@@ -270,21 +270,30 @@ def _key_table(keys: list[dict]) -> str:
 
 def _events_table(events: list[dict], now: float) -> str:
     body = "".join(
-        f"<tr><td><b>{esc(e['kind'])}</b></td>"
-        f"<td data-l='Источник' class='sub'>{esc(e['src'])}</td>"
+        # `<wbr>` после подчёркиваний: `kind` клиентских событий — машинные
+        # имена вроде `stale_reply_cancelled`, а `overflow-wrap:anywhere`
+        # рвёт их посреди слова («classifier_err/or»). Подсказка даёт браузеру
+        # законное место переноса, и слово остаётся словом. Вставляется ПОСЛЕ
+        # экранирования — `_` не экранируется, так что разметку это не рушит.
+        f"<tr><td><b>{esc(e['kind']).replace('_', '_<wbr>')}</b></td>"
+        # `nobreak` — набор источников закрытый и короткий («chatter»,
+        # «гардиан», «панель»), а колонка ужимается под широкую «Деталь».
+        f"<td data-l='Источник' class='sub nobreak'>{esc(e['src'])}</td>"
         # Предел длины — тот же, что на источнике (`F.FEED_DETAIL_LIMIT`), а не
         # свой. Здесь стояло 110 против 120 у ленты, и это ровно та же болезнь,
         # что и два числа окна: меньший из двух пределов делает больший
         # невидимым, а разъезжаются они молча.
         f"<td data-l='Деталь' class='sub'>{esc((e['detail'] or '')[:F.FEED_DETAIL_LIMIT])}</td>"
-        f"<td data-l='Когда' class='sub'>{esc(_ago(e['ts'], now)) if e['ts'] else '—'}</td></tr>"
+        f"<td data-l='Когда' class='sub nobreak'>{esc(_ago(e['ts'], now)) if e['ts'] else '—'}</td></tr>"
         # Рендерер рисует то, что ему дали, и своего мнения о размере окна не
         # имеет. Собственный `[:25]` здесь был ВТОРЫМ срезом ленты — уже после
         # общей сортировки, то есть чисто по свежести, — и сводил дележ окна
         # между источниками на нет. Окно называется один раз, в `F.FEED_LIMIT`.
         for e in events) or "<tr><td colspan=4 class='empty'>тихо</td></tr>"
-    return ("<div class='card'><table><thead><tr><th>Событие</th><th>Источник</th>"
-            f"<th>Деталь</th><th>Когда</th></tr></thead><tbody>{body}</tbody></table>"
+    return ("<div class='card'><table><thead><tr><th>Событие</th>"
+            "<th class='nobreak'>Источник</th>"
+            f"<th>Деталь</th><th class='nobreak'>Когда</th></tr></thead>"
+            f"<tbody>{body}</tbody></table>"
             "<div class='sub' style='margin-top:8px'>⚠️ «Посчитано» ≠ «доехало»: доставка "
             "алертов сегодня не журналируется — это известный пробел, а не тишина.</div></div>")
 

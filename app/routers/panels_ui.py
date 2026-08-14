@@ -193,6 +193,13 @@ td,th{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left;
   vertical-align:top;overflow-wrap:anywhere}
 th{color:var(--dim);font-weight:600;font-size:12px}
 tr:last-child td{border-bottom:none}
+/* Отмена `anywhere` для КОРОТКИХ колонок с закрытым набором значений.
+   `anywhere` выше заведён ради машинных строк без пробелов, но он же ломает
+   посреди слова всё подряд: в ленте на 707 px колонка «Источник» ужималась
+   под широкую «Деталь», и «гардиан» рисовался как «гардиа/н», а сама шапка —
+   как «Источ/ник». Ставится ТОЧЕЧНО и только там, где значения заведомо
+   короткие и перечислимые: иначе длинная строка распрёт страницу. */
+.nobreak{overflow-wrap:normal;white-space:nowrap}
 /* Пути worktree'ов и имена ключей — сплошные строки без пробелов: перенести
    их не по чему, и на узком экране они распирают страницу в одиночку. */
 .mono{font-family:ui-monospace,Consolas,monospace;font-size:12px;
