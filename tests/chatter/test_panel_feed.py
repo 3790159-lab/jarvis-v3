@@ -1244,3 +1244,81 @@ def test_the_full_snapshot_walks_the_process_list_once(tmp_path, monkeypatch):
 
     F.snapshot()
     assert len(calls) == 1, f"обходов списка процессов: {len(calls)}, а нужен один"
+
+
+# ───────── одна кривая строка не имеет права погасить всю ленту ──────────────
+#
+# sqlite типизирован ДИНАМИЧЕСКИ: нечисловой текст ложится в REAL-колонку `ts`
+# как TEXT (проверено вставкой: `typeof(ts)` = 'text'). Дальше ключ сортировки
+# делал `-(ts or 0.0)` над строкой, `TypeError` уходил в `_safe` медленной
+# половины, и лента приезжала на экран ПУСТОЙ. Старая `events()` на том же
+# входе деградировала мягко — то есть это регресс, и он нарушает ровно тот
+# DEV-18, ради которого коммит и писался.
+
+
+def test_a_broken_timestamp_is_not_a_number_for_the_sort_key():
+    """Ключ сортировки сам по себе, без ленты вокруг. `-(e["ts"] or 0.0)` над
+    строкой бросает `TypeError: bad operand type for unary -`, и никакой
+    `_safe` этажом выше не имеет права быть единственным местом, где это
+    ловится: числом считается только `int`/`float`, прочее — отсутствующее
+    время, то есть строка про СЕЙЧАС."""
+    assert F._newest_first({"ts": "вчера вечером"}) == F._newest_first({"ts": None})
+    assert F._newest_first({"ts": 2e9}) < F._newest_first({"ts": 1e9}), \
+        "свежее обязано стоять выше старого"
+    # None-строки идут ПЕРВЫМИ (состояние СЕЙЧАС), и кривое время едет туда же.
+    assert F._newest_first({"ts": "мусор"}) < F._newest_first({"ts": 1e9})
+
+
+def test_a_single_broken_timestamp_does_not_blank_the_whole_feed(tmp_path, monkeypatch):
+    """Одна строка базы с нечисловым `ts` гасила ВСЮ ленту, и гасила молча."""
+    _clients_dir(tmp_path, "demo")
+    _client_db(tmp_path, "demo", [("пауза", "c1", "здоровое событие", 2e9),
+                                  ("пауза", "c2", "кривое время", "вчера вечером")])
+    _guardian_log(tmp_path, "2026-08-14 00:45:08 | runner DOWN - restarting\n")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+
+    rows = F.events(table=[])
+    assert any(r["detail"] == "здоровое событие" for r in rows), rows
+    assert any(r["detail"] == "кривое время" for r in rows), rows
+    assert any(r["src"] == "гардиан" for r in rows), rows
+
+
+def test_a_broken_timestamp_does_not_kill_the_markup_either(tmp_path, monkeypatch):
+    """Второй конец той же кривой строки. Починить один только ключ
+    сортировки значит превратить тихую пустую ленту в громкий 500: разметка
+    делает `_ago(e['ts'])`, а `now - "вчера вечером"` — тот же `TypeError`,
+    только этажом выше и уже на всей странице. Время нормализуется НА
+    ИСТОЧНИКЕ, поэтому ниже по течению строка везде выглядит как «без
+    времени»."""
+    from app.routers import jarvis_panel as JP
+
+    _clients_dir(tmp_path, "demo")
+    _client_db(tmp_path, "demo", [("пауза", "c2", "кривое время", "вчера вечером")])
+    _guardian_log(tmp_path, "")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+
+    html = JP._events_table(F.events(table=[]), time.time())
+    assert "кривое время" in html, html
+
+
+def test_a_feed_that_failed_to_assemble_says_so_instead_of_looking_quiet(monkeypatch):
+    """Фолбэк ленты в медленной половине был `[]` — то есть провал сборки
+    выглядел на экране РОВНО как «сегодня тихо». У соседних `tasks` фолбэк
+    видимый («не прочитано: …»), и лента обязана вести себя так же (DEV-18)."""
+    monkeypatch.setattr(F, "_slow_cache", None)
+    monkeypatch.setattr(F, "scheduled_tasks", lambda: [])
+    monkeypatch.setattr(F, "arcs", lambda: [])
+    monkeypatch.setattr(F, "api_keys", lambda: [])
+
+    def broken(**kw):
+        raise RuntimeError("источник ленты развалился")
+
+    monkeypatch.setattr(F, "events", broken)
+    snap = F.snapshot_slow(force=True)
+    assert snap["events"], "провал сборки ленты выдан за тишину"
+    row = snap["events"][0]
+    assert row["src"] == "панель" and row["kind"] == "лента", row
+    assert "не собрана" in row["detail"] and "RuntimeError" in row["detail"], row
+    assert row["ts"] is None, row

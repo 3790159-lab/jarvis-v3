@@ -786,11 +786,33 @@ def client_db_path(table: list[tuple] | None = None) -> tuple[str | None, str]:
             f"{reason} и лог молчит — база выведена из {src}{gap}")
 
 
+def _as_ts(value) -> float | None:
+    """Время события ЧИСЛОМ — или ничего.
+
+    sqlite типизирован динамически: `ts REAL NOT NULL` не мешает нечисловому
+    тексту лечь в колонку как TEXT (проверено вставкой, `typeof(ts)` = 'text').
+    Дальше такая строка ломала ВСЁ, что делает с временем арифметику: `-(ts)`
+    в ключе сортировки и `now - ts` в разметке. Первое гасило ленту молча
+    (`TypeError` ловил `_safe` медленной половины и подменял ленту пустотой),
+    второе уронило бы страницу целиком.
+
+    `bool` отсекается отдельно: он подкласс `int`, и `True` стал бы временем
+    «01.01.1970 03:00:01» — выдуманным, а значит достоверным на вид.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
 # Свежее — выше. Строки БЕЗ времени идут первыми: это не события прошлого, а
 # состояние СЕЙЧАС (провал источника, граница видимости), и прятать его под
 # вчерашние записи значит спрятать единственное, что требует действия.
+#
+# Кривое время приравнено к отсутствующему НЕ из вежливости к мусору: одна
+# строка чужого источника не имеет права решать, увидит ли владелец ленту.
 def _newest_first(e: dict) -> tuple:
-    return (e["ts"] is not None, -(e["ts"] or 0.0))
+    ts = _as_ts(e.get("ts"))
+    return (ts is not None, -(ts or 0.0))
 
 
 def _share_window(groups: list[list[dict]], budget: int) -> list[dict]:
@@ -875,7 +897,11 @@ def events(limit: int = 40, table: list[tuple] | None = None) -> list[dict]:
                         "ORDER BY id DESC LIMIT ?", (limit,)):
                     client.append({"src": "chatter", "kind": r["kind"],
                                    "detail": r["detail"] or r["contact_id"] or "",
-                                   "ts": r["ts"]})
+                                   # Нормализуем НА ИСТОЧНИКЕ, а не только в
+                                   # ключе сортировки: ниже по течению время
+                                   # берёт ещё и разметка (`_ago`), и чинить
+                                   # тихую пустую ленту громким 500 незачем.
+                                   "ts": _as_ts(r["ts"])})
         except Exception as exc:                   # noqa: BLE001 — источник внешний
             # DEV-18: провал источника виден В САМОЙ ленте, а не в тишине.
             # Прежний `except Exception: pass` делал отсутствующий файл базы
@@ -1057,7 +1083,12 @@ def snapshot_slow(*, force: bool = False,
         "tasks": _safe(scheduled_tasks,
                        lambda m: [Row("tasks", "плановые задачи", "warn", f"не прочитано: {m}")]),
         "arcs": _safe(arcs, lambda m: []),
-        "events": _safe(lambda: events(table=table), lambda m: []),
+        # Фолбэк ленты ВИДИМЫЙ, как у `tasks`: пустой список означал бы на
+        # экране «сегодня тихо», то есть тишину ровно там, где сборка ленты
+        # развалилась (DEV-18). Строка без времени — она про СЕЙЧАС.
+        "events": _safe(lambda: events(table=table),
+                        lambda m: [{"src": "панель", "kind": "лента",
+                                    "detail": f"не собрана: {m}", "ts": None}]),
         "keys": _safe(api_keys, lambda m: []),
     }
     _slow_cache = snap
