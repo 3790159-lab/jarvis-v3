@@ -68,17 +68,31 @@ def test_the_second_pid_of_the_same_service_is_counted_too():
     assert row.extra["count"] == 2, row.detail
 
 
-def test_the_guardian_that_launched_the_backend_stays_visible():
+@pytest.fixture
+def no_heartbeats(tmp_path, monkeypatch):
+    """Уводим ROOT в пустой каталог: heartbeat-файлов там нет, и состояние
+    гардиана зависит ТОЛЬКО от того, увидели мы его процесс или нет.
+
+    Иначе сторож читает живые heartbeat'ы машины и его вердикт меняется от
+    того, поднят ли сейчас гардиан, — тот же класс, что 22 ложных падения без
+    `requisites.yaml`. Вживую heartbeat свежий, и обе ветки красились «ok»."""
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    return tmp_path
+
+
+def test_the_guardian_that_launched_the_backend_stays_visible(no_heartbeats):
     """Гардиан бэкенда — ДЕД панели по дереву процессов. Отсечение предков
-    делало его невидимым, и панель докладывала «heartbeat свіжий, процесу не
-    видно»: расхождение, которого в системе не было."""
+    делало его невидимым, и панель докладывала «heartbeat свежий, процесса не
+    видно»: расхождение, которого в системе не было.
+
+    Ждём `warn`, а не `ok`: heartbeat'а в подменённом ROOT нет вовсе. Важно
+    ровно одно — процесс УВИДЕН, и это отличает `warn` от `bad`."""
     grandparent = psutil.Process(psutil.Process(os.getpid()).ppid()).ppid()
     table = [_proc(grandparent, "powershell.exe",
                    [PS, "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle",
                     "Hidden", "-File", r"C:\jarvis\scripts\backend_guardian_detached.ps1"])]
     row = _by_key(F.guardians(table))["backend_guardian"]
-    assert "не видно" not in row.detail and "не видн" not in row.detail, row.detail
-    assert str(grandparent) in row.detail or row.state == "ok", row.detail
+    assert row.state == "warn", f"гардиан-предок снова невидим: {row.state} / {row.detail}"
 
 
 @pytest.mark.parametrize("argv,key", [
@@ -104,15 +118,20 @@ def test_inline_python_code_that_mentions_a_marker_is_not_the_runner():
     assert _by_key(F.processes(table))["backend"].state == "bad"
 
 
-def test_a_powershell_one_liner_that_mentions_a_guardian_is_not_the_guardian():
+def test_a_powershell_one_liner_that_mentions_a_guardian_is_not_the_guardian(no_heartbeats):
     """`healthchecks_ping.ps1` и любой рестарт-однострочник несут имена скриптов
     ВНУТРИ `-Command`. Для гардианов проверки `py_only` нет вовсе, и до этой
-    правки такой процесс засчитывался как живой сторож."""
+    правки такой процесс засчитывался как живой сторож.
+
+    Сверяем СОСТОЯНИЕ и PID, а не фразу: первая редакция этого сторожа искала
+    в детали украинское «процес є» — строку, которой после перевода панели не
+    существует, — и мутационный гейт показал его слепым."""
     table = [_proc(4242, "powershell.exe",
                    [PS, "-NoProfile", "-Command",
                     "Get-Process | ? { $_.CommandLine -like '*backend_guardian_detached.ps1*' }"])]
     row = _by_key(F.guardians(table))["backend_guardian"]
-    assert "процес є" not in row.detail, row.detail
+    assert row.state == "bad", f"упоминание засчитано за живого сторожа: {row.detail}"
+    assert "4242" not in row.detail, row.detail
 
 
 def test_a_powershell_runner_is_not_a_python_runner():
