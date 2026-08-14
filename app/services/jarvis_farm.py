@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -310,6 +311,29 @@ def arcs() -> list[dict]:
             w["subject"] = subj[:70]
         w["merged"] = w.get("branch", "") in merged_names
     return out
+
+
+# ─────────────────────── Лента: время строк гардиана ────────────────────────
+_LOG_TS_RE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \| ")
+
+
+def parse_log_ts(line: str) -> float | None:
+    """Время из префикса строки гардиана.
+
+    ⚠️ Время в логе ЛОКАЛЬНОЕ и без зоны, поэтому `time.mktime` (он трактует
+    struct_time как локальное), а НЕ `calendar.timegm`. Принять его за UTC
+    значит сдвинуть всю ленту на три часа и получить события из будущего.
+
+    Строка без разбираемого префикса получает None и рисуется прочерком:
+    выдуманное время хуже отсутствующего — оно выглядит достоверным.
+    """
+    m = _LOG_TS_RE.match(line)
+    if not m:
+        return None
+    try:
+        return time.mktime(time.strptime(m.group(1), "%Y-%m-%d %H:%M:%S"))
+    except (ValueError, OverflowError):
+        return None
 
 
 def events(limit: int = 40) -> list[dict]:
