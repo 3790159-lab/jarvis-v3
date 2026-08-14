@@ -258,6 +258,142 @@ def test_a_non_dict_entry_in_the_state_file_does_not_kill_the_cycle():
                                   "alerted_reason": "no_response"}, junk
 
 
+# ── ротация журнала: §2.4 ──────────────────────────────────────────────────
+DAY = 86400.0
+
+
+def _rec(ts, check="backend", kind="down", detail="d"):
+    return {"ts": ts, "check": check, "kind": kind, "reason": "r", "detail": detail}
+
+
+def test_records_older_than_thirty_days_are_dropped():
+    now = 1_000_000.0
+    recs = [_rec(now - 40 * DAY), _rec(now - 31 * DAY), _rec(now - 1 * DAY)]
+    kept, dropped, why = ow.journal_trim(recs, now)
+    assert len(kept) == 1 and dropped == 2
+    assert "сут" in why, why
+
+
+def test_the_record_ceiling_catches_a_restart_storm():
+    """Чистые 30 суток безопасны при обычном темпе, но шторм рестартов набьёт
+    тысячи строк за сутки — предохранитель по объёму на этот случай."""
+    now = 1_000_000.0
+    recs = [_rec(now - 60.0) for _ in range(5400)]
+    kept, dropped, why = ow.journal_trim(recs, now)
+    assert len(kept) == ow.JOURNAL_MAX_RECORDS
+    assert dropped == 400
+    assert "записей" in why, why
+    assert kept[-1]["ts"] == recs[-1]["ts"], "обрезали новые вместо старых"
+
+
+def test_trimming_nothing_reports_nothing():
+    """Парный сторож: маркер, который пишется на каждой дозаписи, — это шум,
+    а не сигнал. Ротация без потерь обязана молчать."""
+    now = 1_000_000.0
+    kept, dropped, why = ow.journal_trim([_rec(now - 60.0)], now)
+    assert dropped == 0 and why == ""
+    assert len(kept) == 1
+
+
+def test_an_empty_journal_is_trimmed_to_nothing_and_says_nothing():
+    """Вырожденный вход — обычный: в первые же сутки после выкатки журнала
+    файла либо нет, либо он пуст, и ротация вызывается на пустом списке."""
+    assert ow.journal_trim([], 1_000_000.0) == ([], 0, "")
+
+
+def test_the_ceiling_drops_the_oldest_not_the_first_in_the_file():
+    """НЕСУЩИЙ сторож потолка. `kept[by_count:]` режет первые записи ПО ФАЙЛУ,
+    и это то же самое, что «самые старые», ТОЛЬКО если файл отсортирован.
+
+    Гарантии сортировки нет ниоткуда: файл переживает ребуты и прыжки часов
+    (NTP правит время ровно после загрузки), а после ротации в него дописывают
+    дальше. На неотсортированном входе наивный срез выбрасывает как раз
+    свежие записи — то есть ровно то, ради чего журнал заводился."""
+    now = 1_000_000.0
+    recs = ([_rec(now - 60.0, detail="свежая %d" % i) for i in range(3)]
+            + [_rec(now - 10 * DAY, detail="старая %d" % i) for i in range(2)])
+    kept, dropped, why = ow.journal_trim(recs, now, max_records=3)
+    assert dropped == 2 and "потолка" in why, why
+    assert [r["detail"] for r in kept] == ["свежая 0", "свежая 1", "свежая 2"], kept
+
+
+def test_exactly_the_ceiling_is_not_a_reason_to_trim():
+    """Граница: `>` против `>=` здесь стоит маркера «журнал обрезан» на каждой
+    дозаписи ровно на потолке — того самого шума, от которого §2.4 защищает."""
+    now = 1_000_000.0
+    recs = [_rec(now - 60.0) for _ in range(ow.JOURNAL_MAX_RECORDS)]
+    kept, dropped, why = ow.journal_trim(recs, now)
+    assert (len(kept), dropped, why) == (ow.JOURNAL_MAX_RECORDS, 0, "")
+
+
+def test_both_limits_at_once_are_both_named_in_one_marker():
+    """Обе границы срабатывают в одном вызове после долгого простоя писателя.
+    Маркер обязан назвать ОБЕ причины: «отброшено 400» без второй причины
+    отправит владельца искать шторм рестартов там, где его не было."""
+    now = 1_000_000.0
+    recs = ([_rec(now - 31 * DAY, detail="древняя") for _ in range(2)]
+            + [_rec(now - 60.0, detail="свежая") for _ in range(5)])
+    kept, dropped, why = ow.journal_trim(recs, now, max_records=3)
+    assert len(kept) == 3 and dropped == 4
+    assert "старше 30 сут" in why and "сверх потолка" in why, why
+    assert {r["detail"] for r in kept} == {"свежая"}, kept
+
+
+def test_a_record_with_no_usable_time_is_dropped_but_not_called_old():
+    """Файл читает и дописывает несколько поколений кода, и `float()` на чужом
+    поле БРОСАЕТ. Цена несоразмерна: `main()` исключение не ловит, обёртка
+    пишет heartbeat ДО цикла — наблюдатели видят здоровый сторож, который
+    молчит навсегда.
+
+    Такую запись выбрасываем (панель по ней не сгруппирует и не отсортирует),
+    но в маркере называем СВОИМ именем: «старше 30 суток» про запись без
+    времени — ложь, а маркер заводился ровно затем, чтобы не врать."""
+    now = 1_000_000.0
+    broken = [{"check": "x", "kind": "down"},          # ключа `ts` нет вовсе
+              _rec(None), _rec("вчера"), _rec([]), _rec(float("nan")),
+              _rec(True), "строка вместо записи"]
+    kept, dropped, why = ow.journal_trim(broken + [_rec(now - 60.0)], now)
+    assert [r["detail"] for r in kept] == ["d"], kept
+    assert dropped == len(broken), why
+    assert "без времени" in why, why
+    assert "старше" not in why, why
+
+
+def test_a_timestamp_that_arrived_as_a_string_is_still_a_time():
+    """Строку `float()` читает — значит запись пригодна, и выбрасывать её как
+    «без времени» значило бы терять читаемые события."""
+    now = 1_700_000_000.0
+    fresh, ancient = "%.1f" % (now - 60.0), "%.1f" % (now - 40 * DAY)
+    kept, dropped, why = ow.journal_trim([_rec(fresh), _rec(ancient)], now)
+    assert dropped == 1 and "старше" in why, why
+    assert [r["ts"] for r in kept] == [fresh], "запись переписали при обрезке"
+
+
+def test_a_timestamp_from_the_future_is_not_mistaken_for_an_ancient_one():
+    """Часы прыгают ровно тогда, когда журнал нужнее всего: NTP правит время
+    после загрузки, а записи о ребуте пишутся в первые же минуты. `now - ts`
+    у такой записи отрицателен — «не старая», а не «старее всех».
+
+    Обе дистанции названы намеренно. Час вперёд — обычный сдвиг до
+    синхронизации; сорок суток вперёд — машина, поднявшаяся с сорванными
+    часами (дата из BIOS). Сторож только на близком будущем пропускал
+    `abs(now - ts)` — проверено фактом на харнессе мутаций, — а под этой
+    формулой записи с сорванных часов уезжают как «старше 30 сут», то есть
+    события ребута теряются вместе с маркером, который об этом соврал."""
+    now = 1_000_000.0
+    kept, dropped, why = ow.journal_trim([_rec(now + 3600.0, detail="час вперёд"),
+                                          _rec(now + 40 * DAY, detail="дата из BIOS")],
+                                         now)
+    assert (len(kept), dropped, why) == (2, 0, ""), why
+
+
+def test_a_clock_before_the_epoch_does_not_kill_the_cycle():
+    """Отрицательное `now` — не фантазия: то же сползание часов до синхронизации.
+    Арифметика обязана остаться арифметикой, а не отдельной веткой."""
+    kept, dropped, why = ow.journal_trim([_rec(-2000.0), _rec(0.0)], -1000.0)
+    assert (len(kept), dropped, why) == (2, 0, "")
+
+
 # ── граница stdlib-only: §2.1 и ловушка 1 спеки ────────────────────────────
 # Под pytest корень репозитория и так лежит на `sys.path`, поэтому «модуль
 # загрузился по пути» не доказывает НИЧЕГО: `from app.services import ...` в
