@@ -396,7 +396,15 @@ GUARDIAN_NOISE = ("debouncing", "runner alive", "heartbeat fresh after")
 
 
 def is_decision(line: str) -> bool:
-    """Решение гардиана против его же дебаунс-шума."""
+    """Решение гардиана против его же дебаунс-шума.
+
+    Контракт на мусор — тот же, что у соседней `parse_log_ts`: обе разбирают
+    одни и те же строки одного источника, и расходиться в поведении на
+    негодном входе им нельзя. Сегодня `read_tail` отдаёт только `str`, так
+    что ветка недостижима, — она держит РАВЕНСТВО контрактов, а не случай.
+    """
+    if not isinstance(line, str):
+        return False
     if any(noise in line for noise in GUARDIAN_NOISE):
         return False
     return any(mark in line for mark in GUARDIAN_DECISIONS)

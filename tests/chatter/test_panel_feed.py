@@ -117,6 +117,14 @@ def test_debounce_noise_survives_even_though_uppercase_failed_is_now_a_decision_
         "2026-08-14 00:44:08 | runner check failed (1/3) - debouncing, not relaunching yet")
 
 
+def test_is_decision_matches_the_garbage_contract_of_its_neighbour():
+    """Парный к `test_garbage_input_never_raises`. `parse_log_ts` и
+    `is_decision` разбирают ОДНИ И ТЕ ЖЕ строки одного источника, и разное
+    поведение на негодном входе — ловушка для того, кто позовёт их рядом."""
+    assert F.is_decision(None) is False
+    assert F.parse_log_ts(None) is None
+
+
 def test_a_utf8_log_is_read_as_utf8(tmp_path):
     """Парный сторож к фолбэку. cp1251 декодирует ЛЮБОЙ байт и никогда не
     бросит — поставь его первым, и нормальный utf-8 молча станет мусором,
