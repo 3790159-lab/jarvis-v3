@@ -418,6 +418,13 @@ def test_the_panel_derives_the_file_exactly_as_the_runner_does(tmp_path, monkeyp
     `chatter/telethon_run.py` молча вернуло бы дефект: панель продолжила бы
     читать файл, которого раннер больше не пишет.
 
+    `secrets_dir` НЕ передаётся — и это правка по факту. С явным аргументом
+    `derive_db_path` на свой `SECRETS_DIR` не смотрит вовсе, то есть сторож был
+    слеп ровно к половине схемы: смена `.secrets` на `state` в раннере проходила
+    незамеченной (проверено мутацией самого раннера). Сверяем ОТНОСИТЕЛЬНУЮ
+    часть — каталог и имя разом, — а абсолютной её делает то, что cwd раннера =
+    ROOT (`chatter_guardian_detached.ps1:229`, `-WorkingDirectory $Root`).
+
     Импорт внутри теста: `chatter.telethon_run` тянет telethon и половину
     chatter — платить за это на сборе всего файла ленты незачем."""
     from chatter.telethon_run import derive_db_path
@@ -427,7 +434,7 @@ def test_the_panel_derives_the_file_exactly_as_the_runner_does(tmp_path, monkeyp
     _bare_panel_env(monkeypatch)
     _environs(monkeypatch, {6864: {"CHATTER_PERSONAS": "yarina"}})
     path, _ = F.client_db_path([_runner_row(6864)])
-    assert path == derive_db_path("yarina", secrets_dir=tmp_path / ".secrets")
+    assert Path(path).relative_to(tmp_path) == Path(derive_db_path("yarina")), path
 
 
 def test_two_runners_that_disagree_are_named_an_accident(tmp_path, monkeypatch):
@@ -473,6 +480,76 @@ def test_a_runner_we_may_not_question_says_so_instead_of_going_quiet(tmp_path, m
     assert path == str(tmp_path / ".secrets" / "demo.db"), path
     assert "AccessDenied" in note, note
     assert "жив" in note, note
+
+
+def test_the_live_runner_outranks_the_guardian_log(tmp_path, monkeypatch):
+    """Сторож ПОРЯДКА ступеней 2 и 3. Ни один тест не подавал оба источника
+    разом: живой раннер проверялся при пустом логе, лог — при пустой таблице
+    процессов, — и перестановка двух веток местами оставляла всё зелёным.
+
+    Правило: ЖИВОЙ раннер — сегодняшний факт, лог гардиана — вчерашний. Лог
+    называет состав ТОЛЬКО на старте гардиана, а раннера с тех пор могли
+    перезапустить с чем угодно."""
+    _clients_dir(tmp_path, "demo")
+    _guardian_log(tmp_path,
+                  "2026-08-14 00:44:08 | состав: CHATTER_PERSONAS=volska (флаг), "
+                  "db=.secrets\\volska.db\n")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+    _environs(monkeypatch, {6864: {"CHATTER_PERSONAS": "yarina"}})
+    path, note = F.client_db_path([_runner_row(6864)])
+    assert path == str(tmp_path / ".secrets" / "yarina.db"), path
+    assert note == "", note
+
+
+def test_the_runners_own_db_variable_outranks_its_personas(tmp_path, monkeypatch):
+    """Приоритет ВНУТРИ окружения раннера: CHATTER_DB > CHATTER_PERSONAS —
+    ровно как у него самого (`resolve_runtime_paths`: явный флаг > CHATTER_DB >
+    вывод из slug'а). Не гипотеза: живой раннер на этой машине держит ОБЕ разом
+    и они противоречат друг другу (CHATTER_DB='.secrets\\demo.db',
+    CHATTER_PERSONAS='volska'). Ни один сторож их вместе не выставлял, и
+    перестановка веток проходила незамеченной."""
+    _clients_dir(tmp_path, "demo")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+    _environs(monkeypatch, {6864: {"CHATTER_DB": r".secrets\demo.db",
+                                   "CHATTER_PERSONAS": "volska"}})
+    path, note = F.client_db_path([_runner_row(6864)])
+    assert note == "", note
+    # Полный путь, а не хвост: под `.endswith` пролезло бы и `volska.db`, если
+    # бы каталог отличался, — то есть ровно тот дефект, который тут сторожат.
+    assert path == str(tmp_path / ".secrets" / "demo.db"), path
+
+
+def test_a_runner_that_names_no_database_says_so_instead_of_guessing_quietly(
+        tmp_path, monkeypatch):
+    """Ветка «раннер жив, но базу в своём окружении не называет» не была накрыта
+    ничем: подмена её на тихую догадку `_db_from_slug("demo"), ""` оставляла все
+    сторожа зелёными. А разница именно в пояснении: ответ при этом ДАЁТСЯ, и
+    только слова отличают «спросили раннера» от «раннер не ответил»."""
+    _clients_dir(tmp_path, "demo")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+    _environs(monkeypatch, {6864: {}})
+    path, note = F.client_db_path([_runner_row(6864)])
+    assert path == str(tmp_path / ".secrets" / "demo.db"), path
+    assert note, "догадка выдана за ответ живого раннера"
+    assert "жив" in note and "не называет" in note, note
+
+
+def test_a_panel_without_psutil_says_so_instead_of_going_quiet(tmp_path, monkeypatch):
+    """Импорт psutil здесь ЛЕНИВЫЙ, чтобы панель не умирала без него, — но
+    молча съесть ступень 2 значит выдать догадку из active.yaml за опрос живого
+    раннера. Стирание этого пояснения в `""` не красило ни один тест."""
+    import sys
+
+    _clients_dir(tmp_path, "demo")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+    monkeypatch.setitem(sys.modules, "psutil", None)   # ImportError на `import psutil`
+    path, note = F.client_db_path([_runner_row(6864)])
+    assert path == str(tmp_path / ".secrets" / "demo.db"), path
+    assert "psutil" in note, note
 
 
 def test_a_runner_that_vanished_mid_question_is_not_called_alive(tmp_path, monkeypatch):
@@ -539,6 +616,34 @@ def test_a_process_that_only_mentions_the_runner_is_not_asked(tmp_path, monkeypa
     assert "раннер не запущен" in note, note
 
 
+def test_only_a_python_process_is_asked_about_the_database(tmp_path, monkeypatch):
+    """Фильтр «только python» держит ту же границу, что `py_only` в PROC_SPECS,
+    и без сторожа снимался бесследно. Раннер — python-модуль (`-m
+    chatter.telethon_run`); powershell-обёртка, у которой та же строка стоит в
+    аргументах, ЗАПУСКАЕТ python, а не является им, и её окружение — это
+    окружение гардиана, а не сессии клиента."""
+    _clients_dir(tmp_path, "demo")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+    wrapper = (5724, "powershell.exe",
+               ["powershell.exe", "-NoProfile", PY, "-u", "-m", "chatter.telethon_run"],
+               1.0, 1)
+    _environs(monkeypatch, {5724: {"CHATTER_PERSONAS": "yarina"}})
+    path, note = F.client_db_path([wrapper])
+    assert path == str(tmp_path / ".secrets" / "demo.db"), path
+    assert "раннер не запущен" in note, note
+
+
+def test_the_process_list_and_the_question_look_for_the_same_runner():
+    """Панель ВИДИТ раннера в `processes()` и СПРАШИВАЕТ его в
+    `_db_from_live_runner` — по одному и тому же маркеру, и разъехаться им
+    нельзя: с двумя разными литералами панель показала бы «chatter раннер: PID …»
+    и рядом «раннер не запущен». Константа `CHATTER_RUNNER` заведена ровно
+    против этого, но вернуть в PROC_SPECS литерал можно было бесследно."""
+    markers = {key: marker for key, _label, marker, _py_only in F.PROC_SPECS}
+    assert markers["chatter"] == F.CHATTER_RUNNER, markers
+
+
 # ───────────────── шаг 3: раннера нет — что помнит лог гардиана ──────────────
 
 def test_a_dead_runner_leaves_its_database_named_in_the_guardian_log(tmp_path, monkeypatch):
@@ -555,6 +660,27 @@ def test_a_dead_runner_leaves_its_database_named_in_the_guardian_log(tmp_path, m
     path, note = F.client_db_path([])
     assert path == str(tmp_path / ".secrets" / "yarina.db"), path
     assert "лога гардиана" in note, note
+    assert "14.08 00:44" in note, note
+
+
+def test_the_LAST_composition_line_wins_not_the_first(tmp_path, monkeypatch):
+    """Каждый рестарт гардиана дописывает свою строку состава, и все прошлые
+    остаются в файле. Ни один сторож не подавал ДВЕ такие строки — а `reversed`
+    в разборе можно было снять, оставив 40 зелёных. На живом логе 14.08 это
+    меняло ответ: первая строка называла yarina (00:28), последняя — demo (00:44).
+
+    Время в пояснении сверяется тем же: разбирать надо ТУ строку, чей ответ
+    взят, а не соседнюю."""
+    _clients_dir(tmp_path, "demo")
+    _guardian_log(tmp_path,
+                  "2026-08-14 00:28:00 | состав: CHATTER_PERSONAS=yarina (флаг), "
+                  "db=по первому слагу\n"
+                  "2026-08-14 00:44:00 | состав: CHATTER_PERSONAS=volska (флаг), "
+                  "db=по первому слагу\n")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+    path, note = F.client_db_path([])
+    assert path == str(tmp_path / ".secrets" / "volska.db"), path
     assert "14.08 00:44" in note, note
 
 
