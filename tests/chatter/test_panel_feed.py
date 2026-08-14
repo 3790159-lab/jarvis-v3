@@ -1557,3 +1557,120 @@ def test_a_giant_client_detail_is_cut_at_the_source(tmp_path, monkeypatch):
     guard = [r for r in rows if r["src"] == "гардиан"][0]
     assert len(client["detail"]) == F.FEED_DETAIL_LIMIT, len(client["detail"])
     assert len(guard["detail"]) == F.FEED_DETAIL_LIMIT, len(guard["detail"])
+
+
+# ─────────────── три сортировки, которые маскировали друг друга ──────────────
+#
+# Проверено мутацией: снятие ЛЮБОЙ из трёх (`guard.sort`, `client.sort`,
+# финальная `out.sort`) поодиночке оставляло весь файл зелёным. Сторожа ниже
+# бьют по каждой ПРИЦЕЛЬНО, поэтому и стенды у них разные: у одной сортировки
+# видимое последствие — не то же самое, что у другой.
+
+
+def test_the_window_takes_the_NEWEST_decisions_of_the_guardian_not_the_first(
+        tmp_path, monkeypatch):
+    """`guard.sort` — не косметика. Доля окна отрезается с НАЧАЛА группы, а
+    `read_tail` отдаёт лог в порядке файла, то есть от старого к свежему. Без
+    сортировки в окно набираются САМЫЕ СТАРЫЕ решения гардиана: панель
+    показывает позавчерашний перезапуск и молчит о сегодняшнем.
+
+    В логе двести решений с растущим временем, а окно вмещает десятки — номера
+    строк в ленте обязаны быть НАИБОЛЬШИМИ."""
+    _clients_dir(tmp_path, "demo")
+    _guardian_log(tmp_path, "".join(
+        f"2026-08-14 {i // 60:02d}:{i % 60:02d}:00 | runner DOWN - restarting {i}\n"
+        for i in range(200)))
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+
+    rows = F.events(table=[])
+    nums = sorted(int(r["detail"].rsplit(" ", 1)[1])
+                  for r in rows if r["kind"] == "раннер")
+    assert nums, rows
+    assert nums[-1] == 199, f"свежайшее решение гардиана не доехало: {nums[-5:]}"
+    assert nums[0] >= 200 - len(nums), \
+        f"в окно набрались самые СТАРЫЕ решения: {nums[:5]}"
+
+
+def test_the_window_takes_the_newest_client_events_BY_TIME_not_by_id(
+        tmp_path, monkeypatch):
+    """`client.sort`. Выборка идёт `ORDER BY id DESC` — порядком ВСТАВКИ, а он
+    расходится со временем события: `ts` пишет источник, а `id` раздаёт sqlite.
+    Половина строк здесь вставлена позже, но датирована раньше — и без
+    сортировки по времени в окно попадает именно она.
+
+    Гардиан здесь многословен НАРОЧНО: без него клиент забирает почти всё
+    окно, порядок внутри группы ничего не решает, и сторож зеленел бы."""
+    _clients_dir(tmp_path, "demo")
+    _client_db(tmp_path, "demo",
+               # ПЕРВЫМИ вставлены свежие (маленькие id), следом старые.
+               [("пауза", f"c{i}", f"свежее событие {i}", 2e9 + i) for i in range(12)]
+               + [("пауза", f"o{i}", f"старое событие {i}", 1e9 + i) for i in range(13)])
+    _guardian_log(tmp_path, "".join(
+        f"2026-08-14 00:{i % 60:02d}:00 | runner DOWN - restarting {i}\n"
+        for i in range(200)))
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+
+    rows = F.events(table=[])
+    client = [r for r in rows if r["src"] == "chatter"]
+    assert client, rows
+    assert all(r["ts"] >= 2e9 for r in client), \
+        ("в окно попали события, вставленные позже, но датированные раньше: "
+         f"{[r['detail'] for r in client]}")
+
+
+def test_the_feed_is_newest_first_ACROSS_sources_not_inside_each(tmp_path, monkeypatch):
+    """Финальная `out.sort`. Обе группы приезжают отсортированными каждая
+    внутри себя, поэтому её снятие незаметно на стенде, где источники не
+    пересекаются по времени: получится лента «сначала весь клиент, потом весь
+    гардиан», и каждый кусок сам по себе будет выглядеть правильно.
+
+    Здесь события ЧЕРЕДУЮТСЯ по минутам, и склейка без общей сортировки рвёт
+    порядок ровно на стыке групп."""
+    base = F.parse_log_ts("2026-08-14 00:00:00 | x")
+    _clients_dir(tmp_path, "demo")
+    _client_db(tmp_path, "demo",
+               [("пауза", f"c{i}", f"клиентское событие {i}", base + 60 * (2 * i + 1))
+                for i in range(10)])
+    _guardian_log(tmp_path, "".join(
+        f"2026-08-14 00:{2 * i:02d}:00 | runner DOWN - restarting {i}\n"
+        for i in range(10)))
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+
+    rows = F.events(table=[])
+    dated = [r["ts"] for r in rows if r["ts"] is not None]
+    assert len(dated) == 20, rows
+    assert dated == sorted(dated, reverse=True), \
+        ("лента склеена по источникам, а не отсортирована по времени: "
+         f"{[r['detail'][:26] for r in rows]}")
+
+
+# ──────── обвязка фильтра решений: `is_decision` внутри самой ленты ──────────
+#
+# Проверено мутацией: возврат к старому супу из подстрок
+# (`"DOWN" in ln or "launched" in ln or "failed" in ln`) оставлял файл зелёным
+# целиком. Сторожа `is_decision` кормят функцию НАПРЯМУЮ, а ни один стенд ленты
+# не подавал ей дебаунс-строк — то есть одна из четырёх заявленных правок
+# держалась ни на чём.
+
+
+def test_the_debounce_noise_never_reaches_the_feed_ITSELF(tmp_path, monkeypatch):
+    """Строки DROP кладутся в лог СТЕНДА ЛЕНТЫ, а не подаются в `is_decision`
+    поштучно: предмет здесь — обвязка, а не сама функция. Дебаунс — 39% живого
+    лога, и его возвращение в ленту съедает половину полезного окна."""
+    _clients_dir(tmp_path, "demo")
+    _guardian_log(tmp_path, "".join(ln + "\n" for ln in KEEP + DROP))
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+
+    rows = F.events(table=[])
+    details = [r["detail"] for r in rows if r["kind"] == "раннер"]
+    assert details, rows
+    for noise in F.GUARDIAN_NOISE:
+        assert not any(noise in d for d in details), \
+            f"шум «{noise}» доехал до ленты: {[d for d in details if noise in d]}"
+    # Парный конец: фильтр не имеет права заодно выбросить настоящие решения.
+    assert any("runner DOWN - restarting" in d for d in details), details
+    assert any("launched chatter runner" in d for d in details), details
