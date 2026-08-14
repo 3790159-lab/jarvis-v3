@@ -990,14 +990,18 @@ def is_anomaly(kind: str, item) -> bool:
     return False
 
 
-def snapshot_fast() -> dict:
+def snapshot_fast(table: list[tuple] | None = None) -> dict:
     """Миллисекунды: psutil + два `stat`. Этого достаточно для ответа сверху.
 
     Разрез появился потому, что полный снапшот собирается 6.8 с (git по 21
     worktree + PowerShell), и первый экран платил их целиком — при том что
     ответ «что происходит и надо ли бежать» из медленной части почти не
-    зависит."""
-    table = _proc_table()          # ОДИН обход процессов на оба сборщика
+    зависит.
+
+    `table` принимается для `snapshot()`: он собирает обе половины разом, и
+    обход процессов у него был двойным."""
+    if table is None:
+        table = _proc_table()      # ОДИН обход процессов на оба сборщика
     return {
         "collected_at": _now(),
         "external": external_watchdog(),
@@ -1023,12 +1027,19 @@ def slow_cached(*, max_age: float = SLOW_TTL) -> dict | None:
     return None
 
 
-def snapshot_slow(*, force: bool = False) -> dict:
+def snapshot_slow(*, force: bool = False,
+                  table: list[tuple] | None = None) -> dict:
     """Медленная часть: PowerShell, git по всем worktree, sqlite, ключи.
 
     Каждый источник изолирован: упавший git не имеет права унести с собой
     задачи и ключи, а тем более — страницу целиком (DEV-18: провал видно в
-    самой секции, а не в тишине)."""
+    самой секции, а не в тишине).
+
+    `table` — таблица процессов, собранная быстрой половиной, и она едет
+    насквозь в `events`: лента спрашивает у живого раннера его базу, а второй
+    обход процессов стоит 10.7 мс тёплым и 591 мс холодным. Ручка `/slow`
+    зовётся отдельным запросом и быстрой половины при себе не имеет — там
+    `None` честен, и лента соберёт таблицу сама."""
     global _slow_cache
     if not force:
         fresh = slow_cached()
@@ -1046,7 +1057,7 @@ def snapshot_slow(*, force: bool = False) -> dict:
         "tasks": _safe(scheduled_tasks,
                        lambda m: [Row("tasks", "плановые задачи", "warn", f"не прочитано: {m}")]),
         "arcs": _safe(arcs, lambda m: []),
-        "events": _safe(events, lambda m: []),
+        "events": _safe(lambda: events(table=table), lambda m: []),
         "keys": _safe(api_keys, lambda m: []),
     }
     _slow_cache = snap
@@ -1054,7 +1065,12 @@ def snapshot_slow(*, force: bool = False) -> dict:
 
 
 def snapshot() -> dict:
-    """Полный снапшот одним куском — для `/api/snapshot` и совместимости."""
-    slow = snapshot_slow(force=True)
-    return {**snapshot_fast(), **{k: v for k, v in slow.items() if k != "collected_at"},
+    """Полный снапшот одним куском — для `/api/snapshot` и совместимости.
+
+    Обход списка процессов делается ЗДЕСЬ и ровно один: раньше его платили
+    дважды — сначала `snapshot_fast`, потом лента внутри `client_db_path`."""
+    table = _proc_table()
+    slow = snapshot_slow(force=True, table=table)
+    return {**snapshot_fast(table),
+            **{k: v for k, v in slow.items() if k != "collected_at"},
             "slow_collected_at": slow["collected_at"]}

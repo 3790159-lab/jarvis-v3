@@ -1198,3 +1198,49 @@ def test_a_silent_source_wastes_none_of_the_window(tmp_path, monkeypatch):
     notes = [r for r in rows if r["src"] == "панель"]
     client = [r for r in rows if r["src"] == "chatter"]
     assert len(client) == 40 - len(notes), f"окно недобрано: {len(client)} + {len(notes)}"
+
+
+# ───────────── таблица процессов: от `snapshot_fast` до самой ленты ──────────
+#
+# Аргумент `table` у `events()` заполнять некому, если его не протянуть: таблицу
+# строит быстрая половина снапшота, а лента живёт в медленной. Сторожа ниже
+# держат ЦЕПОЧКУ целиком — уронить звено посередине можно бесследно, и параметр
+# тихо станет декоративным, а лента снова заплатит холодный обход процессов
+# (591 мс, замер 14.08).
+
+
+def test_the_slow_half_carries_the_process_table_to_the_feed(monkeypatch):
+    """Звено `snapshot_slow` → `events`."""
+    seen = []
+    monkeypatch.setattr(F, "_slow_cache", None)
+    monkeypatch.setattr(F, "events",
+                        lambda limit=40, table=None: seen.append(table) or [])
+    monkeypatch.setattr(F, "scheduled_tasks", lambda: [])
+    monkeypatch.setattr(F, "arcs", lambda: [])
+    monkeypatch.setattr(F, "api_keys", lambda: [])
+
+    marker = [_runner_row(6864)]
+    F.snapshot_slow(force=True, table=marker)
+    assert seen == [marker], seen
+
+
+def test_the_full_snapshot_walks_the_process_list_once(tmp_path, monkeypatch):
+    """Звено `snapshot` → обе половины. Обход процессов в полном снапшоте был
+    ДВОЙНЫМ: один в `snapshot_fast`, второй внутри `client_db_path` из ленты.
+    Считаем обходы, а не миллисекунды: время на этой машине плавает, а число
+    вызовов — нет.
+
+    `events` здесь НАСТОЯЩАЯ (заглушкой она обходов не делает вовсе, и тест
+    зеленел бы при оборванной цепочке) — источники у неё в подменённом ROOT,
+    живых она не касается."""
+    calls = []
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    monkeypatch.setattr(F, "_slow_cache", None)
+    monkeypatch.setattr(F, "_proc_table", lambda: calls.append(1) or [])
+    monkeypatch.setattr(F, "scheduled_tasks", lambda: [])
+    monkeypatch.setattr(F, "arcs", lambda: [])
+    monkeypatch.setattr(F, "api_keys", lambda: [])
+    _bare_panel_env(monkeypatch)
+
+    F.snapshot()
+    assert len(calls) == 1, f"обходов списка процессов: {len(calls)}, а нужен один"
