@@ -1322,3 +1322,118 @@ def test_a_feed_that_failed_to_assemble_says_so_instead_of_looking_quiet(monkeyp
     assert row["src"] == "панель" and row["kind"] == "лента", row
     assert "не собрана" in row["detail"] and "RuntimeError" in row["detail"], row
     assert row["ts"] is None, row
+
+
+# ──────────────── окно ленты — ОДНО число, а не два ──────────────────────────
+#
+# Лента резалась ДВАЖДЫ: `events()` делила бюджет по `limit=40`, а разметка
+# добавляла свой `events[:25]` — уже ПОСЛЕ общей сортировки, то есть чисто по
+# свежести. Второй срез сводил дележ окна на нет: воспроизведено на живых
+# источниках (events() отдаёт 20/20, на экране 20 гардиана и 5 клиента), а на
+# пропорции «свежие клиентские против старых гардианских» на экране гардиана
+# оставался НОЛЬ.
+
+
+def test_the_window_of_the_feed_is_a_single_number(tmp_path, monkeypatch):
+    """Умолчание `events()` — та самая именованная константа, которую рисует
+    экран. Разъедутся — вернётся второй срез, только в другом месте."""
+    _clients_dir(tmp_path, "demo")
+    _client_db(tmp_path, "demo",
+               [("пауза", f"c{i}", f"клиентское событие {i}", 2e9 + i) for i in range(200)])
+    _guardian_log(tmp_path, "".join(
+        f"2026-08-14 00:{i % 60:02d}:00 | runner DOWN - restarting {i}\n"
+        for i in range(200)))
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+    assert len(F.events(table=[])) == F.FEED_LIMIT
+
+
+def test_the_renderer_draws_everything_it_was_given(tmp_path, monkeypatch):
+    """Разметка рисует то, что ей дали, и своего мнения о размере окна не
+    имеет. Собственный срез в рендерере — это второе число там, где число
+    должно быть одно, и режет он ПОСЛЕ общей сортировки, то есть по свежести,
+    сводя дележ окна между источниками на нет."""
+    from app.routers import jarvis_panel as JP
+
+    rows = [{"src": "гардиан", "kind": "раннер", "detail": f"строка {i}",
+             "ts": 2e9 + i} for i in range(F.FEED_LIMIT + 7)]
+    html = JP._events_table(rows, 2e9)
+    # `<tr><td><b>` — начало строки ТЕЛА; голый `<tr>` посчитал бы и шапку.
+    drawn = html.count("<tr><td><b>")
+    assert drawn == len(rows), f"нарисовано {drawn} строк из {len(rows)}"
+
+
+def test_a_flood_in_one_source_does_not_push_the_other_out_of_the_MARKUP(
+        tmp_path, monkeypatch):
+    """Сторож НА РАЗМЕТКУ, а не на `events()`. Дележ окна проверялся только на
+    возврате функции — и второй срез в рендерере выбрасывал гардиана с ЭКРАНА,
+    оставляя все сторожа ленты зелёными.
+
+    Пропорция та же, что дала дефект на живых источниках: свежие клиентские
+    события против старых гардианских."""
+    from app.routers import jarvis_panel as JP
+
+    _clients_dir(tmp_path, "demo")
+    _client_db(tmp_path, "demo",
+               [("пауза", f"c{i}", f"клиентское событие {i}", 2e9 + i) for i in range(200)])
+    _guardian_log(tmp_path, "".join(
+        f"2026-08-14 00:{i:02d}:00 | runner DOWN - restarting {i}\n" for i in range(6)))
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+
+    html = JP._events_table(F.events(table=[]), time.time())
+    assert html.count(">гардиан</td>") == 6, \
+        f"на экране строк гардиана: {html.count('>гардиан</td>')} из 6"
+    assert "клиентское событие" in html, "клиент вытеснен с экрана целиком"
+
+
+# ───────── «видно с …» — строка про СЕЙЧАС, а не про самое старое ────────────
+#
+# Она положена ВНЕ бюджета как «про сейчас», но получала `ts=oldest` — самое
+# старое время ленты, — и после общей сортировки уезжала в самый низ. Сторож на
+# неё был зелёным только потому, что его стенд без клиентских событий: тот
+# самый «опрятный стенд», от которого предостерегает §8 спеки.
+
+
+def test_the_visibility_border_reaches_the_top_of_a_NON_EMPTY_feed(tmp_path, monkeypatch):
+    """Стенд НЕ опрятный: рядом со строками гардиана лежат свежие клиентские
+    события. Именно они и утаскивали границу видимости вниз."""
+    _clients_dir(tmp_path, "demo")
+    _client_db(tmp_path, "demo",
+               [("пауза", f"c{i}", f"клиентское событие {i}", 2e9 + i) for i in range(200)])
+    _guardian_log(tmp_path, "".join(
+        f"2026-08-14 00:{i % 60:02d}:00 | runner DOWN - restarting {i}\n"
+        for i in range(3000)))
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    monkeypatch.setattr(F, "GUARDIAN_LOG_WINDOW", 2048)
+    _bare_panel_env(monkeypatch)
+
+    rows = F.events(table=[])
+    border = [r for r in rows if "видно с" in r["detail"]]
+    assert border, "граница видимости не доехала до ленты вовсе"
+    assert border[0]["ts"] is None, \
+        "граница видимости подписана самым СТАРЫМ временем и уезжает в конец"
+    # Момент начала видимости остаётся в ТЕКСТЕ — он и есть содержание строки.
+    assert "видно с 14.08" in border[0]["detail"], border[0]["detail"]
+    dated = [i for i, r in enumerate(rows) if r["ts"] is not None]
+    assert rows.index(border[0]) < dated[0], \
+        f"граница видимости стоит ниже событий: {[r['detail'][:30] for r in rows]}"
+
+
+def test_the_visibility_border_survives_on_the_screen_too(tmp_path, monkeypatch):
+    """Тот же конец, но в разметке: доехать до `events()` мало, если экран
+    рисует другое окно."""
+    from app.routers import jarvis_panel as JP
+
+    _clients_dir(tmp_path, "demo")
+    _client_db(tmp_path, "demo",
+               [("пауза", f"c{i}", f"клиентское событие {i}", 2e9 + i) for i in range(200)])
+    _guardian_log(tmp_path, "".join(
+        f"2026-08-14 00:{i % 60:02d}:00 | runner DOWN - restarting {i}\n"
+        for i in range(3000)))
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    monkeypatch.setattr(F, "GUARDIAN_LOG_WINDOW", 2048)
+    _bare_panel_env(monkeypatch)
+
+    html = JP._events_table(F.events(table=[]), time.time())
+    assert "видно с" in html, "граница видимости не доехала до экрана"

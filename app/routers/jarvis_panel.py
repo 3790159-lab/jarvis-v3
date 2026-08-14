@@ -274,7 +274,11 @@ def _events_table(events: list[dict], now: float) -> str:
         f"<td data-l='Источник' class='sub'>{esc(e['src'])}</td>"
         f"<td data-l='Деталь' class='sub'>{esc((e['detail'] or '')[:110])}</td>"
         f"<td data-l='Когда' class='sub'>{esc(_ago(e['ts'], now)) if e['ts'] else '—'}</td></tr>"
-        for e in events[:25]) or "<tr><td colspan=4 class='empty'>тихо</td></tr>"
+        # Рендерер рисует то, что ему дали, и своего мнения о размере окна не
+        # имеет. Собственный `[:25]` здесь был ВТОРЫМ срезом ленты — уже после
+        # общей сортировки, то есть чисто по свежести, — и сводил дележ окна
+        # между источниками на нет. Окно называется один раз, в `F.FEED_LIMIT`.
+        for e in events) or "<tr><td colspan=4 class='empty'>тихо</td></tr>"
     return ("<div class='card'><table><thead><tr><th>Событие</th><th>Источник</th>"
             f"<th>Деталь</th><th>Когда</th></tr></thead><tbody>{body}</tbody></table>"
             "<div class='sub' style='margin-top:8px'>⚠️ «Посчитано» ≠ «доехало»: доставка "
