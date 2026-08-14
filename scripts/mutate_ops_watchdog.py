@@ -185,6 +185,68 @@ MUTATIONS = [
      '                fire(check, "recovered", res, reason)',
      T_JOURNAL + "::test_the_owner_hears_no_recovery_of_a_fall_he_was_never_told_about"),
 
+    # ── ротация журнала: `journal_trim()` (§2.4) ───────────────────────────
+    # Обрезка — единственное место, где сторож ТЕРЯЕТ данные, и потеря эта
+    # молчалива по природе: файл просто становится короче. Поэтому под мутацию
+    # ставится не только «режет ли», но и «называет ли, что именно отрезал».
+    ("ротация: возраст записи не смотрится вовсе", WATCHDOG,
+     "        elif (now - ts) > max_age_s:",
+     "        elif False:",
+     T_JOURNAL + "::test_records_older_than_thirty_days_are_dropped"),
+
+    ("ротация: потолок по числу записей снят", WATCHDOG,
+     "JOURNAL_MAX_RECORDS = 5000", "JOURNAL_MAX_RECORDS = 10**9",
+     T_JOURNAL + "::test_the_record_ceiling_catches_a_restart_storm"),
+
+    ("ротация: потолок режет первые ПО ФАЙЛУ, а не старые ПО ВРЕМЕНИ", WATCHDOG,
+     "        order = sorted(range(len(kept)), key=lambda i: (kept[i][0], i))\n"
+     "        doomed = set(order[:by_count])\n"
+     "        kept = [pair for i, pair in enumerate(kept) if i not in doomed]",
+     "        kept = kept[by_count:]",
+     T_JOURNAL + "::test_the_ceiling_drops_the_oldest_not_the_first_in_the_file"),
+
+    ("ротация: потолок срабатывает РОВНО на потолке — маркер каждый раз",
+     WATCHDOG,
+     "    by_count = max(0, len(kept) - max_records)",
+     "    by_count = max(0, len(kept) - max_records + 1)",
+     T_JOURNAL + "::test_exactly_the_ceiling_is_not_a_reason_to_trim"),
+
+    ("ротация режет молча — маркера о потере нет", WATCHDOG,
+     '    return kept, dropped, " и ".join(parts)',
+     '    return kept, dropped, ""',
+     T_JOURNAL + "::test_records_older_than_thirty_days_are_dropped"),
+
+    ("ротация называет только ПЕРВУЮ из причин", WATCHDOG,
+     '    return kept, dropped, " и ".join(parts)',
+     "    return kept, dropped, parts[0]",
+     T_JOURNAL + "::test_both_limits_at_once_are_both_named_in_one_marker"),
+
+    ("ротация докладывает о потере, которой не было", WATCHDOG,
+     "    dropped = by_age + by_no_ts + by_count",
+     "    dropped = len(records)",
+     T_JOURNAL + "::test_trimming_nothing_reports_nothing"),
+
+    ("ротация: запись без времени объявлена старой", WATCHDOG,
+     "            by_no_ts += 1               # не «старая» — про неё нечего сказать",
+     "            by_age += 1",
+     T_JOURNAL + "::test_a_record_with_no_usable_time_is_dropped_but_not_called_old"),
+
+    ("ротация: нечитаемое время роняет цикл сторожа целиком", WATCHDOG,
+     "    try:\n        ts = float(ts)\n    except (TypeError, ValueError):\n"
+     "        return None",
+     "    ts = float(ts)",
+     T_JOURNAL + "::test_a_record_with_no_usable_time_is_dropped_but_not_called_old"),
+
+    ("ротация: время из будущего принято за самое старое", WATCHDOG,
+     "        elif (now - ts) > max_age_s:",
+     "        elif abs(now - ts) > max_age_s:",
+     T_JOURNAL + "::test_a_timestamp_from_the_future_is_not_mistaken_for_an_ancient_one"),
+
+    ("ротация: читаемое время в строке выброшено как нечитаемое", WATCHDOG,
+     "    if ts is None or isinstance(ts, bool):",
+     "    if ts is None or isinstance(ts, (bool, str)):",
+     T_JOURNAL + "::test_a_timestamp_that_arrived_as_a_string_is_still_a_time"),
+
     # Граница stdlib-only (§2.1, ловушка 1). Под pytest корень репозитория и так
     # на `sys.path`, поэтому мутация ниже НЕ ломает загрузку модуля и проходит
     # все прочие сторожа зелёной. Ловит её только подпроцесс без корня на пути.
