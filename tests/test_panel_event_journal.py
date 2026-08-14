@@ -154,6 +154,70 @@ def test_the_debounce_argument_actually_reaches_the_core():
         "при debounce=1 алерт обязан уйти с первого же падения"
 
 
+# ── подавленное падение: ловушка 4 и §4.6 ──────────────────────────────────
+def test_one_fall_in_the_boot_window_writes_exactly_two_records():
+    """Ловушка 4 спеки обещает РОВНО ДВЕ записи об одном падении: `suppressed`
+    в окне и настоящий `down` после него.
+
+    Дедупа у `suppressed` не было вовсе — `alerted` в этой ветке не ставится по
+    построению, — поэтому запись уходила КАЖДЫЙ цикл, пока идёт окно. При
+    BOOT_GRACE_S=300 и цикле 30 с это девять записей на пробу, а после ребута
+    красны все девять проб. §4.6 схлопывает на экране ПАРУ, а не девятку: восемь
+    лишних строк уехали бы на первый экран с «исход пока неизвестен»."""
+    cycles = int(ow.BOOT_GRACE_S // 30)
+    assert cycles == 10, "предпосылка теста сломана: окно или цикл изменились"
+    probes = {"backend": _probe(False, "no_response", "нет ответа")}
+    journal, state = [], {}
+    for _ in range(cycles):
+        trs, state = ow.transitions(state, probes, debounce=2, suppress_down=True)
+        journal += trs
+    # Окно кончилось, сервис так и не поднялся — вот теперь 🚨 по-настоящему.
+    trs, state = ow.transitions(state, probes, debounce=2, suppress_down=False)
+    journal += trs
+    assert [t["kind"] for t in journal] == ["suppressed", "down"], journal
+
+
+def test_a_fall_the_owner_already_heard_about_is_not_written_as_suppressed():
+    """§2.3 определяет `suppressed` как «событие, о котором владельцу НЕ
+    сообщили». Ветка не смотрела на `alerted`, а состояние переживает ребут:
+    проверка, объявленная красной днями раньше (чек worktree простоял красным
+    1669 циклов), в загрузочном окне снова порождала `suppressed`, и §4.6
+    рисовал НОВЫЙ инцидент про старое падение."""
+    prev = {"worktree": {"fail": 1669, "alerted": True,
+                         "alerted_reason": "dirty:a.yaml"}}
+    probes = {"worktree": _probe(False, "dirty:a.yaml", "модифицировано 1")}
+    trs, _st = ow.transitions(prev, probes, debounce=2, suppress_down=True)
+    assert trs == [], trs
+
+
+def test_a_suppressed_fall_that_came_back_up_leaves_its_outcome_in_the_journal():
+    """§4.6 объявляет ТРИ исхода подавленного падения, а писатель умел два:
+    `recovered` стоял за `alerted`, которого `suppress_down` намеренно не
+    ставит. Инцидент, рассосавшийся сам, навсегда оставался на экране как
+    «исход пока неизвестен»."""
+    st = {"backend": {"fail": 1, "alerted": False}}
+    trs, st = ow.transitions(st, {"backend": _probe(False, "no_response")},
+                             debounce=2, suppress_down=True)
+    assert [t["kind"] for t in trs] == ["suppressed"]
+
+    trs2, st2 = ow.transitions(st, {"backend": _probe(True, "up", "HTTP 200")},
+                               debounce=2, suppress_down=True)
+    assert [t["kind"] for t in trs2] == ["recovered"], trs2
+    assert trs2[0]["detail"] == "HTTP 200"
+    assert st2["backend"] == {"fail": 0, "alerted": False}
+
+
+def test_the_owner_hears_no_recovery_of_a_fall_he_was_never_told_about():
+    """Пара к предыдущему, и она же — граница §3: в ЖУРНАЛ подъём пишется, в
+    КАНАЛ АЛЕРТА нет. ✅ о подъёме того, о падении чего молчали, — это ✅ ни о
+    чём, и контракт `evaluate()` оно бы сломало."""
+    st = {"backend": {"fail": 5, "alerted": False}}
+    probes = {"backend": _probe(True)}
+    trs, _ = ow.transitions(st, probes, debounce=2)
+    assert [t["kind"] for t in trs] == ["recovered"], trs
+    assert ow.evaluate(st, probes, debounce=2)[0] == []
+
+
 # ── граница stdlib-only: §2.1 и ловушка 1 спеки ────────────────────────────
 # Под pytest корень репозитория и так лежит на `sys.path`, поэтому «модуль
 # загрузился по пути» не доказывает НИЧЕГО: `from app.services import ...` в

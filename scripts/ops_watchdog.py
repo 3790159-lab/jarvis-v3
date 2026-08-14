@@ -144,27 +144,16 @@ def build_alert(check: str, kind: str, detail: str) -> str:
     return "🚨 DOWN: %s. %s" % (label, detail)
 
 
-def transitions(prev_state: dict, probes: dict, debounce: int = DEBOUNCE,
-                suppress_down: bool = False, now=None):
-    """Чистое ядро: свернуть пробы этого цикла в состояние и вернуть ПЕРЕХОДЫ.
+def _transitions(prev_state: dict, probes: dict, debounce: int = DEBOUNCE,
+                 suppress_down: bool = False, now: float | None = None):
+    """Единственный анализатор состояний. Возвращает
+    `(journal, to_owner, new_state)`.
 
-    Отделено от `evaluate()` 14.08, когда переходы понадобились журналу панели
-    структурой, а не текстом: по фразе с эмодзи нельзя ни отсортировать, ни
-    сгруппировать, ни схлопнуть пару «подавлено → подтверждено». Второго
-    анализатора состояний в системе при этом не появилось — `evaluate()` стала
-    тонкой обёрткой, и вся логика дебаунса и дедупа живёт здесь.
-
-    ``probes``     : {check_key: {"ok": bool, "detail": str, "reason": str}} —
-                     только проверки, реально выполненные в этом цикле (мёртвый
-                     бэкенд не даёт своих под-проверок).
-    ``prev_state`` : {check_key: {"fail": int, "alerted": bool,
-                                  "alerted_reason": str}}
-
-    Возвращает `(transitions: list[dict], new_state: dict)`. Переход:
-    `{"ts", "check", "kind", "reason", "detail"}`, kind ∈
-    {down, recovered, changed, suppressed}. Проверки, отсутствующие в
-    `probes`, сохраняют прежнее состояние дословно (заморожены, никогда не
-    «восстанавливаются» сами).
+    ДВА списка, а не один, — потому что журнал и канал алертов расходятся
+    РОВНО В ОДНОМ месте, и место это названо здесь явно: подъём после
+    ПОДАВЛЕННОГО падения (см. `journal_only` ниже). Списки держат одни и те же
+    объекты переходов, второго анализатора не появляется: `transitions()`
+    берёт первый, `evaluate()` — второй.
 
     ДЕДУП ПО ПРИЧИНЕ, а не по факту (дефект найден фактом 2026-08-11): чек
     worktree простоял красным 1669 циклов из-за законной правки тумблера, и
@@ -178,10 +167,14 @@ def transitions(prev_state: dict, probes: dict, debounce: int = DEBOUNCE,
     now = time.time() if now is None else now
     new_state = {k: dict(v) for k, v in prev_state.items()}
     out = []
+    to_owner = []
 
-    def fire(check, kind, res, reason):
-        out.append({"ts": now, "check": check, "kind": kind,
-                    "reason": reason, "detail": res.get("detail", "")})
+    def fire(check, kind, res, reason, journal_only=False):
+        t = {"ts": now, "check": check, "kind": kind,
+             "reason": reason, "detail": res.get("detail", "")}
+        out.append(t)
+        if not journal_only:
+            to_owner.append(t)
 
     for check, res in probes.items():
         st = dict(new_state.get(check, {"fail": 0, "alerted": False}))
@@ -189,6 +182,19 @@ def transitions(prev_state: dict, probes: dict, debounce: int = DEBOUNCE,
         if res.get("ok"):
             if st.get("alerted"):
                 fire(check, "recovered", res, reason)
+            elif isinstance(st.get("fail"), (int, float)) and st["fail"] > 0:
+                # Исход «поднялось само» из §4.6. Писателю он был НЕДОСТИЖИМ:
+                # `recovered` стоял за `alerted`, которого `suppress_down`
+                # намеренно не ставит, — и проба, у которой в журнале были
+                # только `suppressed`, при подъёме не давала НИЧЕГО. Инцидент,
+                # рассосавшийся сам, навсегда оставался на экране как «исход
+                # пока неизвестен».
+                #
+                # РАЗДЕЛЕНИЕ ЯВНОЕ: в ЖУРНАЛ пишем по факту «этот чек был
+                # красным», ВЛАДЕЛЬЦУ не говорим. ✅ о подъёме того, о падении
+                # чего мы промолчали, — это ✅ ни о чём, и контракт §3 оно бы
+                # сломало.
+                fire(check, "recovered", res, reason, journal_only=True)
             # Причина забывается вместе с алертом: оставить её значило бы
             # промолчать о следующем падении по той же причине.
             st = {"fail": 0, "alerted": False}
@@ -202,8 +208,26 @@ def transitions(prev_state: dict, probes: dict, debounce: int = DEBOUNCE,
                 # сказали, не считается объявленной.
                 #
                 # В ЖУРНАЛ это попадает: падение, о котором не сообщили, — ровно
-                # то событие, ради которого журнал и заводится.
-                if st["fail"] >= debounce:
+                # то событие, ради которого журнал и заводится. Но РОВНО ОДИН
+                # РАЗ (ловушка 4 обещает две записи на падение, не десять):
+                #
+                #   `alerted` тут не ставится по построению, значит дедупить им
+                #   нечего, а нового ключа в состоянии заводить нельзя —
+                #   `evaluate()` возвращает это состояние наружу, и её контракт
+                #   §3 неприкосновенен. Поэтому дедуп по МОМЕНТУ пересечения
+                #   порога: `fail` растёт по единице и обнуляется только
+                #   восстановлением, так что равенство наступает ровно один раз
+                #   за падение. До правки это было `>=`, и при BOOT_GRACE_S=300
+                #   с циклом 30 с одно падение давало девять записей, а после
+                #   ребута красны все девять проб — под 80 записей на инцидент
+                #   при потолке журнала 5000 (§2.4).
+                #
+                #   А о падении, про которое владельцу УЖЕ сказали, `suppressed`
+                #   не пишется вовсе: §2.3 определяет его как «событие, о
+                #   котором НЕ сообщили». Состояние переживает ребут, и без
+                #   этого условия проверка, объявленная красной днями раньше,
+                #   рисовала бы на панели новый инцидент про старое падение.
+                if not st.get("alerted") and st["fail"] == debounce:
                     fire(check, "suppressed", res, reason)
             elif not st.get("alerted"):
                 if st["fail"] >= debounce:
@@ -219,7 +243,33 @@ def transitions(prev_state: dict, probes: dict, debounce: int = DEBOUNCE,
                 fire(check, "changed", res, reason)
                 st["alerted_reason"] = reason
         new_state[check] = st
-    return out, new_state
+    return out, to_owner, new_state
+
+
+def transitions(prev_state: dict, probes: dict, debounce: int = DEBOUNCE,
+                suppress_down: bool = False, now: float | None = None):
+    """ЖУРНАЛ: свернуть пробы этого цикла в состояние и вернуть ПЕРЕХОДЫ.
+
+    Отделено от `evaluate()` 14.08, когда переходы понадобились журналу панели
+    структурой, а не текстом: по фразе с эмодзи нельзя ни отсортировать, ни
+    сгруппировать, ни схлопнуть пару «подавлено → подтверждено».
+
+    ``probes``     : {check_key: {"ok": bool, "detail": str, "reason": str}} —
+                     только проверки, реально выполненные в этом цикле (мёртвый
+                     бэкенд не даёт своих под-проверок).
+    ``prev_state`` : {check_key: {"fail": int, "alerted": bool,
+                                  "alerted_reason": str}}
+
+    Возвращает `(transitions: list[dict], new_state: dict)`. Переход несёт
+    РОВНО пять полей §2.2 — `{"ts", "check", "kind", "reason", "detail"}`, и
+    шестого не заводится: PID, `hb_age` и `age_days` меняются каждый цикл и не
+    значат ничего. kind ∈ {down, recovered, changed, suppressed}. Проверки,
+    отсутствующие в `probes`, сохраняют прежнее состояние дословно
+    (заморожены, никогда не «восстанавливаются» сами).
+    """
+    journal, _to_owner, new_state = _transitions(
+        prev_state, probes, debounce, suppress_down, now)
+    return journal, new_state
 
 
 # Виды переходов, о которых владельцу СООБЩАЮТ. `suppressed` сюда не входит по
@@ -229,14 +279,21 @@ ALERTING_KINDS = ("down", "recovered", "changed")
 
 def evaluate(prev_state: dict, probes: dict, debounce: int = DEBOUNCE,
              suppress_down: bool = False):
-    """Тексты алертов из переходов. Обёртка над `transitions()`; сигнатура и
-    поведение неизменны — на них стоят тесты и мутационный гейт.
+    """Тексты алертов из переходов. Обёртка над тем же ядром, что и
+    `transitions()`; сигнатура и поведение неизменны — на них стоят тесты и
+    мутационный гейт (`scripts/mutate_ops_watchdog.py`).
+
+    Берётся `to_owner`, а не весь журнал: единственный переход, который
+    существует ТОЛЬКО для журнала, — подъём после подавленного падения.
+    `ALERTING_KINDS` при этом остаётся вторым, независимым фильтром: `suppressed`
+    в `to_owner` попадает и отсеивается здесь.
 
     Returns ``(alerts: list[str], new_state: dict)``.
     """
-    trs, new_state = transitions(prev_state, probes, debounce, suppress_down)
+    _journal, to_owner, new_state = _transitions(
+        prev_state, probes, debounce, suppress_down)
     alerts = [build_alert(t["check"], t["kind"], t["detail"])
-              for t in trs if t["kind"] in ALERTING_KINDS]
+              for t in to_owner if t["kind"] in ALERTING_KINDS]
     return alerts, new_state
 
 
