@@ -224,7 +224,7 @@ def test_jarvis_panel_answers_before_it_lists(tmp_path, monkeypatch):
     body = _visible(_page(_jarvis(tmp_path, monkeypatch), "/panel/jarvis"))
     m = re.search(r"<h1 class='ans[^']*'>(.*?)</h1>", body, re.S)
     assert m, "панель Джарвиса начинается не с ответа"
-    assert re.search(r"ціла|Впало|Ліди|Не бачу|Сторож|Немає кому|Ключ|Автоматика",
+    assert re.search(r"цела|Упало|Лиды|Не вижу|Сторож|Некому|Ключ|Автоматика",
                      m.group(1)), m.group(1)
 
 
@@ -492,7 +492,7 @@ def _jarvis(tmp_path, monkeypatch, *, procs=None, guards=None, external=None,
     c = _client(tmp_path / "jarvis.db", monkeypatch)
     fast = {
         "collected_at": time.time(),
-        "external": external or _row("ext", "bad", "НЕ налаштований"),
+        "external": external or _row("ext", "bad", "НЕ настроен"),
         "processes": procs if procs is not None else [
             _row("backend", "ok", "PID 1"), _row("bot", "ok", "PID 2"),
             _row("chatter", "ok", "PID 3")],
@@ -549,10 +549,10 @@ def test_a_blind_collector_outranks_everything(tmp_path, monkeypatch):
     """L1. psutil лёг — ферма собрана наполовину, и говорить о ней рано.
     Ровно та же идиома, что «немає зв'язку перебиває чергу» на клиентской."""
     c = _jarvis(tmp_path, monkeypatch,
-                procs=[_row("procs", "warn", "psutil недоступний")],
-                guards=[_row("chatter_guardian", "bad", "не працює")])
+                procs=[_row("procs", "warn", "psutil недоступен")],
+                guards=[_row("chatter_guardian", "bad", "не работает")])
     body = _page(c, "/panel/jarvis")
-    assert "Не бачу ферму" in _ans(body), _ans(body)
+    assert "Не вижу ферму" in _ans(body), _ans(body)
     assert _tone(body) == "broken"
 
 
@@ -561,9 +561,9 @@ def test_a_dead_runner_outranks_a_lying_guardian(tmp_path, monkeypatch):
     расхождение сторожей ждёт своей очереди."""
     c = _jarvis(tmp_path, monkeypatch,
                 procs=[_row("backend", "ok"), _row("bot", "ok"),
-                       _row("chatter", "bad", "процес не знайдено")],
+                       _row("chatter", "bad", "процесс не найден")],
                 guards=[_row("chatter_guardian", "warn", "heartbeat протух")])
-    assert "Ліди без відповіді" in _ans(_page(c, "/panel/jarvis"))
+    assert "Лиды без ответа" in _ans(_page(c, "/panel/jarvis"))
 
 
 def test_a_fallen_process_reads_differently_when_a_guardian_is_alive(tmp_path, monkeypatch):
@@ -571,23 +571,23 @@ def test_a_fallen_process_reads_differently_when_a_guardian_is_alive(tmp_path, m
     за 61 с — это НЕ то же событие, что падение без живого гардиана, и ответ
     обязан различать их тоном, а не только словом."""
     lifted = _jarvis(tmp_path, monkeypatch,
-                     procs=[_row("bot", "bad", "процес не знайдено")],
+                     procs=[_row("bot", "bad", "процесс не найден")],
                      guards=[_row("bot_guardian", "ok", "PID 9")])
     b1 = _page(lifted, "/panel/jarvis")
-    assert "підніметься" in _ans(b1), _ans(b1)
+    assert "поднимется" in _ans(b1), _ans(b1)
     assert _tone(b1) == "wait", "самоподнимающееся падение — не авария"
 
     orphan = _jarvis(tmp_path, monkeypatch,
-                     procs=[_row("bot", "bad", "процес не знайдено")],
-                     guards=[_row("bot_guardian", "bad", "не працює")])
+                     procs=[_row("bot", "bad", "процесс не найден")],
+                     guards=[_row("bot_guardian", "bad", "не работает")])
     b2 = _page(orphan, "/panel/jarvis")
-    assert "сам не підніметься" in _ans(b2), _ans(b2)
+    assert "сам не поднимется" in _ans(b2), _ans(b2)
     assert _tone(b2) == "broken"
 
 
 def test_the_second_line_names_the_guardian_and_the_eta(tmp_path, monkeypatch):
     c = _jarvis(tmp_path, monkeypatch,
-                procs=[_row("chatter", "bad", "процес не знайдено")],
+                procs=[_row("chatter", "bad", "процесс не найден")],
                 guards=[_row("chatter_guardian", "ok", "PID 7")])
     s = _second(_page(c, "/panel/jarvis"))
     assert "chatter_guardian" in s and "90" in s, s
@@ -595,10 +595,10 @@ def test_the_second_line_names_the_guardian_and_the_eta(tmp_path, monkeypatch):
 
 def test_the_second_line_says_when_nobody_will_lift_it(tmp_path, monkeypatch):
     c = _jarvis(tmp_path, monkeypatch,
-                procs=[_row("chatter", "bad", "процес не знайдено")],
-                guards=[_row("chatter_guardian", "bad", "не працює")])
+                procs=[_row("chatter", "bad", "процесс не найден")],
+                guards=[_row("chatter_guardian", "bad", "не работает")])
     s = _second(_page(c, "/panel/jarvis"))
-    assert "не підніметься" in s and "chatter_guardian" in s, s
+    assert "не поднимется" in s and "chatter_guardian" in s, s
 
 
 def test_an_always_true_condition_never_becomes_the_answer(tmp_path, monkeypatch):
@@ -606,10 +606,10 @@ def test_an_always_true_condition_never_becomes_the_answer(tmp_path, monkeypatch
     меняется, перестаёт быть ответом — это ровно тот вечно-красный, из-за
     которого красный теряет смысл. Строка остаётся, ответ — нет."""
     c = _jarvis(tmp_path, monkeypatch,
-                external=_row("ext", "bad", "НЕ налаштований — панель не бачить смерті машини"))
+                external=_row("ext", "bad", "НЕ настроен — панель не видит смерти машины"))
     body = _page(c, "/panel/jarvis")
-    assert "Ферма ціла" in _ans(body), _ans(body)
-    assert "НЕ налаштований" in body, "строка о слепоте панели пропала совсем"
+    assert "Ферма цела" in _ans(body), _ans(body)
+    assert "НЕ настроен" in body, "строка о слепоте панели пропала совсем"
 
 
 def test_a_key_reaches_the_answer_only_under_seven_days(tmp_path, monkeypatch):
@@ -622,7 +622,7 @@ def test_a_key_reaches_the_answer_only_under_seven_days(tmp_path, monkeypatch):
     assert "Instagram" in _ans(soon), _ans(soon)
 
     later = _page(_jarvis(tmp_path, monkeypatch, keys=key(20)), "/panel/jarvis")
-    assert "Ферма ціла" in _ans(later), _ans(later)
+    assert "Ферма цела" in _ans(later), _ans(later)
     assert "Instagram" in _first_screen(later), "ключ на 20 дней пропал и из аномалий"
 
 
@@ -630,15 +630,15 @@ def test_a_stale_slow_cache_skips_the_level_and_says_so(tmp_path, monkeypatch):
     """Медленное не прочитано — уровень пропускается, но МОЛЧАТЬ нельзя:
     иначе «Ферма ціла» тихо означает «про задачи и ключи не знаю»."""
     body = _page(_jarvis(tmp_path, monkeypatch, slow_fresh=False), "/panel/jarvis")
-    assert "Ферма ціла" in _ans(body)
-    assert "ще не зчитані" in _first_screen(body), "экран молчит о том, чего не знает"
+    assert "Ферма цела" in _ans(body)
+    assert "ещё не прочитаны" in _first_screen(body), "экран молчит о том, чего не знает"
 
 
 def test_the_calm_answer_lists_what_was_checked(tmp_path, monkeypatch):
     """Заход 1: перечень проверенного. Дата последнего падения честнее, но без
     журнала мы её не знаем, и печатать её значит соврать (заход 2)."""
     s = _second(_page(_jarvis(tmp_path, monkeypatch), "/panel/jarvis"))
-    assert "3 процеси" in s and "4 гардіани" in s, s
+    assert "3 процесса" in s and "4 гардиана" in s, s
 
 
 # ── аномалия против состояния ───────────────────────────────────────────────
@@ -647,29 +647,29 @@ def test_healthy_rows_stay_off_the_first_screen(tmp_path, monkeypatch):
     """Двадцать зелёных строк выделяют ровно ничего. «heartbeat 12 с тому»
     меняется на каждый запрос, а смысл не меняется ни разу."""
     body = _page(_jarvis(tmp_path, monkeypatch,
-                         guards=[_row("bot_guardian", "ok", "PID 9 · heartbeat 12 с тому")]),
+                         guards=[_row("bot_guardian", "ok", "PID 9 · heartbeat 12 с назад")]),
                  "/panel/jarvis")
-    assert "heartbeat 12 с тому" in _state_block(body), "состояние не свёрнуто"
-    assert "heartbeat 12 с тому" not in _first_screen(body)
+    assert "heartbeat 12 с назад" in _state_block(body), "состояние не свёрнуто"
+    assert "heartbeat 12 с назад" not in _first_screen(body)
 
 
 def test_an_anomaly_is_never_hidden_in_the_state_block(tmp_path, monkeypatch):
     body = _page(_jarvis(tmp_path, monkeypatch,
-                         procs=[_row("bot", "bad", "процес не знайдено")],
-                         guards=[_row("bot_guardian", "bad", "не працює")]),
+                         procs=[_row("bot", "bad", "процесс не найден")],
+                         guards=[_row("bot_guardian", "bad", "не работает")]),
                  "/panel/jarvis")
-    assert "процес не знайдено" in _first_screen(body)
-    assert "процес не знайдено" not in _state_block(body)
+    assert "процесс не найден" in _first_screen(body)
+    assert "процесс не найден" not in _state_block(body)
 
 
 def test_a_retired_task_is_not_an_anomaly(tmp_path, monkeypatch):
     """Снайпер отставлен НАМЕРЕННО. Панель, красящая это жёлтым, ежедневно
     требует чинить нечинимое, и её перестают читать."""
     body = _page(_jarvis(tmp_path, monkeypatch,
-                         tasks=[_row("JarvisSniperDetached", "off", "RunPod-півот")]),
+                         tasks=[_row("JarvisSniperDetached", "off", "RunPod-пивот")]),
                  "/panel/jarvis")
     assert "JarvisSniperDetached" in _state_block(body)
-    assert "Ферма ціла" in _ans(body)
+    assert "Ферма цела" in _ans(body)
 
 
 def test_a_dirty_worktree_is_an_anomaly_and_its_age_is_not(tmp_path, monkeypatch):
@@ -701,13 +701,35 @@ def test_the_panel_answers_while_git_and_powershell_hang(tmp_path, monkeypatch):
     monkeypatch.setattr(F, "events", boom)
     monkeypatch.setattr(F, "_slow_cache", None, raising=False)
     body = _page(c, "/panel/jarvis")
-    assert re.search(r"ціла|Впало|Ліди|Не бачу|Сторож|Ключ|Немає кому", _ans(body)), _ans(body)
+    assert re.search(r"цела|Упало|Лиды|Не вижу|Сторож|Ключ|Некому", _ans(body)), _ans(body)
+
+
+def test_the_slow_note_replaces_the_server_one_instead_of_standing_next_to_it(
+        tmp_path, monkeypatch):
+    """Живой скриншот 14.08: «ще не зчитанізадачі, арки, ключі: 0 с тому».
+
+    Строка склеена и сказана дважды противоположным образом, потому что
+    серверная подпись и подпись после догрузки жили в РАЗНЫХ узлах: JS писал в
+    пустой соседний span, а «ще не зчитані» оставалось на месте. Серверный HTML
+    при этом выглядел безупречно — беда появлялась только в браузере, поэтому
+    сторож сверяет АДРЕС узла: куда JS кладёт `j.note` и где стоит серверная
+    подпись, обязан быть один и тот же элемент."""
+    import app.routers.jarvis_panel as jp
+
+    body = _page(_jarvis(tmp_path, monkeypatch, slow_fresh=False), "/panel/jarvis")
+    html, js = body.split("<script>", 1)
+    m = re.search(r"getElementById\('(\w+)'\)\.textContent\s*=\s*j\.note", js)
+    assert m, "не видно, в какой узел JS кладёт подпись возраста"
+    holder = re.search(rf"id='{m.group(1)}'[^>]*>\s*{re.escape(jp._SLOW_PREFIX)}", html)
+    assert holder, (f"JS пишет в #{m.group(1)}, а серверная подпись стоит в другом "
+                    f"узле — на экране они встанут рядом, а не заменят друг друга")
+    assert html.count(jp._SLOW_PREFIX) == 1, "подпись контекста напечатана дважды"
 
 
 def test_the_two_ages_are_printed_separately(tmp_path, monkeypatch):
     """Один общий возраст соврёт ровно тогда, когда встанет медленный сборщик."""
     body = _page(_jarvis(tmp_path, monkeypatch), "/panel/jarvis")
-    assert "ферма зібрана" in body and "задачі, арки, ключі" in body, body[:400]
+    assert "ферма собрана" in body and "задачи, арки, ключи" in body, body[:400]
 
 
 def test_the_slow_route_is_owner_guarded(tmp_path, monkeypatch):
@@ -738,9 +760,30 @@ def test_the_second_column_appears_by_content_not_by_device():
     assert 320 <= int(m.group(1)) <= 360, m.group(1)
 
 
+def test_the_state_unfolds_exactly_where_the_second_column_appears():
+    """Порог один по смыслу и записан в ДВУХ местах: `.two` в CSS и matchMedia
+    в _JS панели. Разъедутся — состояние развернётся там, где второй колонки ещё
+    нет (или наоборот), и ни один тест этого не заметит: код не падает, экран
+    просто ведёт себя не так, как объяснено в комментарии рядом.
+
+    Считаем из ширин, а не сверяем два числа: 707 px на развёрнутом Fold ловятся
+    только если обе стороны выведены из одного и того же минимума колонки."""
+    from app.routers.panels_ui import CSS
+    import app.routers.jarvis_panel as jp
+
+    col = int(re.search(r"\.two\{[^}]*minmax\(min\((\d+)px", CSS, re.S).group(1))
+    gap = int(re.search(r"\.two\{[^}]*gap:(\d+)px", CSS, re.S).group(1))
+    pad = int(re.search(r"body\{[^}]*padding:(\d+)px", CSS, re.S).group(1))
+    js = int(re.search(r"min-width:(\d+)px", jp._JS).group(1))
+    want = col * 2 + gap + 2 * pad
+    assert js == want, f"колонка {col}px → порог {want}px, а в JS стоит {js}px"
+    assert want <= 707, (
+        f"на развёрнутом Fold (707 px) второго столбца снова нет: порог {want}")
+
+
 def test_the_viewport_width_is_printed_for_the_next_layout_pass(tmp_path, monkeypatch):
     body = _page(_jarvis(tmp_path, monkeypatch), "/panel/jarvis")
-    assert "innerWidth" in body and "ширина екрана" in body
+    assert "innerWidth" in body and "ширина экрана" in body
 
 
 def test_a_bulk_anomaly_is_grouped_with_a_counter(tmp_path, monkeypatch):

@@ -218,11 +218,16 @@ def test_js_returns_focus_to_the_trigger(client):
 
 # ── 17: текстовая метка состояния РЯДОМ с цветом ────────────────────────────
 
-def test_state_label_is_next_to_the_dot_not_instead(tmp_path, monkeypatch):
-    from app.routers.panels_ui import STATE_LABEL, STATE_TONE, dot_html
+@pytest.mark.parametrize("lang", ["uk", "ru"])
+def test_state_label_is_next_to_the_dot_not_instead(tmp_path, monkeypatch, lang):
+    """Оба языка разом: клиентская панель украинская, панель Джарвиса русская
+    (решение владельца 14.08). Неполный русский словарь провалился бы в `off` и
+    покрасил бы живую строку словом «выключено» — молча."""
+    from app.routers.panels_ui import STATE_LABEL, STATE_TONE, _LABELS, dot_html
 
-    for state, word in STATE_LABEL.items():
-        h = dot_html(state)
+    assert set(_LABELS[lang]) == set(STATE_LABEL), "в словаре языка не все состояния"
+    for state, word in _LABELS[lang].items():
+        h = dot_html(state, lang=lang)
         # Класс точки — не имя состояния, а его СМЫСЛ (ok → calm: «норма» цвета
         # не получает, зелёный отдан деньгам). Точка при этом обязана остаться:
         # слово рядом с ней — дополнение, а не замена.
@@ -231,14 +236,14 @@ def test_state_label_is_next_to_the_dot_not_instead(tmp_path, monkeypatch):
 
 
 def test_rows_differing_only_by_state_differ_in_text():
-    """Две строки «Ready · останній результат N» различались ТОЛЬКО оттенком."""
+    """Две строки «Ready · последний результат N» различались ТОЛЬКО оттенком."""
     import app.routers.jarvis_panel as jp
     from app.services.jarvis_farm import Row
 
-    ok = jp._rows_html([Row("a", "JarvisA", "ok", "Ready · останній результат 0")], NOW)
-    bad = jp._rows_html([Row("b", "JarvisB", "warn", "Ready · останній результат 1")], NOW)
+    ok = jp._rows_html([Row("a", "JarvisA", "ok", "Ready · последний результат 0")], NOW)
+    bad = jp._rows_html([Row("b", "JarvisB", "warn", "Ready · последний результат 1")], NOW)
     # Снимаем всё, что и так различается (имя, деталь) — остаётся сигнал состояния.
     ok_sig = ok.replace("JarvisA", "X").replace("0", "N")
     bad_sig = bad.replace("JarvisB", "X").replace("1", "N")
     assert ok_sig != bad_sig
-    assert "норма" in ok and "увага" in bad
+    assert "норма" in ok and "внимание" in bad

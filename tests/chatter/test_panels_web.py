@@ -93,7 +93,7 @@ def test_jarvis_panel_has_no_mutating_controls(client):
     body = c.get("/panel/jarvis", headers={"X-Panels-Key": KEY}).text
     assert "<form" not in body.lower()
     assert "method='post'" not in body.lower()
-    for word in ("рестарт", "restart", "kill", "ротувати ключ"):
+    for word in ("рестарт", "restart", "kill", "ротировать ключ"):
         assert f">{word}" not in body.lower()
 
 
@@ -102,8 +102,8 @@ def test_jarvis_panel_states_external_watchdog_is_absent(client, monkeypatch):
     monkeypatch.delenv("HEALTHCHECKS_URL", raising=False)
     c, _ = client
     body = c.get("/panel/jarvis", headers={"X-Panels-Key": KEY}).text
-    assert "Зовнішній сторож" in body
-    assert "НЕ налаштований" in body
+    assert "Внешний сторож" in body
+    assert "НЕ настроен" in body
 
 
 def test_action_goes_through_shared_command_layer(client):

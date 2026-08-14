@@ -33,6 +33,7 @@ JP = "app/routers/jarvis_panel.py"
 TD = "app/routers/tamapi_dashboard.py"
 FARM = "app/services/jarvis_farm.py"
 T = "tests/chatter/test_panels_hierarchy.py"
+FT = "tests/chatter/test_farm_self_match.py"
 
 # Блок статуса целиком — для мутации «порядок блоков». Переставляем его ВЫШЕ
 # долга и денег, то есть возвращаем ровно ту раскладку, с которой начали.
@@ -87,7 +88,7 @@ MUTATIONS = [
      f"{T}::test_a_dead_heartbeat_outranks_everything_in_the_answer"),
 
     ("панель Джарвиса снова начинается со списка", JP,
-     [("<h1 class='ans {ans.tone}'>{esc(ans.text)}</h1>", "<h1>Панель Джарвіса</h1>")],
+     [("<h1 class='ans {ans.tone}'>{esc(ans.text)}</h1>", "<h1>Панель Джарвиса</h1>")],
      f"{T}::test_jarvis_panel_answers_before_it_lists"),
 
     # ── порядок и статус-строка ──────────────────────────────────────────
@@ -211,7 +212,7 @@ MUTATIONS = [
     ("внешний сторож снова стал ответом", JP,
      [('    procs = list(fast["processes"])',
        '    if fast["external"].state != "ok":\n'
-       '        return Answer(0, "Зовнішній сторож не налаштований", "broken", "")\n'
+       '        return Answer(0, "Внешний сторож не настроен", "broken", "")\n'
        '    procs = list(fast["processes"])')],
      f"{T}::test_an_always_true_condition_never_becomes_the_answer"),
 
@@ -226,11 +227,11 @@ MUTATIONS = [
 
     ("падение с живым гардианом снова неотличимо от сиротского", JP,
      [('        if orphan:\n'
-       '            return Answer(3, f"Впало: {len(bad)}, сам не підніметься", "broken",\n'
+       '            return Answer(3, f"Упало: {len(bad)}, сам не поднимется", "broken",\n'
        '                          _lift_line(bad, guards))\n'
-       '        return Answer(3, f"Впало: {len(bad)}, підніметься сам", "wait",\n'
+       '        return Answer(3, f"Упало: {len(bad)}, поднимется сам", "wait",\n'
        '                      _lift_line(bad, guards))',
-       '        return Answer(3, f"Впало: {len(bad)}, сам не підніметься", "broken",\n'
+       '        return Answer(3, f"Упало: {len(bad)}, сам не поднимется", "broken",\n'
        '                      _lift_line(bad, guards))')],
      f"{T}::test_a_fallen_process_reads_differently_when_a_guardian_is_alive"),
 
@@ -239,8 +240,8 @@ MUTATIONS = [
      f"{T}::test_the_second_line_names_the_guardian_and_the_eta"),
 
     ("спокойный ответ перестал перечислять проверенное", JP,
-     [('    return Answer(6, "Ферма ціла", "calm", _checked_line(fast, slow))',
-       '    return Answer(6, "Ферма ціла", "calm", "")')],
+     [('    return Answer(6, "Ферма цела", "calm", _checked_line(fast, slow))',
+       '    return Answer(6, "Ферма цела", "calm", "")')],
      f"{T}::test_the_calm_answer_lists_what_was_checked"),
 
     # Порог ключа — пара. 7 в ОТВЕТ, 30 в аномалии (решение владельца 14.08).
@@ -253,7 +254,7 @@ MUTATIONS = [
      f"{T}::test_a_key_reaches_the_answer_only_under_seven_days"),
 
     ("непрочитанное медленное снова молчит", JP,
-     [('        slow_note = "задачі, арки, ключі: ще не зчитані"', '        slow_note = ""')],
+     [('        slow_note = f"{_SLOW_PREFIX}: ещё не прочитаны"', '        slow_note = ""')],
      f"{T}::test_a_stale_slow_cache_skips_the_level_and_says_so"),
 
     # Правило «аномалия или состояние» — пара в обе стороны: и «выделено всё»,
@@ -285,13 +286,13 @@ MUTATIONS = [
      f"{T}::test_the_panel_answers_while_git_and_powershell_hang"),
 
     ("порог второй колонки снова привязан к устройству", UI,
-     [("minmax(min(340px,100%),1fr)", "minmax(min(760px,100%),1fr)")],
+     [("minmax(min(320px,100%),1fr)", "minmax(min(760px,100%),1fr)")],
      f"{T}::test_the_second_column_appears_by_content_not_by_device"),
 
     # Парная: колонка снова разучилась сжиматься. На 344 px (внешний экран
     # Fold) страница уезжала вбок на 32 px, и выглядело это опрятно.
     ("колонка снова не умеет быть уже своего минимума", UI,
-     [("minmax(min(340px,100%),1fr)", "minmax(340px,1fr)")],
+     [("minmax(min(320px,100%),1fr)", "minmax(320px,1fr)")],
      f"{T}::test_the_second_column_appears_by_content_not_by_device"),
 
     ("слот заходa 2 вернулся пустой рамкой", JP,
@@ -311,8 +312,64 @@ MUTATIONS = [
      f"{T}::test_a_couple_of_anomalies_are_not_hidden_behind_a_counter"),
 
     ("служебная ширина экрана исчезла из футера", JP,
-     [("<div class='sub'>ширина екрана: <span id='vw'>—</span> px</div>", "")],
+     [("<div class='sub'>ширина экрана: <span id='vw'>—</span> px</div>", "")],
      f"{T}::test_the_viewport_width_is_printed_for_the_next_layout_pass"),
+
+    # ═══════ правки 14.08 (вечер): самоотрицание, склейка подписи, 707 px ═════
+    #
+    # Первая пара — про ГРАБЛЮ 1. Обе стороны обязаны быть под сторожем: и
+    # «снова считаем упоминание запуском» (ферма зеленеет от диагностического
+    # однострочника), и «снова судим по родству» (панель отрицает процесс, из
+    # которого печатается). На вид эти две беды одинаковы — строка в таблице
+    # просто другого цвета.
+
+    ("маркер снова засчитывается где угодно в командной строке", FARM,
+     [("    for tok in argv[1:]:\n"
+       "        if _inline_flag(name, tok):\n"
+       "            break",
+       "    for tok in argv[1:]:\n"
+       "        if False:\n"
+       "            break")],
+     f"{FT}::test_inline_python_code_that_mentions_a_marker_is_not_the_runner"),
+
+    ("PowerShell-однострочник снова считается живым гардианом", FARM,
+     [('        return bool(flag) and ("command".startswith(flag)\n'
+       '                               or "encodedcommand".startswith(flag))',
+       '        return False')],
+     f"{FT}::test_a_powershell_one_liner_that_mentions_a_guardian_is_not_the_guardian"),
+
+    ("матчер снова судит по родству и отрицает собственный процесс", FARM,
+     [("def _launches(marker: str, row: tuple) -> bool:\n"
+       "    return any(marker in tok for tok in _launch_argv(row[1], row[2]))",
+       "def _launches(marker: str, row: tuple) -> bool:\n"
+       "    if row[0] == os.getpid():\n"
+       "        return False\n"
+       "    return any(marker in tok for tok in _launch_argv(row[1], row[2]))")],
+     f"{FT}::test_the_process_that_serves_the_panel_is_never_reported_missing"),
+
+    ("фильтр «только python» снят с раннеров", FARM,
+     [("            if (not py_only or s[1].startswith(\"python\"))", "            if True")],
+     f"{FT}::test_a_powershell_runner_is_not_a_python_runner"),
+
+    # Подпись возраста медленной части: беда была НЕ в тексте, а в узле —
+    # серверный HTML выглядел безупречно, склейка появлялась только в браузере.
+    ("подпись возраста снова печатается вторым узлом рядом", JP,
+     [("<span id='slowage'{need_load}>{slow_note}</span>",
+       "<span id='slowage'>{slow_note}</span><span id='slowload'></span>"),
+      ("  document.getElementById('slowage').textContent=j.note;",
+       "  document.getElementById('slowload').textContent=j.note;")],
+     f"{T}::test_the_slow_note_replaces_the_server_one_instead_of_standing_next_to_it"),
+
+    # Порог второй колонки — пара к «привязан к устройству». Здесь ломается не
+    # диапазон, а СВЯЗЬ двух чисел и замер 707 px на развёрнутом Fold.
+    ("минимум колонки поднят обратно, и развёрнутый Fold снова одноколоночный", UI,
+     [("minmax(min(320px,100%),1fr)", "minmax(min(360px,100%),1fr)")],
+     f"{T}::test_the_state_unfolds_exactly_where_the_second_column_appears"),
+
+    ("порог свёртки состояния разъехался с шириной колонки", JP,
+     [("var wide=window.matchMedia('(min-width:690px)');",
+       "var wide=window.matchMedia('(min-width:730px)');")],
+     f"{T}::test_the_state_unfolds_exactly_where_the_second_column_appears"),
 ]
 
 

@@ -35,6 +35,27 @@ router = APIRouter(prefix="/panel/jarvis", tags=["jarvis-panel"],
 
 _DOT = {"ok": "calm", "warn": "wait", "bad": "broken", "off": "off"}
 
+# ЯЗЫК ПАНЕЛИ. Решение владельца 14.08: панель Джарвиса личная и пишется
+# по-русски, клиентская остаётся украинской. Мультиязычности нет и не будет —
+# `panels_ui` держит украинский умолчанием, а здесь стоит одна константа, и
+# через неё проходят ровно три общие вещи: подпись состояния, суффикс возраста
+# и атрибут `lang` страницы. Всё остальное написано по-русски прямо в модуле.
+LANG = "ru"
+
+
+def _ago(ts, now=None) -> str:
+    return ago(ts, now, lang=LANG)
+
+
+def _dot(state: str) -> str:
+    return dot_html(state, lang=LANG)
+
+# Подпись возраста медленной части. ОДНА строка на оба места — серверный рендер
+# и ответ ручки `/slow`. Раньше их было два независимых литерала, и разъехались
+# они не текстом, а УЗЛОМ: JS дописывал свою подпись рядом с серверной, и на
+# экране вставало «ще не зчитанізадачі, арки, ключі: 0 с тому».
+_SLOW_PREFIX = "задачи, арки, ключи"
+
 
 # ─────────────────────────────── ответ ──────────────────────────────────────
 
@@ -47,7 +68,7 @@ class Answer:
 
 
 def _plural(n: int, one: str, few: str, many: str) -> str:
-    """«1 процес», «3 процеси», «5 процесів». Перечень проверенного читается
+    """«1 процесс», «3 процесса», «5 процессов». Перечень проверенного читается
     вслух, а не собирается из числа и существительного в именительном."""
     tail, last = abs(n) % 100, abs(n) % 10
     if 11 <= tail <= 14:
@@ -78,11 +99,11 @@ def _lift_line(bad_rows, guards: dict) -> str:
         if g is not None and g.state == "ok":
             eta = F.GUARDIAN_ETA.get(g.key)
             eta_txt = f", ~{eta} с" if eta else ""
-            parts.append(f"{r.label}: підніметься сам ({g.key}{eta_txt})")
+            parts.append(f"{r.label}: поднимется сам ({g.key}{eta_txt})")
         elif g is not None:
-            parts.append(f"{r.label}: сам не підніметься — {g.key} {g.detail}")
+            parts.append(f"{r.label}: сам не поднимется — {g.key} {g.detail}")
         else:
-            parts.append(f"{r.label}: гардіана немає, підніметься тільки руками")
+            parts.append(f"{r.label}: гардиана нет, поднимется только руками")
     return " · ".join(parts)
 
 
@@ -91,11 +112,11 @@ def _checked_line(fast: dict, slow: dict | None) -> str:
 
     Дата последнего падения была бы честнее и полезнее, но без журнала событий
     мы её не знаем, а печатать её значит соврать. Заход 2 её заменит."""
-    parts = [_plural(len(fast["processes"]), "процес", "процеси", "процесів"),
-             _plural(len(fast["guardians"]), "гардіан", "гардіани", "гардіанів")]
+    parts = [_plural(len(fast["processes"]), "процесс", "процесса", "процессов"),
+             _plural(len(fast["guardians"]), "гардиан", "гардиана", "гардианов")]
     if slow:
-        parts.append(_plural(len(slow["tasks"]), "задача", "задачі", "задач"))
-    return "перевірено: " + ", ".join(parts)
+        parts.append(_plural(len(slow["tasks"]), "задача", "задачи", "задач"))
+    return "проверено: " + ", ".join(parts)
 
 
 def _answer(fast: dict, slow: dict | None) -> Answer:
@@ -119,15 +140,15 @@ def _answer(fast: dict, slow: dict | None) -> Answer:
     # ферму нельзя.
     if any(r.key == "procs" for r in procs):
         blind = next(r for r in procs if r.key == "procs")
-        return Answer(1, "Не бачу ферму", "broken",
-                      f"{blind.detail} — стан нижче зібраний наполовину")
+        return Answer(1, "Не вижу ферму", "broken",
+                      f"{blind.detail} — состояние ниже собрано наполовину")
 
     bad = [r for r in procs if r.state == "bad"]
 
     # L2. Деньги. Упавший раннер chatter — это лиды, которым никто не отвечает;
     # backend и бот такого класса не имеют.
     if any(r.key == "chatter" for r in bad):
-        return Answer(2, "Ліди без відповіді", "broken", _lift_line(bad, guards))
+        return Answer(2, "Лиды без ответа", "broken", _lift_line(bad, guards))
 
     # L3. Упало прочее. Две половины одного уровня: 14.08 в 00:45 раннер упал и
     # вернулся сам за 61 с — это НЕ то же событие, что падение без живого
@@ -136,9 +157,9 @@ def _answer(fast: dict, slow: dict | None) -> Answer:
         orphan = [r for r in bad
                   if not (_lifter(r.key, guards) and _lifter(r.key, guards).state == "ok")]
         if orphan:
-            return Answer(3, f"Впало: {len(bad)}, сам не підніметься", "broken",
+            return Answer(3, f"Упало: {len(bad)}, сам не поднимется", "broken",
                           _lift_line(bad, guards))
-        return Answer(3, f"Впало: {len(bad)}, підніметься сам", "wait",
+        return Answer(3, f"Упало: {len(bad)}, поднимется сам", "wait",
                       _lift_line(bad, guards))
 
     # L4. Сторожа. Мёртвый гардиан при живом процессе — не авария сейчас, а
@@ -146,11 +167,11 @@ def _answer(fast: dict, slow: dict | None) -> Answer:
     # мониторинг, который врёт сам себе, и класс он хуже честного bad.
     dead_g = [g for g in guards_list if g.state == "bad"]
     if dead_g:
-        return Answer(4, f"Немає кому підняти: {dead_g[0].label}", "wait",
+        return Answer(4, f"Некому поднять: {dead_g[0].label}", "wait",
                       " · ".join(f"{g.label}: {g.detail}" for g in dead_g))
     warn_g = [g for g in guards_list if g.state == "warn"]
     if warn_g:
-        return Answer(4, "Сторож каже одне, система інше", "wait",
+        return Answer(4, "Сторож говорит одно, система другое", "wait",
                       " · ".join(f"{g.label}: {g.detail}" for g in warn_g))
 
     # Задачи и ключи живут в МЕДЛЕННОЙ части. Кэш не свежий → уровень
@@ -169,9 +190,9 @@ def _answer(fast: dict, slow: dict | None) -> Answer:
         if soon:
             k = soon[0]
             return Answer(5, f"Ключ {k['name']}: {k['days_left']} дн", "wait",
-                          f"{k['purpose']} · оновлення: {k.get('auto') or 'руками'}")
+                          f"{k['purpose']} · обновление: {k.get('auto') or 'руками'}")
 
-    return Answer(6, "Ферма ціла", "calm", _checked_line(fast, slow))
+    return Answer(6, "Ферма цела", "calm", _checked_line(fast, slow))
 
 
 # ─────────────────────────────── разметка ───────────────────────────────────
@@ -180,7 +201,7 @@ def _rows_html(rows, now: float) -> str:
     out = []
     for r in rows:
         since = r.extra.get("since")
-        tail = (f"<span class='sub'>з {esc(time.strftime('%d.%m %H:%M', time.localtime(since)))}</span>"
+        tail = (f"<span class='sub'>с {esc(time.strftime('%d.%m %H:%M', time.localtime(since)))}</span>"
                 if since else "")
         out.append(
             f"<div class='row' style='padding:7px 0;border-bottom:1px solid var(--line)'>"
@@ -188,7 +209,7 @@ def _rows_html(rows, now: float) -> str:
             # через _DOT второй раз означало отдать ему уже готовый класс: 'ok'
             # превращался в 'calm', а 'calm' — в «вимкнено», и живой процесс
             # оказывался выключенным.
-            f"<div>{dot_html(r.state)}{esc(r.label)}"
+            f"<div>{_dot(r.state)}{esc(r.label)}"
             f"<div class='sub' style='margin-left:17px'>{esc(r.detail)}</div></div>{tail}</div>")
     return "".join(out)
 
@@ -220,44 +241,44 @@ def _arc_table(arcs: list[dict]) -> str:
     body = "".join(
         f"<tr><td><b>{esc(a.get('branch', '—'))}</b>"
         f"<div class='sub mono'>{esc(a.get('path', ''))}</div></td>"
-        f"<td data-l='Дерево'>{'🔴 брудне' if a.get('dirty') else '—'}</td>"
-        f"<td data-l='Змерджена'>{'✅' if a.get('merged') else '—'}</td>"
-        f"<td data-l='Вік' class='sub'>{esc(a.get('age_days'))} дн</td></tr>"
+        f"<td data-l='Дерево'>{'🔴 грязное' if a.get('dirty') else '—'}</td>"
+        f"<td data-l='Смержена'>{'✅' if a.get('merged') else '—'}</td>"
+        f"<td data-l='Возраст' class='sub'>{esc(a.get('age_days'))} дн</td></tr>"
         for a in arcs)
     if not body:
         return ""
-    return ("<div class='card'><table><thead><tr><th>Гілка</th><th>Стан дерева</th>"
-            f"<th>Змерджена</th><th>Вік</th></tr></thead><tbody>{body}</tbody></table></div>")
+    return ("<div class='card'><table><thead><tr><th>Ветка</th><th>Состояние дерева</th>"
+            f"<th>Смержена</th><th>Возраст</th></tr></thead><tbody>{body}</tbody></table></div>")
 
 
 def _key_table(keys: list[dict]) -> str:
     body = "".join(
         f"<tr><td><span class='dot {_DOT.get(k['state'], 'off')}'></span>{esc(k['name'])}</td>"
-        f"<td data-l='Призначення' class='sub'>{esc(k['purpose'])}</td>"
-        f"<td data-l='Термін'>{esc(k['expires'] or '—')}"
+        f"<td data-l='Назначение' class='sub'>{esc(k['purpose'])}</td>"
+        f"<td data-l='Срок'>{esc(k['expires'] or '—')}"
         + (f" <span class='pill'>{k['days_left']} дн</span>" if k.get("days_left") is not None else "")
         + f"</td><td data-l='Авто' class='sub'>{esc(k['auto'] or '—')}</td>"
-        f"<td data-l='Нотатка' class='sub'>{esc(k['note'])}</td></tr>"
+        f"<td data-l='Заметка' class='sub'>{esc(k['note'])}</td></tr>"
         for k in keys)
     if not body:
         return ""
-    return ("<div class='card'><div class='sub' style='margin-bottom:8px'>Значення ключів "
-            "тут не зберігаються, не розшифровуються і не показуються — лише метадані.</div>"
-            "<table><thead><tr><th>Ключ</th><th>Призначення</th><th>Термін</th>"
-            f"<th>Авто</th><th>Нотатка</th></tr></thead><tbody>{body}</tbody></table></div>")
+    return ("<div class='card'><div class='sub' style='margin-bottom:8px'>Значения ключей "
+            "тут не хранятся, не расшифровываются и не показываются — только метаданные.</div>"
+            "<table><thead><tr><th>Ключ</th><th>Назначение</th><th>Срок</th>"
+            f"<th>Авто</th><th>Заметка</th></tr></thead><tbody>{body}</tbody></table></div>")
 
 
 def _events_table(events: list[dict], now: float) -> str:
     body = "".join(
         f"<tr><td><b>{esc(e['kind'])}</b></td>"
-        f"<td data-l='Джерело' class='sub'>{esc(e['src'])}</td>"
+        f"<td data-l='Источник' class='sub'>{esc(e['src'])}</td>"
         f"<td data-l='Деталь' class='sub'>{esc((e['detail'] or '')[:110])}</td>"
-        f"<td data-l='Коли' class='sub'>{esc(ago(e['ts'], now)) if e['ts'] else '—'}</td></tr>"
+        f"<td data-l='Когда' class='sub'>{esc(_ago(e['ts'], now)) if e['ts'] else '—'}</td></tr>"
         for e in events[:25]) or "<tr><td colspan=4 class='empty'>тихо</td></tr>"
-    return ("<div class='card'><table><thead><tr><th>Подія</th><th>Джерело</th>"
-            f"<th>Деталь</th><th>Коли</th></tr></thead><tbody>{body}</tbody></table>"
-            "<div class='sub' style='margin-top:8px'>⚠️ «Пораховано» ≠ «доїхало»: доставка "
-            "алертів сьогодні не журналюється — це відомий пробіл, а не тиша.</div></div>")
+    return ("<div class='card'><table><thead><tr><th>Событие</th><th>Источник</th>"
+            f"<th>Деталь</th><th>Когда</th></tr></thead><tbody>{body}</tbody></table>"
+            "<div class='sub' style='margin-top:8px'>⚠️ «Посчитано» ≠ «доехало»: доставка "
+            "алертов сегодня не журналируется — это известный пробел, а не тишина.</div></div>")
 
 
 def _slow_parts(slow: dict | None, now: float) -> tuple[str, str]:
@@ -275,21 +296,21 @@ def _slow_parts(slow: dict | None, now: float) -> tuple[str, str]:
     arcs_ok = [a for a in slow["arcs"] if not F.is_anomaly("arc", a)]
 
     anomalies = "".join([
-        f"<h2>Автоматизації</h2>" + _group(
-            _plural(len(tasks_bad), "задача", "задачі", "задач") + " не в нормі",
+        f"<h2>Автоматизации</h2>" + _group(
+            _plural(len(tasks_bad), "задача", "задачи", "задач") + " не в норме",
             _card(tasks_bad, now), len(tasks_bad)) if tasks_bad else "",
-        f"<h2>Ключі</h2>" + _group(
-            _plural(len(keys_bad), "ключ", "ключі", "ключів") + " потребують уваги",
+        f"<h2>Ключи</h2>" + _group(
+            _plural(len(keys_bad), "ключ", "ключа", "ключей") + " требуют внимания",
             _key_table(keys_bad), len(keys_bad)) if keys_bad else "",
-        f"<h2>Брудні дерева</h2>" + _group(
-            _plural(len(arcs_bad), "брудне дерево", "брудні дерева", "брудних дерев")
-            + " — мерж-гейт сліпне", _arc_table(arcs_bad), len(arcs_bad)) if arcs_bad else "",
+        f"<h2>Грязные деревья</h2>" + _group(
+            _plural(len(arcs_bad), "грязное дерево", "грязных дерева", "грязных деревьев")
+            + " — мерж-гейт слепнет", _arc_table(arcs_bad), len(arcs_bad)) if arcs_bad else "",
     ])
     state = "".join([
-        f"<h2>Автоматизації</h2>{_card(tasks_ok, now)}" if tasks_ok else "",
-        f"<h2>Арки в роботі</h2>{_arc_table(arcs_ok)}" if arcs_ok else "",
-        f"<h2>Ключі API</h2>{_key_table(keys_ok)}" if keys_ok else "",
-        f"<h2>Стрічка подій</h2>{_events_table(slow['events'], now)}",
+        f"<h2>Автоматизации</h2>{_card(tasks_ok, now)}" if tasks_ok else "",
+        f"<h2>Арки в работе</h2>{_arc_table(arcs_ok)}" if arcs_ok else "",
+        f"<h2>Ключи API</h2>{_key_table(keys_ok)}" if keys_ok else "",
+        f"<h2>Лента событий</h2>{_events_table(slow['events'], now)}",
     ])
     return anomalies, state
 
@@ -302,7 +323,7 @@ function vw(){var e=document.getElementById('vw');
 // Свёртка состояния — по МЕСТУ, а не по устройству: развернулся Fold — второй
 // столбец появился и состояние раскрылось; сложился — снова свёрнуто. Порог
 // один и тот же в CSS и здесь, потому что он выведен из ширины колонки.
-var wide=window.matchMedia('(min-width:730px)');
+var wide=window.matchMedia('(min-width:690px)');
 function fold(){var d=document.querySelector('details.state'); if(d) d.open=wide.matches;}
 wide.addEventListener('change',function(){fold();vw();});
 window.addEventListener('resize',vw);
@@ -310,13 +331,24 @@ vw();fold();
 // Медленная часть (git по всем worktree + PowerShell) догружается ПОСЛЕ
 // первого экрана. Ответ сверху её не ждёт и без неё честно говорит, чего не
 // знает.
-var slot=document.getElementById('slowload');
-if(slot){fetch('/panel/jarvis/slow').then(function(r){return r.json()}).then(function(j){
+// Подпись возраста медленной части — ОДИН узел, и догруженная подпись ЗАМЕНЯЕТ
+// серверную, а не встаёт рядом. 14.08 их было два span'а подряд, и на экране
+// получалось «ще не зчитанізадачі, арки, ключі: 0 с тому»: слипшаяся строка,
+// в которой одно и то же сказано дважды и противоположным образом.
+//
+// Узел записан здесь АДРЕСОМ, а не через переменную, намеренно: сторож обязан
+// прочитать из самого JS, в какой элемент уходит подпись, и сверить его с тем,
+// где стоит серверная. Через алиас эта сверка невозможна.
+var age=document.getElementById('slowage');
+if(age&&age.dataset.load){fetch('/panel/jarvis/slow')
+ .then(function(r){return r.json()}).then(function(j){
   document.getElementById('slowanom').innerHTML=j.anomalies;
   document.getElementById('slowstate').innerHTML=j.state;
-  slot.textContent=j.note;
+  document.getElementById('slowage').textContent=j.note;
+  age.removeAttribute('data-load');
   fold();
-}).catch(function(){slot.textContent='задачі, арки та ключі прочитати не вдалося';});}
+}).catch(function(){document.getElementById('slowage').textContent=
+  'задачи, арки и ключи прочитать не удалось';});}
 """
 
 
@@ -349,30 +381,30 @@ def panel():
 
     slow_anom, slow_state = _slow_parts(slow, now)
     if slow:
-        slow_note = f"задачі, арки, ключі: {esc(ago(slow['collected_at'] - 1, now))}"
-        loader = ""
+        slow_note = f"{_SLOW_PREFIX}: {esc(_ago(slow['collected_at'] - 1, now))}"
+        need_load = ""
     else:
         # Не молчание: «Ферма ціла» без этой строки тихо означало бы «про задачи
         # и ключи не знаю», а выглядело бы как проверенное утверждение.
-        slow_note = "задачі, арки, ключі: ще не зчитані"
-        loader = "<span id='slowload'></span>"
+        slow_note = f"{_SLOW_PREFIX}: ещё не прочитаны"
+        need_load = " data-load='1'"
 
     anomalies = "".join([
-        f"<h2>Процеси</h2>{_card(procs_bad, now)}" if procs_bad else "",
-        f"<h2>Гардіани</h2>{_card(guards_bad, now)}" if guards_bad else "",
+        f"<h2>Процессы</h2>{_card(procs_bad, now)}" if procs_bad else "",
+        f"<h2>Гардианы</h2>{_card(guards_bad, now)}" if guards_bad else "",
         slow_anom,
         "<div id='slowanom'></div>",
     ])
     if not (procs_bad or guards_bad or slow_anom):
-        anomalies = ("<h2>Потребує уваги</h2><div class='card'>"
-                     "<div class='empty'>Аномалій немає — усе нижче просто працює.</div>"
+        anomalies = ("<h2>Требует внимания</h2><div class='card'>"
+                     "<div class='empty'>Аномалий нет — всё ниже просто работает.</div>"
                      "</div>" + anomalies)
 
     state_summary = ", ".join(filter(None, [
-        _plural(len(procs_ok), "процес", "процеси", "процесів"),
-        _plural(len(guards_ok), "гардіан", "гардіани", "гардіанів"),
-        _plural(len(slow["tasks"]), "задача", "задачі", "задач") if slow else "",
-        _plural(len(slow["arcs"]), "гілка", "гілки", "гілок") if slow else "",
+        _plural(len(procs_ok), "процесс", "процесса", "процессов"),
+        _plural(len(guards_ok), "гардиан", "гардиана", "гардианов"),
+        _plural(len(slow["tasks"]), "задача", "задачи", "задач") if slow else "",
+        _plural(len(slow["arcs"]), "ветка", "ветки", "веток") if slow else "",
     ]))
 
     # Слот на строку захода 2 («что изменилось с прошлого захода») сознательно
@@ -381,31 +413,31 @@ def panel():
     body = f"""
 <h1 class='ans {ans.tone}'>{esc(ans.text)}</h1>
 <div class='sub second'>{esc(ans.second)}</div>
-<div class='sub'>Панель Джарвіса · фаза 0 · read-only ·
- ферма зібрана {esc(ago(fast['collected_at'] - 1, now))} ·
- <span id='slowage'>{slow_note}</span>{loader}</div>
+<div class='sub'>Панель Джарвиса · фаза 0 · read-only ·
+ ферма собрана {esc(_ago(fast['collected_at'] - 1, now))} ·
+ <span id='slowage'{need_load}>{slow_note}</span></div>
 
 <div style='margin-top:14px'>{ext_html}</div>
 
 <div class='two'>
  <div>{anomalies}</div>
  <div>
-  <details class='state'><summary>Стан: {esc(state_summary)}</summary>
-   {f"<h2>Процеси</h2>{_card(procs_ok, now)}" if procs_ok else ""}
-   {f"<h2>Гардіани</h2>{_card(guards_ok, now)}" if guards_ok else ""}
+  <details class='state'><summary>Состояние: {esc(state_summary)}</summary>
+   {f"<h2>Процессы</h2>{_card(procs_ok, now)}" if procs_ok else ""}
+   {f"<h2>Гардианы</h2>{_card(guards_ok, now)}" if guards_ok else ""}
    {slow_state}
    <div id='slowstate'></div>
   </details>
  </div>
 </div>
 
-<div class='sub' style='margin-top:20px'>Фаза 0 — лише читання. Кнопок керування
- тут немає навмисно.</div>
-<div class='sub'>ширина екрана: <span id='vw'>—</span> px</div>
+<div class='sub' style='margin-top:20px'>Фаза 0 — только чтение. Кнопок управления
+ тут нет намеренно.</div>
+<div class='sub'>ширина экрана: <span id='vw'>—</span> px</div>
 
-<div style='margin-top:16px'><a href='/panel/tamapi'>← Клієнти</a></div>
+<div style='margin-top:16px'><a href='/panel/tamapi'>← Клиенты</a></div>
 """
-    return HTMLResponse(page("Панель Джарвіса", body, extra_js=_JS))
+    return HTMLResponse(page("Панель Джарвиса", body, extra_js=_JS, lang=LANG))
 
 
 @router.get("/slow")
@@ -419,8 +451,8 @@ def slow_fragment():
     return JSONResponse({
         "anomalies": anomalies,
         "state": state,
-        "note": (f"задачі, арки, ключі: {ago(slow['collected_at'] - 1, now)}"
-                 " — оновіть сторінку, щоб відповідь їх врахувала"),
+        "note": (f"{_SLOW_PREFIX}: {_ago(slow['collected_at'] - 1, now)}"
+                 " — обновите страницу, чтобы ответ их учёл"),
     })
 
 

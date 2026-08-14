@@ -5,7 +5,8 @@
 
 Три грабли зашиты здесь намеренно, потому что все три уже стоили ложных выводов:
   1. фильтр процессов по CommandLine МАТЧИТ САМ СЕБЯ (строка попадает в
-     командную строку сборщика) → «раннер жив», когда его нет;
+     командную строку сборщика) → «раннер жив», когда его нет. Разбор — в
+     `_launch_argv`: маркер засчитывается только в аргументах ЗАПУСКА;
   2. LastTaskResult у Running-таска ничего не значит;
   3. на NTFS размер живого лога врёт (0 байт при открытом write-хэндле) —
      возраст берём временем модификации/чтением, не размером.
@@ -24,7 +25,7 @@ HEARTBEAT_FRESH = 90.0
 # Процессы фермы: (ключ, подпись, маркер в командной строке, только python?)
 PROC_SPECS = [
     ("backend",  "backend :8010",  "run_backend_detached", True),
-    ("bot",      "головний бот",   "jarvis_smart_telegram_control", True),
+    ("bot",      "главный бот",    "jarvis_smart_telegram_control", True),
     ("chatter",  "chatter раннер", "chatter.telethon_run", True),
 ]
 
@@ -37,7 +38,7 @@ GUARDIAN_SPECS = [
 
 # Отставлено НАМЕРЕННО — отдельный класс, не авария. Панель, красящая это
 # красным, ежедневно требует чинить нечинимое, и её перестают читать.
-RETIRED = {"JarvisSniperDetached": "RunPod-півот: тригерів немає, сам не підніметься"}
+RETIRED = {"JarvisSniperDetached": "RunPod-пивот: триггеров нет, сам не поднимется"}
 
 # ─────────────────── Кто кого поднимает (заход 1, §1.1) ─────────────────────
 #
@@ -62,7 +63,7 @@ GUARDIAN_ETA = {"backend_guardian": 15, "bot_guardian": 90, "chatter_guardian": 
 # Тест принадлежности один: изменит ли это моё поведение в ближайший час?
 # Пороги живут ЗДЕСЬ именованными константами, а не литералами по коду и не в
 # глазах смотрящего.
-KEY_EXPIRY_ANSWER = 7     # ключ спливає раньше — уходит в ОТВЕТ (L5)
+KEY_EXPIRY_ANSWER = 7     # ключ истекает раньше — уходит в ОТВЕТ (L5)
 KEY_EXPIRY_ANOMALY = 30   # раньше — в блок аномалий, но не в ответ
 SLOW_TTL = 300.0          # медленный кэш старше — считается непрочитанным
 
@@ -80,17 +81,54 @@ def _now() -> float:
     return time.time()
 
 
-def _own_pids() -> set[int]:
-    """Свой PID и предки — чтобы фильтр процессов не поймал сам себя."""
-    out = {os.getpid()}
-    try:
-        import psutil
-        p = psutil.Process(os.getpid())
-        for anc in p.parents():
-            out.add(anc.pid)
-    except Exception:
-        pass
+# ─────────── ГРАБЛЯ 1: запуск против упоминания (правка 14.08) ──────────────
+#
+# Раньше самосовпадение лечилось исключением по РОДСТВУ: выбрасывали свой PID и
+# всех предков. Пока сборщик был отдельным процессом, это работало. Панель
+# переехала внутрь бэкенда — и то же правило выбросило разом сам бэкенд
+# (`os.getpid()`), его второй PID (родитель) и `backend_guardian_detached.ps1`
+# (дед). Панель отдавала страницу ИЗ процесса и на ней же писала «процес не
+# знайдено» о нём. Родство — плохой признак: оно отвечает на вопрос «мой ли это
+# процесс», а спрашивали мы «запускает он раннер или только упоминает его».
+#
+# Спрашиваем теперь ровно это. Всё, что идёт после `-c` (python) и
+# `-Command`/`-EncodedCommand` (PowerShell), — ТЕЛО ПРОГРАММЫ: совпадение там
+# значит, что процесс говорит о раннере, а не является им. Проверка строго
+# сильнее прежней: диагностический однострочник теперь не совпадает НИ У КОГО, а
+# не только у собственных потомков, — а `healthchecks_ping.ps1` с именами
+# скриптов внутри `-Command` до этой правки засчитывался как живой гардиан
+# (у гардианов фильтра `py_only` нет вовсе).
+def _inline_flag(name: str, tok: str) -> bool:
+    if not tok.startswith("-"):
+        return False
+    flag = tok.lstrip("-/").lower()
+    if name.startswith(("powershell", "pwsh")):
+        # PowerShell принимает сокращения: -Comm, -enc, -ec. `-ExecutionPolicy`
+        # под это не подпадает («ex» ≠ «en»), и значение флага остаётся видимым.
+        return bool(flag) and ("command".startswith(flag)
+                               or "encodedcommand".startswith(flag))
+    # У python inline ровно один: `-c`. Префиксного разбора здесь быть не может
+    # — `-E` это «игнорировать переменные окружения», и принять его за inline
+    # значит сделать процесс невидимым.
+    return flag == "c"
+
+
+def _launch_argv(name: str, argv: list[str]) -> list[str]:
+    """Аргументы, в которых маркер означает ЗАПУСК, а не упоминание.
+
+    Граница «флаг / тело inline-кода» существует только в ТОКЕНАХ: в склеенной
+    командной строке её уже нет, поэтому таблица процессов носит argv списком.
+    """
+    out = []
+    for tok in argv[1:]:
+        if _inline_flag(name, tok):
+            break
+        out.append(tok)
     return out
+
+
+def _launches(marker: str, row: tuple) -> bool:
+    return any(marker in tok for tok in _launch_argv(row[1], row[2]))
 
 
 # Имена процессов, чью КОМАНДНУЮ СТРОКУ вообще имеет смысл читать.
@@ -109,9 +147,12 @@ _CMDLINE_NAMES = ("python", "pythonw", "powershell", "pwsh")
 
 
 def _proc_table() -> list[tuple]:
-    """(pid, имя, командная строка, время старта, ppid) — один обход на оба
+    """(pid, имя, argv СПИСКОМ, время старта, ppid) — один обход на оба
     сборщика. Пустой список означает «psutil не отдал ничего», и это НЕ то же
-    самое, что «psutil недоступен»: второе ловится отдельно, в `processes()`."""
+    самое, что «psutil недоступен»: второе ловится отдельно, в `processes()`.
+
+    argv именно списком, а не склеенной строкой: `_launch_argv` отличает запуск
+    от упоминания по границам токенов, и склейка эту границу стирает."""
     try:
         import psutil
     except Exception:
@@ -122,7 +163,7 @@ def _proc_table() -> list[tuple]:
             nm = (p.info["name"] or "").lower()
             if not nm.startswith(_CMDLINE_NAMES):
                 continue
-            out.append((p.info["pid"], nm, " ".join(p.cmdline() or []),
+            out.append((p.info["pid"], nm, p.cmdline() or [],
                         p.info["create_time"], p.info["ppid"]))
         except Exception:
             continue
@@ -133,18 +174,16 @@ def processes(table: list[tuple] | None = None) -> list[Row]:
     try:
         import psutil  # noqa: F401 — проверка доступности, обход в _proc_table
     except Exception:
-        return [Row("procs", "процеси", "warn", "psutil недоступний")]
+        return [Row("procs", "процессы", "warn", "psutil недоступен")]
 
-    mine = _own_pids()
     snap = _proc_table() if table is None else table
 
     rows = []
     for key, label, marker, py_only in PROC_SPECS:
         hits = [
             s for s in snap
-            if marker in s[2]
-            and s[0] not in mine                     # ГРАБЛЯ 1: не считать себя
-            and (not py_only or s[1].startswith("python"))
+            if (not py_only or s[1].startswith("python"))
+            and _launches(marker, s)                 # ГРАБЛЯ 1: запуск, не упоминание
         ]
         if hits:
             pids = "/".join(str(h[0]) for h in hits[:3])
@@ -152,31 +191,30 @@ def processes(table: list[tuple] | None = None) -> list[Row]:
             rows.append(Row(key, label, "ok", f"PID {pids}",
                             {"since": started, "count": len(hits)}))
         else:
-            rows.append(Row(key, label, "bad", "процес не знайдено"))
+            rows.append(Row(key, label, "bad", "процесс не найден"))
     return rows
 
 
 def guardians(table: list[tuple] | None = None) -> list[Row]:
     rows = []
-    mine = _own_pids()
     # Тот же обход процессов, что у `processes()`: раньше здесь был ВТОРОЙ
     # полный проход с чтением cmdline — ровно та секунда, которую первый экран
     # платил дважды ни за что.
-    snap = [(r[0], r[2]) for r in (_proc_table() if table is None else table)]
+    snap = _proc_table() if table is None else table
     for key, script, hb in GUARDIAN_SPECS:
-        alive = [s for s in snap if script in s[1] and s[0] not in mine]
+        alive = [s for s in snap if _launches(script, s)]
         age = heartbeat_age(hb)
         fresh = age is not None and age < HEARTBEAT_FRESH
         if alive and fresh:
-            state, detail = "ok", f"PID {alive[0][0]} · heartbeat {int(age)} с тому"
+            state, detail = "ok", f"PID {alive[0][0]} · heartbeat {int(age)} с назад"
         elif alive or fresh:
             # ЖЁЛТЫЙ — не косметика: расхождение «процесс жив, heartbeat мёртв»
             # это ровно тот случай, когда сторож и гардиан считали DOWN по-разному.
             state = "warn"
-            detail = ("процес є, heartbeat протух" if alive
-                      else "heartbeat свіжий, процесу не видно")
+            detail = ("процесс есть, heartbeat протух" if alive
+                      else "heartbeat свежий, процесса не видно")
         else:
-            state, detail = "bad", "не працює"
+            state, detail = "bad", "не работает"
         rows.append(Row(key, key, state, detail, {"hb_age": age}))
     return rows
 
@@ -204,7 +242,7 @@ def scheduled_tasks() -> list[Row]:
                               "-Command", ps], capture_output=True, timeout=30,
                              text=True, encoding="utf-8", errors="replace").stdout
     except Exception as e:
-        return [Row("tasks", "планові задачі", "warn", f"не зчитано: {type(e).__name__}")]
+        return [Row("tasks", "плановые задачи", "warn", f"не прочитано: {type(e).__name__}")]
 
     rows = []
     for line in (out or "").splitlines():
@@ -220,7 +258,7 @@ def scheduled_tasks() -> list[Row]:
         elif state == "Ready":
             ok = last.strip() in ("0", "267009")
             rows.append(Row(name, name, "ok" if ok else "warn",
-                            f"Ready · останній результат {last}", {"last_run": when}))
+                            f"Ready · последний результат {last}", {"last_run": when}))
         else:
             rows.append(Row(name, name, "warn", state, {"last_run": when}))
     return rows
@@ -309,16 +347,16 @@ def api_keys() -> list[dict]:
     known = [
         {"name": "Instagram (Path B)", "purpose": "публикация/лента IG",
          "expires": "2026-09-09", "auto": "JarvisIgTokenRefresh",
-         "note": "хвіст: скинути IG App Secret (світився)"},
-        {"name": "ANTHROPIC_API_KEY", "purpose": "brain + класифікатор",
-         "expires": None, "auto": None, "note": "основна витрата"},
-        {"name": "FAL_KEY", "purpose": "FLUX.2 генерація",
-         "expires": None, "auto": None, "note": "⚠️ потребує ротації"},
-        {"name": "WaveSpeed", "purpose": "анімація",
-         "expires": None, "auto": None, "note": "⚠️ витікав — ротувати"},
+         "note": "хвост: сбросить IG App Secret (светился)"},
+        {"name": "ANTHROPIC_API_KEY", "purpose": "brain + классификатор",
+         "expires": None, "auto": None, "note": "основная трата"},
+        {"name": "FAL_KEY", "purpose": "FLUX.2 генерация",
+         "expires": None, "auto": None, "note": "⚠️ требует ротации"},
+        {"name": "WaveSpeed", "purpose": "анимация",
+         "expires": None, "auto": None, "note": "⚠️ утекал — ротировать"},
         {"name": "OpenAI", "purpose": "voice", "expires": None, "auto": None, "note": ""},
-        {"name": "Telegram (бот + пульт)", "purpose": "канали керування",
-         "expires": None, "auto": None, "note": "різні токени"},
+        {"name": "Telegram (бот + пульт)", "purpose": "каналы управления",
+         "expires": None, "auto": None, "note": "разные токены"},
     ]
     today = time.gmtime()
     for k in known:
@@ -341,8 +379,8 @@ def external_watchdog() -> Row:
     сторож не настроен — красная строка на самом видном месте."""
     url = (os.getenv("HEALTHCHECKS_URL") or "").strip()
     if not url:
-        return Row("ext", "Зовнішній сторож", "bad",
-                   "НЕ налаштований — панель не бачить смерті самої машини")
+        return Row("ext", "Внешний сторож", "bad",
+                   "НЕ настроен — панель не видит смерти самой машины")
     state_file = ROOT / "state" / "healthchecks_last.txt"
     age = None
     try:
@@ -350,12 +388,12 @@ def external_watchdog() -> Row:
     except OSError:
         pass
     if age is None:
-        return Row("ext", "Зовнішній сторож", "warn",
-                   "URL задано, але пінгів ще не було")
+        return Row("ext", "Внешний сторож", "warn",
+                   "URL задан, но пингов ещё не было")
     if age > 300:
-        return Row("ext", "Зовнішній сторож", "warn",
-                   f"останній пінг {int(age // 60)} хв тому")
-    return Row("ext", "Зовнішній сторож", "ok", f"пінг {int(age)} с тому")
+        return Row("ext", "Внешний сторож", "warn",
+                   f"последний пинг {int(age // 60)} мин назад")
+    return Row("ext", "Внешний сторож", "ok", f"пинг {int(age)} с назад")
 
 
 def is_anomaly(kind: str, item) -> bool:
@@ -439,7 +477,7 @@ def snapshot_slow(*, force: bool = False) -> dict:
     snap = {
         "collected_at": _now(),
         "tasks": _safe(scheduled_tasks,
-                       lambda m: [Row("tasks", "планові задачі", "warn", f"не зчитано: {m}")]),
+                       lambda m: [Row("tasks", "плановые задачи", "warn", f"не прочитано: {m}")]),
         "arcs": _safe(arcs, lambda m: []),
         "events": _safe(events, lambda m: []),
         "keys": _safe(api_keys, lambda m: []),
