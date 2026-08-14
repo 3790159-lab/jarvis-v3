@@ -18,6 +18,8 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+import pytest
+
 from app.services import jarvis_farm as F
 
 
@@ -1774,3 +1776,81 @@ def test_a_machine_event_name_breaks_at_the_underscore_not_mid_word():
         [{"src": "chatter", "kind": "a&b_c", "detail": "x", "ts": time.time()}],
         time.time())
     assert "<b>a&amp;b_<wbr>c</b>" in evil, evil
+
+
+# ═══════════ КВОТА ОКНА: почему она есть — доказывает ЭТОТ сторож ════════════
+#
+# Решение владельца 15.08: квоту оставляем, но опирается она на сторожа, а не на
+# замер. Замер «35 против 5» на живых источниках был настоящим, но доказывает он
+# ДРУГОЕ: причиной там был порядок `append` плюс общий срез в старой `events()`,
+# и эту причину сняла сортировка по времени. Ниже — то, чего сортировка не
+# снимает и снять не может.
+
+@pytest.mark.parametrize("flooded", ["chatter", "гардиан"])
+def test_the_quota_keeps_the_other_source_visible_under_a_flood(
+        flooded, tmp_path, monkeypatch):
+    """ПОТОК В ОДНОМ ИСТОЧНИКЕ НЕ ПРЯЧЕТ ВТОРОЙ. Проверяется в ОБЕ стороны и
+    НА РАЗМЕТКЕ — на экране, а не на возврате функции.
+
+    Стенд построен так, что чистая сортировка по свежести обязана вытеснить
+    второй источник ЦЕЛИКОМ, и тест это заявляет вслух двумя посылками:
+      · каждая строка потока СВЕЖЕЕ любой строки второго источника;
+      · одного потока хватает, чтобы занять всё окно.
+    Значит второй источник остался на экране не по случайности расстановки
+    времён, а потому что доля ему гарантирована.
+
+    Обе стороны обязательны и не дублируют друг друга: односторонняя проверка
+    зеленела бы на перекосе в противоположную сторону, а какой из источников
+    сегодня многословнее — вопрос погоды. На живых источниках 14.08 свежее был
+    как раз гардиан, и за срез уезжал клиент.
+
+    Оба источника здесь ПРЕВЫШАЮТ свою долю (по 30 против доли в 12) — прежняя
+    пара сторожей давала меньшинству 6 строк, то есть меньшинство целиком
+    влезало в квоту, и «доля» от «влезло всё» там неотличимы."""
+    from app.routers import jarvis_panel as JP
+
+    many, few = 200, 30
+    if flooded == "chatter":
+        client_ts, guard_day = 3e9, 8            # клиент в 2065-м — свежее всех
+        n_client, n_guard = many, few
+    else:
+        client_ts, guard_day = 1e9, 8            # клиент в 2001-м — старше всех
+        n_client, n_guard = few, many
+
+    _clients_dir(tmp_path, "demo")
+    _client_db(tmp_path, "demo",
+               [("пауза", f"c{i}", f"клиентское событие {i}", client_ts + i)
+                for i in range(n_client)])
+    _guardian_log(tmp_path, "".join(
+        f"2026-08-{guard_day:02d} {i // 60:02d}:{i % 60:02d}:00 | "
+        f"runner DOWN - restarting {i}\n" for i in range(n_guard)))
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+
+    rows = F.events(table=[])
+    starved = "гардиан" if flooded == "chatter" else "chatter"
+
+    # ── посылка 1: поток целиком свежее второго источника ──────────────────
+    ts_flood = [r["ts"] for r in rows if r["src"] == flooded]
+    ts_starved = [r["ts"] for r in rows if r["src"] == starved]
+    assert ts_flood and ts_starved, rows
+    assert min(ts_flood) > max(ts_starved), (
+        "стенд построен неверно: поток обязан быть свежее второго источника, "
+        "иначе сторож ничего не доказывает")
+    # ── посылка 2: одного потока хватает на всё окно ───────────────────────
+    assert max(n_client, n_guard) >= F.FEED_LIMIT
+
+    # ── и всё-таки второй источник на ЭКРАНЕ, и доля у него равная ─────────
+    html = JP._events_table(rows, time.time())
+    seen_starved = html.count(f">{starved}</td>")
+    seen_flood = html.count(f">{flooded}</td>")
+    assert seen_starved > 0, f"{starved} вытеснен с экрана целиком потоком {flooded}"
+    assert seen_starved == seen_flood, (
+        f"доли разошлись: {starved}={seen_starved}, {flooded}={seen_flood}")
+
+    # Доля — это (окно минус строки о самой ленте) пополам. Строки «панель»
+    # стоят вне бюджета: они про СЕЙЧАС.
+    aside = html.count(">панель</td>")
+    assert seen_starved == (F.FEED_LIMIT - aside) // 2, (
+        f"доля {starved} = {seen_starved} при окне {F.FEED_LIMIT} "
+        f"и {aside} строках вне бюджета")

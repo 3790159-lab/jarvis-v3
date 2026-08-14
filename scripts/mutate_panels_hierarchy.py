@@ -538,6 +538,22 @@ MUTATIONS = [
      [("    quota = budget // len(groups)", "    quota = max(1, budget // len(groups))")],
      f"{FD}::test_the_window_never_hands_out_more_than_the_budget"),
 
+    # Сторож, на котором держится САМА квота (решение владельца 15.08: не замер,
+    # а тест). Три мутации порознь: снятие, перекос, подмена доли полным окном.
+    ("квота снята — поток прячет второй источник", FARM,
+     [("    out = fixed + _share_window([client, guard], limit - len(fixed))",
+       "    out = fixed + (client + guard)[:max(0, limit - len(fixed))]")],
+     f"{FD}::test_the_quota_keeps_the_other_source_visible_under_a_flood"),
+
+    ("квота перекошена в сторону гардиана", FARM,
+     [("    out = fixed + _share_window([client, guard], limit - len(fixed))",
+       "    out = fixed + (guard + client)[:max(0, limit - len(fixed))]")],
+     f"{FD}::test_the_quota_keeps_the_other_source_visible_under_a_flood"),
+
+    ("доля считается от полного окна, а не делится", FARM,
+     [("    quota = budget // len(groups)", "    quota = budget")],
+     f"{FD}::test_the_quota_keeps_the_other_source_visible_under_a_flood"),
+
     ("группа гардиана приезжает в дележ неотсортированной", FARM,
      [("    guard.sort(key=_newest_first)", "    pass")],
      f"{FD}::test_the_window_takes_the_NEWEST_decisions_of_the_guardian_not_the_first"),
