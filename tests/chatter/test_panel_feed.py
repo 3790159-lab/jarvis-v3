@@ -16,6 +16,7 @@ docs/superpowers/specs/2026-08-14-jarvis-panel-event-journal.md, §5):
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 from app.services import jarvis_farm as F
 
@@ -126,9 +127,9 @@ def test_is_decision_matches_the_garbage_contract_of_its_neighbour():
 
 
 def test_a_utf8_log_is_read_as_utf8(tmp_path):
-    """Парный сторож к фолбэку. cp1251 декодирует ЛЮБОЙ байт и никогда не
-    бросит — поставь его первым, и нормальный utf-8 молча станет мусором,
-    причём выглядеть это будет как «так и было в логе»."""
+    """Парный сторож к фолбэку. cp1251 отображает 255 байт из 256, то есть на
+    живом логе не споткнётся никогда, — поставь его первым, и нормальный utf-8
+    молча станет мусором, причём выглядеть это будет как «так и было в логе»."""
     p = tmp_path / "g.log"
     p.write_text("2026-08-14 00:45:08 | Состав: CHATTER_PERSONAS=volska\n",
                  encoding="utf-8")
@@ -138,9 +139,11 @@ def test_a_utf8_log_is_read_as_utf8(tmp_path):
 
 
 def test_a_cp1251_log_is_still_readable(tmp_path):
-    """-Encoding utf8 в гардиане чинит только БУДУЩИЕ строки. Прошлое
-    чинится фолбэком при чтении — иначе строка, называющая активную базу,
-    остаётся нечитаемой навсегда."""
+    """Сегодня гардиан пишет `Add-Content` БЕЗ `-Encoding`, то есть в
+    системную cp1251 (проверено 14.08: живой лог целиком в utf-8 не
+    декодируется). `-Encoding utf8` из Task 6 починит только БУДУЩИЕ строки,
+    прошлое чинится фолбэком при чтении — иначе строка, называющая активную
+    базу, остаётся нечитаемой навсегда."""
     p = tmp_path / "g.log"
     p.write_bytes("2026-08-14 00:40:00 | Состав: CHATTER_PERSONAS=volska, db=.secrets\\demo.db\n"
                   .encode("cp1251"))
@@ -157,8 +160,39 @@ def test_a_log_longer_than_the_window_is_read_from_the_end(tmp_path):
                          for i in range(4000)), encoding="utf-8")
     lines, truncated = F.read_tail(p, limit=2048)
     assert truncated is True
-    assert len(lines) < 4000
+    # Прочитано НЕ БОЛЬШЕ ОКНА — это и есть предмет задачи. Прежняя проверка
+    # `len(lines) < 4000` пропускала слурп целиком: без `seek` возвращается
+    # 3999 строк (обрубок первой съедает ровно одну), и порог зеленел, отличая
+    # 3999 от 4000 тем же способом, что 49 от 4000.
+    assert sum(len(ln) + 1 for ln in lines) <= 2048, f"прочитано {len(lines)} строк"
     assert "строка 3999" in lines[-1]
+
+
+def test_the_window_stays_a_window_when_the_guardian_writes_mid_read(tmp_path, monkeypatch):
+    """Гардиан пишет в этот лог ЖИВОЙ — дописывание между `stat()` и `read()`
+    не гипотеза, а обычный ход дел раз в 30 секунд. `f.read()` без аргумента
+    читает до текущего EOF, то есть тащит всё дописанное СВЕРХ окна, и окно
+    держится только на медленности писателя.
+
+    Дописывание вклинено в сам `stat()` — так момент воспроизводится точно, а
+    не «повезло попасть в гонку»."""
+    p = tmp_path / "g.log"
+    p.write_bytes(b"".join(f"2026-08-14 00:00:00 | строка {i}\n".encode("utf-8")
+                           for i in range(200)))
+    real_stat = Path.stat
+
+    def stat_then_guardian_writes(self, *a, **kw):
+        st = real_stat(self, *a, **kw)
+        if self == p:
+            with open(p, "ab") as f:
+                f.write("2026-08-14 00:00:01 | дописано гардианом\n"
+                        .encode("utf-8") * 800)
+        return st
+
+    monkeypatch.setattr(Path, "stat", stat_then_guardian_writes)
+    lines, truncated = F.read_tail(p, limit=1024)
+    assert truncated is True
+    assert sum(len(ln) + 1 for ln in lines) <= 1024, f"прочитано {len(lines)} строк сверх окна"
 
 
 def test_the_first_partial_line_of_the_window_is_dropped(tmp_path):
@@ -191,6 +225,52 @@ def test_a_utf8_log_survives_a_window_that_cuts_a_character_in_half(tmp_path):
     lines, truncated = F.read_tail(p, limit=len(data) - 1001)
     assert truncated is True
     assert "Состав: CHATTER_PERSONAS=volska" in lines[-1], lines[-1]
+
+
+def test_a_byte_cp1251_cannot_decode_does_not_kill_the_page(tmp_path):
+    """«cp1251 никогда не бросает» — почти правда: единственный неопределённый
+    в ней байт `0x98`. Без `errors="replace"` одна такая байта в логе роняет
+    UnicodeDecodeError наружу из read_tail, то есть всю страницу панели."""
+    p = tmp_path / "g.log"
+    p.write_bytes(b"2026-08-14 00:00:00 | runner DOWN\n\x98\n2026-08-14 00:00:01 | launched\n")
+    lines, _ = F.read_tail(p)
+    assert len(lines) == 3, lines
+
+
+def test_a_bom_never_reaches_the_first_line(tmp_path):
+    """Task 6 ставит гардиану `-Encoding utf8`, а PowerShell 5.1 под этим
+    именем пишет utf-8 ИМЕННО С BOM. Незамеченный U+FEFF приклеивается к
+    первому символу первой строки — `parse_log_ts` на ней вернёт None, и самая
+    свежая запись ленты встанет с прочерком вместо времени."""
+    p = tmp_path / "g.log"
+    p.write_bytes(b"\xef\xbb\xbf2026-08-14 00:45:08 | runner DOWN - restarting\n")
+    lines, _ = F.read_tail(p)
+    assert not lines[0].startswith("﻿"), repr(lines[0])
+    assert F.parse_log_ts(lines[0]) is not None, repr(lines[0])
+
+
+def test_a_window_that_caught_no_line_break_is_empty_not_garbage(tmp_path):
+    """Одна строка длиннее всего окна: целых строк в нём нет ни одной.
+    Честный пустой список лучше обрубка, который в ленте неотличим от
+    настоящего события с потерянным началом."""
+    p = tmp_path / "g.log"
+    p.write_bytes(b"A" * 4000)
+    assert F.read_tail(p, limit=1024) == ([], True)
+
+
+def test_a_file_exactly_the_size_of_the_window_keeps_its_first_line(tmp_path):
+    """Граница `>` против `>=`. При `size == limit` в окно попала ПОЛНАЯ
+    первая строка, и срез обрубка съел бы настоящее событие."""
+    p = tmp_path / "g.log"
+    body = b"2026-08-14 00:45:08 | runner DOWN - restarting\n"
+    p.write_bytes(body + b"x" * (1024 - len(body)))
+    lines, truncated = F.read_tail(p, limit=1024)
+    assert truncated is False
+    assert lines[0] == "2026-08-14 00:45:08 | runner DOWN - restarting"
+
+    p2 = tmp_path / "g2.log"
+    p2.write_bytes(body + b"x" * (1025 - len(body)))
+    assert F.read_tail(p2, limit=1024)[1] is True
 
 
 def test_a_missing_log_is_not_an_exception(tmp_path):
