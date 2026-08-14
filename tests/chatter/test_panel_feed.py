@@ -1437,3 +1437,38 @@ def test_the_visibility_border_survives_on_the_screen_too(tmp_path, monkeypatch)
 
     html = JP._events_table(F.events(table=[]), time.time())
     assert "видно с" in html, "граница видимости не доехала до экрана"
+
+
+# ───── таблица процессов не подписывается временем, которого у неё не было ────
+#
+# `snapshot()` собирал таблицу процессов, потом платил медленную половину, и
+# только потом звал `snapshot_fast(table)` — а тот штампует `collected_at =
+# _now()`. Замер: зазор 2.39 с против 0.01 с у старой версии; при полном
+# снапшоте 6.8 с ручка могла назвать «раннер жив» процесс, умерший семь секунд
+# назад, и подписать это временем «сейчас».
+
+
+def test_the_process_table_is_not_stamped_with_a_time_it_never_had(tmp_path, monkeypatch):
+    """Считаем ЗАЗОР между обходом процессов и подписью под ним, а не порядок
+    строк в файле: порядок можно вернуть обратно, зазор — нет.
+
+    Медленная половина здесь замедлена НАРОЧНО и ровно на столько, чтобы
+    зазор нельзя было списать на дрожание часов машины."""
+    walked = []
+    slow_ran = []
+    SLOW = 0.4
+
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    monkeypatch.setattr(F, "_slow_cache", None)
+    monkeypatch.setattr(F, "_proc_table", lambda: walked.append(time.time()) or [])
+    monkeypatch.setattr(F, "scheduled_tasks", lambda: [])
+    monkeypatch.setattr(F, "api_keys", lambda: [])
+    monkeypatch.setattr(F, "arcs", lambda: slow_ran.append(time.sleep(SLOW)) or [])
+    _bare_panel_env(monkeypatch)
+
+    snap = F.snapshot()
+    assert len(walked) == 1 and slow_ran, (walked, slow_ran)
+    gap = snap["collected_at"] - walked[0]
+    assert gap < SLOW / 2, (
+        f"процессы обойдены, а подписаны на {gap:.2f} с позже — "
+        f"через всю медленную половину")
