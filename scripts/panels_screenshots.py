@@ -37,6 +37,11 @@ SHOTS = [
      "/panel/tamapi/dynamics?m=dialogs&m=qualified&m=handed&period=week", 1200, 1250, None),
     ("07-dynamics-day", "/panel/tamapi/dynamics?m=dialogs&period=day", 1200, 1250, None),
     ("08-jarvis-panel", "/panel/jarvis", 1200, 2300, None),
+    # 707 px — РАЗВЁРНУТЫЙ Fold, замер владельца. Ровно та ширина, на которой
+    # второго столбца не было: снимок нужен именно здесь, а не на «мобильных
+    # вообще», иначе приёмка смотрит не на тот экран.
+    ("09-jarvis-fold-unfolded-707", "/panel/jarvis", 707, 2000, None),
+    ("10-jarvis-fold-folded-344", "/panel/jarvis", 344, 2000, None),
 ]
 
 
