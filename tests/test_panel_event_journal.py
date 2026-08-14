@@ -6,22 +6,45 @@
 ⚠️ Тесты здесь НЕ имеют права тянуть app/ или chatter/: ops_watchdog standalone
 и stdlib-only by design — он обязан работать, когда мёртво окружение бэкенда.
 Импорт тяжёлого пакета в тесте не сломает прод, но скроет нарушение границы в
-самом сторожевом коде.
+самом сторожевом коде. Комментарий, впрочем, сторожем не является — им является
+`test_the_watchdog_path_runs_where_app_and_third_party_are_unimportable`.
 """
 import importlib.util
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 _spec = importlib.util.spec_from_file_location(
     "ops_watchdog_under_test", ROOT / "scripts" / "ops_watchdog.py")
 ow = importlib.util.module_from_spec(_spec)
-sys.modules["ops_watchdog_under_test"] = ow
+# В `sys.modules` модуль НЕ регистрируется намеренно: загрузка по пути работает
+# и без этого (так же грузят три соседних test_ops_watchdog*.py), а протечка
+# через `sys.modules` в этом репозитории — корень отдельного класса аварий.
 _spec.loader.exec_module(ow)
+
+# §2.2 называет РОВНО пять полей и прямым текстом запрещает PID, hb_age и
+# age_days: они меняются каждый цикл и не значат ничего.
+JOURNAL_FIELDS = {"ts", "check", "kind", "reason", "detail"}
 
 
 def _probe(ok, reason="r", detail="d"):
     return {"ok": ok, "detail": detail, "reason": reason}
+
+
+def _one_of_each_kind():
+    """По одному переходу каждого вида — для сторожей на общий формат записи."""
+    fresh = {"web": {"fail": 1, "alerted": False}}
+    alerted = {"web": {"fail": 3, "alerted": True, "alerted_reason": "old"}}
+    return {
+        "down": ow.transitions(fresh, {"web": _probe(False)}, debounce=2)[0][0],
+        "recovered": ow.transitions(alerted, {"web": _probe(True)}, debounce=2)[0][0],
+        "changed": ow.transitions(alerted, {"web": _probe(False, "new")},
+                                  debounce=2)[0][0],
+        "suppressed": ow.transitions(fresh, {"web": _probe(False)}, debounce=2,
+                                     suppress_down=True)[0][0],
+    }
 
 
 def test_a_down_transition_carries_structure_not_text():
@@ -70,3 +93,127 @@ def test_recovered_and_changed_are_distinct_kinds():
 
     trs2, _ = ow.transitions(alerted, {"web": _probe(False, "new")}, debounce=2)
     assert [t["kind"] for t in trs2] == ["changed"]
+
+
+# ── формат записи: §2.2 ────────────────────────────────────────────────────
+def test_the_timestamp_comes_from_the_clock_and_is_not_a_constant():
+    """`assert isinstance(ts, float)` пропускает константу `0.0`, а журнал по
+    `ts` сортируется, группируется по суткам (§4.2) и режется ротацией «старше
+    30 суток» (§2.4). Константа сломала бы всё три, оставшись зелёной."""
+    before = time.time()
+    trs, _ = ow.transitions({"backend": {"fail": 1, "alerted": False}},
+                            {"backend": _probe(False)}, debounce=2)
+    after = time.time()
+    assert isinstance(trs[0]["ts"], float)
+    assert before <= trs[0]["ts"] <= after, (before, trs[0]["ts"], after)
+
+
+def test_every_kind_carries_reason_and_detail_not_just_down():
+    """`reason` — ключ группировки §2.2, `detail` у `suppressed` — единственный
+    человеческий текст записи, которую панель показывает как инцидент.
+    Закреплены они были только у `down`."""
+    alerted = {"web": {"fail": 3, "alerted": True, "alerted_reason": "old"}}
+    rec, _ = ow.transitions(alerted, {"web": _probe(True, "back", "снова 200")},
+                            debounce=2)
+    assert (rec[0]["reason"], rec[0]["detail"]) == ("back", "снова 200")
+
+    chg, _ = ow.transitions(alerted, {"web": _probe(False, "new", "теперь 500")},
+                            debounce=2)
+    assert (chg[0]["reason"], chg[0]["detail"]) == ("new", "теперь 500")
+
+    sup, _ = ow.transitions(
+        {"web": {"fail": 1, "alerted": False}},
+        {"web": _probe(False, "no_process", "процес раннера не знайдено")},
+        debounce=2, suppress_down=True)
+    assert (sup[0]["reason"], sup[0]["detail"]) == ("no_process",
+                                                    "процес раннера не знайдено")
+
+
+def test_a_transition_carries_exactly_the_five_fields_and_no_sixth():
+    """Проверка полей ПО ОДНОМУ пропускает лишние: мутация, добавляющая в
+    переход `pid`/`hb_age`, проходила весь гейт. §2.2 называет ровно пять полей
+    и запрещает те, что меняются каждый цикл и не значат ничего."""
+    for kind, t in _one_of_each_kind().items():
+        assert set(t) == JOURNAL_FIELDS, (kind, sorted(t))
+        assert t["kind"] == kind
+
+
+def test_the_debounce_argument_actually_reaches_the_core():
+    """Все прежние вызовы шли с `debounce=2` — ровно с умолчанием `DEBOUNCE`,
+    поэтому проброс аргумента не проверял никто: код, игнорирующий параметр и
+    берущий константу, был бы зелёным."""
+    assert ow.DEBOUNCE == 2, "предпосылка теста сломана: умолчание изменилось"
+    st = {"backend": {"fail": 1, "alerted": False}}
+    probes = {"backend": _probe(False)}
+
+    assert [t["kind"] for t in ow.transitions(st, probes, debounce=2)[0]] == ["down"]
+    assert ow.transitions(st, probes, debounce=3)[0] == [], \
+        "при debounce=3 второе подряд падение ещё не повод для 🚨"
+    assert ow.evaluate(st, probes, debounce=3)[0] == []
+    assert len(ow.evaluate(st, probes, debounce=1)[0]) == 1, \
+        "при debounce=1 алерт обязан уйти с первого же падения"
+
+
+# ── граница stdlib-only: §2.1 и ловушка 1 спеки ────────────────────────────
+# Под pytest корень репозитория и так лежит на `sys.path`, поэтому «модуль
+# загрузился по пути» не доказывает НИЧЕГО: `from app.services import ...` в
+# шапке сторожа прошёл бы все сторожа зелёным. Нарушение границы проявляется не
+# красным тестом, а ТИШИНОЙ сторожа ровно в тот момент, ради которого он
+# существует, — поэтому путь гоняется в подпроцессе, где корня репозитория нет
+# на пути, а `__import__` пропускает только stdlib.
+_ISOLATED_CHILD = '''\
+# -*- coding: utf-8 -*-
+import builtins
+import importlib.util
+import os
+import sys
+
+WATCHDOG, REPO_ROOT = sys.argv[1], os.path.abspath(sys.argv[2])
+
+sys.path[:] = [p for p in sys.path
+               if os.path.abspath(p or os.getcwd()) != REPO_ROOT]
+
+_real_import = builtins.__import__
+_ALLOWED = set(sys.stdlib_module_names) | {"ops_watchdog_isolated"}
+
+
+def _guard(name, globals=None, locals=None, fromlist=(), level=0):
+    if level == 0 and name.partition(".")[0] not in _ALLOWED:
+        raise ImportError("ГРАНИЦА stdlib-only нарушена: %s" % name)
+    return _real_import(name, globals, locals, fromlist, level)
+
+
+builtins.__import__ = _guard
+
+spec = importlib.util.spec_from_file_location("ops_watchdog_isolated", WATCHDOG)
+ow = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(ow)
+
+fresh = {"backend": {"fail": 1, "alerted": False}}
+probes = {"backend": {"ok": False, "detail": "нет ответа", "reason": "no_response"}}
+trs, _st = ow.transitions(fresh, probes, debounce=2)
+assert [t["kind"] for t in trs] == ["down"], trs
+alerts, _st2 = ow.evaluate(fresh, probes, debounce=2)
+assert alerts == ["\\U0001F6A8 DOWN: BACKEND (:8010 /health). нет ответа"], alerts
+print("STDLIB-ONLY OK")
+'''
+
+
+def test_the_watchdog_path_runs_where_app_and_third_party_are_unimportable(tmp_path):
+    """Несущее требование, а не стиль: сторож обязан сообщить о смерти бэкенда
+    именно тогда, когда мертво его окружение."""
+    child = tmp_path / "isolated_watchdog_probe.py"
+    with open(child, "w", encoding="utf-8", newline="") as fh:
+        fh.write(_ISOLATED_CHILD)
+    proc = subprocess.run(
+        # -I: ни PYTHONPATH, ни user-site. -X utf8 командной строкой, а не
+        # переменной окружения, — -I стёр бы PYTHONUTF8 вместе с остальными.
+        [sys.executable, "-I", "-X", "utf8", str(child),
+         str(ROOT / "scripts" / "ops_watchdog.py"), str(ROOT)],
+        cwd=str(tmp_path), capture_output=True, text=True,
+        encoding="utf-8", errors="replace", timeout=120)
+    assert proc.returncode == 0, (
+        "сторожевой путь не пережил среду без app/, chatter/ и сторонних "
+        "пакетов:\n--- stdout ---\n%s\n--- stderr ---\n%s"
+        % (proc.stdout, proc.stderr))
+    assert "STDLIB-ONLY OK" in proc.stdout, proc.stdout
