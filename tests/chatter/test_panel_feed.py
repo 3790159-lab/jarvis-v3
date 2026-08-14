@@ -952,3 +952,249 @@ def test_an_empty_composition_is_a_note_not_an_IndexError(tmp_path, monkeypatch)
     path, note = F.client_db_path([])
     assert path is None
     assert "не прочитан" in note, note
+
+
+# ───────────────── лента целиком: четыре функции, сложенные вместе ────────────
+#
+# `events(table=[])` во ВСЕХ сторожах ниже — не украшение стенда. Пустая таблица
+# процессов означает «раннера не видно», и лестница Task 4 уходит на ступени 3–4,
+# то есть в подменённый ROOT. Без неё лента спросила бы ЖИВОЙ раннер этой машины
+# (на ней прямо сейчас крутится volska) и читала бы прод-базу — сторож зеленел
+# бы от состава фермы, а не от кода.
+
+
+def _client_db(tmp_path, slug: str, rows: list[tuple]):
+    """База клиента там, где её ищет лента: `<ROOT>/.secrets/<slug>.db`.
+
+    Схема берётся у САМОГО раннера (`chatter.storage.db._SCHEMA`), а не
+    переписывается рядом: своя копия DDL разъехалась бы с прод-схемой молча, и
+    сторож ленты продолжил бы зеленеть на таблице, которой в проде уже нет.
+
+    `rows` — кортежи `(kind, contact_id, detail, ts)`."""
+    import sqlite3
+    from chatter.storage.db import _SCHEMA
+
+    secrets = tmp_path / ".secrets"
+    secrets.mkdir(parents=True, exist_ok=True)
+    p = secrets / f"{slug}.db"
+    conn = sqlite3.connect(p)
+    try:
+        conn.executescript(_SCHEMA)
+        conn.executemany(
+            "INSERT INTO control_events (kind, contact_id, detail, ts) VALUES (?,?,?,?)",
+            rows)
+        conn.commit()
+    finally:
+        conn.close()
+    return p
+
+
+def test_the_feed_sorts_by_time_and_carries_it(tmp_path, monkeypatch):
+    """До правки строки гардиана шли с ts=None и вставали в конец кучей.
+    Со временем лента наконец читается как лента."""
+    _guardian_log(tmp_path, "2026-08-14 00:45:08 | runner DOWN - restarting\n"
+                            "2026-08-14 00:45:09 | launched chatter runner (PID 6864) -> x.log\n")
+    _clients_dir(tmp_path, "demo")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+
+    rows = F.events(table=[])
+    guard = [r for r in rows if r["src"] == "гардиан"]
+    assert len(guard) == 2, rows
+    assert all(r["ts"] for r in guard), "лента снова без времени"
+    assert guard[0]["ts"] >= guard[1]["ts"], "лента не отсортирована по времени"
+
+
+def test_the_timestamp_prefix_is_stripped_from_the_detail(tmp_path, monkeypatch):
+    """Время теперь отдельная колонка (`_events_table` рисует его под
+    «Когда»). Дублировать его в тексте значит занимать узкую колонку тем, что
+    уже нарисовано рядом."""
+    _guardian_log(tmp_path, "2026-08-14 00:45:08 | runner DOWN - restarting\n")
+    _clients_dir(tmp_path, "demo")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+    row = [r for r in F.events(table=[]) if r["src"] == "гардиан"][0]
+    assert row["detail"] == "runner DOWN - restarting", row["detail"]
+
+
+def test_a_truncated_log_states_where_visibility_begins(tmp_path, monkeypatch):
+    """Граница видимости, названная вслух, — не то же самое, что молча
+    обрезанное окно. Это и есть починяемый дефект.
+
+    Строк гардиана здесь ТРИ ТЫСЯЧИ, и это часть сторожа: строка о границе
+    обязана пережить и окно чтения, и бюджет ленты. Попади она в общую очередь
+    на равных — её вытеснили бы те самые события, границу которых она
+    объявляет."""
+    body = "".join(f"2026-08-14 00:{i % 60:02d}:00 | runner DOWN - restarting\n"
+                   for i in range(3000))
+    _guardian_log(tmp_path, body)
+    _clients_dir(tmp_path, "demo")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    monkeypatch.setattr(F, "GUARDIAN_LOG_WINDOW", 2048)
+    _bare_panel_env(monkeypatch)
+    rows = F.events(table=[])
+    assert any("видно с" in r["detail"] for r in rows), rows
+
+
+def test_an_unreadable_composition_reaches_the_feed_as_a_row(tmp_path, monkeypatch):
+    """DEV-18: провал не глотается. Пустая лента вместо объяснения — это
+    тишина ровно там, где произошла авария конфигурации."""
+    d = tmp_path / "chatter" / "clients"
+    d.mkdir(parents=True)
+    (d / "active.yaml").write_text("clients: [](((битый", encoding="utf-8")
+    _guardian_log(tmp_path, "")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+    rows = F.events(table=[])
+    assert any(r["src"] == "панель" and "не прочитан" in r["detail"] for r in rows), rows
+
+
+def test_an_unreadable_database_reaches_the_feed_as_a_row(tmp_path, monkeypatch):
+    """Второй конец того же правила (DEV-18): путь к базе есть, а открыть её не
+    вышло. Прежняя `events()` глотала это голым `except Exception: pass`, и
+    отсутствующий файл базы выглядел на экране ровно как «клиент сегодня
+    молчал» — два разных положения дел, требующих разных действий."""
+    _clients_dir(tmp_path, "demo")           # .secrets/demo.db не создан вовсе
+    _guardian_log(tmp_path, "")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+    rows = F.events(table=[])
+    assert any(r["src"] == "панель" and "база" in r["kind"] for r in rows), rows
+
+
+def test_a_guessed_database_is_still_READ_not_merely_explained(tmp_path, monkeypatch):
+    """`if db_note`, а НЕ `elif`. По лестнице Task 4 непустое пояснение приходит
+    ВМЕСТЕ с рабочим путём: ступени 3–4 отвечают догадкой и честно её называют.
+    При `elif` панель показала бы одну строку-пояснение и пустую ленту — тишину
+    ровно там, где данные есть. Пояснение и чтение базы независимы."""
+    _clients_dir(tmp_path, "demo")
+    _client_db(tmp_path, "demo", [("пауза", "c1", "клиент попросил паузу", 2e9)])
+    _guardian_log(tmp_path, "")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+    rows = F.events(table=[])
+    assert any(r["src"] == "панель" and "active.yaml" in r["detail"] for r in rows), rows
+    assert any(r["src"] == "chatter" and r["detail"] == "клиент попросил паузу"
+               for r in rows), rows
+
+
+def test_a_ready_process_table_is_not_rebuilt(tmp_path, monkeypatch):
+    """Параметр `table` обязан доезжать до `client_db_path`, а не быть
+    декоративным. Замер 14.08 на живой машине: `client_db_path(table)` с готовой
+    таблицей — 0.9 мс, без неё — 10.7 мс тёплым и 591 мс ХОЛОДНЫМ. Уронить
+    аргумент по дороге можно бесследно, поэтому `_proc_table` здесь подменён на
+    заглушку, которая кричит."""
+    _clients_dir(tmp_path, "demo")
+    _guardian_log(tmp_path, "")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+    _environs(monkeypatch, {6864: {"CHATTER_PERSONAS": "demo"}})
+
+    def never():
+        raise AssertionError("готовая таблица процессов не доехала — собрана заново")
+
+    monkeypatch.setattr(F, "_proc_table", never)
+    rows = F.events(table=[_runner_row(6864)])
+    assert rows is not None
+
+
+# ───────────────────────── бюджет окна между источниками ─────────────────────
+#
+# Замер ДО правки на ЖИВЫХ источниках: в ленте 40 строк, из них 35 —
+# control_events базы и только 5 — гардиан (2 из этих 5 дебаунсные). Дефект не в
+# фильтре: обе пачки складывались в ОДИН список и резались общим `limit`.
+# Сортировка по времени его не чинит — клиентских событий и больше, и они
+# свежее, так что после сортировки гардиан уезжает за срез ещё вернее.
+#
+# Пара сторожей ниже держит РЕШЕНИЕ: каждому источнику гарантированная доля
+# окна, недобранное достаётся соседу. Односторонняя проверка тут негодна —
+# «гардиан доехал» чинится перекосом в другую сторону, и лента снова показывает
+# один источник, только другой.
+
+
+def test_a_flood_of_client_events_does_not_starve_the_guardian(tmp_path, monkeypatch):
+    """Двести свежих клиентских событий против шести старых строк гардиана —
+    ровно та пропорция, что дала на живых источниках 35 против 5."""
+    _clients_dir(tmp_path, "demo")
+    _client_db(tmp_path, "demo",
+               [("пауза", f"c{i}", f"клиентское событие {i}", 2e9 + i) for i in range(200)])
+    _guardian_log(tmp_path, "".join(
+        f"2026-08-14 00:{i:02d}:00 | runner DOWN - restarting {i}\n" for i in range(6)))
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+
+    rows = F.events(table=[])
+    guard = [r for r in rows if r["src"] == "гардиан"]
+    assert len(guard) == 6, f"решения гардиана вытеснены: доехало {len(guard)} из 6"
+
+
+def test_a_flood_of_guardian_lines_does_not_starve_the_client(tmp_path, monkeypatch):
+    """Парный. Доля гардиана — доля, а не окно целиком: перекос в эту сторону
+    выглядел бы «починенным» под первым сторожем и прятал бы от владельца
+    работу самого клиента."""
+    _clients_dir(tmp_path, "demo")
+    _client_db(tmp_path, "demo",
+               [("пауза", f"c{i}", f"клиентское событие {i}", 1e9 + i) for i in range(6)])
+    _guardian_log(tmp_path, "".join(
+        f"2026-08-14 00:{i % 60:02d}:00 | runner DOWN - restarting {i}\n"
+        for i in range(200)))
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+
+    rows = F.events(table=[])
+    client = [r for r in rows if r["src"] == "chatter"]
+    assert len(client) == 6, f"события клиента вытеснены: доехало {len(client)} из 6"
+
+
+def test_a_failed_source_is_never_crowded_out_by_the_flood(tmp_path, monkeypatch):
+    """Строки о самой ленте (провал источника, граница видимости) стоят ВНЕ
+    бюджета. Они говорят про СЕЙЧАС, а не про прошлое: попади они в общую
+    очередь на равных, двести свежих клиентских событий вытеснили бы аварию
+    конфигурации, и она снова выглядела бы тишиной."""
+    _clients_dir(tmp_path, "demo")
+    _client_db(tmp_path, "demo",
+               [("пауза", f"c{i}", f"клиентское событие {i}", 2e9 + i) for i in range(200)])
+    _guardian_log(tmp_path, "".join(
+        f"2026-08-14 00:{i % 60:02d}:00 | runner DOWN - restarting {i}\n"
+        for i in range(200)))
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+
+    rows = F.events(table=[])
+    assert rows[0]["ts"] is None, rows[0]
+    assert any(r["src"] == "панель" and "active.yaml" in r["detail"] for r in rows), \
+        "пояснение о догадке вытеснено потоком событий"
+
+
+def test_the_feed_never_grows_past_its_limit(tmp_path, monkeypatch):
+    """Бюджет по источникам не имеет права раздуть ленту: `limit` — это размер
+    окна, а не размер доли."""
+    _clients_dir(tmp_path, "demo")
+    _client_db(tmp_path, "demo",
+               [("пауза", f"c{i}", f"клиентское событие {i}", 2e9 + i) for i in range(200)])
+    _guardian_log(tmp_path, "".join(
+        f"2026-08-14 00:{i % 60:02d}:00 | runner DOWN - restarting {i}\n"
+        for i in range(200)))
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+
+    for limit in (1, 2, 10, 40):
+        rows = F.events(limit=limit, table=[])
+        assert len(rows) <= limit, f"limit={limit}, строк {len(rows)}"
+
+
+def test_a_silent_source_wastes_none_of_the_window(tmp_path, monkeypatch):
+    """Доля молчащего источника не пропадает, а достаётся говорящему: иначе
+    гарантия превратилась бы в дыру посреди ленты в самый обычный день, когда
+    гардиан просто ничего не решал."""
+    _clients_dir(tmp_path, "demo")
+    _client_db(tmp_path, "demo",
+               [("пауза", f"c{i}", f"клиентское событие {i}", 2e9 + i) for i in range(200)])
+    _guardian_log(tmp_path, "")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+
+    rows = F.events(limit=40, table=[])
+    notes = [r for r in rows if r["src"] == "панель"]
+    client = [r for r in rows if r["src"] == "chatter"]
+    assert len(client) == 40 - len(notes), f"окно недобрано: {len(client)} + {len(notes)}"

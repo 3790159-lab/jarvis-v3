@@ -786,32 +786,125 @@ def client_db_path(table: list[tuple] | None = None) -> tuple[str | None, str]:
             f"{reason} и лог молчит — база выведена из {src}{gap}")
 
 
-def events(limit: int = 40) -> list[dict]:
-    """Лента: control_events клиента + строки гардианов. «Посчитано ≠ доехало» —
-    доставку алертов мы сегодня не журналируем, и это помечено как пробел."""
-    out = []
-    db = os.getenv("TAMAPI_DB", str(ROOT / ".secrets/demo.db"))
-    try:
-        from app.services.tamapi_metrics import _ro
-        with _ro(db) as c:
-            for r in c.execute(
-                    "SELECT kind, contact_id, detail, ts FROM control_events "
-                    "ORDER BY id DESC LIMIT ?", (limit,)):
-                out.append({"src": "chatter", "kind": r["kind"],
-                            "detail": r["detail"] or r["contact_id"] or "",
-                            "ts": r["ts"]})
-    except Exception:
-        pass
+# Свежее — выше. Строки БЕЗ времени идут первыми: это не события прошлого, а
+# состояние СЕЙЧАС (провал источника, граница видимости), и прятать его под
+# вчерашние записи значит спрятать единственное, что требует действия.
+def _newest_first(e: dict) -> tuple:
+    return (e["ts"] is not None, -(e["ts"] or 0.0))
 
-    log = ROOT / "logs" / "chatter_guardian.stdout.log"
-    try:
-        lines = log.read_text(encoding="utf-8", errors="replace").splitlines()[-40:]
-        for ln in lines:
-            if "DOWN" in ln or "launched" in ln or "failed" in ln:
-                out.append({"src": "guardian", "kind": "runner", "detail": ln[:120],
-                            "ts": None})
-    except OSError:
-        pass
+
+def _share_window(groups: list[list[dict]], budget: int) -> list[dict]:
+    """Окно ленты, поделённое между источниками.
+
+    ЗАМЕР ДО ПРАВКИ на живых источниках: в ленте 40 строк, из них 35 —
+    control_events базы и только 5 — гардиан (2 из этих 5 дебаунсные). Причина
+    не в фильтре: обе пачки складывались в ОДИН список и резались общим
+    `limit`. Сортировка по времени этого не чинит, а усугубляет — клиентских
+    событий и больше, и они свежее, так что после сортировки решения гардиана
+    уезжают за срез ещё вернее.
+
+    ПРИНЯТОЕ РЕШЕНИЕ: каждому источнику ГАРАНТИРОВАННАЯ доля окна
+    (`budget // число источников`), а всё, чего источник не добрал, достаётся
+    соседям в порядке этого списка. То есть молчащий гардиан не тратит окно
+    впустую (обычный день — это лента чата целиком), а говорящий не может быть
+    заглушён потоком клиентских событий.
+
+    Оба конца закреплены ПАРОЙ сторожей (`..._does_not_starve_the_guardian` /
+    `..._does_not_starve_the_client`): односторонняя проверка зеленела бы на
+    перекосе в другую сторону, и лента снова показывала бы один источник.
+
+    Каждая группа обязана приехать сюда уже отсортированной: доля отрезается с
+    её начала, и «первые N» должны означать «самые свежие N».
+    """
+    if budget <= 0 or not groups:
+        return []
+    quota = max(1, budget // len(groups))
+    taken = [g[:quota] for g in groups]
+    spare = budget - sum(len(t) for t in taken)
+    for group, part in zip(groups, taken):
+        if spare <= 0:
+            break
+        extra = group[len(part):len(part) + spare]
+        part.extend(extra)
+        spare -= len(extra)
+    return [row for part in taken for row in part]
+
+
+def events(limit: int = 40, table: list[tuple] | None = None) -> list[dict]:
+    """Лента: control_events клиента + решения гардиана chatter.
+
+    Четыре правки 14.08 (спека §5) — все четыре готовыми функциями, а не
+    заново:
+      · база берётся у `client_db_path`, а не литералом `.secrets/demo.db`;
+      · строки гардиана несут ВРЕМЯ (`parse_log_ts`), и лента сортируется по нему;
+      · читается хвост лога (`read_tail`), а не весь растущий файл, и граница
+        видимости называется вслух;
+      · дебаунс-шум сторожа отсеивает `is_decision`, а не суп из подстрок.
+
+    `table` — уже собранная таблица процессов, и она НЕ декоративна: её строит
+    `snapshot_fast()`, а лента живёт в `snapshot_slow()`. Замер 14.08:
+    `client_db_path` с готовой таблицей — 0.9 мс, без неё — 10.7 мс тёплым и
+    591 мс ХОЛОДНЫМ. Сторож на то, что аргумент действительно доезжает, —
+    `test_a_ready_process_table_is_not_rebuilt`.
+
+    «Посчитано ≠ доехало» — доставку алертов мы сегодня не журналируем, и это
+    помечено как пробел в самой разметке.
+    """
+    # Строки О САМОЙ ЛЕНТЕ: провал источника и граница видимости. Они стоят ВНЕ
+    # бюджета, потому что говорят про СЕЙЧАС, — попади они в общую очередь на
+    # равных, поток свежих событий вытеснил бы аварию конфигурации, и она
+    # выглядела бы тишиной (DEV-18).
+    fixed: list[dict] = []
+    client: list[dict] = []
+    guard: list[dict] = []
+
+    db, db_note = client_db_path(table)
+    if db_note:
+        # `if`, а НЕ `elif`: по лестнице `client_db_path` непустое пояснение
+        # приходит ВМЕСТЕ с рабочим путём — ступени 3–4 отвечают догадкой и
+        # честно её называют. При `elif` панель показала бы одну строку-
+        # пояснение и пустую ленту: тишину там, где данные есть.
+        fixed.append({"src": "панель", "kind": "склад клиентов",
+                      "detail": db_note, "ts": None})
+    if db:
+        try:
+            from app.services.tamapi_metrics import _ro
+            with _ro(db) as c:
+                for r in c.execute(
+                        "SELECT kind, contact_id, detail, ts FROM control_events "
+                        "ORDER BY id DESC LIMIT ?", (limit,)):
+                    client.append({"src": "chatter", "kind": r["kind"],
+                                   "detail": r["detail"] or r["contact_id"] or "",
+                                   "ts": r["ts"]})
+        except Exception as exc:                   # noqa: BLE001 — источник внешний
+            # DEV-18: провал источника виден В САМОЙ ленте, а не в тишине.
+            # Прежний `except Exception: pass` делал отсутствующий файл базы
+            # неотличимым от «клиент сегодня молчал».
+            fixed.append({"src": "панель", "kind": "база клиентов",
+                          "detail": f"{db}: {type(exc).__name__}: {exc}", "ts": None})
+
+    lines, truncated = read_tail(ROOT / "logs" / "chatter_guardian.stdout.log",
+                                 GUARDIAN_LOG_WINDOW)
+    kept = [ln for ln in lines if is_decision(ln)]
+    for ln in kept:
+        guard.append({"src": "гардиан", "kind": "раннер",
+                      # Префикс времени вырезается: оно уехало в свою колонку
+                      # («Когда» в `_events_table`), и дублировать его в узкой
+                      # колонке детали значит занять её уже нарисованным.
+                      "detail": _LOG_TS_RE.sub("", ln)[:120],
+                      "ts": parse_log_ts(ln)})
+    if truncated:
+        oldest = next((parse_log_ts(ln) for ln in kept if parse_log_ts(ln)), None)
+        seen_from = (time.strftime("%d.%m %H:%M", time.localtime(oldest))
+                     if oldest else "неизвестного момента")
+        fixed.append({"src": "гардиан", "kind": "граница видимости",
+                      "detail": f"лог длиннее окна: видно с {seen_from}",
+                      "ts": oldest})
+
+    client.sort(key=_newest_first)
+    guard.sort(key=_newest_first)
+    out = fixed + _share_window([client, guard], limit - len(fixed))
+    out.sort(key=_newest_first)
     return out[:limit]
 
 
