@@ -33,6 +33,7 @@ T_EVAL = "tests/test_ops_watchdog.py"
 T_TREE = "tests/test_ops_watchdog_tree.py"
 T_CHAT = "tests/test_ops_watchdog_chatter.py"
 T_SEC = "tests/test_ops_watchdog_secrets.py"
+T_JOURNAL = "tests/test_panel_event_journal.py"
 
 # (имя, файл, что заменить, на что, какой тест ОБЯЗАН покраснеть)
 MUTATIONS = [
@@ -133,6 +134,64 @@ MUTATIONS = [
      '        return {"ok": False, "reason": "stale", "detail":',
      '        return {"ok": False, "reason": "stale:%.1f" % lag_days, "detail":',
      T_SEC + "::test_stale_reason_is_stable_while_the_lag_grows"),
+
+    # ── переходы журнала: `transitions()` ──────────────────────────────────
+    # 14.08 гейт целился ТОЛЬКО в дедуп и в причины проб: ни `fire()`, ни `ts`,
+    # ни `ALERTING_KINDS` не были под мутацией, хотя докстринг `evaluate()`
+    # обещал «на них стоят тесты и мутационный гейт». Пять мутаций ниже
+    # переживали все 138 сторожей — значит проверялось не то.
+    ("переход: падение записано видом `changed`", WATCHDOG,
+     '                    fire(check, "down", res, reason)',
+     '                    fire(check, "changed", res, reason)',
+     T_JOURNAL + "::test_a_down_transition_carries_structure_not_text"),
+
+    ("переход: подавленное падение записано видом `down`", WATCHDOG,
+     '                    fire(check, "suppressed", res, reason)',
+     '                    fire(check, "down", res, reason)',
+     T_JOURNAL + "::test_a_suppressed_fall_is_a_transition_but_not_an_alert"),
+
+    ("переход: `ts` — константа, а не показание часов", WATCHDOG,
+     '        t = {"ts": now, "check": check, "kind": kind,',
+     '        t = {"ts": 0.0, "check": check, "kind": kind,',
+     T_JOURNAL + "::test_the_timestamp_comes_from_the_clock_and_is_not_a_constant"),
+
+    ("переход: лишнее поле сверх пяти из §2.2", WATCHDOG,
+     '             "reason": reason, "detail": res.get("detail", "")}',
+     '             "reason": reason, "detail": res.get("detail", ""), "hb_age": 0}',
+     T_JOURNAL + "::test_a_transition_carries_exactly_the_five_fields_and_no_sixth"),
+
+    ("`suppressed` попал в ALERTING_KINDS — молчание стало алертом", WATCHDOG,
+     'ALERTING_KINDS = ("down", "recovered", "changed")',
+     'ALERTING_KINDS = ("down", "recovered", "changed", "suppressed")',
+     T_JOURNAL + "::test_a_suppressed_fall_is_a_transition_but_not_an_alert"),
+
+    ("окно загрузки: дедуп `suppressed` снят — запись каждый цикл", WATCHDOG,
+     '                if not st.get("alerted") and st["fail"] == debounce:',
+     '                if not st.get("alerted") and st["fail"] >= debounce:',
+     T_JOURNAL + "::test_one_fall_in_the_boot_window_writes_exactly_two_records"),
+
+    ("окно загрузки: `suppressed` пишется о том, про что уже сказали", WATCHDOG,
+     '                if not st.get("alerted") and st["fail"] == debounce:',
+     '                if st["fail"] == debounce:',
+     T_JOURNAL + "::test_a_fall_the_owner_already_heard_about_is_not_written_as_suppressed"),
+
+    ("исход «поднялось само» не пишется в журнал", WATCHDOG,
+     '            elif isinstance(st.get("fail"), (int, float)) and st["fail"] > 0:',
+     "            elif False:",
+     T_JOURNAL + "::test_a_suppressed_fall_that_came_back_up_leaves_its_outcome_in_the_journal"),
+
+    ("подъём после ПОДАВЛЕННОГО падения ушёл алертом владельцу", WATCHDOG,
+     '                fire(check, "recovered", res, reason, journal_only=True)',
+     '                fire(check, "recovered", res, reason)',
+     T_JOURNAL + "::test_the_owner_hears_no_recovery_of_a_fall_he_was_never_told_about"),
+
+    # Граница stdlib-only (§2.1, ловушка 1). Под pytest корень репозитория и так
+    # на `sys.path`, поэтому мутация ниже НЕ ломает загрузку модуля и проходит
+    # все прочие сторожа зелёной. Ловит её только подпроцесс без корня на пути.
+    ("граница stdlib: сторож потянул app/", WATCHDOG,
+     "import json\nimport re",
+     "from app.services import jarvis_farm  # noqa: F401\nimport json\nimport re",
+     T_JOURNAL + "::test_the_watchdog_path_runs_where_app_and_third_party_are_unimportable"),
 ]
 
 

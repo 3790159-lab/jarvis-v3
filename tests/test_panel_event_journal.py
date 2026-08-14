@@ -183,10 +183,19 @@ def test_a_fall_the_owner_already_heard_about_is_not_written_as_suppressed():
     проверка, объявленная красной днями раньше (чек worktree простоял красным
     1669 циклов), в загрузочном окне снова порождала `suppressed`, и §4.6
     рисовал НОВЫЙ инцидент про старое падение."""
-    prev = {"worktree": {"fail": 1669, "alerted": True,
-                         "alerted_reason": "dirty:a.yaml"}}
     probes = {"worktree": _probe(False, "dirty:a.yaml", "модифицировано 1")}
-    trs, _st = ow.transitions(prev, probes, debounce=2, suppress_down=True)
+
+    long_red = {"worktree": {"fail": 1669, "alerted": True,
+                             "alerted_reason": "dirty:a.yaml"}}
+    assert ow.transitions(long_red, probes, debounce=2, suppress_down=True)[0] == []
+
+    # Вторая форма держит РОВНО условие «уже сообщили», а не дедуп по счётчику:
+    # здесь порог пересекается прямо сейчас, то есть дедуп из А1 пропустил бы
+    # запись, и молчит только проверка `alerted`. Стейт читается с диска, и его
+    # форма важнее её происхождения — файл переживает и ребут, и выкатку.
+    about_to_cross = {"worktree": {"fail": 1, "alerted": True,
+                                   "alerted_reason": "dirty:a.yaml"}}
+    trs, _st = ow.transitions(about_to_cross, probes, debounce=2, suppress_down=True)
     assert trs == [], trs
 
 
