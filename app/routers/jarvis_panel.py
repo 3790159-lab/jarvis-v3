@@ -272,7 +272,11 @@ def _events_table(events: list[dict], now: float) -> str:
     body = "".join(
         f"<tr><td><b>{esc(e['kind'])}</b></td>"
         f"<td data-l='Источник' class='sub'>{esc(e['src'])}</td>"
-        f"<td data-l='Деталь' class='sub'>{esc((e['detail'] or '')[:110])}</td>"
+        # Предел длины — тот же, что на источнике (`F.FEED_DETAIL_LIMIT`), а не
+        # свой. Здесь стояло 110 против 120 у ленты, и это ровно та же болезнь,
+        # что и два числа окна: меньший из двух пределов делает больший
+        # невидимым, а разъезжаются они молча.
+        f"<td data-l='Деталь' class='sub'>{esc((e['detail'] or '')[:F.FEED_DETAIL_LIMIT])}</td>"
         f"<td data-l='Когда' class='sub'>{esc(_ago(e['ts'], now)) if e['ts'] else '—'}</td></tr>"
         # Рендерер рисует то, что ему дали, и своего мнения о размере окна не
         # имеет. Собственный `[:25]` здесь был ВТОРЫМ срезом ленты — уже после

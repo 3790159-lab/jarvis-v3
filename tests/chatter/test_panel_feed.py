@@ -1707,3 +1707,25 @@ def test_the_guardian_writes_its_log_in_utf8_not_in_the_system_codepage():
     assert writes, "запись строки лога в гардиане не найдена — переименовали?"
     for ln in writes:
         assert "-Encoding utf8" in ln, f"лог снова пишется в системной кодировке: {ln}"
+
+
+def test_the_detail_limit_is_a_single_number_from_source_to_screen():
+    """Парный к `test_the_window_of_the_feed_is_a_single_number`.
+
+    Лента режет деталь на `FEED_DETAIL_LIMIT`, а разметка резала на своих 110 —
+    меньший из двух пределов делал больший невидимым, и разъехаться они могли
+    молча. Строка «панель» (пояснение лестницы источников) на источнике не
+    режется вовсе, так что предел разметки — единственный, и он обязан быть
+    тем же самым."""
+    from app.routers import jarvis_panel as P
+
+    long_note = "я" * (F.FEED_DETAIL_LIMIT + 40)
+    html = P._events_table(
+        [{"src": "панель", "kind": "склад клиентов", "detail": long_note, "ts": None}],
+        time.time())
+    # Считаем В ЯЧЕЙКЕ, а не по всей странице: подпись про «посчитано ≠
+    # доехало» несёт свои буквы, и счёт по всему HTML промахивался бы на них.
+    cell = html.split("data-l='Деталь'")[1].split("</td>")[0]
+    drawn = cell.count("я")
+    assert drawn == F.FEED_DETAIL_LIMIT, \
+        f"разметка нарисовала {drawn} символов при пределе {F.FEED_DETAIL_LIMIT}"

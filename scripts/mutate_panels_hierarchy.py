@@ -568,6 +568,11 @@ MUTATIONS = [
      [("        for e in events)", "        for e in events[:25])")],
      f"{FD}::test_the_renderer_draws_everything_it_was_given"),
 
+    ("предел детали в разметке снова свой", JP,
+     [("{esc((e['detail'] or '')[:F.FEED_DETAIL_LIMIT])}",
+       "{esc((e['detail'] or '')[:110])}")],
+     f"{FD}::test_the_detail_limit_is_a_single_number_from_source_to_screen"),
+
     # ── Task 6: кодировка лога у писателя ────────────────────────────────
     ("гардиан снова пишет лог в системной кодировке", PS1,
      [("Add-Content -LiteralPath $gOut -Value $line -Encoding utf8",
