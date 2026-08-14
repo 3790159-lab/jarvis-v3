@@ -432,17 +432,22 @@ def read_tail(path, limit: int = GUARDIAN_LOG_WINDOW) -> tuple[list[str], bool]:
         return [], False
 
     truncated = size > limit
+    if truncated:
+        # Обрубок первой строки отрезается ДО декодирования, и порядок здесь
+        # несущий. Срез по байтам рассекает не только строку (обрубок в ленте
+        # выглядит как событие с потерянным началом), но и многобайтовый
+        # СИМВОЛ: на половине кириллической буквы `decode("utf-8")` бросает
+        # UnicodeDecodeError и уводит в cp1251 ВЕСЬ здоровый блок — из-за
+        # одного разрубленного байта кракозябрами приезжает вся лента.
+        # Отрезав обрубок байтами, мы убираем и половину символа вместе с ним.
+        # Пустой хвост (в окно не попало ни одного перевода строки) — это
+        # честный «ни одной целой строки не видно», а не молчаливая порча.
+        raw = raw.partition(b"\n")[2]
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError:
         text = raw.decode("cp1251", errors="replace")
-
-    lines = text.splitlines()
-    if truncated and lines:
-        # Срез по байтам рассекает строку посередине: обрубок в ленте выглядит
-        # как событие с потерянным началом.
-        lines = lines[1:]
-    return lines, truncated
+    return text.splitlines(), truncated
 
 
 def events(limit: int = 40) -> list[dict]:

@@ -164,6 +164,27 @@ def test_the_first_partial_line_of_the_window_is_dropped(tmp_path):
     assert not any(set(line) == {"A"} for line in lines), lines
 
 
+def test_a_utf8_log_survives_a_window_that_cuts_a_character_in_half(tmp_path):
+    """Срез по байтам рассекает не только СТРОКУ, но и многобайтовый СИМВОЛ.
+    На таком обрывке `raw.decode("utf-8")` бросает UnicodeDecodeError — и
+    фолбэк уводит в cp1251 весь здоровый utf-8 блок: из-за одного разрубленного
+    байта в начале окна кракозябрами приезжает ВСЯ лента, включая строку с
+    именем активной базы. Фолбэк, задуманный как лечение прошлого, сам
+    становится источником порчи настоящего.
+
+    Тот же дефект в проде выглядел бы «плавающим»: попадёт граница окна на
+    середину кириллицы — лента испорчена, не попадёт — цела."""
+    tail = "2026-08-14 00:45:08 | Состав: CHATTER_PERSONAS=volska\n"
+    data = ("я" * 1000).encode("utf-8") + b"\n" + tail.encode("utf-8")
+    p = tmp_path / "g.log"
+    p.write_bytes(data)
+    # 1001 — НЕЧЁТНОЕ смещение внутри ряда двухбайтовых «я»: окно заведомо
+    # начинается с половины символа.
+    lines, truncated = F.read_tail(p, limit=len(data) - 1001)
+    assert truncated is True
+    assert "Состав: CHATTER_PERSONAS=volska" in lines[-1], lines[-1]
+
+
 def test_a_missing_log_is_not_an_exception(tmp_path):
     """Лог может отсутствовать на машине без chatter. Это пустая лента, а не
     падение страницы."""
