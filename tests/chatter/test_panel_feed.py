@@ -277,3 +277,99 @@ def test_a_missing_log_is_not_an_exception(tmp_path):
     """Лог может отсутствовать на машине без chatter. Это пустая лента, а не
     падение страницы."""
     assert F.read_tail(tmp_path / "нет-такого.log") == ([], False)
+
+
+def _clients_dir(tmp_path, *slugs):
+    """Склад клиентов в том же виде, в каком его читает раннер: `clients:` со
+    списком слагов, ПЕРВЫЙ — первичный."""
+    d = tmp_path / "chatter" / "clients"
+    d.mkdir(parents=True)
+    (d / "active.yaml").write_text(
+        "clients:\n" + "".join(f"  - {s}\n" for s in slugs), encoding="utf-8")
+    return d
+
+
+def test_the_database_follows_the_primary_slug(tmp_path, monkeypatch):
+    """Первичный slug МЕНЯЕТСЯ: 14.08 во время демо Ярины он был `yarina`.
+    Панель с прибитым литералом в такой момент читает не ту базу и печатает
+    «тихо» вместо ленты — тишина, неотличимая от здоровья. Проверено фактом:
+    рядом с `.secrets/demo.db` (35 control_events) лежит `.secrets/yarina.db`
+    ровно с нулём — на нём лента и была бы пустой."""
+    _clients_dir(tmp_path, "yarina", "demo")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    monkeypatch.delenv("TAMAPI_DB", raising=False)
+    monkeypatch.delenv("CHATTER_DB", raising=False)
+    monkeypatch.delenv("CHATTER_PERSONAS", raising=False)
+    path, note = F.client_db_path()
+    assert note == ""
+    assert path.endswith("yarina.db"), path
+
+
+def test_an_explicit_env_database_still_wins(tmp_path, monkeypatch):
+    """На TAMAPI_DB стоит демо-стенд (scripts/panels_demo.py). Отобрать у него
+    приоритет значит сломать стенд приёмки."""
+    _clients_dir(tmp_path, "demo")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    monkeypatch.setenv("TAMAPI_DB", "state/panels_demo.db")
+    assert F.client_db_path() == ("state/panels_demo.db", "")
+
+
+def test_the_runners_own_env_override_moves_the_panel_too(tmp_path, monkeypatch):
+    """CHATTER_DB — переопределение САМОГО раннера (telethon_run.py,
+    `resolve_runtime_paths`: явный флаг > CHATTER_DB > вывод из slug'а). Пока
+    панель его не знает, разовый запуск раннера на другой базе делает ленту
+    рассказом о чужой базе."""
+    _clients_dir(tmp_path, "demo")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    monkeypatch.delenv("TAMAPI_DB", raising=False)
+    monkeypatch.setenv("CHATTER_DB", ".secrets/yarina.db")
+    assert F.client_db_path() == (".secrets/yarina.db", "")
+
+
+def test_the_composition_env_moves_the_panel_like_it_moves_the_runner(tmp_path, monkeypatch):
+    """CHATTER_PERSONAS перебивает active.yaml у раннера
+    (`chatter.config.active.resolve_personas`), и первичным становится первый
+    slug из переменной. Панель обязана ехать туда же, иначе разовый запуск
+    состава «не как в файле» снова разводит их по разным базам."""
+    _clients_dir(tmp_path, "demo")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    monkeypatch.delenv("TAMAPI_DB", raising=False)
+    monkeypatch.delenv("CHATTER_DB", raising=False)
+    monkeypatch.setenv("CHATTER_PERSONAS", "yarina,demo")
+    path, note = F.client_db_path()
+    assert note == ""
+    assert path.endswith("yarina.db"), path
+
+
+def test_a_broken_composition_says_so_instead_of_falling_back_silently(tmp_path, monkeypatch):
+    """Тихий откат на demo.db И ЕСТЬ починяемый дефект: панель показала бы
+    ленту чужой базы и назвала бы её текущей."""
+    d = tmp_path / "chatter" / "clients"
+    d.mkdir(parents=True)
+    (d / "active.yaml").write_text("clients: [](((битый", encoding="utf-8")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    monkeypatch.delenv("TAMAPI_DB", raising=False)
+    monkeypatch.delenv("CHATTER_DB", raising=False)
+    monkeypatch.delenv("CHATTER_PERSONAS", raising=False)
+    path, note = F.client_db_path()
+    assert path is None
+    assert "не прочитан" in note, note
+    assert "demo.db" not in note
+
+
+def test_an_empty_composition_is_a_note_not_an_IndexError(tmp_path, monkeypatch):
+    """Сегодня `resolve_personas` на пустом списке кричит сама (проверено:
+    ActiveClientsError), но панель берёт `slugs[0]` — и в тот день, когда
+    источник начнёт возвращать пустой список молча, страница фермы упадёт
+    IndexError'ом целиком. Пустой состав — такое же «неизвестно, какую базу
+    читать», как и битый файл."""
+    import chatter.config.active as A
+    _clients_dir(tmp_path, "demo")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    monkeypatch.setattr(A, "resolve_personas", lambda **kw: [])
+    monkeypatch.delenv("TAMAPI_DB", raising=False)
+    monkeypatch.delenv("CHATTER_DB", raising=False)
+    monkeypatch.delenv("CHATTER_PERSONAS", raising=False)
+    path, note = F.client_db_path()
+    assert path is None
+    assert "не прочитан" in note, note
