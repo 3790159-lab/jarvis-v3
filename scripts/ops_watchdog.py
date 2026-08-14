@@ -165,7 +165,14 @@ def _transitions(prev_state: dict, probes: dict, debounce: int = DEBOUNCE,
     алерт на падение).
     """
     now = time.time() if now is None else now
-    new_state = {k: dict(v) for k, v in prev_state.items()}
+    # isinstance-щит — зеркало `detect_reboot()` ниже, и по той же причине.
+    # Цена падения здесь несоразмерна: `main()` исключение не ловит, а обёртка
+    # `ops_watchdog_detached.ps1` пишет heartbeat ДО цикла и ловит ошибку в
+    # `catch` — петля жива, heartbeat свеж, все наблюдатели видят ЗДОРОВЫЙ
+    # сторож, а алертов нет НИКОГДА. Живой стейт сегодня из одних словарей, но
+    # журнал кладёт в тот же файл служебные ключи.
+    new_state = {k: (dict(v) if isinstance(v, dict) else v)
+                 for k, v in prev_state.items()}
     out = []
     to_owner = []
 
@@ -177,7 +184,10 @@ def _transitions(prev_state: dict, probes: dict, debounce: int = DEBOUNCE,
             to_owner.append(t)
 
     for check, res in probes.items():
-        st = dict(new_state.get(check, {"fail": 0, "alerted": False}))
+        entry = new_state.get(check)
+        # Второй щит, на взятии записи: верхний оставил не-словарь как есть,
+        # и `dict(scalar)` упал бы уже здесь.
+        st = dict(entry) if isinstance(entry, dict) else {"fail": 0, "alerted": False}
         reason = str(res.get("reason") or check)
         if res.get("ok"):
             if st.get("alerted"):

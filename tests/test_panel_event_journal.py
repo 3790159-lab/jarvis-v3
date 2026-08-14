@@ -218,6 +218,37 @@ def test_the_owner_hears_no_recovery_of_a_fall_he_was_never_told_about():
     assert ow.evaluate(st, probes, debounce=2)[0] == []
 
 
+# ── кривой стейт: цена падения здесь несоразмерна ──────────────────────────
+def test_a_non_dict_entry_in_the_state_file_does_not_kill_the_cycle():
+    """`detect_reboot()` в том же файле такой стейт переживает
+    (`dict(v) if isinstance(v, dict) else v`), а `transitions()` падала на
+    голом `dict(v)`.
+
+    Цена несоразмерна причине: `main()` исключение не ловит, а обёртка
+    `ops_watchdog_detached.ps1` пишет heartbeat ДО цикла и ловит ошибку в
+    `catch` — петля жива, heartbeat свеж, все наблюдатели видят ЗДОРОВЫЙ
+    сторож, а алертов нет НИКОГДА. Сегодня латентно (живой стейт — одни
+    словари), но журнал кладёт в тот же файл служебные ключи, и первый же
+    скалярный ключ убил бы сторожа."""
+    probes = {"backend": _probe(False, "no_response", "нет ответа")}
+    down_text = "🚨 DOWN: BACKEND (:8010 /health). нет ответа"
+
+    # (а) чужой служебный ключ рядом с проверками — не трогаем и не спотыкаемся
+    for junk in (None, 0, 1, 3.5, True, "строка", [], ["мусор"]):
+        prev = {"backend": {"fail": 1, "alerted": False}, "_journal_seq": junk}
+        trs, new = ow.transitions(prev, probes, debounce=2)
+        assert [t["kind"] for t in trs] == ["down"], (junk, trs)
+        assert new["_journal_seq"] == junk, junk
+        assert ow.evaluate(prev, probes, debounce=2)[0] == [down_text], junk
+
+    # (б) запись САМОЙ проверки не словарь — `dict(scalar)` падал бы в цикле
+    for junk in (None, 0, "строка", 3.5, True):
+        trs, new = ow.transitions({"backend": junk}, probes, debounce=1)
+        assert [t["kind"] for t in trs] == ["down"], (junk, trs)
+        assert new["backend"] == {"fail": 1, "alerted": True,
+                                  "alerted_reason": "no_response"}, junk
+
+
 # ── граница stdlib-only: §2.1 и ловушка 1 спеки ────────────────────────────
 # Под pytest корень репозитория и так лежит на `sys.path`, поэтому «модуль
 # загрузился по пути» не доказывает НИЧЕГО: `from app.services import ...` в
