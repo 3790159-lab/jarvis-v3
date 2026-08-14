@@ -435,12 +435,21 @@ def is_decision(line: str) -> bool:
 GUARDIAN_LOG_WINDOW = 64 * 1024
 
 
+def _decode_line(chunk: bytes) -> str:
+    """Одна строка лога: utf-8, и только на ней самой — фолбэк в cp1251.
+    Обоснование порядка и области фолбэка — в докстринге `read_tail`."""
+    try:
+        return chunk.decode("utf-8")
+    except UnicodeDecodeError:
+        return chunk.decode("cp1251", errors="replace")
+
+
 def read_tail(path: "Path | str",
               limit: int = GUARDIAN_LOG_WINDOW) -> tuple[list[str], bool]:
     """(строки хвоста, файл_длиннее_окна).
 
-    КОДИРОВКА: utf-8, при провале — cp1251 на ВЕСЬ блок. Порядок не
-    переставляется: cp1251 отображает 255 байт из 256 и на живом логе не
+    КОДИРОВКА: utf-8, при провале — cp1251, и решается это ПОСТРОЧНО. Порядок
+    не переставляется: cp1251 отображает 255 байт из 256 и на живом логе не
     споткнётся никогда, поэтому первым он молча превратил бы нормальный utf-8
     в мусор, и выглядело бы это как «так и было в логе».
 
@@ -448,9 +457,19 @@ def read_tail(path: "Path | str",
     cp1251 байт — `0x98`, и без глушителя одна такая байта в логе роняет
     `UnicodeDecodeError` наружу, то есть всю страницу панели.
 
-    Фолбэк на блок, а не на строку: смешанный файл прочтётся как cp1251
-    целиком, и это лучше ровного ряда `�` от errors="replace" — cp1251 верно
-    читает латиницу, цифры и пути, то есть `CHATTER_PERSONAS`, PID и db=.
+    Фолбэк именно на СТРОКУ, а не на блок, потому что файл СМЕШАННЫЙ по
+    кодировке — это не край, а прямое следствие Task 6: он ставит гардиану
+    `-Encoding utf8`, и с этой минуты в одном файле лежит cp1251-прошлое и
+    utf-8-будущее. Блочный фолбэк в такой день портит самое ценное: одна старая
+    cp1251-байта роняет `decode("utf-8")` на ВСЁМ окне, и кракозябрами
+    становятся СВЕЖИЕ строки, а старые читаются словами. Воспроизведено: панель
+    назвала `yarina` фактом «из лога гардиана», пока свежайшая строка лога
+    называла `volska`.
+
+    Резать по `b"\\n"` безопасно в обеих кодировках: 0x0A не встречается ни
+    внутри многобайтовой последовательности utf-8, ни как часть символа cp1251.
+    Обратная склейка через `"\\n".join(...)` + `splitlines()` оставляет разбор
+    на строки ровно таким, каким он был (CRLF из PowerShell, `\\r`, `\\u2028`).
     """
     p = Path(path)
     try:
@@ -479,10 +498,7 @@ def read_tail(path: "Path | str",
         # Пустой хвост (в окно не попало ни одного перевода строки) — это
         # честный «ни одной целой строки не видно», а не молчаливая порча.
         raw = raw.partition(b"\n")[2]
-    try:
-        text = raw.decode("utf-8")
-    except UnicodeDecodeError:
-        text = raw.decode("cp1251", errors="replace")
+    text = "\n".join(_decode_line(chunk) for chunk in raw.split(b"\n"))
     # BOM снимается ЗДЕСЬ, а не «когда-нибудь понадобится»: Task 6 ставит
     # гардиану `-Encoding utf8`, а PowerShell 5.1 под этим именем пишет utf-8
     # ИМЕННО С BOM (проверено: EF BB BF в начале файла). Незамеченный U+FEFF
@@ -527,16 +543,33 @@ def read_tail(path: "Path | str",
 LOG_DB_UNSET = "по первому слагу"
 # Строка состава из лога гардиана. Формат писателя — там же, ps1:145:
 #   «состав: CHATTER_PERSONAS=<roster>, db=<путь|по первому слагу>»
-_LOG_ROSTER_RE = re.compile(r"состав: CHATTER_PERSONAS=(?P<roster>.*?), db=(?P<db>.*)$")
+#
+# ЗАЯКОРЕНО с начала строки вместе с отметкой времени, и это ГРАБЛЯ 1 файла
+# (запуск против упоминания) в логовом измерении. В тот же файл гардиан выливает
+# ЧУЖОЙ текст дословно: `Invoke-WatchCheck FAILED: $($_.Exception.Message)`
+# (ps1:166) и `Start-Process FAILED: …` (ps1:232) — сообщение исключения едет в
+# лог как есть. Незаякоренный `.search()` находил «состав: …» ВНУТРИ такой
+# строки, и пересказ дал панели путь `C:\zlo.db` (воспроизведено).
+#
+# Префикс времени берётся у `_LOG_TS_RE`, а не переписывается рядом: две записи
+# одного формата разъехались бы молча, а разбирают они одну и ту же строку.
+_LOG_ROSTER_RE = re.compile(
+    _LOG_TS_RE.pattern + r"состав: CHATTER_PERSONAS=(?P<roster>.*?), db=(?P<db>.+)$")
 
 
 def _abs_db(raw: str) -> str:
     """Путь раннера — в ЕГО системе координат: он держит `CHATTER_DB` вида
     `.secrets\\demo.db` при cwd `C:\\jarvis`. Панель поднимает другой гардиан, и
     её cwd может быть любым, поэтому относительный путь домысливается от ROOT, а
-    не от текущего каталога процесса."""
+    не от текущего каталога процесса.
+
+    `p.drive` проверяется ОТДЕЛЬНО от `is_absolute()`: Windows принимает
+    диск-относительный путь `C:x.db` (относительно текущего каталога диска C:),
+    а `Path("C:x.db").is_absolute()` при этом False — и такой путь приклеивался
+    к ROOT, давая несуществующее имя `<ROOT>\\C:x.db`. Диск в пути назван —
+    значит домысливать нечего."""
     p = Path(raw.strip().strip('"'))
-    return str(p if p.is_absolute() else ROOT / p)
+    return str(p if p.is_absolute() or p.drive else ROOT / p)
 
 
 def _db_from_slug(slug: str) -> str:
@@ -544,8 +577,25 @@ def _db_from_slug(slug: str) -> str:
     (`chatter/telethon_run.py:derive_db_path`). Равенство держит СТОРОЖ ПАРИТЕТА
     (`test_the_panel_derives_the_file_exactly_as_the_runner_does`), а не это
     предложение: смена схемы имён у раннера обязана красить тест, а не молча
-    возвращать дефект."""
+    возвращать дефект.
+
+    Равенство держится ещё и тем, что у раннера `SECRETS_DIR = Path(".secrets")`
+    ОТНОСИТЕЛЬНЫЙ (`chatter/telethon_run.py:77`), а его cwd — это ROOT:
+    `chatter_guardian_detached.ps1:229` запускает его с `-WorkingDirectory $Root`.
+    Уедет любое из двух — панель начнёт читать файл, которого раннер не пишет,
+    и сторож паритета обязан это поймать, поэтому каталог ему НЕ подсовывается."""
     return str(ROOT / ".secrets" / f"{slug}.db")
+
+
+def _primary_slug(roster: str) -> str:
+    """Первый НЕПУСТОЙ slug состава — ровно как у раннера
+    (`chatter.config.active.resolve_personas`: `[s.strip() for s in ... if s.strip()]`).
+
+    Сырой `split(",")[0]` расходился с ним на `CHATTER_PERSONAS=',volska'`:
+    раннер обслуживает volska.db, а панель получала пустой slug и говорила
+    «раннер жив, но базу в своём окружении не называет» — пояснение ЛОЖНОЕ,
+    он её называл, читать не умели мы."""
+    return next((s for s in (part.strip() for part in roster.split(",")) if s), "")
 
 
 def _db_from_runner_env(env: dict) -> str | None:
@@ -554,7 +604,7 @@ def _db_from_runner_env(env: dict) -> str | None:
     db = (env.get("CHATTER_DB") or "").strip()
     if db:
         return _abs_db(db)
-    slug = (env.get("CHATTER_PERSONAS") or "").split(",")[0].strip()
+    slug = _primary_slug(env.get("CHATTER_PERSONAS") or "")
     return _db_from_slug(slug) if slug else None
 
 
@@ -580,24 +630,38 @@ def _db_from_live_runner(table: list[tuple] | None) -> tuple[str | None, str]:
     if not pids:
         return None, ""                  # пусто = «раннера нет», а не «не смогли»
 
-    answers, denied = [], []
+    answers, denied, gone = [], [], []
     for pid in pids:
         try:
             env = psutil.Process(pid).environ() or {}
+        except psutil.NoSuchProcess:
+            # ШТАТНАЯ гонка, а не редкость: между `_proc_table()` и `environ()`
+            # гардиан вправе перезапустить раннер (14.08 он сделал это за 61 с).
+            # Слить её с AccessDenied значит сказать «раннер жив» о процессе,
+            # которого в этот момент уже нет, — а это разные новости: одна про
+            # права, другая про перезапуск.
+            gone.append(str(pid))
         except Exception as exc:         # noqa: BLE001 — источник внешний
-            # DEV-18: AccessDenied/NoSuchProcess не глотаем. Ответ ниже по
-            # лестнице всё равно будет, но он ДОГАДКА, и разница обязана
-            # доехать до ленты словами.
+            # DEV-18: AccessDenied и прочее не глотаем. Ответ ниже по лестнице
+            # всё равно будет, но он ДОГАДКА, и разница обязана доехать до
+            # ленты словами.
             denied.append(f"PID {pid}: {type(exc).__name__}")
             continue
-        db = _db_from_runner_env(env)
-        if db is not None:
-            answers.append((pid, db))
+        else:
+            db = _db_from_runner_env(env)
+            if db is not None:
+                answers.append((pid, db))
 
     if not answers:
+        parts = []
         if denied:
-            return None, ("раннер жив, но его окружение не прочитать "
-                          f"({', '.join(denied)})")
+            parts.append("раннер жив, но его окружение не прочитать "
+                         f"({', '.join(denied)})")
+        if gone:
+            parts.append("раннер исчез, пока мы спрашивали "
+                         f"(PID {', '.join(gone)})")
+        if parts:
+            return None, "; ".join(parts)
         return None, "раннер жив, но базу в своём окружении не называет"
     if len({db for _, db in answers}) > 1:
         listed = "; ".join(f"PID {pid} — {db}" for pid, db in answers)
@@ -606,31 +670,39 @@ def _db_from_live_runner(table: list[tuple] | None) -> tuple[str | None, str]:
     return answers[0][1], ""
 
 
-def _db_from_guardian_log() -> tuple[str | None, float | None]:
-    """(путь, время строки) из последней строки «состав: … db=…».
+def _db_from_guardian_log() -> tuple[str | None, float | None, str]:
+    """(путь, время строки, оговорка про окно) из последней строки «состав: … db=…».
 
     Читается тем же `read_tail`, что и лента: у растущего вечно лога второго
     способа чтения быть не должно.
 
     Берётся ПОСЛЕДНЯЯ подходящая строка и на ней разбор кончается: она написана
     текущим запуском гардиана, а всё, что выше, — прошлые составы. Если она
-    называет `active.yaml`, лог не знает ничего сверх шага 4."""
-    lines, _ = read_tail(ROOT / "logs" / "chatter_guardian.stdout.log")
+    называет `active.yaml`, лог не знает ничего сверх шага 4.
+
+    Третьим элементом возвращается ОГОВОРКА, потому что `truncated` здесь
+    несущий, а не декоративный: строку «состав» гардиан пишет ТОЛЬКО при своём
+    старте (ps1:145), ротации у лога нет вовсе, и при долгом аптайме строка
+    уезжает за окно. Молча промолчав, ступень 3 выглядела бы точно так же, как
+    на машине, где гардиан не запускался никогда, — а это разные вещи."""
+    lines, truncated = read_tail(ROOT / "logs" / "chatter_guardian.stdout.log")
     for line in reversed(lines):
-        m = _LOG_ROSTER_RE.search(line)
+        m = _LOG_ROSTER_RE.match(line)
         if not m:
             continue
         db = m.group("db").strip()
         if db and db != LOG_DB_UNSET:
-            return _abs_db(db), parse_log_ts(line)
+            return _abs_db(db), parse_log_ts(line), ""
         # `volska (флаг)` — состав пришёл переменной; `active.yaml` — файлом.
         roster = m.group("roster").strip().split(" (")[0].strip()
         if roster and roster != "active.yaml":
-            slug = roster.split(",")[0].strip()
+            slug = _primary_slug(roster)
             if slug:
-                return _db_from_slug(slug), parse_log_ts(line)
-        return None, None
-    return None, None
+                return _db_from_slug(slug), parse_log_ts(line), ""
+        return None, None, ""
+    gap = ("лог гардиана длиннее окна чтения — строка состава могла не попасть в него"
+           if truncated else "")
+    return None, None, gap
 
 
 def client_db_path(table: list[tuple] | None = None) -> tuple[str | None, str]:
@@ -640,8 +712,17 @@ def client_db_path(table: list[tuple] | None = None) -> tuple[str | None, str]:
     взят у живого раннера. Непустое — ответ есть, но он выведен, и лента обязана
     сказать, откуда. `None` в пути — ответа нет вовсе.
 
-    `table` — уже собранная таблица процессов (как у `processes`/`guardians`):
-    сборщику ленты не за что платить второй обход, он стоит ~1 с.
+    Путь ВСЕГДА абсолютный, на всех четырёх ступенях. Раньше ступень 1 отдавала
+    `TAMAPI_DB`/`CHATTER_DB` как есть, а ступени 2–4 — абсолютный: два контракта
+    в одном возврате, и потребитель разрешал относительный путь то от cwd панели
+    (а он у неё какой угодно), то от ROOT.
+
+    `table` — уже собранная таблица процессов (как у `processes`/`guardians`).
+    Замер 14.08 ПОСЛЕ сужения `_CMDLINE_NAMES`: `_proc_table()` = 9.4 мс,
+    `client_db_path()` без готовой таблицы = 10.7 мс, с готовой = 0.9 мс,
+    `environ()` = 0.1 мс. То есть экономия ≈10 мс, а не «~1 с», как здесь
+    стояло. ⚠️ Таблицу строит `snapshot_fast()`; `events()` её сегодня НЕ имеет
+    и зовёт без аргумента — параметр заработает, когда Task 5 её протянет.
 
     Импорт `psutil` и `chatter.config.active` ЛЕНИВЫЙ и внутри функции —
     сломанное дерево chatter или отсутствующий psutil не имеют права уронить
@@ -655,18 +736,22 @@ def client_db_path(table: list[tuple] | None = None) -> tuple[str | None, str]:
         # Пустая строка — это «не выставлена», а не «база в файле с пустым
         # именем»: sqlite открыл бы такое имя без единой жалобы, и лента молча
         # опустела бы.
-        return env_db, ""
+        return _abs_db(env_db), ""
 
     live_db, why = _db_from_live_runner(table)
     if live_db is not None:
         return live_db, why              # непусто только при расхождении раннеров
     reason = why or "раннер не запущен"
 
-    log_db, log_ts = _db_from_guardian_log()
+    log_db, log_ts, log_gap = _db_from_guardian_log()
     if log_db is not None:
         when = (time.strftime("%d.%m %H:%M", time.localtime(log_ts)) if log_ts
                 else "неразобранного времени")
         return log_db, f"{reason}, база из лога гардиана от {when}"
+    # Лог промолчал. Оговорка про окно едет вместе с ответом ступени 4: без неё
+    # «строка состава уехала за окно» и «гардиан не стартовал ни разу» выглядят
+    # в ленте одинаково.
+    gap = f"; {log_gap}" if log_gap else ""
 
     clients_dir = ROOT / "chatter" / "clients"
     # Проверяем ДО вызова: `resolve_personas` при отсутствии файла ТИХО отдаёт
@@ -693,11 +778,12 @@ def client_db_path(table: list[tuple] | None = None) -> tuple[str | None, str]:
     if file_missing and not env_roster:
         return _db_from_slug(slugs[0]), (
             f"склад клиентов не найден, взято legacy-умолчание {slugs[0]} "
-            "— лента может быть не той базы")
+            f"— лента может быть не той базы{gap}")
     # CHATTER_PERSONAS в окружении ПАНЕЛИ говорит о панели, а не о раннере:
     # источник называем тот, который сработал на самом деле.
     src = "CHATTER_PERSONAS панели" if env_roster else "active.yaml"
-    return _db_from_slug(slugs[0]), f"{reason} и лог молчит — база выведена из {src}"
+    return (_db_from_slug(slugs[0]),
+            f"{reason} и лог молчит — база выведена из {src}{gap}")
 
 
 def events(limit: int = 40) -> list[dict]:

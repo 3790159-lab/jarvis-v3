@@ -152,6 +152,26 @@ def test_a_cp1251_log_is_still_readable(tmp_path):
     assert "�" not in lines[0], "фолбэк не сработал, строка испорчена"
 
 
+def test_a_log_where_both_encodings_live_keeps_the_NEWEST_lines_readable(tmp_path):
+    """Смешанный файл — не гипотеза, а ровно то, что делает Task 6: он ставит
+    гардиану `-Encoding utf8`, и с этой минуты в ОДНОМ файле лежит cp1251-прошлое
+    и utf-8-будущее.
+
+    Фолбэк на ВЕСЬ блок в такой день ломает самое ценное: одна старая cp1251-байта
+    роняет `decode("utf-8")`, и в cp1251 уезжают СВЕЖИЕ строки, а не старые.
+    Поэтому декодируем ПОСТРОЧНО. Порядок «utf-8 первым» при этом не меняется —
+    cp1251 отображает 255 байт из 256 и молча испортил бы нормальный utf-8."""
+    p = tmp_path / "g.log"
+    p.write_bytes(
+        "2026-08-14 00:40:00 | состав: CHATTER_PERSONAS=yarina, db=по первому слагу\n"
+        .encode("cp1251")
+        + "2026-08-14 00:45:00 | состав: CHATTER_PERSONAS=volska, db=по первому слагу\n"
+        .encode("utf-8"))
+    lines, _ = F.read_tail(p)
+    assert "состав: CHATTER_PERSONAS=yarina" in lines[0], lines[0]
+    assert "состав: CHATTER_PERSONAS=volska" in lines[1], lines[1]
+
+
 def test_a_log_longer_than_the_window_is_read_from_the_end(tmp_path):
     """Ротации у гардиана нет — лог растёт вечно, и чтение целиком дорожает
     каждый день. Читаем хвост и ГОВОРИМ, что файл длиннее окна."""
@@ -455,6 +475,54 @@ def test_a_runner_we_may_not_question_says_so_instead_of_going_quiet(tmp_path, m
     assert "жив" in note, note
 
 
+def test_a_runner_that_vanished_mid_question_is_not_called_alive(tmp_path, monkeypatch):
+    """Гонка ШТАТНАЯ, а не редкая: между обходом процессов и `environ()`
+    гардиан вправе перезапустить раннер (14.08 он сделал это за 61 с). Старый
+    разбор сваливал `NoSuchProcess` в ту же кучу, что `AccessDenied`, и панель
+    сообщала «раннер жив, но его окружение не прочитать» о процессе, которого
+    в этот момент уже не было. Два разных события — два разных слова."""
+    import psutil
+
+    _clients_dir(tmp_path, "demo")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+    _environs(monkeypatch, {6864: psutil.NoSuchProcess(6864)})
+    path, note = F.client_db_path([_runner_row(6864)])
+    assert path == str(tmp_path / ".secrets" / "demo.db"), path
+    assert "исчез" in note, note
+    assert "жив" not in note, note
+
+
+def test_an_empty_first_persona_of_the_runner_is_skipped_like_the_runner_skips_it(
+        tmp_path, monkeypatch):
+    """`chatter.config.active.resolve_personas` пустые куски ОТБРАСЫВАЕТ
+    (`if s.strip()`), то есть при `CHATTER_PERSONAS=',volska'` раннер обслуживает
+    volska.db. Панель же брала `split(",")[0]` сырым, получала пустой slug и
+    говорила «раннер жив, но базу в своём окружении не называет» — пояснение,
+    которое ЛОЖНО: раннер её называет, читать не умели мы."""
+    _clients_dir(tmp_path, "demo")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+    _environs(monkeypatch, {6864: {"CHATTER_PERSONAS": ",volska"}})
+    path, note = F.client_db_path([_runner_row(6864)])
+    assert note == "", note
+    assert path == str(tmp_path / ".secrets" / "volska.db"), path
+
+
+def test_a_drive_relative_path_from_the_runner_keeps_its_drive(tmp_path, monkeypatch):
+    """`C:x.db` — путь ОТНОСИТЕЛЬНО текущего каталога диска C:, и Windows его
+    принимает. `Path("C:x.db").is_absolute()` при этом False, поэтому прежняя
+    домысливалка клеила его к ROOT и получала `<ROOT>\\C:x.db` — имя, которого
+    не существует. Диск в пути есть — значит домысливать нечего."""
+    _clients_dir(tmp_path, "demo")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+    _environs(monkeypatch, {6864: {"CHATTER_DB": "C:x.db"}})
+    path, note = F.client_db_path([_runner_row(6864)])
+    assert note == "", note
+    assert path == "C:x.db", path
+
+
 def test_a_process_that_only_mentions_the_runner_is_not_asked(tmp_path, monkeypatch):
     """ГРАБЛЯ 1 файла: маркер внутри `-c` — разговор О раннере, а не раннер.
     Спросить окружение такого процесса значит взять базу у диагностического
@@ -521,6 +589,103 @@ def test_a_log_that_only_points_back_at_the_clients_file_adds_nothing(tmp_path, 
     assert "лога гардиана" not in note, note
 
 
+def test_a_line_that_merely_QUOTES_the_composition_is_not_a_composition_line(
+        tmp_path, monkeypatch):
+    """ГРАБЛЯ 1 файла (упоминание против записи) в логовом измерении. В тот же
+    лог гардиан выливает ЧУЖОЙ текст дословно: `Invoke-WatchCheck FAILED:
+    $($_.Exception.Message)` (ps1:166) и `Start-Process FAILED: …` (ps1:232) —
+    сообщение исключения приезжает в лог как есть.
+
+    Незаякоренный `.search()` находил «состав: …» ВНУТРИ такой строки, и
+    пересказ давал панели путь `C:\\zlo.db` (воспроизведено). Строка состава —
+    та, которую написал САМ гардиан: с начала строки, вместе с отметкой
+    времени."""
+    _clients_dir(tmp_path, "demo")
+    _guardian_log(tmp_path,
+                  "2026-08-14 00:40:00 | состав: CHATTER_PERSONAS=yarina (флаг), "
+                  "db=.secrets\\yarina.db\n"
+                  "2026-08-14 00:41:00 | Invoke-WatchCheck FAILED: состав: "
+                  "CHATTER_PERSONAS=zlo, db=C:\\zlo.db\n")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+    path, note = F.client_db_path([])
+    assert path == str(tmp_path / ".secrets" / "yarina.db"), path
+    assert "zlo" not in path, path
+
+
+def test_the_explicit_db_of_a_log_line_outranks_the_roster_of_the_same_line(
+        tmp_path, monkeypatch):
+    """Все прочие сторожа лога подают строку, где `db=` и состав называют ОДНУ
+    базу, — и тогда обе ветки разбора дают один ответ, то есть ни одна из них
+    не проверена. Здесь они названы РАЗНЫМИ: приоритет `db=` у гардиана тот же,
+    что `CHATTER_DB` у раннера (`resolve_runtime_paths`), и выпадение этой ветки
+    обязано краснеть."""
+    _clients_dir(tmp_path, "demo")
+    _guardian_log(tmp_path,
+                  "2026-08-14 00:44:08 | состав: CHATTER_PERSONAS=volska (флаг), "
+                  "db=.secrets\\yarina.db\n")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+    path, note = F.client_db_path([])
+    assert path == str(tmp_path / ".secrets" / "yarina.db"), path
+    assert "лога гардиана" in note, note
+
+
+def test_an_empty_first_persona_in_the_log_line_is_skipped_too(tmp_path, monkeypatch):
+    """Тот же разбор состава, что у окружения раннера, — и та же грабля:
+    `,volska` в переменной означает у раннера volska, а не пустоту. Два места
+    разбирают одну и ту же строку, и разъехаться им нельзя."""
+    _clients_dir(tmp_path, "demo")
+    _guardian_log(tmp_path,
+                  "2026-08-14 00:44:08 | состав: CHATTER_PERSONAS=,volska (флаг), "
+                  "db=по первому слагу\n")
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+    path, note = F.client_db_path([])
+    assert path == str(tmp_path / ".secrets" / "volska.db"), path
+    assert "лога гардиана" in note, note
+
+
+def test_a_mixed_encoding_log_names_the_database_of_its_NEWEST_line(tmp_path, monkeypatch):
+    """Тот самый воспроизведённый дефект целиком: cp1251-прошлое называет
+    `yarina`, utf-8-будущее (после `-Encoding utf8` из Task 6) называет
+    `volska`, — и панель выдавала за факт «из лога гардиана» ПРОШЛОЕ, потому
+    что блочный фолбэк превращал свежие строки в кракозябры, а старые читал
+    словами. Ответ обязан следовать за последней строкой."""
+    _clients_dir(tmp_path, "demo")
+    logs = tmp_path / "logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    (logs / "chatter_guardian.stdout.log").write_bytes(
+        "2026-08-14 00:40:00 | состав: CHATTER_PERSONAS=yarina (флаг), "
+        "db=по первому слагу\n".encode("cp1251")
+        + "2026-08-14 00:45:00 | состав: CHATTER_PERSONAS=volska (флаг), "
+          "db=по первому слагу\n".encode("utf-8"))
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+    path, note = F.client_db_path([])
+    assert path == str(tmp_path / ".secrets" / "volska.db"), path
+    assert "14.08 00:45" in note, note
+
+
+def test_a_composition_line_pushed_out_of_the_window_is_named_a_gap(tmp_path, monkeypatch):
+    """Гардиан пишет «состав» ТОЛЬКО при СВОЁМ старте, а ротации у лога нет
+    вовсе. При долгом аптайме строка уезжает за окно 64 КБ — и ступень 3
+    замолкает, ничего не сказав: пояснение выглядит так же, как у машины, где
+    гардиан не запускался никогда. `truncated` из `read_tail` для того и
+    возвращается, чтобы эту разницу было чем назвать."""
+    _clients_dir(tmp_path, "demo")
+    _guardian_log(tmp_path,
+                  "2026-08-01 00:00:00 | состав: CHATTER_PERSONAS=yarina (флаг), "
+                  "db=по первому слагу\n"
+                  + "".join(f"2026-08-14 00:{i % 60:02d}:00 | runner alive {i}\n"
+                            for i in range(3000)))
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _bare_panel_env(monkeypatch)
+    path, note = F.client_db_path([])
+    assert path == str(tmp_path / ".secrets" / "demo.db"), path
+    assert "длиннее окна" in note, note
+
+
 # ─────────────── шаг 4: ни раннера, ни лога — догадка вслух ──────────────────
 
 def test_the_database_follows_the_primary_slug(tmp_path, monkeypatch):
@@ -558,11 +723,15 @@ def test_a_missing_clients_file_admits_it_took_the_legacy_default(tmp_path, monk
 
 def test_an_explicit_env_database_still_wins(tmp_path, monkeypatch):
     """На TAMAPI_DB стоит демо-стенд (scripts/panels_demo.py). Отобрать у него
-    приоритет значит сломать стенд приёмки."""
+    приоритет значит сломать стенд приёмки.
+
+    Путь возвращается АБСОЛЮТНЫМ, как и у остальных трёх ступеней: два разных
+    контракта в одном возврате означали бы, что потребитель разрешает
+    относительный путь то от cwd панели (а он у неё какой угодно), то от ROOT."""
     _clients_dir(tmp_path, "demo")
     monkeypatch.setattr(F, "ROOT", tmp_path)
     monkeypatch.setenv("TAMAPI_DB", "state/panels_demo.db")
-    assert F.client_db_path() == ("state/panels_demo.db", "")
+    assert F.client_db_path() == (str(tmp_path / "state" / "panels_demo.db"), "")
 
 
 def test_the_panels_own_override_outranks_the_runners_one(tmp_path, monkeypatch):
@@ -573,19 +742,30 @@ def test_the_panels_own_override_outranks_the_runners_one(tmp_path, monkeypatch)
     monkeypatch.setattr(F, "ROOT", tmp_path)
     monkeypatch.setenv("TAMAPI_DB", "state/panels_demo.db")
     monkeypatch.setenv("CHATTER_DB", ".secrets/volska.db")
-    assert F.client_db_path() == ("state/panels_demo.db", "")
+    assert F.client_db_path() == (str(tmp_path / "state" / "panels_demo.db"), "")
 
 
 def test_an_empty_override_is_not_a_path(tmp_path, monkeypatch):
     """`TAMAPI_DB=''` — это «не выставлена», а не «база в пустом файле».
     Ужесточение `if env_db:` до `is not None` вернуло бы пустой путь, и лента
     молча опустела бы: sqlite открывает пустое имя без единой ошибки на месте
-    чтения."""
+    чтения.
+
+    ДВА случая, потому что за них отвечают ДВЕ разные строки. Пустоту ПЕРВОЙ
+    переменной отсеивает `or` — это первая половина. Но когда пусты ОБЕ, `or`
+    честно отдаёт пустую строку, и держит ответ уже `if env_db:` — без второй
+    половины ужесточение до `is not None` проходило бы незамеченным."""
     _clients_dir(tmp_path, "demo")
     monkeypatch.setattr(F, "ROOT", tmp_path)
     monkeypatch.setenv("TAMAPI_DB", "")
     monkeypatch.setenv("CHATTER_DB", ".secrets/yarina.db")
-    assert F.client_db_path() == (".secrets/yarina.db", "")
+    assert F.client_db_path() == (str(tmp_path / ".secrets" / "yarina.db"), "")
+
+    monkeypatch.setenv("CHATTER_DB", "")
+    path, note = F.client_db_path([])
+    # Обе пусты — ступень 1 промолчала, и ответ пришёл СНИЗУ лестницы, догадкой.
+    assert path == str(tmp_path / ".secrets" / "demo.db"), path
+    assert note, "пустые переменные выданы за явное указание базы"
 
 
 def test_the_runners_own_env_override_moves_the_panel_too(tmp_path, monkeypatch):
@@ -597,7 +777,7 @@ def test_the_runners_own_env_override_moves_the_panel_too(tmp_path, monkeypatch)
     monkeypatch.setattr(F, "ROOT", tmp_path)
     monkeypatch.delenv("TAMAPI_DB", raising=False)
     monkeypatch.setenv("CHATTER_DB", ".secrets/yarina.db")
-    assert F.client_db_path() == (".secrets/yarina.db", "")
+    assert F.client_db_path() == (str(tmp_path / ".secrets" / "yarina.db"), "")
 
 
 def test_the_composition_env_moves_the_panel_like_it_moves_the_runner(tmp_path, monkeypatch):
