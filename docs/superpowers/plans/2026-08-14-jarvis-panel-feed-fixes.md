@@ -384,23 +384,37 @@ def read_tail(path, limit: int = GUARDIAN_LOG_WINDOW) -> tuple[list[str], bool]:
         with open(p, "rb") as f:
             if size > limit:
                 f.seek(size - limit)
-            raw = f.read()
+                raw = f.read(limit)          # ровно окно: писатель ЖИВОЙ
+            else:
+                raw = f.read()
     except OSError:
         return [], False
 
     truncated = size > limit
+    if truncated:
+        raw = raw.partition(b"\n")[2]        # обрубок режется ДО декодирования
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError:
         text = raw.decode("cp1251", errors="replace")
-
-    lines = text.splitlines()
-    if truncated and lines:
-        # Срез по байтам рассекает строку посередине: обрубок в ленте выглядит
-        # как событие с потерянным началом.
-        lines = lines[1:]
-    return lines, truncated
+    text = text.lstrip("﻿")             # BOM от PS 5.1 `-Encoding utf8`
+    return text.splitlines(), truncated
 ```
+
+⚠️ **Три места, где первая редакция этого плана была неверна — не «упрощать» обратно:**
+
+1. **Обрубок режется БАЙТАМИ и ДО декодирования, а не `lines[1:]` после.** Срез по
+   байтам рассекает не только строку, но и многобайтовый СИМВОЛ: на половине
+   кириллической буквы `decode("utf-8")` бросает `UnicodeDecodeError`, и фолбэк
+   уводит в cp1251 **весь здоровый блок** — включая строку `состав: … db=…`, ради
+   читаемости которой §5.4 и написан. Воспроизведено: при плановом порядке
+   строка приезжает как `РЎРѕСЃС‚Р°РІ: CHATTER_PERSONAS=volska`.
+2. **`f.read(limit)`, а не `f.read()`.** Гардиан пишет в лог живой; всё
+   дописанное между `stat()` и `read()` приезжает сверх окна. Замер: запрошено
+   512 байт, прочитано 8894.
+3. **`lstrip("﻿")`.** Task 6 ставит `-Encoding utf8`, а PowerShell 5.1 под
+   этим именем пишет utf-8 **с BOM**; U+FEFF приклеился бы к первой строке и
+   `parse_log_ts` вернул бы на ней `None`.
 
 - [ ] **Шаг 4: убедиться, что тест зелёный**
 
@@ -408,7 +422,8 @@ def read_tail(path, limit: int = GUARDIAN_LOG_WINDOW) -> tuple[list[str], bool]:
 cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/chatter/test_panel_feed.py -q --no-header -p no:cacheprovider
 ```
 
-Ожидаемо: `10 passed`.
+Ожидаемо: `20 passed` (план писал `10` — Task 1–3 доложили сторожей сверх плана,
+по находкам ревью; число здесь справочное, важно, что красных нет).
 
 - [ ] **Шаг 5: коммит**
 
@@ -535,7 +550,7 @@ def client_db_path() -> tuple[str | None, str]:
 cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/chatter/test_panel_feed.py -q --no-header -p no:cacheprovider
 ```
 
-Ожидаемо: `13 passed`.
+Ожидаемо: `23 passed` (20 после Task 3 + 3 новых).
 
 - [ ] **Шаг 5: коммит**
 
@@ -699,7 +714,7 @@ def events(limit: int = 40) -> list[dict]:
 cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/chatter/test_panel_feed.py -q --no-header -p no:cacheprovider
 ```
 
-Ожидаемо: `17 passed`.
+Ожидаемо: `27 passed` (23 после Task 4 + 4 новых).
 
 - [ ] **Шаг 5: прогнать сторожа панели целиком — регрессий быть не должно**
 
@@ -707,7 +722,7 @@ cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/chatter/test_panel_fe
 cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/chatter/test_panels_hierarchy.py tests/chatter/test_panels_web.py tests/chatter/test_panels_stopall_ux.py tests/chatter/test_panel_event_loop.py tests/chatter/test_farm_self_match.py -q --no-header -p no:cacheprovider
 ```
 
-Ожидаемо: `143 passed`.
+Ожидаемо: `143 passed` без файла ленты, `170` вместе с ним.
 
 - [ ] **Шаг 6: коммит**
 
@@ -837,6 +852,35 @@ FD = "tests/chatter/test_panel_feed.py"
      f"{FD}::test_a_broken_composition_says_so_instead_of_falling_back_silently"),
 ```
 
+- [ ] **Шаг 2б: ещё пять мутаций, добавленных после ревью Task 3**
+
+Каждая уже проверена вручную и ловится названным сторожем; в гейт они
+переносятся, чтобы держались дальше сами.
+
+```python
+    ("seek убран — лог снова слурпается целиком", FARM,
+     [("            if size > limit:\n                f.seek(size - limit)",
+       "            if False:\n                f.seek(size - limit)")],
+     f"{FD}::test_a_log_longer_than_the_window_is_read_from_the_end"),
+
+    ("read(limit) заменён на read() — окно держится на медленности писателя", FARM,
+     [("                raw = f.read(limit)", "                raw = f.read()")],
+     f"{FD}::test_the_window_stays_a_window_when_the_guardian_writes_mid_read"),
+
+    ("errors=\"replace\" снят — байт 0x98 роняет страницу", FARM,
+     [('        text = raw.decode("cp1251", errors="replace")',
+       '        text = raw.decode("cp1251")')],
+     f"{FD}::test_a_byte_cp1251_cannot_decode_does_not_kill_the_page"),
+
+    ("BOM больше не снимается — первая строка теряет время", FARM,
+     [('    text = text.lstrip("\\ufeff")', '    text = text')],
+     f"{FD}::test_a_bom_never_reaches_the_first_line"),
+
+    ("граница окна > заменена на >= — целая первая строка съедена", FARM,
+     [("    truncated = size > limit", "    truncated = size >= limit")],
+     f"{FD}::test_a_file_exactly_the_size_of_the_window_keeps_its_first_line"),
+```
+
 - [ ] **Шаг 3: закоммитить перед прогоном — гейт требует чистого дерева**
 
 ```bash
@@ -850,7 +894,9 @@ git commit -m "test(panel): мутации DEV-26 на четыре правки
 cd /c/jarvis && PYTHONUTF8=1 PYTHONIOENCODING=utf-8 ./.venv/Scripts/python.exe scripts/mutate_panels_hierarchy.py
 ```
 
-Ожидаемо: `Все 66 мутаций пойманы.` Любая строка `[СЛЕП]` — это слепой сторож,
+Ожидаемо: `Все 71 мутаций пойманы.` (57 было + 9 из шага 2 + 5 из шага 2б;
+верить итоговой строке самого скрипта, а не этому числу — оно устаревает).
+Любая строка `[СЛЕП]` — это слепой сторож,
 и чинить надо ТЕСТ, а не мутацию. Строка `МУТАЦИЯ НЕ ПРИМЕНИЛАСЬ` означает, что
 фрагмент разошёлся с исходником: поправить фрагмент, иначе мутация ничего
 не проверила.
