@@ -35,3 +35,11 @@ def test_a_line_without_a_timestamp_gets_none_not_a_guess():
     assert F.parse_log_ts("runner DOWN - restarting") is None
     assert F.parse_log_ts("") is None
     assert F.parse_log_ts("2026-13-45 99:99:99 | битая дата") is None
+
+
+def test_garbage_input_never_raises():
+    """Год вне диапазона эпохи валит `time.mktime` `OverflowError`'ом — эта
+    ветка не была накрыта. `None` на входе (сегодня недостижим, но контракт
+    функции — «на любом мусоре None, не исключение») туда же."""
+    assert F.parse_log_ts("9999-12-31 23:59:59 | x") is None
+    assert F.parse_log_ts(None) is None
