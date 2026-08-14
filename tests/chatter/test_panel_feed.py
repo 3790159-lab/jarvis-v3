@@ -52,7 +52,19 @@ KEEP = [
     "2026-08-14 00:45:09 | launched chatter runner (PID 6864) -> C:\\jarvis\\logs\\chatter_volska.log",
     "2026-08-13 21:04:11 | chatter guardian started (PID 5724), heartbeat<=180s every 30s, debounce=3",
     "2026-08-12 09:10:00 | runner heartbeat NOT fresh after 45s - will retry next cycle",
-    "2026-08-14 00:40:00 | Состав: CHATTER_PERSONAS=volska (файл), db=.secrets\\demo.db",
+    # Строка списана с живого лога БУКВАЛЬНО (`состав` строчными, `(флаг)`):
+    # scripts/chatter_guardian_detached.ps1:145 пишет именно так, и фикстура,
+    # «примерно похожая» на живую строку, проверяет не то, что приезжает в ленту.
+    "2026-08-14 00:44:08 | состав: CHATTER_PERSONAS=volska (флаг), db=.secrets\\demo.db",
+    # Ниже — виды, которых не было в окне лога за 14.08, но которые есть в
+    # scripts/chatter_guardian_detached.ps1 и без них молча выпадали из ленты.
+    "2026-08-13 03:00:00 | another chatter guardian already running (PID 5724) - exiting",  # L133: гонка двух гардианов
+    "2026-08-13 03:00:00 | Stop-OldRunner: runner still alive after 10s - NOT starting new (retry next cycle)",  # L210
+    "2026-08-13 03:00:00 | Start-Runner: old runner still alive - aborting launch (never start on top of a live session)",  # L219
+    "2026-08-13 03:00:00 | Start-Runner: Start-Process FAILED: Access is denied",  # L232: раннер вообще не запустился
+    "2026-08-13 03:00:00 | Start-Runner: launch returned no process handle - treating as FAILED",  # L238
+    "2026-08-13 03:00:00 | Invoke-WatchCheck FAILED: [Errno 10061] Connection refused",  # L166: алертер сдох молча
+    "2026-08-13 03:00:00 | ДЕМО ЯРИНЫ: стоят ОБА флага - поднимаю yarina, Ольга НЕ работает",  # L85/146
 ]
 DROP = [
     "2026-08-14 00:44:08 | runner check failed (1/3) - debouncing, not relaunching yet",
@@ -78,18 +90,28 @@ def test_the_composition_line_survives_because_it_names_the_database():
     """Парный к дефекту выбора базы: строка «Состав: … db=…» — единственное
     место, где лог прямо называет активную базу. Выбросить её значит оставить
     слепое пятно ровно там, где мы его чиним."""
-    line = "2026-08-14 00:40:00 | Состав: CHATTER_PERSONAS=volska (файл), db=.secrets\\demo.db"
+    line = "2026-08-14 00:44:08 | состав: CHATTER_PERSONAS=volska (флаг), db=.secrets\\demo.db"
     assert F.is_decision(line)
 
 
 def test_noise_outranks_a_decision_word_in_the_same_line():
     """Сторож ПОРЯДКА проверок. Строка синтетическая: в живом логе гардиана
     ни одна строка не содержит одновременно дебаунс-шум и слово решения, и
-    именно поэтому шесть тестов выше порядок НЕ различают — переставь
-    проверки местами, и они останутся зелёными.
+    именно поэтому три теста `is_decision` выше (по KEEP, по DROP, по строке
+    «Состав») порядок НЕ различают — переставь проверки местами, и они
+    останутся зелёными.
 
     Правило, которое здесь закрепляется: шум ПЕРЕБИВАЕТ решение. Строка,
     сообщающая о дребезге вокруг перезапуска, не является событием, даже
     если в ней стоит слово из маски решений."""
     assert not F.is_decision(
         "2026-08-14 00:44:08 | runner DOWN - debouncing, not relaunching yet")
+
+
+def test_debounce_noise_survives_even_though_uppercase_failed_is_now_a_decision_word():
+    """`FAILED` заглавными стал маркером решения (Start-Process/Invoke-WatchCheck
+    FAILED), а дебаунсная строка пишет `failed` строчными — регистр здесь
+    несущий. Общий цикл по DROP это гарантирует молча; этот тест — прицельно,
+    чтобы правку регистра нельзя было провести незаметно."""
+    assert not F.is_decision(
+        "2026-08-14 00:44:08 | runner check failed (1/3) - debouncing, not relaunching yet")
