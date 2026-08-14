@@ -573,6 +573,22 @@ MUTATIONS = [
        "{esc((e['detail'] or '')[:110])}")],
      f"{FD}::test_the_detail_limit_is_a_single_number_from_source_to_screen"),
 
+    ("колонка источника снова рвётся посреди слова", JP,
+     [("<td data-l='Источник' class='sub nobreak'>",
+       "<td data-l='Источник' class='sub'>")],
+     f"{FD}::test_short_columns_of_the_feed_are_not_broken_mid_word"),
+
+    # Парная к предыдущей: класс в разметке без правила в CSS — та же порча,
+    # только с другого конца, и выглядит она как «всё на месте».
+    ("правило nobreak исчезло из CSS", UI,
+     [(".nobreak{overflow-wrap:normal;white-space:nowrap}",
+       ".nobreak{overflow-wrap:anywhere}")],
+     f"{FD}::test_short_columns_of_the_feed_are_not_broken_mid_word"),
+
+    ("машинное имя события снова рвётся где попало", JP,
+     [("{esc(e['kind']).replace('_', '_<wbr>')}", "{esc(e['kind'])}")],
+     f"{FD}::test_a_machine_event_name_breaks_at_the_underscore_not_mid_word"),
+
     # ── Task 6: кодировка лога у писателя ────────────────────────────────
     ("гардиан снова пишет лог в системной кодировке", PS1,
      [("Add-Content -LiteralPath $gOut -Value $line -Encoding utf8",
