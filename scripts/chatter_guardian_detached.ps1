@@ -114,7 +114,21 @@ function Write-G([string]$msg) {
     # Add-Content + Write-Host (NOT Tee-Object): keep a side-effect-free return so
     # callers using `if (-not (Stop-OldRunner))` see a real boolean, not a log array.
     $line = ('{0} | {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $msg)
-    Add-Content -LiteralPath $gOut -Value $line
+    # UTF-8 ЯВНО. Без -Encoding Add-Content берёт системную ANSI (здесь cp1251),
+    # и строка «состав: … db=…» — единственная, где лог прямо называет активную
+    # базу, — приезжала в панель кракозябрами. Читатель (jarvis_farm.read_tail)
+    # чинит УЖЕ написанное построчным фолбэком utf-8 → cp1251; эта строка
+    # убирает причину, чтобы фолбэк не был единственным рабочим путём.
+    #
+    # ⚠️ Смешанный файл после этой правки — норма, и это безопасно ИМЕННО
+    # потому, что фолбэк построчный: блочный испортил бы весь хвост из-за одной
+    # старой cp1251-байты, то есть сломал бы как раз САМЫЕ СВЕЖИЕ строки.
+    #
+    # BOM: PowerShell 5.1 под именем `utf8` пишет utf-8 С BOM, но только при
+    # СОЗДАНИИ файла — проверено 15.08 на 5.1.26100.9168: дописывание в
+    # существующий лог BOM не добавляет (позиций EF BB BF в файле нет).
+    # На случай нового лога BOM снимается при чтении.
+    Add-Content -LiteralPath $gOut -Value $line -Encoding utf8
     Write-Host $line
 }
 

@@ -1687,3 +1687,23 @@ def test_the_debounce_noise_never_reaches_the_feed_ITSELF(tmp_path, monkeypatch)
     # Парный конец: фильтр не имеет права заодно выбросить настоящие решения.
     assert any("runner DOWN - restarting" in d for d in details), details
     assert any("launched chatter runner" in d for d in details), details
+
+
+def test_the_guardian_writes_its_log_in_utf8_not_in_the_system_codepage():
+    """Task 6, единственный сторож на ПРАВКУ В POWERSHELL.
+
+    `Add-Content` без `-Encoding` берёт системную ANSI (здесь cp1251), и строка
+    «состав: … db=…» — единственная, где лог прямо называет активную базу, —
+    приезжала в панель кракозябрами. Правка в одну строку, тестов у неё своих
+    нет, и снять её обратно можно молча — поэтому сторож стоит здесь, рядом с
+    читателем, который на неё рассчитывает.
+
+    Проверяется ЗАПИСЬ лога, а не весь файл: `-Encoding ascii` у heartbeat'ов
+    (`Out-File` для меток времени) правильный и трогать его нельзя."""
+    src = (Path(__file__).resolve().parents[2]
+           / "scripts" / "chatter_guardian_detached.ps1").read_text(encoding="utf-8")
+    writes = [ln.strip() for ln in src.splitlines()
+              if "Add-Content" in ln and "$gOut" in ln]
+    assert writes, "запись строки лога в гардиане не найдена — переименовали?"
+    for ln in writes:
+        assert "-Encoding utf8" in ln, f"лог снова пишется в системной кодировке: {ln}"
