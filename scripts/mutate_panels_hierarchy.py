@@ -32,8 +32,10 @@ UI = "app/routers/panels_ui.py"
 JP = "app/routers/jarvis_panel.py"
 TD = "app/routers/tamapi_dashboard.py"
 FARM = "app/services/jarvis_farm.py"
+PS1 = "scripts/chatter_guardian_detached.ps1"
 T = "tests/chatter/test_panels_hierarchy.py"
 FT = "tests/chatter/test_farm_self_match.py"
+FD = "tests/chatter/test_panel_feed.py"
 
 # Блок статуса целиком — для мутации «порядок блоков». Переставляем его ВЫШЕ
 # долга и денег, то есть возвращаем ровно ту раскладку, с которой начали.
@@ -370,6 +372,198 @@ MUTATIONS = [
      [("var wide=window.matchMedia('(min-width:690px)');",
        "var wide=window.matchMedia('(min-width:730px)');")],
      f"{T}::test_the_state_unfolds_exactly_where_the_second_column_appears"),
+
+    # ═══════════ ЛЕНТА ПАНЕЛИ, мерж 1 (спека §5) ═══════════════════════════
+    #
+    # Каждая мутация возвращает КОНКРЕТНЫЙ дефект, найденный на живых данных
+    # 14–15.08, а не абстрактную порчу: время без зоны, дебаунс-шум в окне,
+    # слурп растущего лога, база не того клиента, кракозябры вместо имени базы.
+
+    # ── Task 1: время строк гардиана ─────────────────────────────────────
+    ("время строк гардиана снова считается UTC", FARM,
+     [('        return time.mktime(time.strptime(m.group(1), "%Y-%m-%d %H:%M:%S"))',
+       '        import calendar\n'
+       '        return calendar.timegm(time.strptime(m.group(1), "%Y-%m-%d %H:%M:%S"))')],
+     f"{FD}::test_the_guardian_timestamp_is_read_as_local_time"),
+
+    ("строка без префикса получает выдуманное время", FARM,
+     [('    m = _LOG_TS_RE.match(line)\n    if not m:\n        return None',
+       '    m = _LOG_TS_RE.match(line)\n    if not m:\n        return _now()')],
+     f"{FD}::test_a_line_without_a_timestamp_gets_none_not_a_guess"),
+
+    # ── Task 2: решения против дебаунс-шума ──────────────────────────────
+    ("дебаунс-шум снова попадает в ленту", FARM,
+     [('GUARDIAN_NOISE = ("debouncing", "runner alive", "heartbeat fresh after")',
+       'GUARDIAN_NOISE = ()')],
+     f"{FD}::test_the_guardians_own_debounce_noise_never_reaches_the_feed"),
+
+    # Парная: «выбросить шум» не имеет права стать «выбросить всё».
+    ("фильтр решений выбросил и настоящие события", FARM,
+     [('    return any(mark in line for mark in GUARDIAN_DECISIONS)',
+       '    return False')],
+     f"{FD}::test_decisions_of_the_guardian_reach_the_feed"),
+
+    ("шум перестал перебивать решение", FARM,
+     [('    if any(noise in line for noise in GUARDIAN_NOISE):\n        return False\n'
+       '    return any(mark in line for mark in GUARDIAN_DECISIONS)',
+       '    if any(mark in line for mark in GUARDIAN_DECISIONS):\n        return True\n'
+       '    return not any(noise in line for noise in GUARDIAN_NOISE)')],
+     f"{FD}::test_noise_outranks_a_decision_word_in_the_same_line"),
+
+    # ── Task 3: окно чтения и кодировка ──────────────────────────────────
+    ("seek убран — лог снова слурпается целиком", FARM,
+     [("            if size > limit:\n                f.seek(size - limit)",
+       "            if False:\n                f.seek(size - limit)")],
+     f"{FD}::test_a_log_longer_than_the_window_is_read_from_the_end"),
+
+    ("read(limit) заменён на read() — окно держится на медленности писателя", FARM,
+     [("                raw = f.read(limit)", "                raw = f.read()")],
+     f"{FD}::test_the_window_stays_a_window_when_the_guardian_writes_mid_read"),
+
+    ("порядок фолбэка перевёрнут — utf-8 читается как cp1251", FARM,
+     [('    try:\n        return chunk.decode("utf-8")\n    except UnicodeDecodeError:\n'
+       '        return chunk.decode("cp1251", errors="replace")',
+       '    return chunk.decode("cp1251", errors="replace")')],
+     f"{FD}::test_a_utf8_log_is_read_as_utf8"),
+
+    ("фолбэка на cp1251 больше нет", FARM,
+     [('    try:\n        return chunk.decode("utf-8")\n    except UnicodeDecodeError:\n'
+       '        return chunk.decode("cp1251", errors="replace")',
+       '    return chunk.decode("utf-8", errors="replace")')],
+     f"{FD}::test_a_cp1251_log_is_still_readable"),
+
+    ('errors="replace" снят — байт 0x98 роняет страницу', FARM,
+     [('        return chunk.decode("cp1251", errors="replace")',
+       '        return chunk.decode("cp1251")')],
+     f"{FD}::test_a_byte_cp1251_cannot_decode_does_not_kill_the_page"),
+
+    ("BOM больше не снимается — первая строка теряет время", FARM,
+     [('    text = text.lstrip("\\ufeff")', '    text = text')],
+     f"{FD}::test_a_bom_never_reaches_the_first_line"),
+
+    ("граница окна > заменена на >= — целая первая строка съедена", FARM,
+     [("    truncated = size > limit", "    truncated = size >= limit")],
+     f"{FD}::test_a_file_exactly_the_size_of_the_window_keeps_its_first_line"),
+
+    ("обрубок первой строки больше не режется", FARM,
+     [('        raw = raw.partition(b"\\n")[2]', '        raw = raw')],
+     f"{FD}::test_the_first_partial_line_of_the_window_is_dropped"),
+
+    # ── Task 4: лестница источников базы ─────────────────────────────────
+    ("база ленты снова прибита литералом", FARM,
+     [('    live_db, why = _db_from_live_runner(table)',
+       '    return str(ROOT / ".secrets" / "demo.db"), ""\n'
+       '    live_db, why = _db_from_live_runner(table)')],
+     f"{FD}::test_the_database_follows_the_primary_slug"),
+
+    ("вчерашний лог перебил живой раннер", FARM,
+     [('    live_db, why = _db_from_live_runner(table)\n'
+       '    if live_db is not None:\n'
+       '        return live_db, why              # непусто только при расхождении раннеров\n'
+       '    reason = why or "раннер не запущен"\n\n'
+       '    log_db, log_ts, log_gap = _db_from_guardian_log()\n'
+       '    if log_db is not None:',
+       '    live_db, why = _db_from_live_runner(table)\n'
+       '    reason = why or "раннер не запущен"\n\n'
+       '    log_db, log_ts, log_gap = _db_from_guardian_log()\n'
+       '    if log_db is None and live_db is not None:\n'
+       '        return live_db, why\n'
+       '    if log_db is not None:')],
+     f"{FD}::test_the_live_runner_outranks_the_guardian_log"),
+
+    ("раннер, не назвавший базу, снова молча угадывается", FARM,
+     [('        return None, "раннер жив, но базу в своём окружении не называет"',
+       '        return _db_from_slug("demo"), ""')],
+     f"{FD}::test_a_runner_that_names_no_database_says_so_instead_of_guessing_quietly"),
+
+    ("расхождение двух живых раннеров проглочено", FARM,
+     [("    if len({db for _, db in answers}) > 1:", "    if False:")],
+     f"{FD}::test_two_runners_that_disagree_are_named_an_accident"),
+
+    ("берётся ПЕРВАЯ строка состава вместо последней", FARM,
+     [("    for line in reversed(lines):", "    for line in lines:")],
+     f"{FD}::test_the_LAST_composition_line_wins_not_the_first"),
+
+    ("CHATTER_DB раннера уступил его же составу", FARM,
+     [('    db = (env.get("CHATTER_DB") or "").strip()\n    if db:\n        return _abs_db(db)',
+       '    db = (env.get("CHATTER_DB") or "").strip()\n    if False:\n        return _abs_db(db)')],
+     f"{FD}::test_the_runners_own_db_variable_outranks_its_personas"),
+
+    ("legacy-умолчание demo снова выдаётся за прочитанный состав", FARM,
+     [("    if file_missing and not env_roster:", "    if False:")],
+     f"{FD}::test_a_missing_clients_file_admits_it_took_the_legacy_default"),
+
+    ("битый состав молча откатывается на demo.db", FARM,
+     [('        return None, (f"склад клиентов не прочитан ({type(exc).__name__}: {exc}) "\n'
+       '                      f"— какую базу читать, неизвестно")',
+       '        return str(ROOT / ".secrets" / "demo.db"), ""')],
+     f"{FD}::test_a_broken_composition_says_so_instead_of_falling_back_silently"),
+
+    ("панель ищет раннера упоминанием, а не запуском (ГРАБЛЯ 1)", FARM,
+     [('            if row[1].startswith("python") and _launches(CHATTER_RUNNER, row)]',
+       '            if row[1].startswith("python") and any(CHATTER_RUNNER in t for t in row[2])]')],
+     f"{FD}::test_a_process_that_only_mentions_the_runner_is_not_asked"),
+
+    # ── Task 5: сборка ленты ─────────────────────────────────────────────
+    ("пояснение снова гасит чтение базы (elif вместо if)", FARM,
+     [("    if db:\n        try:\n            from app.services.tamapi_metrics import _ro",
+       "    elif db:\n        try:\n            from app.services.tamapi_metrics import _ro")],
+     f"{FD}::test_a_guessed_database_is_still_READ_not_merely_explained"),
+
+    ("готовая таблица процессов игнорируется", FARM,
+     [("    db, db_note = client_db_path(table)", "    db, db_note = client_db_path()")],
+     f"{FD}::test_a_ready_process_table_is_not_rebuilt"),
+
+    ("квоты окна нет — источники снова режутся общим срезом", FARM,
+     [("    out = fixed + _share_window([client, guard], limit - len(fixed))",
+       "    out = fixed + (client + guard)[:max(0, limit - len(fixed))]")],
+     f"{FD}::test_a_flood_of_client_events_does_not_starve_the_guardian"),
+
+    # Парная к предыдущей: квота не имеет права стать перекосом в другую сторону.
+    ("окно отдано гардиану целиком", FARM,
+     [("    out = fixed + _share_window([client, guard], limit - len(fixed))",
+       "    out = fixed + (guard + client)[:max(0, limit - len(fixed))]")],
+     f"{FD}::test_a_flood_of_guardian_lines_does_not_starve_the_client"),
+
+    ("_share_window снова отдаёт больше бюджета", FARM,
+     [("    quota = budget // len(groups)", "    quota = max(1, budget // len(groups))")],
+     f"{FD}::test_the_window_never_hands_out_more_than_the_budget"),
+
+    ("группа гардиана приезжает в дележ неотсортированной", FARM,
+     [("    guard.sort(key=_newest_first)", "    pass")],
+     f"{FD}::test_the_window_takes_the_NEWEST_decisions_of_the_guardian_not_the_first"),
+
+    ("суп из подстрок вернулся вместо is_decision", FARM,
+     [("    kept = [ln for ln in lines if is_decision(ln)]",
+       '    kept = [ln for ln in lines\n'
+       '            if "DOWN" in ln or "launched" in ln or "failed" in ln]')],
+     f"{FD}::test_the_debounce_noise_never_reaches_the_feed_ITSELF"),
+
+    ("граница видимости снова подписана самым старым временем", FARM,
+     [('                      "detail": f"лог длиннее окна: видно с {seen_from}",\n'
+       '                      "ts": None})',
+       '                      "detail": f"лог длиннее окна: видно с {seen_from}",\n'
+       '                      "ts": oldest})')],
+     f"{FD}::test_the_visibility_border_reaches_the_top_of_a_NON_EMPTY_feed"),
+
+    ("кривое время одной строки снова валит всю ленту", FARM,
+     [('    ts = _as_ts(e.get("ts"))\n    return (ts is not None, -(ts or 0.0))',
+       '    ts = e.get("ts")\n    return (ts is not None, -(ts or 0.0))')],
+     f"{FD}::test_a_broken_timestamp_is_not_a_number_for_the_sort_key"),
+
+    ("отрицательный limit снова уходит в SQL без предела", FARM,
+     [("    limit = max(0, limit)", "    limit = limit")],
+     f"{FD}::test_a_negative_limit_never_becomes_an_unbounded_sql_query"),
+
+    ("разметка снова режет ленту вторым числом", JP,
+     [("        for e in events)", "        for e in events[:25])")],
+     f"{FD}::test_the_renderer_draws_everything_it_was_given"),
+
+    # ── Task 6: кодировка лога у писателя ────────────────────────────────
+    ("гардиан снова пишет лог в системной кодировке", PS1,
+     [("Add-Content -LiteralPath $gOut -Value $line -Encoding utf8",
+       "Add-Content -LiteralPath $gOut -Value $line")],
+     f"{FD}::test_the_guardian_writes_its_log_in_utf8_not_in_the_system_codepage"),
 ]
 
 
