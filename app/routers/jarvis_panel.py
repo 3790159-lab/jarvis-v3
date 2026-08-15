@@ -389,6 +389,16 @@ _JOURNAL_KIND = {
 _JOURNAL_RESTART = "_restart"
 _JOURNAL_TITLES = {0: "Сегодня", 1: "Вчера", 2: "Раньше"}
 
+# Сколько строк одних суток выкладываем на экран. Не косметика: замер 15.08 на
+# журнале ПОД ПОТОЛОК (5000 записей за 72 ч) дал 4167 строк разметки, и
+# «Сегодня» раскрыто — первый экран заливается ровно тем, от чего этот блок и
+# защищает. Группировка по суткам здесь не спасает: в шторме рестартов все
+# тысячи записей приходятся на ОДНИ сутки.
+#
+# 50 — примерно два экрана телефона: больше владелец всё равно не читает,
+# меньше начинает прятать обычный день (десятки переходов в сутки — норма).
+JOURNAL_ROWS_PER_DAY = 50
+
 
 def _day_index(ts, now: float) -> int:
     """Сколько КАЛЕНДАРНЫХ суток назад, а не сколько 24-часовых кусков.
@@ -464,8 +474,24 @@ def _journal_html(snap_journal, backend_since, now: float) -> str:
 
     parts = []
     for key in sorted(buckets):
+        items = sorted(buckets[key], key=lambda x: -(F.journal_ts(x) or 0.0))
+        # Разделитель рестарта под потолок НЕ идёт: он не событие, а якорь, и
+        # срезать его значит потерять точку отсчёта целиком — ровно в шторме,
+        # где она нужнее всего.
+        events = [r for r in items if r.get("kind") != _JOURNAL_RESTART]
+        anchors = [r for r in items if r.get("kind") == _JOURNAL_RESTART]
+        hidden = len(events) - JOURNAL_ROWS_PER_DAY
+        shown = events[:JOURNAL_ROWS_PER_DAY] + anchors
+        tail = ""
+        if hidden > 0:
+            # Молча срезать хвост значит показать «вот что было» и соврать —
+            # тот же класс, ради которого писан маркер `rotated`. Остаток
+            # называется числом и адресом, где он лежит целиком.
+            tail = (f"<tr><td colspan='4' class='sub'>… и ещё {hidden} "
+                    "за эти сутки — они в журнале, но на экран не выложены "
+                    "(state/panel_events.jsonl)</td></tr>")
         inner = ("<div class='card'><table><tbody>"
-                 + _journal_rows(buckets[key], now) + "</tbody></table></div>")
+                 + _journal_rows(shown, now) + tail + "</tbody></table></div>")
         if key == 0:
             parts.append(f"<h2>{_JOURNAL_TITLES[key]}</h2>{inner}")
         else:

@@ -715,6 +715,20 @@ MUTATIONS = [
     ("деталь записи попадает на страницу сырой", JP,
      [("{esc((r.get('detail') or '')[:110])}", "{(r.get('detail') or '')[:110]}")],
      f"{JV}::test_a_detail_with_markup_cannot_reach_the_page_raw"),
+
+    # ── потолок строк суток (найден замером бюджета 15.08) ───────────────
+    ("шторм рестартов снова заливает первый экран", JP,
+     [("JOURNAL_ROWS_PER_DAY = 50", "JOURNAL_ROWS_PER_DAY = 10**9")],
+     f"{JV}::test_a_storm_of_events_does_not_flood_the_first_screen"),
+
+    ("хвост суток срезан МОЛЧА", JP,
+     [("        if hidden > 0:", "        if False:")],
+     f"{JV}::test_a_storm_of_events_does_not_flood_the_first_screen"),
+
+    ("якорь рестарта срезан вместе с хвостом", JP,
+     [("        shown = events[:JOURNAL_ROWS_PER_DAY] + anchors",
+       "        shown = items[:JOURNAL_ROWS_PER_DAY]")],
+     f"{JV}::test_the_restart_anchor_survives_the_cap"),
 ]
 
 

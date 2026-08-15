@@ -444,3 +444,34 @@ def test_the_restart_divider_is_not_a_button_label(tmp_path, monkeypatch):
                                backend_since=now - 1800))
     assert ">рестарт" not in body.lower(), "разделитель выглядит подписью кнопки"
     assert "── здесь перезапустился бэкенд" in body, body[:200]
+
+
+def test_a_storm_of_events_does_not_flood_the_first_screen(tmp_path, monkeypatch):
+    """Замер 15.08: журнал на потолке (5000 записей) дал 4167 строк разметки, и
+    «Сегодня» раскрыто — первый экран заливается ровно тем, от чего этот блок и
+    защищает. Группировка по суткам тут не спасает: в шторме рестартов все
+    тысячи записей ОДНИ И ТЕ ЖЕ сутки.
+
+    Остаток назван вслух: молча срезать хвост значит показать «вот что было» и
+    соврать — тот же класс, что молчаливая обрезка журнала, ради которой писан
+    маркер `rotated`.
+    """
+    import app.routers.jarvis_panel as jp
+
+    now = time.time()
+    recs = [_rec(now - 60 - i, detail=f"шторм {i}") for i in range(200)]
+    body = _page(_panel_client(tmp_path, monkeypatch, recs))
+    shown = body.count("шторм ")
+    assert shown == jp.JOURNAL_ROWS_PER_DAY, shown
+    assert f"ещё {200 - jp.JOURNAL_ROWS_PER_DAY}" in body, "остаток срезан молча"
+
+
+def test_the_restart_anchor_survives_the_cap(tmp_path, monkeypatch):
+    """Парный сторож к потолку строк: разделитель — не событие, а ТОЧКА
+    ОТСЧЁТА. Срезать его вместе с хвостом значит потерять её целиком ровно в
+    шторме, где «что было до рестарта, а что после» и есть весь вопрос."""
+    now = time.time()
+    recs = [_rec(now - 60 - i, detail=f"шторм {i}") for i in range(200)]
+    body = _page(_panel_client(tmp_path, monkeypatch, recs,
+                               backend_since=now - 250))
+    assert "здесь перезапустился бэкенд" in body, "якорь срезан потолком строк"
