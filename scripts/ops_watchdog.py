@@ -1505,7 +1505,15 @@ def main() -> int:
     if written:
         touch_beat()
     journal_alerts, state = note_journal_health(state, written)
-    trim_alerts, state = note_trim_health(state, trim_report)
+    # Порог передаётся ЯВНО, а не берётся умолчанием: умолчание связывается на
+    # `def`, и подменить его в сторожах `main()` нельзя — сторож пришлось бы
+    # писать через саму константу, то есть слепым к её правке. Гейт показал это
+    # фактом: с порогом, поднятым до миллиарда, тест не покраснел, а просто шёл
+    # 14 минут 47 секунд. (Число здесь НЕ повторяется цифрами намеренно: гейт
+    # ищет фрагмент подстрокой, и копия в комментарии стала бы вторым местом,
+    # куда мутация может попасть вместо самой константы.)
+    trim_alerts, state = note_trim_health(state, trim_report,
+                                          JOURNAL_TRIM_FAIL_STREAK)
     for text in journal_alerts + trim_alerts:
         _send_tg(text)
 

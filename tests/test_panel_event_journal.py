@@ -1310,44 +1310,58 @@ def test_a_trim_that_was_not_needed_is_not_a_verdict(tmp_path):
     assert report["attempted"] is False
 
 
-def test_ten_failures_in_a_row_reach_the_owner_once():
-    """Замер 15.08: самая длинная серия провалов ПОДРЯД при трёх браузерах,
-    жмущих обновление раз в секунду, — ОДИН. Порог 10 (пять минут сплошной
-    блокировки) не пересекается с гонкой чтения ни при каком темпе.
+TRIM_FAIL = {"attempted": True, "ok": False, "error": "WinError 5"}
+TRIM_OK = {"attempted": True, "ok": True}
+# Порог задаётся ЯВНО и маленьким. Гонять сторожа механизма через прод-константу
+# значит написать тест, слепой к её правке: гейт поднял её до 10**9, и тест не
+# покраснел, а просто шёл 14 минут 47 секунд. Прод-число пинует отдельный
+# сторож ниже — правка политики обязана быть НАМЕРЕННОЙ.
+STREAK = 3
 
-    Один алерт на эпизод, а не на цикл: провал — состояние, и 🚨 каждые 30 с
-    это 120 сообщений в час.
-    """
-    fail = {"attempted": True, "ok": False, "error": "WinError 5"}
+
+def test_a_streak_of_failures_reaches_the_owner_once():
+    """Один алерт на эпизод, а не на цикл: провал обрезки — СОСТОЯНИЕ, и 🚨
+    каждые 30 с это 120 сообщений в час."""
     state, said = {}, []
-    for _ in range(ow.JOURNAL_TRIM_FAIL_STREAK - 1):
-        alerts, state = ow.note_trim_health(state, fail)
+    for _ in range(STREAK - 1):
+        alerts, state = ow.note_trim_health(state, TRIM_FAIL, STREAK)
         said += alerts
     assert said == [], "тревога поднята раньше порога"
 
-    alerts, state = ow.note_trim_health(state, fail)
+    alerts, state = ow.note_trim_health(state, TRIM_FAIL, STREAK)
     assert len(alerts) == 1, alerts
     assert "не обрезается" in alerts[0], alerts[0]
     assert "WinError 5" in alerts[0], "причина провала не доехала до владельца"
 
     for _ in range(20):
-        more, state = ow.note_trim_health(state, fail)
+        more, state = ow.note_trim_health(state, TRIM_FAIL, STREAK)
         assert more == [], more
+
+
+def test_the_production_threshold_is_ten_cycles_and_the_number_is_load_bearing():
+    """Число названо ЗДЕСЬ, потому что оно политика, а не деталь.
+
+    10 циклов по 30 с — пять минут сплошной блокировки. Взято из замера 15.08:
+    самая длинная серия провалов ПОДРЯД при трёх браузерах, жмущих обновление
+    раз в секунду, — ОДИН, то есть с гонкой чтения порог не пересекается ни при
+    каком темпе. Поднять его молча значит выключить тревогу совсем и не узнать
+    об этом: рост журнала виден только тому, кто смотрит на размер файла.
+    """
+    assert ow.JOURNAL_TRIM_FAIL_STREAK == 10
 
 
 def test_a_trim_that_works_again_says_so_and_forgets_the_streak():
     """Парный сторож: без него дедуп проходит на «замолчать навсегда», а
     молчание после 🚨 неотличимо от «всё ещё сломано»."""
-    fail = {"attempted": True, "ok": False, "error": "WinError 5"}
     state = {}
-    for _ in range(ow.JOURNAL_TRIM_FAIL_STREAK):
-        _a, state = ow.note_trim_health(state, fail)
+    for _ in range(STREAK):
+        _a, state = ow.note_trim_health(state, TRIM_FAIL, STREAK)
 
-    alerts, state = ow.note_trim_health(state, {"attempted": True, "ok": True})
+    alerts, state = ow.note_trim_health(state, TRIM_OK, STREAK)
     assert len(alerts) == 1 and alerts[0].startswith("✅"), alerts
     assert ow.JOURNAL_TRIM_KEY not in state, state
 
-    again, state = ow.note_trim_health(state, {"attempted": True, "ok": True})
+    again, state = ow.note_trim_health(state, TRIM_OK, STREAK)
     assert again == [], again
 
 
@@ -1355,13 +1369,11 @@ def test_a_streak_below_the_threshold_is_forgotten_by_one_success():
     """Гонка чтения даёт одиночные провалы, и копить их через успехи значило бы
     поднять тревогу за неделю нормальной работы."""
     state = {}
-    for _ in range(ow.JOURNAL_TRIM_FAIL_STREAK - 1):
-        _a, state = ow.note_trim_health(
-            state, {"attempted": True, "ok": False, "error": "гонка"})
-    _a, state = ow.note_trim_health(state, {"attempted": True, "ok": True})
-    for _ in range(ow.JOURNAL_TRIM_FAIL_STREAK - 1):
-        alerts, state = ow.note_trim_health(
-            state, {"attempted": True, "ok": False, "error": "гонка"})
+    for _ in range(STREAK - 1):
+        _a, state = ow.note_trim_health(state, TRIM_FAIL, STREAK)
+    _a, state = ow.note_trim_health(state, TRIM_OK, STREAK)
+    for _ in range(STREAK - 1):
+        alerts, state = ow.note_trim_health(state, TRIM_FAIL, STREAK)
         assert alerts == [], alerts
 
 
@@ -1369,12 +1381,11 @@ def test_a_cycle_with_no_trim_freezes_the_streak_instead_of_clearing_it():
     """«Обрезка не понадобилась» — это НЕ «обрезка прошла». Сбросив счётчик,
     мы бы гасили тревогу тишиной ровно там, где переходов нет, а файл лежит
     заблокированным."""
-    fail = {"attempted": True, "ok": False, "error": "WinError 5"}
     state = {}
-    for _ in range(ow.JOURNAL_TRIM_FAIL_STREAK - 1):
-        _a, state = ow.note_trim_health(state, fail)
-    _a, state = ow.note_trim_health(state, {"attempted": False, "ok": False})
-    alerts, state = ow.note_trim_health(state, fail)
+    for _ in range(STREAK - 1):
+        _a, state = ow.note_trim_health(state, TRIM_FAIL, STREAK)
+    _a, state = ow.note_trim_health(state, {"attempted": False, "ok": False}, STREAK)
+    alerts, state = ow.note_trim_health(state, TRIM_FAIL, STREAK)
     assert len(alerts) == 1, "серия сброшена циклом без обрезки"
 
 
@@ -1382,8 +1393,7 @@ def test_a_counter_from_disk_that_is_not_a_number_does_not_kill_the_cycle():
     """Файл состояния переживает выкатки и правки руками; голый `int()` на
     строке уронил бы цикл при живом heartbeat."""
     state = {ow.JOURNAL_TRIM_KEY: {"fails": "много", "alerted": False}}
-    alerts, new = ow.note_trim_health(
-        state, {"attempted": True, "ok": False, "error": "e"})
+    alerts, new = ow.note_trim_health(state, TRIM_FAIL, STREAK)
     assert alerts == []
     assert new[ow.JOURNAL_TRIM_KEY]["fails"] == 1
 
@@ -1397,11 +1407,31 @@ def test_the_cycle_carries_the_trim_verdict_into_the_state(monkeypatch, tmp_path
             rep.update({"attempted": True, "ok": False, "error": "WinError 5"})
         return True
 
+    monkeypatch.setattr(ow, "JOURNAL_TRIM_FAIL_STREAK", STREAK)
     probes = {"backend": _probe(True)}
     state, said = None, []
-    for _ in range(ow.JOURNAL_TRIM_FAIL_STREAK):
+    for _ in range(STREAK):
         sent, state = _cycle(monkeypatch, tmp_path, probes, prev_state=state,
                              append=blocked)
         said += sent
     assert sum("не обрезается" in t for t in said) == 1, said
-    assert state[ow.JOURNAL_TRIM_KEY]["fails"] == ow.JOURNAL_TRIM_FAIL_STREAK
+    assert state[ow.JOURNAL_TRIM_KEY]["fails"] == STREAK
+
+
+def test_a_trim_that_went_through_is_reported_as_success(tmp_path):
+    """Сторож на УСПЕХ, а не только на провал. Без него мутация «удачная
+    перезапись выдана за провал» пережила весь гейт: остальные сторожа зовут
+    `note_trim_health` напрямую и до `journal_append` не доходят вовсе, а
+    вечный «провал» копил бы серию и слал 🚨 на здоровом журнале.
+    """
+    p = tmp_path / "j.jsonl"
+    now = 1_000_000.0
+    assert ow.journal_append([_rec(now - 40 * 86400)], path=p, now=now) is True
+
+    report = {}
+    ok = ow.journal_append([_rec(now - 40 * 86400)], path=p, now=now,
+                           trim_report=report)
+    assert ok is True
+    assert report["attempted"] is True
+    assert report["ok"] is True, "состоявшаяся обрезка названа провалом"
+    assert report["error"] == ""

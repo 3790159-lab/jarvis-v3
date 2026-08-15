@@ -586,7 +586,7 @@ MUTATIONS = [
     ("обрезка: удачная перезапись выдана за провал", WATCHDOG,
      '            if trim_report is not None:\n                trim_report["ok"] = True',
      "            if False:\n                pass",
-     T_JOURNAL + "::test_a_trim_that_works_again_says_so_and_forgets_the_streak"),
+     T_JOURNAL + "::test_a_trim_that_went_through_is_reported_as_success"),
 
     ("обрезка: ненужная считается состоявшейся", WATCHDOG,
      '        trim_report.update({"attempted": False, "ok": False, "error": ""})',
@@ -596,17 +596,17 @@ MUTATIONS = [
     ("обрезка: порог серии снят — тревоги не будет никогда", WATCHDOG,
      "JOURNAL_TRIM_FAIL_STREAK = 10",
      "JOURNAL_TRIM_FAIL_STREAK = 10**9",
-     T_JOURNAL + "::test_ten_failures_in_a_row_reach_the_owner_once"),
+     T_JOURNAL + "::test_the_production_threshold_is_ten_cycles_and_the_number_is_load_bearing"),
 
     ("обрезка: тревога на КАЖДОМ провале — 120 сообщений в час", WATCHDOG,
      "    if fails >= streak and not alerted:",
      "    if True:",
-     T_JOURNAL + "::test_ten_failures_in_a_row_reach_the_owner_once"),
+     T_JOURNAL + "::test_a_streak_of_failures_reaches_the_owner_once"),
 
     ("обрезка: серия не копится — каждый цикл считает себя первым", WATCHDOG,
      "    fails += 1",
      "    fails = 1",
-     T_JOURNAL + "::test_ten_failures_in_a_row_reach_the_owner_once"),
+     T_JOURNAL + "::test_a_streak_of_failures_reaches_the_owner_once"),
 
     ("обрезка: цикл без обрезки СБРАСЫВАЕТ серию", WATCHDOG,
      '    if not report.get("attempted"):\n        return [], new_state',
@@ -622,7 +622,7 @@ MUTATIONS = [
     ("обрезка: причина провала не доехала до владельца", WATCHDOG,
      '                   % (fails, report.get("error") or "причина не названа"))',
      '                   % (fails, "подробностей нет"))',
-     T_JOURNAL + "::test_ten_failures_in_a_row_reach_the_owner_once"),
+     T_JOURNAL + "::test_a_streak_of_failures_reaches_the_owner_once"),
 
     ("обрезка: счётчик с диска строкой роняет цикл сторожа", WATCHDOG,
      '    fails = _int_or_none(entry.get("fails")) or 0',
@@ -630,7 +630,8 @@ MUTATIONS = [
      T_JOURNAL + "::test_a_counter_from_disk_that_is_not_a_number_does_not_kill_the_cycle"),
 
     ("цикл: вердикт об обрезке не спрашивается вовсе", WATCHDOG,
-     "    trim_alerts, state = note_trim_health(state, trim_report)",
+     "    trim_alerts, state = note_trim_health(state, trim_report,\n"
+     "                                          JOURNAL_TRIM_FAIL_STREAK)",
      "    trim_alerts = []",
      T_JOURNAL + "::test_the_cycle_carries_the_trim_verdict_into_the_state"),
 
