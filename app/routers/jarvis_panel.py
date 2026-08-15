@@ -424,7 +424,7 @@ def _journal_rows(records, now: float) -> str:
     for r in sorted(records, key=lambda x: -(F.journal_ts(x) or 0.0)):
         if r.get("kind") == _JOURNAL_RESTART:
             out.append(
-                "<tr><td colspan='4' class='sub'>── "
+                "<tr><td colspan='3' class='sub'>── "
                 f"{esc(r.get('detail', ''))} · {esc(_ago(F.journal_ts(r), now))}"
                 " ──</td></tr>")
             continue
@@ -440,16 +440,23 @@ def _journal_rows(records, now: float) -> str:
                         "recovered": f", поднялось само через {mins} мин",
                         None: ", исход пока неизвестен"}[r.get("outcome")]
         out.append(
-            # Имя пробы — машинное (`chatter_runner`, `bot_heartbeat`), и
-            # `overflow-wrap:anywhere` рвёт его посреди слова: скриншот приёмки
-            # на 707 px дал «chat/ter_r/unn/er» и «wor/ktre/e». `<wbr>` после
-            # подчёркиваний даёт браузеру ЗАКОННОЕ место переноса — тот же
-            # приём, что у машинных имён в ленте. Вставляется ПОСЛЕ
-            # экранирования: `_` не экранируется, разметку это не рушит.
-            f"<tr><td><b>{esc(r.get('check', '—')).replace('_', '_<wbr>')}</b></td>"
-            # `wordsafe`, а не `nobreak`: «подавлено в загрузочном окне,
-            # подтверждено через 5 мин» с `nowrap` распёрло бы страницу вбок.
-            f"<td data-l='Что' class='sub wordsafe'>{esc(kind + tail)}</td>"
+            # ТРИ колонки, а не четыре, и вид записи живёт ПОД именем пробы —
+            # идиома `_arc_table` из этого же файла. Четвёртая колонка была
+            # проверена скриншотом и провалилась дважды: на 707 px она забирала
+            # ширину у «Детали», и та ужималась до шести букв, рисуя «HEAD на
+            # «arc/ panel - event - journ al»» — строка в тридцать этажей.
+            # Деталь здесь самая длинная и самая нужная; отдавать её ширину
+            # двухсловной подписи нечем оправдать.
+            #
+            # Имя пробы машинное (`chatter_runner`), и лечится оно ДВУМЯ
+            # приёмами разом: `wordsafe` запрещает рвать где попало (иначе
+            # `worktree`, у которого подчёркиваний нет вовсе, рисуется как
+            # «wo/rkt/re/e»), а `<wbr>` после подчёркиваний разрешает рвать
+            # там, где это законно. Подставляется ПОСЛЕ экранирования: `_` не
+            # экранируется, разметку это не рушит.
+            f"<tr><td class='wordsafe'><b>"
+            f"{esc(r.get('check', '—')).replace('_', '_<wbr>')}</b>"
+            f"<div class='sub wordsafe'>{esc(kind + tail)}</div></td>"
             f"<td data-l='Деталь' class='sub'>{esc((r.get('detail') or '')[:110])}</td>"
             f"<td data-l='Когда' class='sub nobreak'>{esc(_ago(F.journal_ts(r), now))}</td></tr>")
     return "".join(out)

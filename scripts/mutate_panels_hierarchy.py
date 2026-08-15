@@ -735,8 +735,14 @@ MUTATIONS = [
      [("{esc(r.get('check', '—')).replace('_', '_<wbr>')}", "{esc(r.get('check', '—'))}")],
      f"{JV}::test_machine_probe_names_break_at_the_underscore_not_mid_word"),
 
+    # Парная: `<wbr>` без `wordsafe` не спасает имя БЕЗ подчёркиваний
+    # (`worktree`), а именно оно и рвалось на скриншоте.
+    ("имя пробы без подчёркиваний снова рвётся где попало", JP,
+     [("f\"<tr><td class='wordsafe'><b>\"", "f\"<tr><td><b>\"")],
+     f"{JV}::test_machine_probe_names_break_at_the_underscore_not_mid_word"),
+
     ("фраза вида записи снова рвётся посреди слова", JP,
-     [("<td data-l='Что' class='sub wordsafe'>", "<td data-l='Что' class='sub'>")],
+     [("<div class='sub wordsafe'>", "<div class='sub'>")],
      f"{JV}::test_machine_probe_names_break_at_the_underscore_not_mid_word"),
 
     ("возраст записи снова рвётся посреди слова", JP,

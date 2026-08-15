@@ -491,7 +491,10 @@ def test_machine_probe_names_break_at_the_underscore_not_mid_word(tmp_path, monk
                                [_rec(now - 60, check="chatter_runner",
                                      kind="suppressed")]))
     assert "chatter_<wbr>runner" in body, "машинное имя без места переноса"
-    assert "class='sub wordsafe'" in body, "фраза вида записи рвётся посреди слова"
+    # `<wbr>` мало: `worktree` подчёркиваний не имеет, и без `wordsafe` на самой
+    # ячейке `anywhere` рисует «wo/rkt/re/e». Нужны ОБА приёма разом.
+    assert "<td class='wordsafe'><b>" in body, "имя пробы рвётся где попало"
+    assert "<div class='sub wordsafe'>" in body, "фраза вида записи рвётся посреди слова"
     assert "data-l='Когда' class='sub nobreak'" in body, "возраст рвётся посреди слова"
 
 
