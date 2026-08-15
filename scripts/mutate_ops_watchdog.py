@@ -199,7 +199,7 @@ MUTATIONS = [
      T_JOURNAL + "::test_the_record_ceiling_catches_a_restart_storm"),
 
     ("ротация: потолок режет первые ПО ФАЙЛУ, а не старые ПО ВРЕМЕНИ", WATCHDOG,
-     "        order = sorted(range(len(kept)), key=lambda i: (kept[i][0], i))\n"
+     "        order = sorted(range(len(kept)), key=lambda i: kept[i][0])\n"
      "        doomed = set(order[:by_count])\n"
      "        kept = [pair for i, pair in enumerate(kept) if i not in doomed]",
      "        kept = kept[by_count:]",
@@ -232,8 +232,8 @@ MUTATIONS = [
      T_JOURNAL + "::test_a_record_with_no_usable_time_is_dropped_but_not_called_old"),
 
     ("ротация: нечитаемое время роняет цикл сторожа целиком", WATCHDOG,
-     "    try:\n        ts = float(ts)\n    except (TypeError, ValueError):\n"
-     "        return None",
+     "    try:\n        ts = float(ts)\n"
+     "    except (TypeError, ValueError, OverflowError):\n        return None",
      "    ts = float(ts)",
      T_JOURNAL + "::test_a_record_with_no_usable_time_is_dropped_but_not_called_old"),
 
@@ -246,6 +246,56 @@ MUTATIONS = [
      "    if ts is None or isinstance(ts, bool):",
      "    if ts is None or isinstance(ts, (bool, str)):",
      T_JOURNAL + "::test_a_timestamp_that_arrived_as_a_string_is_still_a_time"),
+
+    # Ниже — мутации по итогам двух ревью: каждая пережила все 25 прежних
+    # сторожей, то есть охраняла ротацию не она, а видимость.
+    ("ротация: большое ЦЕЛОЕ время роняет цикл сторожа", WATCHDOG,
+     "    except (TypeError, ValueError, OverflowError):",
+     "    except (TypeError, ValueError):",
+     T_JOURNAL + "::test_a_record_with_no_usable_time_is_dropped_but_not_called_old"),
+
+    ("ротация: ±inf принят за время — бессмертная запись", WATCHDOG,
+     "    if ts != ts or ts == _TS_INF or ts == -_TS_INF:",
+     "    if ts != ts:",
+     T_JOURNAL + "::test_a_record_with_no_usable_time_is_dropped_but_not_called_old"),
+
+    ("ротация: порядок записей на выходе перевёрнут", WATCHDOG,
+     "    kept = [rec for _ts, rec in kept]",
+     "    kept = [rec for _ts, rec in reversed(kept)]",
+     T_JOURNAL + "::test_the_ceiling_drops_the_oldest_not_the_first_in_the_file"),
+
+    ("ротация заодно пересортировывает журнал по времени", WATCHDOG,
+     "    kept = [rec for _ts, rec in kept]",
+     "    kept = [rec for _ts, rec in sorted(kept, key=lambda p: p[0])]",
+     T_JOURNAL + "::test_the_ceiling_drops_the_oldest_not_the_first_in_the_file"),
+
+    ("ротация: маркер врёт про величину потолка", WATCHDOG,
+     "                        max_records))",
+     "                        0))",
+     T_JOURNAL + "::test_the_record_ceiling_catches_a_restart_storm"),
+
+    ("ротация: возраст режет РОВНО на границе 30 суток", WATCHDOG,
+     "        elif (now - ts) > max_age_s:",
+     "        elif (now - ts) >= max_age_s:",
+     T_JOURNAL + "::test_a_record_exactly_thirty_days_old_is_not_old_yet"),
+
+    ("ротация: маркер потерял слово «записей» из образца §2.4", WATCHDOG,
+     '        parts.append("%d %s старше %d сут"\n'
+     '                     % (by_age, _plural(by_age, "запись", "записи", "записей"),\n'
+     "                        int(max_age_s // 86400)))",
+     '        parts.append("%d старше %d сут" % (by_age, int(max_age_s // 86400)))',
+     T_JOURNAL + "::test_the_marker_reads_like_the_sample_in_the_spec"),
+
+    ("ротация: число и слово рядом с ним не согласованы", WATCHDOG,
+     "    tail %= 10\n    if tail == 1:\n        return one\n"
+     "    return few if 2 <= tail <= 4 else many",
+     "    return many",
+     T_JOURNAL + "::test_the_number_and_the_word_next_to_it_agree"),
+
+    ("ротация: не-запись названа записью наравне с битым `ts`", WATCHDOG,
+     '                     % (by_no_ts, _plural(by_no_ts, "строка", "строки", "строк")))',
+     '                     % (by_no_ts, _plural(by_no_ts, "запись", "записи", "записей")))',
+     T_JOURNAL + "::test_a_record_with_no_usable_time_is_dropped_but_not_called_old"),
 
     # Граница stdlib-only (§2.1, ловушка 1). Под pytest корень репозитория и так
     # на `sys.path`, поэтому мутация ниже НЕ ломает загрузку модуля и проходит
