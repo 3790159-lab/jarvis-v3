@@ -1154,3 +1154,121 @@ def test_the_watchdog_path_runs_where_app_and_third_party_are_unimportable(tmp_p
         "пакетов:\n--- stdout ---\n%s\n--- stderr ---\n%s"
         % (proc.stdout, proc.stderr))
     assert "STDLIB-ONLY OK" in proc.stdout, proc.stdout
+
+
+# ── Task 4: цикл сторожа пишет журнал ──────────────────────────────────────
+
+
+def test_a_reboot_becomes_a_journal_record():
+    """DEV-24 живёт ВНЕ `transitions()`: ребут не зависит от здоровья сервисов —
+    наоборот, они уже подняты гардианами, и именно поэтому раньше он проходил
+    незаметно. Журнал без него потерял бы главное событие суток."""
+    rec = ow.reboot_record(boot_time=1_000_000.0, now=1_000_060.0)
+    assert rec["kind"] == "reboot"
+    assert rec["check"] == ow.BOOT_KEY
+    assert rec["ts"] == 1_000_060.0
+    assert "перезагрузилась" in rec["detail"]
+    assert set(rec) == JOURNAL_FIELDS, rec
+
+
+_REAL_APPEND = ow.journal_append
+
+
+def _cycle(monkeypatch, tmp_path, probes, *, boot_time=None, prev_state=None,
+           append=None):
+    """Один цикл `main()` на фейках; отдаёт (что ушло владельцу, стейт на диск).
+
+    Сторож стоит на WIRING, а не на функциях. Мутации §7 бьют по строкам
+    `main()` («маркер обновляется даже при провале записи», «ребут больше не
+    попадает в журнал»), а плановые юнит-тесты `journal_append` и
+    `reboot_record` до `main()` не доходят вовсе — гейт на них показал бы
+    [СЛЕП] и пропустил бы обе мутации. `main()` до сегодня не был покрыт ничем.
+    """
+    sent, written = [], {}
+    monkeypatch.setattr(ow, "JOURNAL_PATH", tmp_path / "j.jsonl")
+    monkeypatch.setattr(ow, "JOURNAL_BEAT", tmp_path / "beat")
+    monkeypatch.setattr(ow, "probe_all", lambda *a, **k: dict(probes))
+    monkeypatch.setattr(ow, "_chatter_snapshot", lambda: {})
+    monkeypatch.setattr(ow, "_worktree_snapshot", lambda: {})
+    monkeypatch.setattr(ow, "_secrets_bundle_snapshot", lambda: {})
+    monkeypatch.setattr(ow, "_boot_time", lambda: boot_time)
+    monkeypatch.setattr(ow, "_read_state", lambda: json.loads(
+        json.dumps(prev_state or {})))
+    monkeypatch.setattr(ow, "_write_state",
+                        lambda st: written.update(json.loads(json.dumps(st))))
+    monkeypatch.setattr(ow, "_send_tg", lambda text: sent.append(text))
+    # Настоящий писатель ВОЗВРАЩАЕТСЯ явно, а не «если не подменяли»: `monkeypatch`
+    # откатывается на границе ТЕСТА, а не цикла, и фейк из первого прогона дожил
+    # бы до второго — сторож на «журнал снова пишется» был бы зелён на молчании.
+    monkeypatch.setattr(ow, "journal_append", append or _REAL_APPEND)
+    assert ow.main() == 0
+    return sent, written
+
+
+def test_the_cycle_writes_the_transition_and_touches_the_marker(monkeypatch, tmp_path):
+    sent, _st = _cycle(monkeypatch, tmp_path,
+                       {"backend": _probe(False, "no_response", "нет ответа")},
+                       prev_state={"backend": {"fail": 1, "alerted": False}})
+    assert [r["kind"] for r in ow.journal_read(tmp_path / "j.jsonl")] == ["down"]
+    assert (tmp_path / "beat").exists(), "маркер живости не обновлён после записи"
+    assert sent == ["🚨 DOWN: BACKEND (:8010 /health). нет ответа"]
+
+
+def test_a_failed_journal_leaves_the_marker_stale_and_says_so(monkeypatch, tmp_path):
+    """§2.5: провал записи обязан показывать себя протухающим маркером. Touch
+    после провала — это ложь панели на 180 с вперёд, причём молчаливая."""
+    sent, _st = _cycle(monkeypatch, tmp_path,
+                       {"backend": _probe(False, "no_response", "нет ответа")},
+                       prev_state={"backend": {"fail": 1, "alerted": False}},
+                       append=lambda *a, **k: False)
+    assert not (tmp_path / "beat").exists(), "маркер обновлён при провале записи"
+    assert any("верить нельзя" in t for t in sent), sent
+
+
+def test_a_reboot_rides_in_the_same_journal_write(monkeypatch, tmp_path):
+    """Ребут приходит ВНЕ `transitions()`, и журнал, собранный только из неё,
+    потерял бы ровно то событие, ради которого заводился DEV-24."""
+    sent, _st = _cycle(monkeypatch, tmp_path, {"backend": _probe(True)},
+                       boot_time=time.time() - 30,
+                       prev_state={ow.BOOT_KEY: {"boot_id": 1}})
+    assert [r["kind"] for r in ow.journal_read(tmp_path / "j.jsonl")] == ["reboot"]
+    assert any("перезагрузилась" in t for t in sent), sent
+
+
+def test_the_cycle_does_not_alert_about_what_only_the_journal_knows(monkeypatch, tmp_path):
+    """Подъём после ПОДАВЛЕННОГО падения — событие журнала, но не владельца:
+    ✅ о том, о чём не было 🚨, читается как «что-то чинили без меня».
+
+    Сторож на источнике текстов: алерты собираются из `to_owner`, а не из всего
+    журнала. Разница видна ТОЛЬКО здесь — на этом единственном виде перехода.
+    """
+    sent, _st = _cycle(monkeypatch, tmp_path, {"backend": _probe(True)},
+                       prev_state={"backend": {"fail": 2, "alerted": False}})
+    assert [r["kind"] for r in ow.journal_read(tmp_path / "j.jsonl")] == ["recovered"]
+    assert sent == [], sent
+
+
+def test_a_broken_journal_alerts_once_not_every_thirty_seconds(monkeypatch, tmp_path):
+    """Провал записи — СОСТОЯНИЕ, а не событие: диск полон и через минуту, и
+    через час. Алерт на каждом цикле = 120 сообщений в час ровно за то, что
+    этот файл дедупом по причине уже чинил (worktree, 1669 циклов, 11.08).
+    Владельца, заваленного 🚨, не спасает то, что каждое из них правдиво."""
+    probes = {"backend": _probe(True)}
+    dead = lambda *a, **k: False
+    sent1, st1 = _cycle(monkeypatch, tmp_path, probes, append=dead)
+    assert sum("верить нельзя" in t for t in sent1) == 1, sent1
+    sent2, st2 = _cycle(monkeypatch, tmp_path, probes, prev_state=st1, append=dead)
+    assert sum("верить нельзя" in t for t in sent2) == 0, sent2
+    assert st2, "стейт провала не пережил цикл — дедуп держится на воздухе"
+
+
+def test_a_journal_that_writes_again_says_so_once(monkeypatch, tmp_path):
+    """Парный сторож: без него дедуп выше проходит на «замолчать навсегда».
+    Молчание после 🚨 неотличимо от «всё ещё сломано»."""
+    probes = {"backend": _probe(True)}
+    _s1, st1 = _cycle(monkeypatch, tmp_path, probes, append=lambda *a, **k: False)
+    sent2, st2 = _cycle(monkeypatch, tmp_path, probes, prev_state=st1)
+    assert sum("Журнал панели" in t for t in sent2) == 1, sent2
+    assert sent2[0].startswith("✅"), sent2
+    sent3, _st3 = _cycle(monkeypatch, tmp_path, probes, prev_state=st2)
+    assert sent3 == [], sent3

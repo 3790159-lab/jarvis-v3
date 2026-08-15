@@ -763,6 +763,40 @@ def touch_beat(path=None, now: float | None = None) -> bool:
         return False
 
 
+JOURNAL_BROKEN_ALERT = "🚨 Журнал панели не пишется — списку событий верить нельзя"
+JOURNAL_FIXED_ALERT = "✅ Журнал панели снова пишется"
+
+
+def note_journal_health(prev_state: dict, ok: bool) -> tuple[list, dict]:
+    """(что сказать владельцу, новое состояние). Чистая функция.
+
+    Провал записи — СОСТОЯНИЕ, а не событие: диск полон и через минуту, и через
+    час. Без дедупа владелец получал бы 🚨 каждые 30 секунд — 120 сообщений в
+    час ровно за тот дефект, который этот файл дедупом по причине уже чинил
+    (чек worktree, 1669 циклов, 11.08). Правдивость каждого отдельного 🚨 не
+    спасает: заваленный ими владелец перестаёт читать все.
+
+    Парное ✅ обязательно и не для симметрии: молчание после 🚨 неотличимо от
+    «всё ещё сломано», и владелец либо ходит проверять руками, либо перестаёт
+    верить и молчанию тоже.
+
+    Ключ `JOURNAL_SELF` в файле состояния — тем же приёмом, что и `BOOT_KEY`:
+    проверки с таким именем нет, а `transitions()` трогает только ключи из
+    `probes` и остальные копирует дословно.
+    """
+    new_state = {k: (dict(v) if isinstance(v, dict) else v)
+                 for k, v in prev_state.items()}
+    entry = prev_state.get(JOURNAL_SELF)
+    entry = entry if isinstance(entry, dict) else {}
+    was_broken = bool(entry.get("alerted"))
+
+    if ok:
+        new_state.pop(JOURNAL_SELF, None)
+        return ([JOURNAL_FIXED_ALERT] if was_broken else []), new_state
+    new_state[JOURNAL_SELF] = {"alerted": True}
+    return ([] if was_broken else [JOURNAL_BROKEN_ALERT]), new_state
+
+
 # ── DEV-24: алерт «машина перезагрузилась» ────────────────────────────────
 # Инцидент 2026-07-15: Windows Update ребутнул прод дважды за три минуты
 # (Event 1074 в 03:14:09 и 03:16:48), погибла аудит-задача, узнали утром.
@@ -881,6 +915,24 @@ def reboot_alert_text(boot_time: float, now: float, localtime=time.localtime,
             "Если что-то не встанет, придёт отдельный 🚨. "
             "Проверь, не погибла ли долгая задача."
             % (hhmm, humanize_uptime(now - boot_time), int(grace // 60)))
+
+
+def reboot_record(boot_time: float, now: float) -> dict:
+    """Ребут как запись журнала. Отдельной функцией, потому что приходит он
+    ВНЕ `transitions()` — и журнал, собранный только из неё, потерял бы ровно
+    то событие, ради которого заводился DEV-24: сервисы после ребута подняты
+    гардианами, то есть все пробы зелёные и переходов нет вовсе.
+
+    `check` — тот же `BOOT_KEY`, что и в стейте: проверки с таким именем не
+    существует, и в `LABELS` его нет намеренно (о ребуте говорит своё
+    сообщение, не `build_alert`). Пять полей §2.2, шестого нет.
+
+    Текст берётся у `reboot_alert_text()`, а не пишется заново: одна
+    формулировка на пуш и на журнал значит, что владелец, сверяя телефон с
+    панелью, читает одно и то же событие одними словами.
+    """
+    return {"ts": now, "check": BOOT_KEY, "kind": "reboot", "reason": "boot_id",
+            "detail": reboot_alert_text(boot_time, now)}
 
 
 def _boot_time() -> float | None:
@@ -1353,12 +1405,35 @@ def main() -> int:
                        chatter_snapshot=_chatter_snapshot(),
                        worktree_snapshot=_worktree_snapshot(),
                        secrets_snapshot=_secrets_bundle_snapshot())
-    alerts, state = evaluate(state, probes, suppress_down=in_boot_grace)
+    # Ядро зовётся НАПРЯМУЮ, а не через `transitions()` + `evaluate()`: второе
+    # свернуло бы пробы в состояние ДВАЖДЫ, и владелец получил бы по два 🚨 на
+    # падение. Тексты берутся из `to_owner`, а не из журнала: единственный
+    # переход, существующий только для журнала, — подъём после ПОДАВЛЕННОГО
+    # падения, и ✅ о том, о чём не было 🚨, читается как «чинили без меня».
+    journal, to_owner, state = _transitions(
+        state, probes, suppress_down=in_boot_grace)
+    alerts = [build_alert(t["check"], t["kind"], t["detail"]) for t in to_owner]
+
+    if reboot_text and boot_time is not None:
+        # В НАЧАЛО списка: ребут объясняет всё, что записано следом.
+        journal.insert(0, reboot_record(boot_time, time.time()))
 
     if reboot_text:
         _send_tg(reboot_text)
     for text in alerts:
         _send_tg(text)
+
+    # Маркер живости — В КОНЦЕ и только при успехе: провал записи обязан
+    # показывать себя протухающим маркером, а не тонуть в тишине (§2.5).
+    written = journal_append(journal)
+    if written:
+        touch_beat()
+    journal_alerts, state = note_journal_health(state, written)
+    for text in journal_alerts:
+        _send_tg(text)
+
+    # Стейт пишется ПОСЛЕДНИМ: в нём теперь живёт и дедуп жалобы на журнал,
+    # а он обязан пережить цикл, иначе 🚨 повторится через 30 секунд.
     _write_state(state)
     return 0
 
