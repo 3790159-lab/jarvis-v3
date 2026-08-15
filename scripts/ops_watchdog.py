@@ -618,7 +618,8 @@ def _rotated_detail(why: str, collapsed: int, unreadable: int) -> str:
 
 def journal_append(records: list, *, path=None, now=None, mkdir: bool = True,
                    max_age_s: float = JOURNAL_MAX_AGE_S,
-                   max_records: int = JOURNAL_MAX_RECORDS) -> bool:
+                   max_records: int = JOURNAL_MAX_RECORDS,
+                   trim_report: dict | None = None) -> bool:
     """Дозаписать переходы и при необходимости обрезать журнал.
 
     True — записали (или писать было нечего); False — не смогли, целиком или
@@ -659,6 +660,12 @@ def journal_append(records: list, *, path=None, now=None, mkdir: bool = True,
     `_rotated_detail`.
     """
     now = time.time() if now is None else now
+    # Вердикт об ОБРЕЗКЕ отдаётся отдельным каналом, а не возвратом: возврат
+    # отвечает на «записали ли», он под мутационным гейтом, и приравнять к нему
+    # обрезку значило бы дарить владельцу ложную 🚨 на каждом миллисекундном
+    # пересечении с панелью. Считает серию `note_trim_health`.
+    if trim_report is not None:
+        trim_report.update({"attempted": False, "ok": False, "error": ""})
     if not records:
         return True                      # незачем заводить файл ради пустоты
     p = Path(path or JOURNAL_PATH)
@@ -700,6 +707,8 @@ def journal_append(records: list, *, path=None, now=None, mkdir: bool = True,
             # цикл дорежет), а `.tmp` подберёт `open(..., "w")` следующего
             # прогона. `os.replace` атомарен в пределах тома — `.tmp` лежит
             # рядом с журналом именно поэтому.
+            if trim_report is not None:
+                trim_report["attempted"] = True
             tmp = p.with_name(p.name + ".tmp")
             rewritten = []
             for rec in kept:
@@ -721,6 +730,8 @@ def journal_append(records: list, *, path=None, now=None, mkdir: bool = True,
             with open(tmp, "w", encoding="utf-8", newline="") as f:
                 f.write("".join(rewritten))
             os.replace(tmp, p)
+            if trim_report is not None:
+                trim_report["ok"] = True
     except OSError as exc:
         # ПРОВАЛ ОБРЕЗКИ — НЕ ПРОВАЛ ЗАПИСИ, и мешать их дорого. На Windows
         # `os.replace` бросает `[WinError 5] Отказано в доступе`, если приёмник
@@ -732,7 +743,12 @@ def journal_append(records: list, *, path=None, now=None, mkdir: bool = True,
         # «писатель молчит» из-за миллисекундного пересечения с самой собой.
         # Вероятность максимальна ровно в шторме рестартов: журнал на потолке
         # режется на КАЖДОЙ дозаписи, а панель в этот момент обновляют непрерывно.
-        # Молчать при этом нельзя (DEV-18): необрезанный журнал растёт.
+        # Молчать при этом нельзя (DEV-18): необрезанный журнал растёт. Но и
+        # stderr МАЛО — в этот лог никто не смотрит, пока не заподозрит
+        # неладное. Провал уезжает вызывающему, и `note_trim_health` поднимает
+        # тревогу на серии: одиночные промахи — гонка, десять подряд — блокировка.
+        if trim_report is not None:
+            trim_report.update({"attempted": True, "ok": False, "error": str(exc)})
         print("[ops_watchdog] журнал не обрезан: %s" % exc, file=sys.stderr)
     return not lost
 
@@ -766,6 +782,20 @@ def touch_beat(path=None, now: float | None = None) -> bool:
 JOURNAL_BROKEN_ALERT = "🚨 Журнал панели не пишется — списку событий верить нельзя"
 JOURNAL_FIXED_ALERT = "✅ Журнал панели снова пишется"
 
+# Служебный ключ счётчика провалов обрезки — тем же приёмом, что `BOOT_KEY`.
+JOURNAL_TRIM_KEY = "_journal_trim"
+# Сколько провалов ПОДРЯД считать блокировкой, а не гонкой. Число не на глаз:
+# замер 15.08 на журнале под потолок дал самую длинную серию подряд = 1 при
+# трёх браузерах, жмущих обновление раз в секунду (доля времени, когда файл
+# открыт читателем, — 5%). 10 циклов по 30 с — это пять минут СПЛОШНОЙ
+# блокировки, с гонкой чтения не пересекается ни при каком темпе.
+JOURNAL_TRIM_FAIL_STREAK = 10
+JOURNAL_TRIM_STUCK_ALERT = (
+    "🚨 Журнал панели не обрезается %d циклов подряд (%s). Файл растёт без "
+    "предела, а первый экран платит за его разбор. Скорее всего, "
+    "state/panel_events.jsonl держит открытым чужой процесс.")
+JOURNAL_TRIM_FIXED_ALERT = "✅ Журнал панели снова обрезается"
+
 
 def note_journal_health(prev_state: dict, ok: bool) -> tuple[list, dict]:
     """(что сказать владельцу, новое состояние). Чистая функция.
@@ -795,6 +825,51 @@ def note_journal_health(prev_state: dict, ok: bool) -> tuple[list, dict]:
         return ([JOURNAL_FIXED_ALERT] if was_broken else []), new_state
     new_state[JOURNAL_SELF] = {"alerted": True}
     return ([] if was_broken else [JOURNAL_BROKEN_ALERT]), new_state
+
+
+def note_trim_health(prev_state: dict, report: dict,
+                     streak: int = JOURNAL_TRIM_FAIL_STREAK) -> tuple[list, dict]:
+    """(что сказать владельцу, новое состояние). Чистая функция.
+
+    Провал ОБРЕЗКИ намеренно не приравнен к провалу записи: записи доехали, а
+    гонка чтения с панелью даёт одиночные промахи, и 🚨 на каждый был бы шумом
+    (измерено: 1.5% попыток при трёх браузерах). Но «следующий цикл дорежет» —
+    механизм только пока провалы ОДИНОЧНЫЕ. Внешняя блокировка (файл открыт
+    инструментом, который держит хэндл) ломает его насовсем, и без счётчика об
+    этом говорил бы ровно один stderr, в который никто не смотрит, пока не
+    заподозрит неладное. Журнал при этом рос бы без предела.
+
+    ТРИ исхода цикла, а не два, и различать их обязательно:
+      · обрезка прошла  → серия забыта, и о починке сказано, если жаловались;
+      · обрезка провалилась → +1 к серии;
+      · обрезка НЕ ПОНАДОБИЛАСЬ → счётчик ЗАМОРОЖЕН. «Не понадобилась» это не
+        «прошла»: сбросив серию здесь, мы гасили бы тревогу тишиной ровно
+        тогда, когда переходов нет, а файл лежит заблокированным.
+
+    Счётчик с диска читается щитом: файл состояния переживает выкатки и правки
+    руками, а голый `int()` на строке уронил бы цикл при живом heartbeat.
+    """
+    new_state = {k: (dict(v) if isinstance(v, dict) else v)
+                 for k, v in prev_state.items()}
+    entry = prev_state.get(JOURNAL_TRIM_KEY)
+    entry = entry if isinstance(entry, dict) else {}
+    fails = _int_or_none(entry.get("fails")) or 0
+    alerted = bool(entry.get("alerted"))
+
+    if not report.get("attempted"):
+        return [], new_state
+    if report.get("ok"):
+        new_state.pop(JOURNAL_TRIM_KEY, None)
+        return ([JOURNAL_TRIM_FIXED_ALERT] if alerted else []), new_state
+
+    fails += 1
+    out = []
+    if fails >= streak and not alerted:
+        out.append(JOURNAL_TRIM_STUCK_ALERT
+                   % (fails, report.get("error") or "причина не названа"))
+        alerted = True
+    new_state[JOURNAL_TRIM_KEY] = {"fails": fails, "alerted": alerted}
+    return out, new_state
 
 
 # ── DEV-24: алерт «машина перезагрузилась» ────────────────────────────────
@@ -1425,11 +1500,13 @@ def main() -> int:
 
     # Маркер живости — В КОНЦЕ и только при успехе: провал записи обязан
     # показывать себя протухающим маркером, а не тонуть в тишине (§2.5).
-    written = journal_append(journal)
+    trim_report = {}
+    written = journal_append(journal, trim_report=trim_report)
     if written:
         touch_beat()
     journal_alerts, state = note_journal_health(state, written)
-    for text in journal_alerts:
+    trim_alerts, state = note_trim_health(state, trim_report)
+    for text in journal_alerts + trim_alerts:
         _send_tg(text)
 
     # Стейт пишется ПОСЛЕДНИМ: в нём теперь живёт и дедуп жалобы на журнал,

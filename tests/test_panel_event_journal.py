@@ -1272,3 +1272,136 @@ def test_a_journal_that_writes_again_says_so_once(monkeypatch, tmp_path):
     assert sent2[0].startswith("✅"), sent2
     sent3, _st3 = _cycle(monkeypatch, tmp_path, probes, prev_state=st2)
     assert sent3 == [], sent3
+
+
+# ── Обрезка не проходит N циклов подряд ────────────────────────────────────
+
+
+def test_a_blocked_trim_is_reported_to_the_caller(tmp_path):
+    """Провал обрезки был виден ТОЛЬКО на stderr, а в тот лог никто не смотрит.
+
+    Воспроизводится настоящей причиной, а не подменой `os.replace`: на Windows
+    открытый на чтение приёмник даёт `PermissionError` (WinError 5), и это
+    измерено фактом — читатель журнала есть, это панель.
+    """
+    p = tmp_path / "j.jsonl"
+    now = 1_000_000.0
+    assert ow.journal_append([_rec(now - 40 * 86400)], path=p, now=now) is True
+
+    report = {}
+    with open(p, "r", encoding="utf-8") as held:
+        held.read(1)
+        # Вторая запись тоже древняя: обрезка должна ПОНАДОБИТЬСЯ, иначе тест
+        # проверял бы «не пробовали», а не «пробовали и не смогли».
+        ok = ow.journal_append([_rec(now - 40 * 86400)], path=p, now=now,
+                               trim_report=report)
+    assert ok is True, "провал обрезки — не провал записи"
+    assert report["attempted"] is True
+    assert report["ok"] is False
+    assert report["error"], "причина провала не названа вызывающему"
+
+
+def test_a_trim_that_was_not_needed_is_not_a_verdict(tmp_path):
+    """Счётчик обязан двигаться только тем, что мы УЗНАЛИ. Дозапись без обрезки
+    не говорит о файле ничего — ни хорошего, ни плохого."""
+    report = {}
+    ow.journal_append([_rec(1_000_000.0)], path=tmp_path / "j.jsonl",
+                      now=1_000_000.0, trim_report=report)
+    assert report["attempted"] is False
+
+
+def test_ten_failures_in_a_row_reach_the_owner_once():
+    """Замер 15.08: самая длинная серия провалов ПОДРЯД при трёх браузерах,
+    жмущих обновление раз в секунду, — ОДИН. Порог 10 (пять минут сплошной
+    блокировки) не пересекается с гонкой чтения ни при каком темпе.
+
+    Один алерт на эпизод, а не на цикл: провал — состояние, и 🚨 каждые 30 с
+    это 120 сообщений в час.
+    """
+    fail = {"attempted": True, "ok": False, "error": "WinError 5"}
+    state, said = {}, []
+    for _ in range(ow.JOURNAL_TRIM_FAIL_STREAK - 1):
+        alerts, state = ow.note_trim_health(state, fail)
+        said += alerts
+    assert said == [], "тревога поднята раньше порога"
+
+    alerts, state = ow.note_trim_health(state, fail)
+    assert len(alerts) == 1, alerts
+    assert "не обрезается" in alerts[0], alerts[0]
+    assert "WinError 5" in alerts[0], "причина провала не доехала до владельца"
+
+    for _ in range(20):
+        more, state = ow.note_trim_health(state, fail)
+        assert more == [], more
+
+
+def test_a_trim_that_works_again_says_so_and_forgets_the_streak():
+    """Парный сторож: без него дедуп проходит на «замолчать навсегда», а
+    молчание после 🚨 неотличимо от «всё ещё сломано»."""
+    fail = {"attempted": True, "ok": False, "error": "WinError 5"}
+    state = {}
+    for _ in range(ow.JOURNAL_TRIM_FAIL_STREAK):
+        _a, state = ow.note_trim_health(state, fail)
+
+    alerts, state = ow.note_trim_health(state, {"attempted": True, "ok": True})
+    assert len(alerts) == 1 and alerts[0].startswith("✅"), alerts
+    assert ow.JOURNAL_TRIM_KEY not in state, state
+
+    again, state = ow.note_trim_health(state, {"attempted": True, "ok": True})
+    assert again == [], again
+
+
+def test_a_streak_below_the_threshold_is_forgotten_by_one_success():
+    """Гонка чтения даёт одиночные провалы, и копить их через успехи значило бы
+    поднять тревогу за неделю нормальной работы."""
+    state = {}
+    for _ in range(ow.JOURNAL_TRIM_FAIL_STREAK - 1):
+        _a, state = ow.note_trim_health(
+            state, {"attempted": True, "ok": False, "error": "гонка"})
+    _a, state = ow.note_trim_health(state, {"attempted": True, "ok": True})
+    for _ in range(ow.JOURNAL_TRIM_FAIL_STREAK - 1):
+        alerts, state = ow.note_trim_health(
+            state, {"attempted": True, "ok": False, "error": "гонка"})
+        assert alerts == [], alerts
+
+
+def test_a_cycle_with_no_trim_freezes_the_streak_instead_of_clearing_it():
+    """«Обрезка не понадобилась» — это НЕ «обрезка прошла». Сбросив счётчик,
+    мы бы гасили тревогу тишиной ровно там, где переходов нет, а файл лежит
+    заблокированным."""
+    fail = {"attempted": True, "ok": False, "error": "WinError 5"}
+    state = {}
+    for _ in range(ow.JOURNAL_TRIM_FAIL_STREAK - 1):
+        _a, state = ow.note_trim_health(state, fail)
+    _a, state = ow.note_trim_health(state, {"attempted": False, "ok": False})
+    alerts, state = ow.note_trim_health(state, fail)
+    assert len(alerts) == 1, "серия сброшена циклом без обрезки"
+
+
+def test_a_counter_from_disk_that_is_not_a_number_does_not_kill_the_cycle():
+    """Файл состояния переживает выкатки и правки руками; голый `int()` на
+    строке уронил бы цикл при живом heartbeat."""
+    state = {ow.JOURNAL_TRIM_KEY: {"fails": "много", "alerted": False}}
+    alerts, new = ow.note_trim_health(
+        state, {"attempted": True, "ok": False, "error": "e"})
+    assert alerts == []
+    assert new[ow.JOURNAL_TRIM_KEY]["fails"] == 1
+
+
+def test_the_cycle_carries_the_trim_verdict_into_the_state(monkeypatch, tmp_path):
+    """Сторож на WIRING: счётчик бесполезен, если `main()` не спрашивает вердикт
+    и не сохраняет его между циклами."""
+    def blocked(records, **kw):
+        rep = kw.get("trim_report")
+        if rep is not None:
+            rep.update({"attempted": True, "ok": False, "error": "WinError 5"})
+        return True
+
+    probes = {"backend": _probe(True)}
+    state, said = None, []
+    for _ in range(ow.JOURNAL_TRIM_FAIL_STREAK):
+        sent, state = _cycle(monkeypatch, tmp_path, probes, prev_state=state,
+                             append=blocked)
+        said += sent
+    assert sum("не обрезается" in t for t in said) == 1, said
+    assert state[ow.JOURNAL_TRIM_KEY]["fails"] == ow.JOURNAL_TRIM_FAIL_STREAK

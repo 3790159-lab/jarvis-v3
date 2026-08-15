@@ -505,10 +505,9 @@ MUTATIONS = [
     # подпроцесс звал одни `transitions`/`evaluate`, три мутации ниже проходили
     # бы гейт зелёными: под pytest корень репозитория и так на `sys.path`.
     ("граница stdlib: ленивый app/ внутри journal_append", WATCHDOG,
-     "    now = time.time() if now is None else now\n    if not records:",
-     "    now = time.time() if now is None else now\n"
+     "    if not records:\n        return True",
      "    from app.services import jarvis_farm  # noqa: F401\n"
-     "    if not records:",
+     "    if not records:\n        return True",
      T_JOURNAL + "::test_the_watchdog_path_runs_where_app_and_third_party_are_unimportable"),
 
     ("граница stdlib: ленивый app/ внутри чтения журнала", WATCHDOG,
@@ -529,14 +528,15 @@ MUTATIONS = [
     # харнессом `_cycle` в сторожах, а не юнит-тестами `journal_append` и
     # `reboot_record`: те до `main()` не доходят вовсе и показали бы [СЛЕП].
     ("цикл: журнал не пишется вовсе", WATCHDOG,
-     "    written = journal_append(journal)",
+     "    written = journal_append(journal, trim_report=trim_report)",
      "    written = True",
      T_JOURNAL + "::test_the_cycle_writes_the_transition_and_touches_the_marker"),
 
     ("цикл: маркер живости обновляется даже при провале записи", WATCHDOG,
-     "    written = journal_append(journal)\n    if written:\n        touch_beat()",
-     "    written = journal_append(journal)\n    touch_beat()\n"
-     "    if written:\n        pass",
+     "    written = journal_append(journal, trim_report=trim_report)\n"
+     "    if written:\n        touch_beat()",
+     "    written = journal_append(journal, trim_report=trim_report)\n"
+     "    touch_beat()\n    if written:\n        pass",
      T_JOURNAL + "::test_a_failed_journal_leaves_the_marker_stale_and_says_so"),
 
     ("цикл: ребут больше не попадает в журнал", WATCHDOG,
@@ -550,7 +550,7 @@ MUTATIONS = [
      T_JOURNAL + "::test_the_cycle_does_not_alert_about_what_only_the_journal_knows"),
 
     ("цикл: провал записи журнала молчит вовсе", WATCHDOG,
-     "    for text in journal_alerts:\n        _send_tg(text)",
+     "    for text in journal_alerts + trim_alerts:\n        _send_tg(text)",
      "    for text in []:\n        _send_tg(text)",
      T_JOURNAL + "::test_a_failed_journal_leaves_the_marker_stale_and_says_so"),
 
@@ -573,6 +573,71 @@ MUTATIONS = [
      '    return {"ts": now, "check": BOOT_KEY, "kind": "reboot", "reason": "boot_id",',
      '    return {"ts": boot_time, "check": BOOT_KEY, "kind": "reboot", "reason": "boot_id",',
      T_JOURNAL + "::test_a_reboot_becomes_a_journal_record"),
+
+    # ── счётчик провалов обрезки (правка владельца 15.08) ──────────────────
+    #
+    # До него провал обрезки говорил ровно один stderr, в который никто не
+    # смотрит. Внешняя блокировка файла давала МОЛЧАЛИВЫЙ рост журнала.
+    ("обрезка: провал снова виден только на stderr", WATCHDOG,
+     '            trim_report.update({"attempted": True, "ok": False, "error": str(exc)})',
+     "            pass",
+     T_JOURNAL + "::test_a_blocked_trim_is_reported_to_the_caller"),
+
+    ("обрезка: удачная перезапись выдана за провал", WATCHDOG,
+     '            if trim_report is not None:\n                trim_report["ok"] = True',
+     "            if False:\n                pass",
+     T_JOURNAL + "::test_a_trim_that_works_again_says_so_and_forgets_the_streak"),
+
+    ("обрезка: ненужная считается состоявшейся", WATCHDOG,
+     '        trim_report.update({"attempted": False, "ok": False, "error": ""})',
+     '        trim_report.update({"attempted": True, "ok": True, "error": ""})',
+     T_JOURNAL + "::test_a_trim_that_was_not_needed_is_not_a_verdict"),
+
+    ("обрезка: порог серии снят — тревоги не будет никогда", WATCHDOG,
+     "JOURNAL_TRIM_FAIL_STREAK = 10",
+     "JOURNAL_TRIM_FAIL_STREAK = 10**9",
+     T_JOURNAL + "::test_ten_failures_in_a_row_reach_the_owner_once"),
+
+    ("обрезка: тревога на КАЖДОМ провале — 120 сообщений в час", WATCHDOG,
+     "    if fails >= streak and not alerted:",
+     "    if True:",
+     T_JOURNAL + "::test_ten_failures_in_a_row_reach_the_owner_once"),
+
+    ("обрезка: серия не копится — каждый цикл считает себя первым", WATCHDOG,
+     "    fails += 1",
+     "    fails = 1",
+     T_JOURNAL + "::test_ten_failures_in_a_row_reach_the_owner_once"),
+
+    ("обрезка: цикл без обрезки СБРАСЫВАЕТ серию", WATCHDOG,
+     '    if not report.get("attempted"):\n        return [], new_state',
+     '    if not report.get("attempted"):\n'
+     "        new_state.pop(JOURNAL_TRIM_KEY, None)\n        return [], new_state",
+     T_JOURNAL + "::test_a_cycle_with_no_trim_freezes_the_streak_instead_of_clearing_it"),
+
+    ("обрезка: о починке владельцу не сказали", WATCHDOG,
+     "        return ([JOURNAL_TRIM_FIXED_ALERT] if alerted else []), new_state",
+     "        return [], new_state",
+     T_JOURNAL + "::test_a_trim_that_works_again_says_so_and_forgets_the_streak"),
+
+    ("обрезка: причина провала не доехала до владельца", WATCHDOG,
+     '                   % (fails, report.get("error") or "причина не названа"))',
+     '                   % (fails, "подробностей нет"))',
+     T_JOURNAL + "::test_ten_failures_in_a_row_reach_the_owner_once"),
+
+    ("обрезка: счётчик с диска строкой роняет цикл сторожа", WATCHDOG,
+     '    fails = _int_or_none(entry.get("fails")) or 0',
+     '    fails = int(entry.get("fails") or 0)',
+     T_JOURNAL + "::test_a_counter_from_disk_that_is_not_a_number_does_not_kill_the_cycle"),
+
+    ("цикл: вердикт об обрезке не спрашивается вовсе", WATCHDOG,
+     "    trim_alerts, state = note_trim_health(state, trim_report)",
+     "    trim_alerts = []",
+     T_JOURNAL + "::test_the_cycle_carries_the_trim_verdict_into_the_state"),
+
+    ("цикл: вердикт спрошен, но владельцу не отправлен", WATCHDOG,
+     "    for text in journal_alerts + trim_alerts:",
+     "    for text in journal_alerts:",
+     T_JOURNAL + "::test_the_cycle_carries_the_trim_verdict_into_the_state"),
 ]
 
 
