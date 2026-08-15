@@ -314,6 +314,23 @@ MUTATIONS = [
      '        kept = [r for r in on_disk if r.get("kind") == JOURNAL_ROTATED] + kept',
      T_JOURNAL + "::test_a_journal_full_of_old_markers_collapses_on_the_first_rotation"),
 
+    # Б1/Б2: форму САМОГО маркера не проверял никто, кроме `kind` и `detail`.
+    ("журнал: маркер несёт шестое поле сверх пяти из §2.2", WATCHDOG,
+     '                         "reason": "trim",\n',
+     '                         "reason": "trim", "pid": os.getpid(),\n',
+     T_JOURNAL + "::test_the_marker_is_a_record_of_the_same_five_fields_and_of_no_probe"),
+
+    ("журнал: маркер приписан чужой пробе — панель нарисует чужой инцидент",
+     WATCHDOG,
+     '"check": JOURNAL_SELF', '"check": "backend"',
+     T_JOURNAL + "::test_the_marker_is_a_record_of_the_same_five_fields_and_of_no_probe"),
+
+    ("журнал: маркер без нынешнего времени — окно 72 ч его не покажет никогда",
+     WATCHDOG,
+     '            kept.append({"ts": now, "check": JOURNAL_SELF',
+     '            kept.append({"ts": 0.0, "check": JOURNAL_SELF',
+     T_JOURNAL + "::test_the_marker_carries_the_time_of_now_not_a_constant"),
+
     ("журнал: маркер ставится на КАЖДОЙ дозаписи, а не при потере", WATCHDOG,
      "        if dropped:\n            kept.append(",
      "        if True:\n            kept.append(",

@@ -495,6 +495,58 @@ def test_rotation_leaves_a_marker_in_the_journal(tmp_path):
     assert "старше 30 сут" in marks[0]["detail"], marks[0]
 
 
+def _marker(p):
+    """Единственный маркер ротации в файле — и он обязан быть единственным."""
+    marks = [r for r in _read(p) if r.get("kind") == "rotated"]
+    assert len(marks) == 1, marks
+    return marks[0]
+
+
+def test_the_marker_is_a_record_of_the_same_five_fields_and_of_no_probe(tmp_path):
+    """Форму МАРКЕРА не проверял никто — только `kind` и `detail`. Мутации
+    «маркер несёт шестое поле (`pid`)» и «маркер приписан чужой пробе вместо
+    служебного ключа» обе проходили гейт зелёными.
+
+    Вторая опаснее первой: маркер с `check: "backend"` панель нарисует как
+    инцидент НАСТОЯЩЕЙ пробы — сторож доложит о падении бэкенда, которого не
+    было, и это ровно та ложь, за которой перестают следить вообще. §2.2
+    называет ровно пять полей, §2.4 приводит маркер дословно с
+    `"check": "_journal"` — служебным ключом, проверкой не являющимся (тот же
+    приём, что и `BOOT_KEY`)."""
+    p = tmp_path / "j.jsonl"
+    now = 1_000_000.0
+    ow.journal_append([_rec(now - 40 * DAY)], path=p, now=now)
+    ow.journal_append([_rec(now)], path=p, now=now)
+
+    mark = _marker(p)
+    assert set(mark) == JOURNAL_FIELDS, sorted(mark)
+    assert mark["check"] == ow.JOURNAL_SELF == "_journal", mark
+    assert mark["kind"] == ow.JOURNAL_ROTATED == "rotated", mark
+    assert mark["reason"] == "trim", mark
+
+
+def test_the_marker_carries_the_time_of_now_not_a_constant(tmp_path):
+    """Плановый читатель панели фильтрует журнал окном 72 ч. Маркер с `ts: 0.0`
+    не попадёт на экран НИКОГДА — обрезка снова станет молчаливой, но теперь
+    незаметнее прежнего: в файле маркер есть, а на экране его нет и не будет.
+    Мутация `"ts": now` → `"ts": 0.0` проходила гейт зелёной."""
+    p = tmp_path / "j.jsonl"
+    now = 1_700_000_000.0                   # настоящее время, а не 10**6
+    ow.journal_append([_rec(now - 40 * DAY)], path=p, now=now)
+    ow.journal_append([_rec(now)], path=p, now=now)
+
+    mark = _marker(p)
+    assert isinstance(mark["ts"], float), mark
+    assert mark["ts"] == now, mark
+
+    # И то же самое от НАСТОЯЩИХ часов: `now=None` — как в живом цикле.
+    p2 = tmp_path / "j2.jsonl"
+    before = time.time()
+    ow.journal_append([_rec(before - 40 * DAY)], path=p2)
+    ow.journal_append([_rec(before)], path=p2)
+    assert before <= _marker(p2)["ts"] <= time.time(), _marker(p2)
+
+
 def test_no_marker_appears_when_nothing_was_lost(tmp_path):
     """Пара к предыдущему и к `test_trimming_nothing_reports_nothing`: маркер,
     который пишется на КАЖДОЙ дозаписи, — шум, а не сигнал, и первый экран он
