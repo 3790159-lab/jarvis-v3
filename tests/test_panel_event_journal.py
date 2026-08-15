@@ -753,7 +753,21 @@ def test_a_leftover_tmp_from_an_aborted_run_is_overwritten(tmp_path):
 
 def test_a_failing_swap_leaves_the_journal_whole(tmp_path, monkeypatch, capsys):
     """Диск отдаёт OSError ровно в момент замены. Половины журнала не бывает:
-    либо приехал новый файл целиком, либо остался прежний целиком."""
+    либо приехал новый файл целиком, либо остался прежний целиком.
+
+    И провал ОБРЕЗКИ — не провал ЗАПИСИ. Разница не теоретическая: на Windows
+    `os.replace` бросает `[WinError 5] Отказано в доступе`, если приёмник ОТКРЫТ
+    любым читателем, а читатель этого журнала — панель (проверено фактом:
+    открытый на чтение `j.jsonl` даёт PermissionError, файл при этом цел, `.tmp`
+    остаётся). Возврат `False` здесь означал бы для владельца «🚨 журнал не
+    пишется» и НЕ обновлённый маркер живости — то есть ещё 180 с панель пишет
+    «писатель молчит» из-за миллисекундного пересечения с собственным читателем.
+    Вероятность максимальна ровно в шторме рестартов: журнал на потолке —
+    ротация на КАЖДОЙ дозаписи, а панель в этот момент обновляют непрерывно.
+
+    Поэтому: `True` (записи доехали, обрезку догоним в следующем цикле) плюс
+    ГРОМКИЙ stderr. Молчание было бы третьим, худшим вариантом — журнал,
+    который не режется, растёт без единого слова."""
     p = tmp_path / "j.jsonl"
     now = 1_000_000.0
     ow.journal_append([_rec(now - 20.0, detail="старая 0"),
@@ -765,11 +779,33 @@ def test_a_failing_swap_leaves_the_journal_whole(tmp_path, monkeypatch, capsys):
 
     monkeypatch.setattr(ow.os, "replace", _boom)
     assert ow.journal_append([_rec(now, detail="свежая")], path=p, now=now,
-                             max_records=2) is False
-    assert "журнал" in capsys.readouterr().err
+                             max_records=2) is True, \
+        "провал обрезки выдан за провал записи — владельцу уйдёт ложная 🚨"
+    assert "не обрезан" in capsys.readouterr().err, "обрезка не состоялась молча"
     # Дозапись состоялась, обрезка — нет. Это законное состояние: следующий
     # цикл дорежет. Незаконным было бы потерять хоть одну из трёх.
     assert [r["detail"] for r in _read(p)] == ["старая 0", "старая 1", "свежая"]
+
+
+def test_a_failing_swap_still_does_not_hide_a_lost_record(tmp_path, capsys,
+                                                          monkeypatch):
+    """Пара к предыдущему: «обрезка не удалась» смягчает возврат ТОЛЬКО за
+    обрезку. Если в этом же цикле потеряна запись, ответ обязан остаться
+    `False` — иначе смягчение А1 стало бы амнистией для настоящей потери."""
+    p = tmp_path / "j.jsonl"
+    now = 1_000_000.0
+    ow.journal_append([_rec(now - 20.0, detail="старая 0"),
+                       _rec(now - 10.0, detail="старая 1")],
+                      path=p, now=now, max_records=2)
+
+    def _boom(src, dst):
+        raise OSError("диск сказал нет")
+
+    monkeypatch.setattr(ow.os, "replace", _boom)
+    assert ow.journal_append([_rec(now, detail="свежая"), "не запись"],
+                             path=p, now=now, max_records=2) is False
+    err = capsys.readouterr().err
+    assert "не сериализуется" in err and "не обрезан" in err, err
 
 
 _KILL_CHILD = '''\

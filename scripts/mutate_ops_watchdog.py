@@ -360,11 +360,36 @@ MUTATIONS = [
      "        return True",
      T_JOURNAL + "::test_a_failed_write_does_not_refresh_the_marker"),
 
-    ("журнал: провал обрезки выдан за успех", WATCHDOG,
+    # А1: провал обрезки больше НЕ провал записи (возврат смягчён до `not lost`),
+    # поэтому прежняя мутация «вернуть True» стала бы тождественной правке и
+    # ослепла бы. Под мутацию встаёт то, что теперь несёт всю нагрузку, — ГОЛОС.
+    ("журнал: провал обрезки замолчан — журнал растёт без единого слова",
+     WATCHDOG,
      '        print("[ops_watchdog] журнал не обрезан: %s" % exc, file=sys.stderr)\n'
-     "        return False",
-     "        return True",
+     "    return not lost",
+     # `pass`, а не пустая строка: пустой `except` — это IndentationError,
+     # модуль не грузится, и гейт получил бы rc 4 (сбор), а не rc 1 (красный
+     # сторож). Ровно та подмена, из-за которой §В требует строгого критерия.
+     "        pass\n"
+     "    return not lost",
      T_JOURNAL + "::test_a_failing_swap_leaves_the_journal_whole"),
+
+    ("журнал: провал обрезки снова выдан за провал записи — ложная 🚨 владельцу",
+     WATCHDOG,
+     '        print("[ops_watchdog] журнал не обрезан: %s" % exc, file=sys.stderr)\n'
+     "    return not lost",
+     '        print("[ops_watchdog] журнал не обрезан: %s" % exc, file=sys.stderr)\n'
+     "        return False\n"
+     "    return not lost",
+     T_JOURNAL + "::test_a_failing_swap_leaves_the_journal_whole"),
+
+    ("журнал: потеря записи амнистирована заодно с провалом обрезки", WATCHDOG,
+     '        print("[ops_watchdog] журнал не обрезан: %s" % exc, file=sys.stderr)\n'
+     "    return not lost",
+     '        print("[ops_watchdog] журнал не обрезан: %s" % exc, file=sys.stderr)\n'
+     "        return True\n"
+     "    return not lost",
+     T_JOURNAL + "::test_a_failing_swap_still_does_not_hide_a_lost_record"),
 
     ("журнал: потерянная запись выдана за записанную", WATCHDOG,
      "    return not lost",
