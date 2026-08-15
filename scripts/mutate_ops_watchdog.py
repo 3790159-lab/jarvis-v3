@@ -432,9 +432,23 @@ MUTATIONS = [
      T_JOURNAL + "::test_a_record_that_is_not_a_record_is_refused_by_the_writer"),
 
     ("журнал: экзотическое поле стоит всей записи о падении", WATCHDOG,
-     ', default=repr,\n                          skipkeys=True) + "\\n"',
+     ', default=repr) + "\\n"',
      ') + "\\n"',
      T_JOURNAL + "::test_an_exotic_value_travels_as_its_repr_instead_of_killing_the_cycle"),
+
+    # А3: `skipkeys=True` стирал поле с нестроковым ключом МОЛЧА — единственная
+    # молчаливая потеря во всём писателе, пережившая все 51 сторож.
+    ("журнал: поле с нестроковым ключом снова стирается молча", WATCHDOG,
+     ', default=repr) + "\\n"',
+     ', default=repr,\n                          skipkeys=True) + "\\n"',
+     T_JOURNAL + "::test_a_field_with_a_non_string_key_is_loud_instead_of_disappearing"),
+
+    # А4: kill посреди кириллицы оставляет ПОЛОВИНУ UTF-8 последовательности,
+    # а UnicodeDecodeError — подкласс ValueError: `except OSError` его не ловит.
+    ("журнал: половина UTF-8 последовательности роняет цикл сторожа", WATCHDOG,
+     '        text = Path(path).read_text(encoding="utf-8", errors="replace")',
+     '        text = Path(path).read_text(encoding="utf-8")',
+     T_JOURNAL + "::test_half_a_utf8_sequence_does_not_kill_the_reader"),
 
     ("журнал: пустой цикл всё равно ходит на диск", WATCHDOG,
      "    if not records:\n        return True",

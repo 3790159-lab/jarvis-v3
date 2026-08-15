@@ -463,14 +463,20 @@ def _journal_line(rec) -> str | None:
 
     `json.dumps` БРОСАЕТ на bytes, множестве, нестроковом ключе и цикличной
     ссылке, а цена исключения здесь та же, что у `_record_ts`: `main()` его не
-    ловит, обёртка `ops_watchdog_detached.ps1` пишет heartbeat ДО цикла и глушит
-    traceback в `catch`. Петля жива, heartbeat свеж — сторож выглядит здоровым и
-    не алертит НИКОГДА.
+    ловит, а обёртка `ops_watchdog_detached.ps1` пишет heartbeat ДО цикла. Сам
+    traceback не пропадает — обёртка сливает stderr в конвейер, и он уезжает в
+    `state/logs/ops_watchdog.stdout.log` строкой «py: ...», — но в этот лог
+    никто не смотрит, пока не заподозрит неладное. Петля жива, heartbeat свеж,
+    алертов нет НИКОГДА: сторож выглядит здоровым.
 
-    `default=repr` и `skipkeys=True` — не снисходительность, а выбор цены: поле,
-    которое json не умеет, стоит своего `repr`, а не всей записи о падении.
-    Цикличную ссылку не спасает и это — о ней говорят вслух (DEV-18), см.
-    `journal_append`.
+    `default=repr` — выбор цены: поле, которое json не умеет, стоит своего
+    `repr`, а не всей записи о падении. ЗНАЧЕНИЕ при этом остаётся видимым.
+    Парного ему `skipkeys=True` здесь нет намеренно: он не оставлял ничего, а
+    СТИРАЛ поле с нестроковым ключом — молча, с возвратом `True` и обновлённым
+    маркером живости. Это была единственная молчаливая потеря во всём писателе,
+    и мутация «снят только skipkeys» переживала весь гейт. Теперь такая запись
+    идёт по громкому пути ниже. Цикличную ссылку не спасает ничто — о ней
+    говорят вслух (DEV-18), см. `journal_append`.
 
     Не-словарь отвергается ЗДЕСЬ, хотя `json.dumps` его и написал бы: обратно
     его не прочитает никто — `journal_read` пропускает всё, что не словарь, — и
@@ -480,8 +486,7 @@ def _journal_line(rec) -> str | None:
     if not isinstance(rec, dict):
         return None
     try:
-        return json.dumps(rec, ensure_ascii=False, default=repr,
-                          skipkeys=True) + "\n"
+        return json.dumps(rec, ensure_ascii=False, default=repr) + "\n"
     except (TypeError, ValueError, RecursionError):
         return None
 

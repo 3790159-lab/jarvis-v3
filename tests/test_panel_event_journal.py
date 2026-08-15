@@ -718,6 +718,29 @@ def test_a_torn_line_does_not_swallow_the_next_record(tmp_path):
     assert [r["check"] for r in ow.journal_read(p)] == ["a", "целая"]
 
 
+def test_half_a_utf8_sequence_does_not_kill_the_reader(tmp_path):
+    """Настоящий результат kill'а посреди записи — ПОЛОВИНА UTF-8
+    последовательности, а не обрубок ASCII: `detail` приходит из проб, где
+    кириллица обычна («нет ответа», «процес раннера не знайдено»).
+
+    Цена несоразмерна: `UnicodeDecodeError` — подкласс `ValueError`, `except
+    OSError` вокруг чтения его НЕ ловит, `main()` тоже не ловит ничего. Сторож
+    остаётся с живым heartbeat (его пишет обёртка ДО цикла) и без единого
+    алерта — навсегда. Существующий сторож на огрызок писал чистый ASCII, то
+    есть проверял не тот случай."""
+    p = tmp_path / "j.jsonl"
+    good = json.dumps(_rec(1.0, detail="целая"), ensure_ascii=False)
+    torn = '{"ts": 2.0, "check": "b", "detail": "нет отв'
+    with open(p, "wb") as fh:               # байты, а не текст: рвём В СЕРЕДИНЕ
+        fh.write(good.encode("utf-8") + b"\n")
+        fh.write(torn.encode("utf-8") + "е".encode("utf-8")[:1])
+    assert p.read_bytes().endswith(b"\xd0"), "предпосылка сломана: хвост целый"
+
+    assert [r["detail"] for r in ow.journal_read(p)] == ["целая"]
+    assert ow.journal_append([_rec(3.0, detail="новая")], path=p, now=4.0) is True
+    assert [r["detail"] for r in ow.journal_read(p)] == ["целая", "новая"]
+
+
 def test_a_line_separator_inside_a_detail_does_not_split_the_record(tmp_path):
     """U+2028 `json.dumps(ensure_ascii=False)` пишет В СЫРОМ ВИДЕ, а
     `str.splitlines()` по нему РЕЖЕТ — проверено фактом. Запись уезжала в файл
@@ -795,6 +818,31 @@ def test_a_record_that_is_not_a_record_is_refused_by_the_writer(tmp_path, capsys
                              now=2.0) is False
     assert [r["detail"] for r in _read(p)] == ["целая"]
     assert capsys.readouterr().err.count("не сериализуется") == len(junk)
+
+
+def test_a_field_with_a_non_string_key_is_loud_instead_of_disappearing(
+        tmp_path, capsys):
+    """`skipkeys=True` было ЕДИНСТВЕННОЙ молчаливой потерей во всём писателе:
+    поле с нестроковым ключом исчезало из записи без слова — stderr пуст,
+    возврат `True`, маркер живости обновлён, — тогда как каждая соседняя ветка
+    громкая. Мутация «снят только `skipkeys`» пережила все 51 сторож, а соседняя
+    «снят только `default=repr`» краснела: охраняло писателя не то.
+
+    `default=repr` и `skipkeys` — не одно и то же, хотя докстринг описывал их
+    одной фразой: первый оставляет значение ВИДИМЫМ (своим `repr`), второй
+    СТИРАЛ поле. Поэтому такая запись идёт по уже существующему громкому пути:
+    `TypeError` → stderr → `False`."""
+    p = tmp_path / "j.jsonl"
+    rec = dict(_rec(1.0, detail="целая"))
+    # Ключ-кортеж `json.dumps` не умеет вовсе (int/float/bool/None он привёл бы
+    # к строке сам, без всякого skipkeys).
+    rec[("проба", "поле")] = "значение, которое исчезало молча"
+
+    assert ow.journal_append([rec, _rec(2.0, detail="соседняя")], path=p,
+                             now=3.0) is False, "потеря поля выдана за успех"
+    assert [r["detail"] for r in _read(p)] == ["соседняя"], \
+        "соседняя запись цикла обязана уехать"
+    assert "не сериализуется" in capsys.readouterr().err
 
 
 def test_an_exotic_value_travels_as_its_repr_instead_of_killing_the_cycle(tmp_path):
