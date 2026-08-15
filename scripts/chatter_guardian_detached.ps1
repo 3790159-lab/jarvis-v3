@@ -73,30 +73,17 @@ function Get-ClientPaths {
     }
 }
 
-# --- DEMO OVERRIDE (yarina, третий клиент) ----------------------------------
-# Демо новой персоны на ТОМ ЖЕ аккаунте. Ставится ПОСЛЕ блока Ольги намеренно:
-# её прод-флаг стоит всегда, и блок, идущий раньше, молча проиграл бы ему.
-#
-# Персона в раннере НЕ роутится по контакту (`persona_for` отдаёт primary_slug
-# всем, переопределение — только ручным `/switch`), а БД одна на процесс и
-# панель TAMAPI фильтра по слугу не имеет. Поэтому демо — это ВРЕМЕННАЯ
-# подмена состава, а не вторая персона рядом: СВОЯ база (иначе диалоги демо
-# попадут в счётчики и ленту панели Ольги), свои логи, та же сессия аккаунта.
-#
-# Пока флаг стоит, Ольга НЕ РАБОТАЕТ. Снять: run_yarina_demo.ps1 -Revert.
-$yarinaFlag = Join-Path $stateDir 'chatter_demo_yarina.flag'
-if (Test-Path $yarinaFlag) {
-    if (Test-Path $semidemoFlag) {
-        # Write-G здесь ещё не объявлена (функции ниже по файлу) — копим в
-        # переменную и печатаем в стартовом логе.
-        $rosterNote = 'ДЕМО ЯРИНЫ: стоят ОБА флага - поднимаю yarina, Ольга НЕ работает'
-    }
-    $env:CHATTER_PERSONAS = 'yarina'
-    $env:TELETHON_SESSION = '.secrets\demo.session'
-    $env:CHATTER_DB       = '.secrets\yarina.db'
-    $rErr = Join-Path $logDir 'chatter_yarina.log'
-    $rOut = Join-Path $logDir 'chatter_yarina.stdout.log'
-}
+# --- DEMO OVERRIDE (yarina) УДАЛЁН ПРИ СЛИЯНИИ ------------------------------
+# Блок приехал из транка (16b54aeb) уже ПОСЛЕ того, как ветка удалила соседний
+# SEMIDEMO-блок, поэтому git слил оба без конфликта — и получилась мина:
+#   * `Test-Path $semidemoFlag` ссылался на переменную, определение которой
+#     ветка удалила (в PowerShell без StrictMode это $null → Test-Path бросает);
+#   * $rErr/$rOut были мёртвыми записями: раннер запускается через
+#     Get-ClientPaths -Slug, эти переменные больше никто не читает;
+#   * env-пины CHATTER_PERSONAS/TELETHON_SESSION/CHATTER_DB подменяли состав
+#     в обход реестра, то есть били по самому инварианту арки.
+# Ярина возвращается ОТДЕЛЬНОЙ записью реестра со своим аккаунтом и своей
+# сессией (9b), а не подменой состава на аккаунте Ольги.
 
 # --- СЛОТ ОБЯЗАТЕЛЬСТВ (арка «б», принята Д-10 2026-07-24) -------------------
 # Слот в проде. Флаг остаётся рубильником отката: убрать строку + рестарт таска
@@ -159,12 +146,18 @@ if (-not $NoLoop) {
     $PID | Out-File -FilePath $lockFile -Encoding ascii -Force
     Write-GuardianBeat
     Write-G "chatter guardian started (PID $PID), heartbeat<=${HeartbeatMaxAgeSec}s every ${IntervalSeconds}s, debounce=${DebounceFailures}"
-    # Чей раннер поднимаем — в лог ЯВНО. Подмена состава флагом видна только
-    # здесь: без этой строки «Ольга молчит» ищут в Telegram, а не в флаге.
-    $roster = if ($env:CHATTER_PERSONAS) { "$env:CHATTER_PERSONAS (флаг)" }
-              else { 'active.yaml' }
-    Write-G "состав: CHATTER_PERSONAS=$roster, db=$(if ($env:CHATTER_DB) { $env:CHATTER_DB } else { 'по первому слагу' })"
-    if ($rosterNote) { Write-G $rosterNote }
+    # Стартовая строка о составе (та, что читала env-переменную персон)
+    # приехала из транка и снята при слиянии: гардиан эту переменную больше
+    # не ставит — состав приходит планом из реестра, каждому раннеру идёт
+    # --client <slug>. Строка печатала бы неизменное «active.yaml / по
+    # первому слагу», то есть врала бы ровно там, где должна помогать.
+    # Состав виден по per-slug строкам ниже: [slug] launched / runner alive /
+    # runner DOWN / invalid.
+    #
+    # ⚠️ Литерал имени переменной здесь НЕ упоминаем намеренно: тест
+    # test_guardian_announces_which_persona_it_deployed ищет его подстрокой в
+    # окне после «chatter guardian started», и упоминание в комментарии дало
+    # бы ЛОЖНЫЙ ЗЕЛЁНЫЙ (DEV-26) — сторож бы «прошёл» на прозе.
 }
 
 function Invoke-WatchCheck {
