@@ -72,7 +72,7 @@ cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/... -q --no-header -p
 нельзя — она покрыта тестами и мутационным гейтом. Значит логика уезжает вниз, а
 `evaluate()` становится обёрткой.
 
-- [ ] **Шаг 1: написать падающий тест**
+- [x] **Шаг 1: написать падающий тест**
 
 Создать `tests/test_panel_event_journal.py`:
 
@@ -151,7 +151,7 @@ def test_recovered_and_changed_are_distinct_kinds():
     assert [t["kind"] for t in trs2] == ["changed"]
 ```
 
-- [ ] **Шаг 2: убедиться, что тест падает**
+- [x] **Шаг 2: убедиться, что тест падает**
 
 ```
 cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/test_panel_event_journal.py -q --no-header -p no:cacheprovider
@@ -159,7 +159,7 @@ cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/test_panel_event_jour
 
 Ожидаемо: `AttributeError: module 'ops_watchdog_under_test' has no attribute 'transitions'`.
 
-- [ ] **Шаг 3: выделить `transitions()`, `evaluate()` сделать обёрткой**
+- [x] **Шаг 3: выделить `transitions()`, `evaluate()` сделать обёрткой**
 
 В `scripts/ops_watchdog.py` заменить тело `evaluate()` (строки 147-207) на:
 
@@ -248,7 +248,7 @@ def evaluate(prev_state: dict, probes: dict, debounce: int = DEBOUNCE,
     return alerts, new_state
 ```
 
-- [ ] **Шаг 4: убедиться, что новые тесты зелёные И старые не сломались**
+- [x] **Шаг 4: убедиться, что новые тесты зелёные И старые не сломались**
 
 ```
 cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/test_panel_event_journal.py tests/test_ops_watchdog.py tests/test_ops_watchdog_chatter.py tests/test_ops_watchdog_secrets.py tests/test_ops_watchdog_selfheal.py tests/test_ops_watchdog_tree.py -q --no-header -p no:cacheprovider
@@ -256,7 +256,7 @@ cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/test_panel_event_jour
 
 Ожидаемо: все зелёные, включая 4 новых.
 
-- [ ] **Шаг 5: коммит**
+- [x] **Шаг 5: коммит**
 
 ```bash
 cd /c/jarvis && git add scripts/ops_watchdog.py tests/test_panel_event_journal.py
@@ -271,7 +271,7 @@ git commit -m "refactor(watchdog): transitions() под evaluate(), перехо
 - Изменить: `scripts/ops_watchdog.py`
 - Тест: `tests/test_panel_event_journal.py`
 
-- [ ] **Шаг 1: написать падающий тест**
+- [x] **Шаг 1: написать падающий тест**
 
 Дописать в `tests/test_panel_event_journal.py`:
 
@@ -312,7 +312,7 @@ def test_trimming_nothing_reports_nothing():
     assert len(kept) == 1
 ```
 
-- [ ] **Шаг 2: убедиться, что тест падает**
+- [x] **Шаг 2: убедиться, что тест падает**
 
 ```
 cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/test_panel_event_journal.py -q --no-header -p no:cacheprovider
@@ -320,7 +320,7 @@ cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/test_panel_event_jour
 
 Ожидаемо: `AttributeError: ... has no attribute 'journal_trim'`.
 
-- [ ] **Шаг 3: реализация**
+- [x] **Шаг 3: реализация**
 
 В `scripts/ops_watchdog.py` добавить `import os` к импортам вверху файла (нужен
 `os.replace` в Task 3) и вставить после `ALERTING_KINDS`:
@@ -388,7 +388,7 @@ def journal_trim(records: list, now: float,
 > отдельный щит (конечное число или `None`), потолок сортирует по `(ts, позиция)`,
 > а нечитаемое время названо ТРЕТЬЕЙ причиной потери (см. врезку к §2.4 спеки).
 
-- [ ] **Шаг 4: убедиться, что тесты зелёные**
+- [x] **Шаг 4: убедиться, что тесты зелёные**
 
 ```
 cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/test_panel_event_journal.py -q --no-header -p no:cacheprovider
@@ -396,7 +396,7 @@ cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/test_panel_event_jour
 
 Ожидаемо: `7 passed`.
 
-- [ ] **Шаг 5: коммит**
+- [x] **Шаг 5: коммит**
 
 ```bash
 cd /c/jarvis && git add scripts/ops_watchdog.py tests/test_panel_event_journal.py
@@ -427,7 +427,7 @@ git commit -m "feat(watchdog): обрезка журнала по возраст
 - Изменить: `scripts/ops_watchdog.py`
 - Тест: `tests/test_panel_event_journal.py`
 
-- [ ] **Шаг 1: написать падающий тест**
+- [x] **Шаг 1: написать падающий тест**
 
 Дописать в `tests/test_panel_event_journal.py`:
 
@@ -485,7 +485,7 @@ def test_a_corrupt_journal_line_does_not_stop_the_writer(tmp_path):
     assert ow.journal_append([_rec(2.0)], path=p, now=3.0) is True
 ```
 
-- [ ] **Шаг 2: убедиться, что тест падает**
+- [x] **Шаг 2: убедиться, что тест падает**
 
 ```
 cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/test_panel_event_journal.py -q --no-header -p no:cacheprovider
@@ -493,7 +493,7 @@ cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/test_panel_event_jour
 
 Ожидаемо: `AttributeError: ... has no attribute 'journal_append'`.
 
-- [ ] **Шаг 3: реализация**
+- [x] **Шаг 3: реализация**
 
 В `scripts/ops_watchdog.py` под `journal_trim`:
 
@@ -583,7 +583,7 @@ def touch_beat(path=None) -> bool:
         return False
 ```
 
-- [ ] **Шаг 4: убедиться, что тесты зелёные**
+- [x] **Шаг 4: убедиться, что тесты зелёные**
 
 ```
 cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/test_panel_event_journal.py -q --no-header -p no:cacheprovider
@@ -591,7 +591,7 @@ cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/test_panel_event_jour
 
 Ожидаемо: `12 passed`.
 
-- [ ] **Шаг 5: коммит**
+- [x] **Шаг 5: коммит**
 
 ```bash
 cd /c/jarvis && git add scripts/ops_watchdog.py tests/test_panel_event_journal.py
@@ -609,7 +609,7 @@ git commit -m "feat(watchdog): дозапись журнала, маркер р�
 Ребут алертится **вне** `evaluate()`. Журнал, написанный только из неё, потеряет
 ровно то событие, ради которого заводился DEV-24.
 
-- [ ] **Шаг 1: написать падающий тест**
+- [x] **Шаг 1: написать падающий тест**
 
 Дописать в `tests/test_panel_event_journal.py`:
 
@@ -625,7 +625,7 @@ def test_a_reboot_becomes_a_journal_record():
     assert "перезагрузилась" in rec["detail"]
 ```
 
-- [ ] **Шаг 2: убедиться, что тест падает**
+- [x] **Шаг 2: убедиться, что тест падает**
 
 ```
 cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/test_panel_event_journal.py::test_a_reboot_becomes_a_journal_record -q --no-header -p no:cacheprovider
@@ -633,7 +633,7 @@ cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/test_panel_event_jour
 
 Ожидаемо: `AttributeError: ... has no attribute 'reboot_record'`.
 
-- [ ] **Шаг 3: реализация**
+- [x] **Шаг 3: реализация**
 
 В `scripts/ops_watchdog.py` под `touch_beat`:
 
@@ -672,7 +672,7 @@ def reboot_record(boot_time: float, now: float) -> dict:
     return 0
 ```
 
-- [ ] **Шаг 4: убедиться, что всё зелёное**
+- [x] **Шаг 4: убедиться, что всё зелёное**
 
 ```
 cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/test_panel_event_journal.py tests/test_ops_watchdog.py tests/test_ops_watchdog_chatter.py tests/test_ops_watchdog_secrets.py tests/test_ops_watchdog_selfheal.py tests/test_ops_watchdog_tree.py -q --no-header -p no:cacheprovider
@@ -680,7 +680,7 @@ cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/test_panel_event_jour
 
 Ожидаемо: `13 passed` в новом файле, остальные без изменений.
 
-- [ ] **Шаг 5: живой смоук — ОДИН цикл руками, до того как звать человека**
+- [x] **Шаг 5: живой смоук — ОДИН цикл руками, до того как звать человека**
 
 ```
 cd /c/jarvis && PYTHONUTF8=1 PYTHONIOENCODING=utf-8 ./.venv/Scripts/python.exe scripts/ops_watchdog.py && ls -la state/panel_events.heartbeat && cat state/panel_events.heartbeat
@@ -689,7 +689,7 @@ cd /c/jarvis && PYTHONUTF8=1 PYTHONIOENCODING=utf-8 ./.venv/Scripts/python.exe s
 Ожидаемо: маркер создан, время свежее. Журнала может не быть — если переходов
 не случилось, это правильно.
 
-- [ ] **Шаг 6: коммит**
+- [x] **Шаг 6: коммит**
 
 ```bash
 cd /c/jarvis && git add scripts/ops_watchdog.py tests/test_panel_event_journal.py
@@ -725,7 +725,7 @@ git commit -m "feat(watchdog): цикл пишет журнал панели, р
 - Изменить: `app/services/jarvis_farm.py`
 - Тест: `tests/chatter/test_panel_journal_view.py` (создать)
 
-- [ ] **Шаг 1: написать падающий тест**
+- [x] **Шаг 1: написать падающий тест**
 
 Создать `tests/chatter/test_panel_journal_view.py`:
 
@@ -810,7 +810,7 @@ def test_records_older_than_the_window_are_not_shown(tmp_path, monkeypatch):
     assert len(records) == 1
 ```
 
-- [ ] **Шаг 2: убедиться, что тест падает**
+- [x] **Шаг 2: убедиться, что тест падает**
 
 ```
 cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/chatter/test_panel_journal_view.py -q --no-header -p no:cacheprovider
@@ -818,7 +818,7 @@ cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/chatter/test_panel_jo
 
 Ожидаемо: `AttributeError: module 'app.services.jarvis_farm' has no attribute 'journal'`.
 
-- [ ] **Шаг 3: реализация**
+- [x] **Шаг 3: реализация**
 
 В `app/services/jarvis_farm.py` добавить `import json` вверху и вставить перед
 `snapshot_fast()`:
@@ -883,7 +883,7 @@ def journal(*, now: float | None = None, window_s: float = JOURNAL_WINDOW_S):
     return out, ""
 ```
 
-- [ ] **Шаг 4: убедиться, что тесты зелёные**
+- [x] **Шаг 4: убедиться, что тесты зелёные**
 
 ```
 cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/chatter/test_panel_journal_view.py -q --no-header -p no:cacheprovider
@@ -891,7 +891,7 @@ cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/chatter/test_panel_jo
 
 Ожидаемо: `5 passed`.
 
-- [ ] **Шаг 5: коммит**
+- [x] **Шаг 5: коммит**
 
 ```bash
 cd /c/jarvis && git add app/services/jarvis_farm.py tests/chatter/test_panel_journal_view.py
@@ -910,7 +910,7 @@ git commit -m "feat(panel): чтение журнала + инвариант м�
 инцидент обязан занимать один визуальный элемент — первый экран мы только что
 чистили от одиннадцати одинаковых грязных деревьев.
 
-- [ ] **Шаг 1: написать падающий тест**
+- [x] **Шаг 1: написать падающий тест**
 
 Дописать в `tests/chatter/test_panel_journal_view.py`:
 
@@ -950,7 +950,7 @@ def test_other_checks_are_not_swallowed_by_the_collapse():
     assert {r["check"] for r in rows} == {"backend", "bot_heartbeat"}
 ```
 
-- [ ] **Шаг 2: убедиться, что тест падает**
+- [x] **Шаг 2: убедиться, что тест падает**
 
 ```
 cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/chatter/test_panel_journal_view.py -q --no-header -p no:cacheprovider
@@ -958,7 +958,7 @@ cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/chatter/test_panel_jo
 
 Ожидаемо: `AttributeError: ... has no attribute 'collapse_suppressed'`.
 
-- [ ] **Шаг 3: реализация**
+- [x] **Шаг 3: реализация**
 
 В `app/services/jarvis_farm.py` под `journal()`:
 
@@ -1001,7 +1001,7 @@ def collapse_suppressed(records: list) -> list:
     return out
 ```
 
-- [ ] **Шаг 4: убедиться, что тесты зелёные**
+- [x] **Шаг 4: убедиться, что тесты зелёные**
 
 ```
 cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/chatter/test_panel_journal_view.py -q --no-header -p no:cacheprovider
@@ -1009,7 +1009,7 @@ cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/chatter/test_panel_jo
 
 Ожидаемо: `9 passed`.
 
-- [ ] **Шаг 5: коммит**
+- [x] **Шаг 5: коммит**
 
 ```bash
 cd /c/jarvis && git add app/services/jarvis_farm.py tests/chatter/test_panel_journal_view.py
@@ -1025,7 +1025,7 @@ git commit -m "feat(panel): подавленное падение и его ис
 - Изменить: `app/routers/jarvis_panel.py`
 - Тест: `tests/chatter/test_panel_journal_view.py`
 
-- [ ] **Шаг 1: написать падающий тест**
+- [x] **Шаг 1: написать падающий тест**
 
 Дописать в `tests/chatter/test_panel_journal_view.py`:
 
@@ -1115,7 +1115,7 @@ def test_a_confirmed_suppressed_fall_reads_as_one_line(tmp_path, monkeypatch):
     assert "подтверждено через 5 мин" in body
 ```
 
-- [ ] **Шаг 2: убедиться, что тест падает**
+- [x] **Шаг 2: убедиться, что тест падает**
 
 ```
 cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/chatter/test_panel_journal_view.py -q --no-header -p no:cacheprovider
@@ -1123,7 +1123,7 @@ cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/chatter/test_panel_jo
 
 Ожидаемо: 4 падения — блока в разметке нет.
 
-- [ ] **Шаг 3: добавить журнал в быстрый снапшот**
+- [x] **Шаг 3: добавить журнал в быстрый снапшот**
 
 В `app/services/jarvis_farm.py`, в `snapshot_fast()`, добавить ключ:
 
@@ -1140,7 +1140,7 @@ cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/chatter/test_panel_jo
     }
 ```
 
-- [ ] **Шаг 4: разметка блока**
+- [x] **Шаг 4: разметка блока**
 
 В `app/routers/jarvis_panel.py` добавить перед функцией `panel()`:
 
@@ -1229,7 +1229,7 @@ def _journal_html(snap_journal, backend_since, now: float) -> str:
     backend_since = backend_row.extra.get("since") if backend_row else None
 ```
 
-- [ ] **Шаг 5: убедиться, что тесты зелёные, регрессий нет**
+- [x] **Шаг 5: убедиться, что тесты зелёные, регрессий нет**
 
 ```
 cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/chatter/ -q --no-header -p no:cacheprovider
@@ -1237,7 +1237,7 @@ cd /c/jarvis && ./.venv/Scripts/python.exe -m pytest tests/chatter/ -q --no-head
 
 Ожидаемо: все зелёные, включая 13 в `test_panel_journal_view.py`.
 
-- [ ] **Шаг 6: коммит**
+- [x] **Шаг 6: коммит**
 
 ```bash
 cd /c/jarvis && git add app/services/jarvis_farm.py app/routers/jarvis_panel.py tests/chatter/test_panel_journal_view.py
@@ -1252,7 +1252,7 @@ git commit -m "feat(panel): блок «Что изменилось» — 72 ч, 
 - Изменить: `scripts/mutate_ops_watchdog.py`
 - Изменить: `scripts/mutate_panels_hierarchy.py`
 
-- [ ] **Шаг 1: мутации сторожа**
+- [x] **Шаг 1: мутации сторожа**
 
 В `scripts/mutate_ops_watchdog.py` добавить `JT = "tests/test_panel_event_journal.py"`
 и шесть мутаций:
@@ -1293,7 +1293,7 @@ git commit -m "feat(panel): блок «Что изменилось» — 72 ч, 
      f"{JT}::test_a_reboot_becomes_a_journal_record"),
 ```
 
-- [ ] **Шаг 2: мутации панели**
+- [x] **Шаг 2: мутации панели**
 
 В `scripts/mutate_panels_hierarchy.py` добавить `JV = "tests/chatter/test_panel_journal_view.py"`
 и шесть мутаций:
@@ -1329,14 +1329,17 @@ git commit -m "feat(panel): блок «Что изменилось» — 72 ч, 
      f"{JV}::test_todays_events_are_open_and_older_days_are_counted"),
 ```
 
-- [ ] **Шаг 3: закоммитить — гейты требуют чистого дерева**
+- [x] **Шаг 3: закоммитить — гейты требуют чистого дерева**
 
 ```bash
 cd /c/jarvis && git add scripts/mutate_ops_watchdog.py scripts/mutate_panels_hierarchy.py
 git commit -m "test(journal): мутации DEV-26 на писателя и на вид журнала"
 ```
 
-- [ ] **Шаг 4: прогнать оба гейта**
+- [ ] **Шаг 4: прогнать оба гейта** — НЕ прогнаны, это для основной сессии:
+      гейт мутирует ЖИВОЙ `scripts/ops_watchdog.py`, который таск исполняет
+      каждые 30 с. Фрагменты всех мутаций сверены с исходником отдельно
+      (каждый находит свой текст ровно один раз).
 
 ```
 cd /c/jarvis && PYTHONUTF8=1 PYTHONIOENCODING=utf-8 ./.venv/Scripts/python.exe scripts/mutate_ops_watchdog.py
@@ -1455,3 +1458,62 @@ print('маркеры:', [r['detail'] for r in recs if r['kind'] == 'rotated'])
 
 §5 (лента) целиком закрыт первым планом,
 `docs/superpowers/plans/2026-08-14-jarvis-panel-feed-fixes.md`.
+
+---
+
+## Отклонения от плана (записаны при исполнении 15.08)
+
+Плановый код воспроизводился НЕ дословно там, где он был неверен. Каждое
+отклонение закрыто сторожем и мутацией — иначе это была бы правка на память.
+
+| Что в плане | Что сделано и почему |
+|---|---|
+| Task 4: `alerts` собираются из всего журнала (`trs`) | Собираются из `to_owner`. Единственный переход, существующий ТОЛЬКО для журнала, — подъём после подавленного падения; ✅ о том, о чём не было 🚨, читается как «чинили без меня». Сторож `test_the_cycle_does_not_alert_about_what_only_the_journal_knows`. |
+| Task 4: `evaluate()` внутри `main()` | Ядро `_transitions()` зовётся ОДИН раз. `transitions()` + `evaluate()` свернули бы пробы в состояние дважды и дали два 🚨 на падение. |
+| Task 4: `_send_tg("🚨 Журнал не пишется")` без дедупа | Добавлена `note_journal_health()`: провал записи — СОСТОЯНИЕ, а не событие, и алерт каждые 30 с дал бы 120 сообщений в час — ровно тот дефект, который этот файл дедупом по причине уже чинил. Плюс парное ✅. Стейт пишется ПОСЛЕДНИМ, иначе дедуп не переживает цикл. |
+| Task 5: `float(rec.get("ts") or 0.0)` | `journal_ts()` — щит, зеркало `_record_ts` писателя. Плюс `split("\n")` вместо `splitlines()`, BOM и не-словарь. |
+| Task 7: сутки как `(now - ts) // 86400` | Сутки КАЛЕНДАРНЫЕ (`_day_index`). Событие в 23:00, прочитанное в 01:00, по возрасту двухчасовое и уехало бы в «Сегодня». |
+| Task 7: `_JOURNAL_KIND["_restart"] = "рестарт"` | Разделитель рисуется строкой во всю ширину и видом записи НЕ является. Подпись «рестарт» в ячейке читается как подпись кнопки — поймал сторож read-only `test_panels_web.py::test_jarvis_panel_has_no_mutating_controls`, и он прав. |
+| Task 7: потолка строк нет | `JOURNAL_ROWS_PER_DAY = 50`. Замер: журнал на потолке (5000 записей за 72 ч) даёт 4167 строк разметки при раскрытом «Сегодня» — в шторме рестартов все они ОДНИ сутки, и группировка не спасает. Остаток назван вслух; якорь рестарта под потолок не идёт. |
+
+### Проверено фактом: окно конфликта читателя и обрезки
+
+Вопрос владельца: если панель держит хэндл журнала долго, `os.replace` не
+пройдёт НИКОГДА, и потолок 5000 не сработает вовсе.
+
+| Замер | Значение |
+|---|---|
+| Хэндл читателя открыт (журнал на потолке) | 3.5 мс медиана, 11.9 мс max |
+| Разбор 5000 записей | 13.9 мс — ПОСЛЕ закрытия хэндла |
+| Удержанный хэндл ломает `os.replace`? | да, `PermissionError` WinError 5 |
+| Тугая петля читателя (нереальный худший) | 97.6% провалов |
+| 3 браузера × 1 обновление/с | 1.5% провалов |
+| Самая длинная серия провалов подряд | 1 → отставание ≤ 30 с |
+
+Развязка не нужна: `read_text()` открывает, читает целиком и закрывает,
+автообновления у панели нет — открытая вкладка хэндл не держит вовсе.
+«Следующий цикл дорежет» — механизм, а не обещание.
+
+ОСТАТОК, замером не закрытый: счётчика подряд идущих провалов обрезки нет. Если
+хэндл удержит что-то ВНЕШНЕЕ (файл открыт инструментом с блокировкой), журнал
+будет расти молча — скажет только stderr, в который никто не смотрит.
+
+### Бюджет первого экрана (замер, живой прогон — за приёмкой)
+
+`F.journal()` на журнале под потолок: 25.2 мс медиана, 34.1 мс max;
+`collapse_suppressed` — 5.3 мс. Это 19% бюджета 130 мс, запасной ход §4.5
+(чтение с конца блоками по 64 КБ) НЕ нужен.
+
+### Что осталось владельцу
+
+- Оба гейта DEV-26 НЕ прогнаны (88 мутаций у сторожа, 121 у панелей — все
+  фрагменты находят свой текст ровно один раз, проверено). Гейт мутирует ЖИВОЙ
+  `scripts/ops_watchdog.py`, который таск исполняет каждые 30 с.
+- Task 9 целиком: мерж, рестарт, живое падение, мёртвый писатель, ротация,
+  бюджет, скриншоты.
+- Писатель журнала УЖЕ живой: гардиан поднимает из рабочего дерева, и таск
+  исполняет новый `ops_watchdog.py` (маркер свежий). Читатель — нет: бэкенд
+  держит старый модуль до явного рестарта.
+- Пре-существующее падение вне ветки:
+  `tests/chatter/test_payments_drill_gate.py::test_canonical_list_is_the_same_as_the_scripts_one`
+  (расхождение `volska`/`yarina` в списке дрил-контактов).
