@@ -13,6 +13,7 @@
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -1083,6 +1084,107 @@ def is_anomaly(kind: str, item) -> bool:
         # Возраст и «не смержена» — состояние: они не про ближайший час.
         return bool(item.get("dirty"))
     return False
+
+
+# ─────────────────── Журнал переходов (заход 2, §4) ─────────────────────────
+#
+# Пишет `scripts/ops_watchdog.py`, панель ТОЛЬКО читает. Формат и пути
+# продублированы там и здесь: сторож stdlib-only и standalone, импортировать из
+# `app/` он не имеет права, а импортировать `scripts/` в бэкенд — значит тащить
+# в него сторожевой модуль целиком. Разъедутся — журнал станет пустым молча,
+# поэтому путь к источнику записан рядом. Правку делать в ОБОИХ местах, и обе
+# стороны накрыты порознь (tests/test_panel_event_journal.py — писатель,
+# tests/chatter/test_panel_journal_view.py — этот читатель).
+JOURNAL_PATH_NAME = "panel_events.jsonl"       # scripts/ops_watchdog.py:JOURNAL_PATH
+JOURNAL_BEAT_NAME = "panel_events.heartbeat"   # scripts/ops_watchdog.py:JOURNAL_BEAT
+# Порог свежести маркера. Цикл сторожа 30 с, но одна итерация может занять до
+# минуты (HTTP-пробы по 8 с, git по 10 с). 180 — тот же порог, что у гардианов
+# (HeartbeatMaxAgeSec=180): разные пороги превращают двух сторожей в спорящих.
+JOURNAL_BEAT_FRESH = 180.0
+JOURNAL_WINDOW_S = 72 * 3600                   # сколько показываем на экране
+
+
+def _journal_ts(rec) -> float | None:
+    """Время записи как КОНЕЧНОЕ число — или None, если его нет.
+
+    Зеркало `_record_ts` в `scripts/ops_watchdog.py`, и по той же причине, но
+    цена здесь выше. У писателя падение прячется за живым heartbeat; журнал
+    читается в БЫСТРОЙ части снапшота, поэтому здесь голый
+    `float(rec.get("ts") or 0.0)` кладёт всю страницу фермы — на записи,
+    которую в файл положило другое поколение кода.
+
+    Формы названы порознь, потому что ломаются они по-разному: строка даёт
+    `ValueError`, огромное целое — `OverflowError`, `True` молча становится
+    временем 1.0, а `±inf` проходит любое сравнение и ломает и окно, и
+    сортировку (`json.loads('{"ts": 1e400}')` даёт inf).
+    """
+    if not isinstance(rec, dict):
+        return None
+    ts = rec.get("ts")
+    if ts is None or isinstance(ts, bool):
+        return None
+    try:
+        ts = float(ts)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if ts != ts or ts in (float("inf"), float("-inf")):
+        return None
+    return ts
+
+
+def journal(*, now: float | None = None, window_s: float = JOURNAL_WINDOW_S):
+    """(записи окна, пояснение). Пустое пояснение = списку можно верить.
+
+    ИНВАРИАНТ: пустой список означает «переходов не было» ТОЛЬКО если писатель
+    жив. Различитель — маркер `panel_events.heartbeat`, а не догадка: молча
+    показать ноль значит соврать ровно в том случае, ради которого панель
+    существует.
+
+    Состояние `ops_watchdog` в `guardians()` остаётся отдельным сигналом: он
+    говорит «процесс сторожа жив», маркер — «цикл дошёл до конца и записал».
+    Живой процесс с протухшим маркером это не одно и то же.
+
+    Возраст маркера берётся ПО МОДУЛЮ: степ часов вперёд делает его
+    отрицательным, и наивное `age > порог` объявляет мёртвого писателя живым
+    молча и до тех пор, пока часы не догонят. Тот же сдвиг `detect_reboot()`
+    сторожит у себя отдельным допуском.
+    """
+    now = _now() if now is None else now
+    beat_age = None
+    try:
+        beat_age = abs(now - (ROOT / "state" / JOURNAL_BEAT_NAME).stat().st_mtime)
+    except OSError:
+        pass
+    if beat_age is None or beat_age > JOURNAL_BEAT_FRESH:
+        when = "маркера нет" if beat_age is None else f"{int(beat_age // 60)} мин назад"
+        return [], (f"Писатель журнала молчит: ops_watchdog не пишет ({when}). "
+                    f"Списку событий верить нельзя.")
+
+    try:
+        text = (ROOT / "state" / JOURNAL_PATH_NAME).read_text(
+            encoding="utf-8", errors="replace")
+    except OSError:
+        return [], ""            # маркер свежий, файла нет — переходов не было
+
+    out = []
+    # Делим РОВНО по `"\n"`, как писатель: `splitlines()` режет текст ещё и по
+    # U+2028/U+2029/U+0085, а `json.dumps(ensure_ascii=False)` пишет их СЫРЫМИ.
+    # Запись с таким символом в `detail` читалась бы как две битых, то есть
+    # событие терялось бы молча — ровно тот класс, ради которого журнал заведён.
+    for line in text.split("\n"):
+        # BOM в списке: файл живёт 30 суток и переживает открытие человеком.
+        line = line.strip(" \t\r\ufeff")
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue             # хвост дозаписи: приедет целиком через секунду
+        ts = _journal_ts(rec)
+        if ts is not None and (now - ts) <= window_s:
+            out.append(rec)
+    out.sort(key=lambda r: _journal_ts(r) or 0.0)
+    return out, ""
 
 
 def snapshot_fast(table: list[tuple] | None = None) -> dict:
