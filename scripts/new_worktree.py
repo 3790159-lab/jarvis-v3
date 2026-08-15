@@ -25,6 +25,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -36,14 +37,32 @@ WORKTREE_HOME = Path("C:/jarvis_worktrees")
 TRUNK = "phase-4.0-unified-jarvis"
 
 
-def composition_globs(text: str) -> list[str]:
-    """Строки состава без комментариев и пустот."""
+LINK_MARK = "link "
+
+
+def composition_entries(text: str) -> list[tuple[str, str]]:
+    """[(способ, glob), ...]. Способ — `link` или `copy`.
+
+    `link` — для файлов с живыми ключами: жёсткая ссылка держит данные ОДНОЙ
+    записью на диске, поэтому второй копии секрета не появляется, ротация
+    доезжает во все worktree сама, и протухшая копия ключа не притворяется
+    живой (решение владельца 15.08).
+    """
     out = []
     for line in text.splitlines():
         line = line.split("#", 1)[0].strip()
-        if line:
-            out.append(line)
+        if not line:
+            continue
+        if line.startswith(LINK_MARK):
+            out.append(("link", line[len(LINK_MARK):].strip()))
+        else:
+            out.append(("copy", line))
     return out
+
+
+def composition_globs(text: str) -> list[str]:
+    """Только пути, без способа доставки."""
+    return [pattern for _mode, pattern in composition_entries(text)]
 
 
 def git(*args, cwd, check=True) -> str:
@@ -95,19 +114,42 @@ def settle(tree: Path) -> list[str]:
     return hushed
 
 
-def copy_composition(src: Path, dest: Path, globs: list[str]) -> list[str]:
-    """Скопировать gitignored-состав. Возвращает относительные пути копий."""
-    copied = []
-    for pattern in globs:
+def deliver(found: Path, target: Path, mode: str) -> str:
+    """Положить файл в worktree. Возвращает способ, каким это вышло.
+
+    Провал `os.link` не молчит и не остаётся провалом: секрет обязан доехать,
+    иначе baseline снова снимается другим составом. Но подмена ссылки копией
+    ДОЛЖНА быть названа вслух — у копии другое свойство (она протухает), и
+    молчаливая подмена превратила бы это в невидимую разницу между worktree.
+    """
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if mode == "link":
+        try:
+            os.link(found, target)
+            return "link"
+        except OSError as exc:
+            shutil.copy2(found, target)
+            return "copy-вместо-link (%s)" % exc.__class__.__name__
+    shutil.copy2(found, target)
+    return "copy"
+
+
+def copy_composition(src: Path, dest: Path, entries) -> list[str]:
+    """Разложить gitignored-состав. Возвращает строки «путь (способ)».
+
+    Принимает и список пар из `composition_entries`, и голый список globов —
+    во втором случае всё копируется.
+    """
+    laid = []
+    for entry in entries:
+        mode, pattern = entry if isinstance(entry, tuple) else ("copy", entry)
         for found in sorted(src.glob(pattern)):
             if not found.is_file():
                 continue
             rel = found.relative_to(src)
-            target = dest / rel
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(found, target)
-            copied.append(str(rel).replace("\\", "/"))
-    return copied
+            how = deliver(found, dest / rel, mode)
+            laid.append("%s (%s)" % (str(rel).replace("\\", "/"), how))
+    return laid
 
 
 def main(argv=None) -> int:
@@ -132,16 +174,16 @@ def main(argv=None) -> int:
         git("worktree", "add", str(dest), args.branch, cwd=ROOT)
     print("worktree: %s" % dest)
 
-    globs = composition_globs(COMPOSITION.read_text(encoding="utf-8"))
-    copied = copy_composition(ROOT, dest, globs)
-    # Состав называется поимённо, а не числом: «скопировано 1» не отличает
+    entries = composition_entries(COMPOSITION.read_text(encoding="utf-8"))
+    laid = copy_composition(ROOT, dest, entries)
+    # Состав называется поимённо, а не числом: «доставлено 3» не отличает
     # «приехал нужный файл» от «приехал не тот».
-    print("состав (%d):" % len(copied))
-    for rel in copied:
-        print("  + %s" % rel)
-    missing = [g for g in globs if not any(c == g or Path(c).match(g) for c in copied)]
-    if missing:
-        print("  ⚠️ ничего не нашлось по: %s" % ", ".join(missing))
+    print("состав (%d):" % len(laid))
+    for line in laid:
+        print("  + %s" % line)
+    for _mode, pattern in entries:
+        if not list(ROOT.glob(pattern)):
+            print("  ⚠️ ничего не нашлось по: %s" % pattern)
 
     hushed = settle(dest)
     if hushed:

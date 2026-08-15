@@ -168,6 +168,35 @@ def test_the_composition_list_is_parsed_without_comments():
     assert globs == ["chatter/clients/*/requisites.yaml"]
 
 
+def test_the_delivery_marker_is_stripped_from_the_path():
+    entries = new_worktree.composition_entries("link .env\nchatter/x.yaml\n")
+    assert entries == [("link", ".env"), ("copy", "chatter/x.yaml")]
+
+
+def test_files_with_live_keys_are_delivered_by_LINK_not_by_copy():
+    """Решение владельца 15.08: копия ключа заводит вторую запись секрета на
+    диске и ПРОТУХАЕТ при ротации — worktree начнёт падать по мёртвому ключу,
+    а выглядеть это будет как регресс кода."""
+    entries = new_worktree.composition_entries(
+        new_worktree.COMPOSITION.read_text(encoding="utf-8"))
+    envs = [mode for mode, pattern in entries if pattern.startswith(".env")]
+    assert envs and set(envs) == {"link"}, "env-файлы обязаны ехать ссылкой: %s" % envs
+
+
+def test_a_link_that_cannot_be_made_falls_back_but_SAYS_so(monkeypatch, tmp_path):
+    """Молчаливая подмена ссылки копией — невидимая разница между worktree:
+    свойства у них разные, а отчёт одинаковый."""
+    def no_links(*_a, **_k):
+        raise OSError("linking not supported")
+
+    src = tmp_path / "src.env"
+    src.write_text("K=V", encoding="utf-8")
+    monkeypatch.setattr(new_worktree.os, "link", no_links)
+    how = new_worktree.deliver(src, tmp_path / "out" / "dst.env", "link")
+    assert how.startswith("copy-вместо-link")
+    assert (tmp_path / "out" / "dst.env").read_text(encoding="utf-8") == "K=V"
+
+
 def test_the_composition_names_the_file_whose_absence_reddened_22_tests():
     globs = new_worktree.composition_globs(
         new_worktree.COMPOSITION.read_text(encoding="utf-8"))

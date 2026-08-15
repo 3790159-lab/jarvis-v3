@@ -122,6 +122,28 @@ MUTATIONS = [
      [('        line = line.split("#", 1)[0].strip()', "        line = line.strip()")],
      f"{T}::test_the_composition_list_is_parsed_without_comments"),
 
+    # ── доставка секретов: ссылка против копии ───────────────────────────
+    ("маркер доставки не читается — всё едет копией", NEWWT,
+     [('        if line.startswith(LINK_MARK):', "        if False:")],
+     f"{T}::test_files_with_live_keys_are_delivered_by_LINK_not_by_copy"),
+
+    ("маркер доставки не срезается с пути", NEWWT,
+     [('            out.append(("link", line[len(LINK_MARK):].strip()))',
+       '            out.append(("link", line))')],
+     f"{T}::test_the_delivery_marker_is_stripped_from_the_path"),
+
+    ("подмена ссылки копией замолчана", NEWWT,
+     [('            return "copy-вместо-link (%s)" % exc.__class__.__name__',
+       '            return "link"')],
+     f"{T}::test_a_link_that_cannot_be_made_falls_back_but_SAYS_so"),
+
+    ("провал ссылки роняет процедуру вместо доставки файла", NEWWT,
+     [("        except OSError as exc:\n"
+       "            shutil.copy2(found, target)",
+       "        except OSError as exc:\n"
+       "            pass")],
+     f"{T}::test_a_link_that_cannot_be_made_falls_back_but_SAYS_so"),
+
     # ── состав ───────────────────────────────────────────────────────────
     ("состав опустел — baseline снова снимается другим набором файлов", COMPO,
      [("chatter/clients/*/requisites.yaml", "# chatter/clients/*/requisites.yaml")],
