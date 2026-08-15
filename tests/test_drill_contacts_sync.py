@@ -40,9 +40,17 @@ def _reset():
 
 
 def test_every_script_resolves_the_same_drill_contacts():
-    """Четыре потребителя, один список. Разошедшиеся списки — это способ
-    однажды стереть переписку живого клиента или заговорить с ним от имени
-    стенда; оба необратимы."""
+    """ВСЕ потребители, один список. Разошедшиеся списки — это способ однажды
+    стереть переписку живого клиента или заговорить с ним от имени стенда;
+    оба необратимы.
+
+    Копия из `chatter/payments/drill_gate.py` добавлена сюда 15.08 после
+    рецидива: `f63f347e` (персона yarina) обновил ДВА списка из трёх, а этот
+    сторож смотрел только на `scripts/` и промолчал. Ловил расхождение
+    отдельный сторож в `tests/chatter/`, то есть в другом прогоне — и держал
+    его красным, пока на него не посмотрели. Сторож, охраняющий «один список»,
+    обязан видеть ВСЕ копии, иначе он охраняет подмножество.
+    """
     canon = _reset().DRILL_CONTACTS
     drop = _load(_SCRIPTS / "drop_phantom_obligations.py", "drop_for_sync")
     runner = _load(_SCRIPTS / "drill_runner.py", "runner_for_sync")
@@ -50,6 +58,12 @@ def test_every_script_resolves_the_same_drill_contacts():
     assert drop.DRILL_CONTACTS == canon
     assert runner.drill_contacts() == canon
     assert nightly._drill_contacts() == canon
+
+    from chatter.payments.drill_gate import DRILL_CONTACTS as payments
+    assert payments == canon, (
+        "копия в chatter/payments/drill_gate.py разошлась с каноном — это "
+        "шлюз тестовых реквизитов, и расхождение тут стоит выдачи тестового "
+        "IBAN живому клиенту либо отказа стенду в его собственных активах")
 
 
 def test_nightly_default_contact_is_a_drill_contact():

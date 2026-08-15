@@ -149,6 +149,16 @@ MUTATIONS = [
      '    "237616472:volska",\n    "999:volska",',
      "tests/chatter/test_payments_drill_gate.py::test_canonical_list_is_the_same_as_the_scripts_one"),
 
+    # Прежняя мутация ломает список ЛИШНИМ контактом, а 14.08 случилось
+    # обратное: `f63f347e` добавил персону в канон и в drop_phantom, а эту
+    # копию забыл. Отказ был не «список шире канона», а «список ОТСТАЛ», и
+    # ловил его сторож из другого прогона — красным он простоял сутки.
+    ("gate: копия ОТСТАЛА от канона — персоны демо в ней нет",
+     "chatter/payments/drill_gate.py",
+     '    "8849893367:yarina",\n})',
+     "})",
+     "tests/test_drill_contacts_sync.py::test_every_script_resolves_the_same_drill_contacts"),
+
     ("реквизиты: живой контакт заглядывает в test_templates",
      "chatter/payments/instructions.py",
      "    if is_drill_contact(contact_id):",

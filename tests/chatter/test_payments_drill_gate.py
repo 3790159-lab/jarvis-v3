@@ -22,9 +22,14 @@ DRILL = "8849893367:volska"        # дрил-контакт из канона
 
 
 def test_drill_set_is_explicit_and_small():
+    """Потолок, а не РАВЕНСТВО: точное число живёт в каноне
+    (`scripts/drill_reset.py`), и продублировать его здесь значит завести два
+    числа на одну вещь. Так и вышло 14.08 — законная правка канона (персона
+    yarina) уронила этот сторож, и красным он был НЕ про то, что охраняет.
+    Охраняет он «список короткий и явный», а не «в нём ровно два элемента»."""
     assert DRILL in DRILL_CONTACTS
     assert LIVE not in DRILL_CONTACTS
-    assert len(DRILL_CONTACTS) == 2
+    assert len(DRILL_CONTACTS) <= 4, sorted(DRILL_CONTACTS)
 
 
 def test_canonical_list_is_the_same_as_the_scripts_one():
