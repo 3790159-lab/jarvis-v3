@@ -291,3 +291,156 @@ def test_a_record_with_unreadable_time_is_never_taken_as_an_outcome():
     assert len(rows) == 2, rows
     assert all(r.get("after_s") is None for r in rows), rows
     assert all(r.get("outcome") is None for r in rows), rows
+
+
+# ── блок «Что изменилось» на экране (§4.1-§4.3) ────────────────────────────
+
+import importlib  # noqa: E402  — стенд ниже перезагружает роутеры
+import re  # noqa: E402
+
+from fastapi import FastAPI  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+
+KEY = "test-owner-key"
+
+
+def _panel_client(tmp_path, monkeypatch, records, *, beat_age=5.0, backend_since=None):
+    """Стенд первого экрана с ПОДМЕНЁННЫМ быстрым снапшотом.
+
+    Журнал кладётся в снапшот тем же вызовом `F.journal()`, что и в проде: если
+    ключа в `snapshot_fast()` не окажется, разметка получит пустышку и сторожа
+    покраснеют — а не молча покажут пустой блок.
+    """
+    monkeypatch.setenv("JARVIS_PANELS_KEY", KEY)
+    monkeypatch.setenv("TAMAPI_DB", str(tmp_path / "x.db"))
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+    _journal(tmp_path, records, beat_age=beat_age)
+
+    import app.routers.jarvis_panel as jp
+    import app.routers.panels_auth as pa
+    for m in (pa, jp):
+        importlib.reload(m)
+    monkeypatch.setattr(F, "ROOT", tmp_path)
+
+    now = time.time()
+    fast = {
+        "collected_at": now,
+        "external": F.Row("ext", "Внешний сторож", "bad", "НЕ настроен"),
+        "processes": [F.Row("backend", "backend :8010", "ok", "PID 1",
+                            {"since": backend_since or (now - 7200)})],
+        "guardians": [F.Row("ops_watchdog", "ops_watchdog", "ok", "PID 2")],
+        "journal": F.journal(now=now),
+    }
+    monkeypatch.setattr(F, "snapshot_fast", lambda *a, **k: fast)
+    monkeypatch.setattr(F, "slow_cached", lambda *a, **k: None)
+    api = FastAPI()
+    for m in (pa, jp):
+        api.include_router(m.router)
+    return TestClient(api)
+
+
+def _page(c):
+    r = c.get("/panel/jarvis", headers={"X-Panels-Key": KEY})
+    assert r.status_code == 200, r.text[:400]
+    return r.text
+
+
+def test_todays_events_are_open_and_older_days_are_counted(tmp_path, monkeypatch):
+    """Три дня событий зальют первый экран так же, как его залили одиннадцать
+    грязных деревьев 14.08. Сегодня раскрыто, вчера и позавчера — счётчиком."""
+    now = time.time()
+    recs = [_rec(now - 3600, detail="упал сегодня")]
+    recs += [_rec(now - 2 * DAY - i, detail=f"позавчера {i}") for i in range(4)]
+    body = _page(_panel_client(tmp_path, monkeypatch, recs))
+    assert "упал сегодня" in body
+    grp = re.search(r"<details class='grp'><summary>(.*?)</summary>", body, re.S)
+    assert grp, "старые сутки не свёрнуты в счётчик"
+    assert "4" in grp.group(1), grp.group(1)
+
+
+def test_the_restart_divider_stands_at_the_backend_start(tmp_path, monkeypatch):
+    """Якорь объективный: не «пока тебя не было», а «здесь перезапустился
+    бэкенд». Момент уже лежит в снапшоте — нового состояния не заводим."""
+    now = time.time()
+    body = _page(_panel_client(tmp_path, monkeypatch,
+                               [_rec(now - 3600, detail="до рестарта"),
+                                _rec(now - 600, detail="после рестарта")],
+                               backend_since=now - 1800))
+    assert "перезапустился" in body
+    assert body.index("после рестарта") < body.index("перезапустился") < body.index("до рестарта")
+
+
+def test_a_silent_writer_replaces_the_list_with_words(tmp_path, monkeypatch):
+    body = _page(_panel_client(tmp_path, monkeypatch, [_rec(time.time() - 60)],
+                               beat_age=10_000.0))
+    assert "верить нельзя" in body
+    assert "процесс не найден" not in body, "показан список, которому нельзя верить"
+
+
+def test_a_confirmed_suppressed_fall_reads_as_one_line(tmp_path, monkeypatch):
+    now = time.time()
+    body = _page(_panel_client(
+        tmp_path, monkeypatch,
+        [_rec(now - 900, kind="suppressed"), _rec(now - 600, kind="down")]))
+    assert body.count("подавлено в загрузочном окне") == 1
+    assert "подтверждено через 5 мин" in body
+
+
+def test_an_empty_journal_says_it_out_loud(tmp_path, monkeypatch):
+    """Пустая рамка читается как «ничего не случилось», а это УТВЕРЖДЕНИЕ —
+    его надо произнести, иначе оно неотличимо от «не знаю» (та же граница, что
+    у «медленные данные ещё не прочитаны»)."""
+    body = _page(_panel_client(tmp_path, monkeypatch, []))
+    assert "Что изменилось" in body
+    assert "Переходов не было" in body
+
+
+def test_a_detail_with_markup_cannot_reach_the_page_raw(tmp_path, monkeypatch):
+    """`detail` приезжает из файла, который переживает 30 суток и чужие руки.
+    Экранирование — не паранойя: панель открыта по ключу, но текст в неё
+    кладёт сторож, а не человек."""
+    now = time.time()
+    body = _page(_panel_client(tmp_path, monkeypatch,
+                               [_rec(now - 60, detail="<script>alert(1)</script>")]))
+    assert "<script>alert(1)</script>" not in body
+    assert "&lt;script&gt;" in body
+
+
+def test_a_late_night_event_belongs_to_yesterday_not_to_today():
+    """Сутки КАЛЕНДАРНЫЕ, а не 24-часовые куски. Разница видна ровно в тот час,
+    когда панель открывают чаще всего: событие в 23:00, прочитанное в 01:00,
+    двухчасовое по возрасту — и уехало бы в «Сегодня», хотя случилось ВЧЕРА.
+    Владелец, ищущий «что было ночью», не нашёл бы его там, где искал."""
+    import datetime
+
+    import app.routers.jarvis_panel as jp
+
+    night = datetime.datetime(2026, 8, 14, 23, 0).timestamp()
+    early = datetime.datetime(2026, 8, 15, 1, 0).timestamp()
+    assert jp._day_index(night, early) == 1, "ночное событие уехало в «Сегодня»"
+
+    morning = datetime.datetime(2026, 8, 15, 2, 0).timestamp()
+    late = datetime.datetime(2026, 8, 15, 23, 0).timestamp()
+    assert jp._day_index(morning, late) == 0, "сегодняшнее событие уехало во «Вчера»"
+
+
+def test_an_unreadable_time_does_not_take_down_the_grouping():
+    """Парный сторож к щиту в `journal()`: разделитель рестарта панель кладёт
+    САМА, и `since` приезжает из снапшота, а не из отфильтрованного журнала."""
+    import app.routers.jarvis_panel as jp
+
+    assert jp._day_index("вчера", time.time()) == 2
+    assert jp._day_index(None, time.time()) == 2
+    assert jp._day_index(10 ** 30, time.time()) == 2
+
+
+def test_the_restart_divider_is_not_a_button_label(tmp_path, monkeypatch):
+    """Парный сторож к read-only (`test_panels_web.py`): подпись «рестарт» в
+    ячейке читается как подпись КНОПКИ, а панель фазы 0 не имеет права
+    выглядеть управляемой. Разделитель — строка во всю ширину, а не вид записи.
+    """
+    now = time.time()
+    body = _page(_panel_client(tmp_path, monkeypatch, [_rec(now - 3600)],
+                               backend_since=now - 1800))
+    assert ">рестарт" not in body.lower(), "разделитель выглядит подписью кнопки"
+    assert "── здесь перезапустился бэкенд" in body, body[:200]

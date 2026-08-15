@@ -1104,7 +1104,7 @@ JOURNAL_BEAT_FRESH = 180.0
 JOURNAL_WINDOW_S = 72 * 3600                   # сколько показываем на экране
 
 
-def _journal_ts(rec) -> float | None:
+def journal_ts(rec) -> float | None:
     """Время записи как КОНЕЧНОЕ число — или None, если его нет.
 
     Зеркало `_record_ts` в `scripts/ops_watchdog.py`, и по той же причине, но
@@ -1180,10 +1180,10 @@ def journal(*, now: float | None = None, window_s: float = JOURNAL_WINDOW_S):
             rec = json.loads(line)
         except ValueError:
             continue             # хвост дозаписи: приедет целиком через секунду
-        ts = _journal_ts(rec)
+        ts = journal_ts(rec)
         if ts is not None and (now - ts) <= window_s:
             out.append(rec)
-    out.sort(key=lambda r: _journal_ts(r) or 0.0)
+    out.sort(key=lambda r: journal_ts(r) or 0.0)
     return out, ""
 
 
@@ -1210,7 +1210,7 @@ def collapse_suppressed(records: list) -> list:
     вызов — правка добавила бы записи шестое поле, которого формат §2.2 не
     знает, и следующий читатель нашёл бы его в «сыром» журнале.
     """
-    records = sorted(records, key=lambda r: _journal_ts(r) or 0.0)
+    records = sorted(records, key=lambda r: journal_ts(r) or 0.0)
     consumed, out = set(), []
     for i, rec in enumerate(records):
         if i in consumed:
@@ -1231,7 +1231,7 @@ def collapse_suppressed(records: list) -> list:
                 # тот же щит, что и `journal()`: нечитаемое время даёт «исход
                 # есть, задержка неизвестна», а не падение страницы и не
                 # «подтверждено через 17000 лет».
-                a, b = _journal_ts(rec), _journal_ts(nxt)
+                a, b = journal_ts(rec), journal_ts(nxt)
                 row["after_s"] = None if (a is None or b is None) else b - a
             break
         out.append(row)
@@ -1255,6 +1255,11 @@ def snapshot_fast(table: list[tuple] | None = None) -> dict:
         "external": external_watchdog(),
         "processes": processes(table),
         "guardians": guardians(table),
+        # Журнал читается в БЫСТРОЙ части: потолок 5000 записей даёт файлу
+        # жёсткую границу (~0.9 МБ), а разбор — единицы миллисекунд (замер:
+        # хэндл открыт 3.5 мс, разбор 14 мс на полном файле). «Что изменилось»
+        # обязано быть на первом экране, а не ждать git.
+        "journal": journal(),
     }
 
 

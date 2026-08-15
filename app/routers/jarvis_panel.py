@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from datetime import date
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -369,6 +370,112 @@ if(age&&age.dataset.load){fetch('/panel/jarvis/slow')
 """
 
 
+# ─────────────────── Блок «Что изменилось» (заход 2, §4) ────────────────────
+#
+# Подписи видов записи журнала. Закрытый список: седьмого вида не появится без
+# правки этой таблицы и таблицы в спеке (§2.3). `_restart` — не вид записи, а
+# разделитель, который панель рисует сама из `since` бэкенда.
+_JOURNAL_KIND = {
+    "down": "упало", "recovered": "поднялось", "changed": "новая причина",
+    "suppressed": "подавлено в загрузочном окне", "reboot": "перезагрузка",
+    "rotated": "журнал обрезан",
+}
+# Разделитель рестарта — НЕ вид записи, поэтому в таблице выше его нет: панель
+# рисует его сама из `since` бэкенда. Отдельной строкой во всю ширину, а не
+# ячейкой с подписью, по двум причинам. Спека §4.1 просила именно разделитель
+# («── здесь бэкенд перезапустился ──»), и подпись «рестарт» в ячейке читается
+# как ПОДПИСЬ КНОПКИ — сторож read-only (`test_panels_web.py`) поймал это
+# фактом, и он прав: панель фазы 0 не имеет права выглядеть управляемой.
+_JOURNAL_RESTART = "_restart"
+_JOURNAL_TITLES = {0: "Сегодня", 1: "Вчера", 2: "Раньше"}
+
+
+def _day_index(ts, now: float) -> int:
+    """Сколько КАЛЕНДАРНЫХ суток назад, а не сколько 24-часовых кусков.
+
+    Разница не косметическая, и видна она ровно в тот час, когда панель
+    открывают чаще всего: событие в 23:00, прочитанное в 01:00, по возрасту
+    двухчасовое и уехало бы в «Сегодня», хотя случилось ВЧЕРА. Владелец, ищущий
+    «что было ночью», не нашёл бы его там, где искал. Обратное так же:
+    сегодняшнее событие в 02:00, прочитанное в 23:00, старше суток по возрасту
+    и уехало бы во «Вчера».
+    """
+    t = F.journal_ts({"ts": ts})
+    if t is None:
+        return 2                       # без времени место одно — «Раньше»
+    try:
+        return (date.fromtimestamp(now) - date.fromtimestamp(t)).days
+    except (OverflowError, OSError, ValueError):
+        return 2
+
+
+def _journal_rows(records, now: float) -> str:
+    out = []
+    for r in sorted(records, key=lambda x: -(F.journal_ts(x) or 0.0)):
+        if r.get("kind") == _JOURNAL_RESTART:
+            out.append(
+                "<tr><td colspan='4' class='sub'>── "
+                f"{esc(r.get('detail', ''))} · {esc(_ago(F.journal_ts(r), now))}"
+                " ──</td></tr>")
+            continue
+        kind = _JOURNAL_KIND.get(r.get("kind"), r.get("kind", "—"))
+        tail = ""
+        if r.get("kind") == "suppressed":
+            after = r.get("after_s")
+            if after is None:
+                tail = ", исход пока неизвестен"
+            else:
+                mins = int(after // 60)
+                tail = {"down": f", подтверждено через {mins} мин",
+                        "recovered": f", поднялось само через {mins} мин",
+                        None: ", исход пока неизвестен"}[r.get("outcome")]
+        out.append(
+            f"<tr><td><b>{esc(r.get('check', '—'))}</b></td>"
+            f"<td data-l='Что' class='sub'>{esc(kind + tail)}</td>"
+            f"<td data-l='Деталь' class='sub'>{esc((r.get('detail') or '')[:110])}</td>"
+            f"<td data-l='Когда' class='sub'>{esc(_ago(F.journal_ts(r), now))}</td></tr>")
+    return "".join(out)
+
+
+def _journal_html(snap_journal, backend_since, now: float) -> str:
+    """Блок «Что изменилось»: 72 часа, сутками, разделитель рестарта.
+
+    Якорь ОБЪЕКТИВНЫЙ: не «пока тебя не было» (для этого нужна была бы метка
+    прочтения, то есть мутирующая ручка), а окно в часах плюс момент рестарта
+    бэкенда, который уже лежит в снапшоте.
+    """
+    records, note = snap_journal
+    if note:
+        # Молчание писателя не имеет права выглядеть тишиной фермы.
+        return f"<h2>Что изменилось</h2><div class='note broken'>{esc(note)}</div>"
+    if not records:
+        return ("<h2>Что изменилось</h2><div class='card'>"
+                "<div class='empty'>Переходов не было — за 72 часа ферма ни разу "
+                "не меняла состояние.</div></div>")
+
+    rows = F.collapse_suppressed(records)
+    if backend_since:
+        rows.append({"ts": backend_since, "check": "—", "kind": _JOURNAL_RESTART,
+                     "detail": "здесь перезапустился бэкенд"})
+
+    buckets: dict[int, list] = {}
+    for r in rows:
+        buckets.setdefault(min(_day_index(r.get("ts"), now), 2), []).append(r)
+
+    parts = []
+    for key in sorted(buckets):
+        inner = ("<div class='card'><table><tbody>"
+                 + _journal_rows(buckets[key], now) + "</tbody></table></div>")
+        if key == 0:
+            parts.append(f"<h2>{_JOURNAL_TITLES[key]}</h2>{inner}")
+        else:
+            # Свёрнуто, а не спрятано: список под сводкой. Тот же приём, что у
+            # одиннадцати грязных деревьев.
+            parts.append(_group(f"{_JOURNAL_TITLES[key]}: {len(buckets[key])}",
+                                inner, len(buckets[key])))
+    return "<h2>Что изменилось</h2>" + "".join(parts)
+
+
 @router.get("", response_class=HTMLResponse)
 @router.get("/", response_class=HTMLResponse)
 def panel():
@@ -424,9 +531,12 @@ def panel():
         _plural(len(slow["arcs"]), "ветка", "ветки", "веток") if slow else "",
     ]))
 
-    # Слот на строку захода 2 («что изменилось с прошлого захода») сознательно
-    # НЕ рендерится: пустая рамка читается как «ничего не случилось», а мы
-    # этого не знаем — знать будет журнал событий.
+    # Момент рестарта бэкенда — якорь разделителя. Он УЖЕ лежит в снапшоте,
+    # нового состояния заход 2 не заводит.
+    backend_row = next((r for r in fast["processes"] if r.key == "backend"), None)
+    backend_since = backend_row.extra.get("since") if backend_row else None
+    journal_html = _journal_html(fast.get("journal", ([], "")), backend_since, now)
+
     body = f"""
 <h1 class='ans {ans.tone}'>{esc(ans.text)}</h1>
 <div class='sub second'>{esc(ans.second)}</div>
@@ -437,7 +547,9 @@ def panel():
 <div style='margin-top:14px'>{ext_html}</div>
 
 <div class='two'>
- <div>{anomalies}</div>
+ <div>{anomalies}
+  {journal_html}
+ </div>
  <div>
   <details class='state'><summary>Состояние: {esc(state_summary)}</summary>
    {f"<h2>Процессы</h2>{_card(procs_ok, now)}" if procs_ok else ""}
