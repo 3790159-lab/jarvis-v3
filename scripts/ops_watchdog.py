@@ -316,6 +316,9 @@ JOURNAL_PATH = ROOT / "state" / "panel_events.jsonl"
 JOURNAL_BEAT = ROOT / "state" / "panel_events.heartbeat"
 JOURNAL_MAX_AGE_S = 30 * 86400          # 30 суток
 JOURNAL_MAX_RECORDS = 5000              # предохранитель на шторм рестартов
+# `math` ради одной проверки не импортируется: граница §2.1 держится тем, что
+# шапка этого файла остаётся такой, какой её читает сторож stdlib-only.
+_TS_INF = float("inf")
 
 
 def _record_ts(rec) -> float | None:
@@ -331,6 +334,11 @@ def _record_ts(rec) -> float | None:
     поколением кода, которое его не писало. `True` и `NaN` названы явно —
     `float()` их принимает (1.0 и nan), и запись уехала бы в журнал с временем,
     которого у неё нет.
+
+    `OverflowError` в перехвате не для симметрии: `float()` на большом ЦЕЛОМ
+    бросает именно его, а не ValueError — `float(10**400)` даёт
+    «int too large to convert to float» (проверено). Строка `{"ts": 10**400}`
+    в jsonl законна, и без этого имени докстринг выше обещал бы то, чего нет.
     """
     try:
         ts = rec.get("ts")
@@ -340,9 +348,17 @@ def _record_ts(rec) -> float | None:
         return None
     try:
         ts = float(ts)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
-    return None if ts != ts else ts     # NaN не сравнивается сам с собой
+    # Временем считаем только КОНЕЧНОЕ число. NaN не сравнивается сам с собой,
+    # а ±inf приезжает из настоящей строки: `json.loads('{"ts": 1e400}')` даёт
+    # inf, туда же строка "1e400" (проверено). Пустить его дальше значит завести
+    # бессмертную запись: +inf по возрасту не истечёт НИКОГДА и под потолком
+    # сортируется как самая свежая — вытесняя настоящую; -inf, наоборот, уедет
+    # с маркером «старше 30 сут», хотя времени у неё нет.
+    if ts != ts or ts == _TS_INF or ts == -_TS_INF:
+        return None
+    return ts
 
 
 def journal_trim(records: list, now: float,
