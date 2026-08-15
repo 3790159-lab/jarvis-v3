@@ -702,6 +702,19 @@ def test_a_record_that_cannot_be_serialised_is_loud_and_not_lost_silently(
     assert "журнал" in capsys.readouterr().err
 
 
+def test_a_record_that_is_not_a_record_is_refused_by_the_writer(tmp_path, capsys):
+    """`json.dumps(42)` пишет «42» без единой жалобы, а `journal_read` такую
+    строку пропускает: записью она не станет никогда. Молча положить её в файл
+    значит отчитаться об успехе о событии, которого в журнале нет, — писатель
+    обязан отвечать симметрично своему же чтению."""
+    p = tmp_path / "j.jsonl"
+    junk = [None, 42, "строка", ["список"], 3.5, True]
+    assert ow.journal_append(junk + [_rec(1.0, detail="целая")], path=p,
+                             now=2.0) is False
+    assert [r["detail"] for r in _read(p)] == ["целая"]
+    assert capsys.readouterr().err.count("не сериализуется") == len(junk)
+
+
 def test_an_exotic_value_travels_as_its_repr_instead_of_killing_the_cycle(tmp_path):
     """Граница мягче предыдущей: bytes/множество `json.dumps` не умеет, но
     выбрасывать из-за них ВСЮ запись значит терять событие целиком. Такой ценой

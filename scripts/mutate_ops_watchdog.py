@@ -376,6 +376,11 @@ MUTATIONS = [
      "    except OSError:",
      T_JOURNAL + "::test_a_record_that_cannot_be_serialised_is_loud_and_not_lost_silently"),
 
+    ("журнал: не-запись записана и потеряна молча", WATCHDOG,
+     "    if not isinstance(rec, dict):\n        return None",
+     "    if False:\n        return None",
+     T_JOURNAL + "::test_a_record_that_is_not_a_record_is_refused_by_the_writer"),
+
     ("журнал: экзотическое поле стоит всей записи о падении", WATCHDOG,
      ', default=repr,\n                          skipkeys=True) + "\\n"',
      ') + "\\n"',

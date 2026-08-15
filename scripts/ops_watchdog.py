@@ -471,7 +471,14 @@ def _journal_line(rec) -> str | None:
     которое json не умеет, стоит своего `repr`, а не всей записи о падении.
     Цикличную ссылку не спасает и это — о ней говорят вслух (DEV-18), см.
     `journal_append`.
+
+    Не-словарь отвергается ЗДЕСЬ, хотя `json.dumps` его и написал бы: обратно
+    его не прочитает никто — `journal_read` пропускает всё, что не словарь, — и
+    строка `42` в файле была бы не записью, а молчаливой потерей. Отказ
+    симметричен чтению и слышен на stderr.
     """
+    if not isinstance(rec, dict):
+        return None
     try:
         return json.dumps(rec, ensure_ascii=False, default=repr,
                           skipkeys=True) + "\n"
