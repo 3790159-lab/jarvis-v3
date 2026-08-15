@@ -42,6 +42,11 @@ MUTATIONS = [
        "    return p.startswith(r)")],
      f"{T}::test_a_sibling_directory_with_the_same_prefix_is_not_inside_the_tree"),
 
+    ("относительное имя снова доклеивается к текущему каталогу", GUARD,
+     [("    if not raw or not os.path.isabs(raw):\n        return False",
+       "    if not raw:\n        return False")],
+     f"{T}::test_a_process_whose_exe_is_a_bare_name_is_not_placed_inside_the_tree"),
+
     # ── запуск против упоминания ─────────────────────────────────────────
     ("любой первый не-флаг снова считается запущенным скриптом", GUARD,
      [("        return tok.strip('\"') if tok.lower().endswith(SCRIPT_SUFFIXES) else None",

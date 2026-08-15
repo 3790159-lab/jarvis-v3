@@ -56,8 +56,17 @@ def under(path, root) -> bool:
     Сравнение по разделителю, а не по префиксу строки: без него
     `C:/jarvis_worktrees/...` считался бы лежащим внутри `C:/jarvis`, и гейт
     отказывал бы работать ровно там, куда мы его и загоняем.
+
+    ОТНОСИТЕЛЬНЫЙ путь не привязывается к дереву вовсе. Псевдопроцессы Windows
+    (`Registry`, `MemCompression`) отдают вместо пути голое имя, а `abspath`
+    доклеивает к нему ТЕКУЩИЙ каталог — то есть каталог гейта. Гейт из-за этого
+    отказал сам себе в собственном worktree (замерено 15.08). Чужой рабочий
+    каталог нам неизвестен, и гадать о нём нельзя.
     """
-    p, r = _norm(path), _norm(root)
+    raw = str(path or "").strip().strip('"')
+    if not raw or not os.path.isabs(raw):
+        return False
+    p, r = _norm(raw), _norm(root)
     if not p or not r:
         return False
     return p == r or p.startswith(r.rstrip("\\/") + os.sep)

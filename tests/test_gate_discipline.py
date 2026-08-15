@@ -72,6 +72,14 @@ def test_a_sibling_directory_with_the_same_prefix_is_not_inside_the_tree():
     assert not gate_guard.under("C:/jarvis_worktrees/panels/app/x.py", LIVE)
 
 
+def test_a_process_whose_exe_is_a_bare_name_is_not_placed_inside_the_tree():
+    """Псевдопроцессы Windows (`Registry`, `MemCompression`) отдают вместо пути
+    голое имя. `abspath` доклеивает к нему ТЕКУЩИЙ каталог — каталог гейта, —
+    и гейт отказал сам себе в собственном worktree (замерено 15.08)."""
+    rows = [(136, "Registry", []), (2464, "MemCompression", [])]
+    assert gate_guard.deployers("C:/jarvis_worktrees/dev31-gates", rows) == []
+
+
 def test_the_gate_does_not_count_ITSELF_a_deployer():
     """Гейт запускается интерпретатором из `C:/jarvis/.venv`, то есть в живом
     дереве совпадает сам с собой. Отказ по себе был бы верным по итогу и
