@@ -348,9 +348,34 @@ MUTATIONS = [
      T_JOURNAL + "::test_a_byte_order_mark_does_not_eat_the_first_record"),
 
     ("журнал: чтение останавливается на первой битой строке", WATCHDOG,
-     "        except ValueError:\n            continue",
-     "        except ValueError:\n            break",
+     "        except ValueError:\n            unreadable += 1\n            continue",
+     "        except ValueError:\n            unreadable += 1\n            break",
      T_JOURNAL + "::test_reading_does_not_stop_at_the_first_broken_line"),
+
+    # А2/B4: перезапись уносит не только посчитанное `journal_trim` — уходят
+    # прежние маркеры и нечитаемые строки. Обе потери молчали.
+    ("журнал: схлопнутые прежние отметки не названы — потеря занижена",
+     WATCHDOG,
+     "        collapsed = len(on_disk) - len(events)",
+     "        collapsed = 0",
+     T_JOURNAL + "::test_the_marker_does_not_understate_the_loss_fifty_fold"),
+
+    ("журнал: стёртые перезаписью нечитаемые строки не названы", WATCHDOG,
+     "        on_disk, unreadable = _journal_read_counted(p)",
+     "        on_disk, unreadable = journal_read(p), 0",
+     T_JOURNAL + "::test_lines_the_rewrite_erases_are_named_and_not_vanished"),
+
+    ("журнал: строка-не-запись стирается перезаписью, но в маркер не попадает",
+     WATCHDOG,
+     "        else:\n            unreadable += 1             "
+     "# `42` в файле записью не станет никогда",
+     "        else:\n            pass",
+     T_JOURNAL + "::test_lines_the_rewrite_erases_are_named_and_not_vanished"),
+
+    ("журнал: число и слово в приписке маркера не согласованы", WATCHDOG,
+     '                    % (unreadable, _plural(unreadable, "нечитаемая строка",',
+     '                    % (unreadable, _plural(unreadable, "нечитаемых строк",',
+     T_JOURNAL + "::test_one_unreadable_line_is_counted_in_the_singular"),
 
     # DEV-18: провал записи обязан быть виден и обязан вернуть False — маркер
     # живости обновляется ТОЛЬКО при True.

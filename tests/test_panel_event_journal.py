@@ -558,6 +558,88 @@ def test_a_journal_full_of_old_markers_collapses_on_the_first_rotation(tmp_path)
     recs = _read(p)
     assert [r["kind"] for r in recs] == ["down", "rotated"], recs
     assert recs[0]["detail"] == "новая"
+    # Схлопнутые отметки названы числом: восемь прежних отметок — это восемь
+    # прошлых обрезок, то есть НЕ МЕНЬШЕ восьми потерянных записей сверх той
+    # одной, о которой говорит `why`.
+    assert "8 прежних отметок об обрезке" in recs[1]["detail"], recs[1]["detail"]
+
+
+def test_the_marker_does_not_understate_the_loss_fifty_fold(tmp_path):
+    """Схлопывание маркеров было новой молчаливой потерей ТОГО ЖЕ класса, ради
+    которого арка заведена: прежние `rotated` отсеиваются ДО обрезки, поэтому в
+    `dropped` и `why` они не попадают вовсе.
+
+    Воспроизведено фактом (потолок 20, 50 дозаписей): в файле оставался маркер
+    «отброшено 1 запись сверх потолка в 20», хотя выброшено 50 настоящих записей
+    и 49 прежних маркеров. Владелец читал «отброшено 1 запись» — ровно та ложь,
+    против которой §2.4 написана.
+
+    Шестого поля §2.2 не даёт, а разбирать собственный текст обратно в число
+    писатель не станет, поэтому маркер отвечает честной НИЖНЕЙ ГРАНИЦЕЙ: за
+    каждой схлопнутой отметкой стоит не меньше одной потерянной записи. В этом
+    сценарии граница равна двум, а не пятидесяти, — и это не оговорка теста, а
+    прямая цена схлопывания: в файле в каждый момент лежит РОВНО одна прежняя
+    отметка. Ценность в качестве, а не в цифре: «отброшено 1 запись» читается
+    как «потеря была одна за всю жизнь журнала», а так владелец видит, что
+    обрезка уже случалась раньше."""
+    p = tmp_path / "j.jsonl"
+    now, ceiling = 1_000_000.0, 20
+    ow.journal_append([_rec(now - 1000.0 + i, detail="старая %d" % i)
+                       for i in range(ceiling)],
+                      path=p, now=now, max_records=ceiling)
+    for i in range(50):
+        ow.journal_append([_rec(now + i, detail="новая %d" % i)], path=p,
+                          now=now + i, max_records=ceiling)
+
+    marks = [r for r in _read(p) if r["kind"] == "rotated"]
+    assert len(marks) == 1, marks
+    assert marks[0]["detail"] == (
+        "отброшено 1 запись сверх потолка в 20; перезаписью стёрто ещё "
+        "1 прежняя отметка об обрезке (каждая — не меньше одной потерянной "
+        "записи)"), marks[0]["detail"]
+
+
+def test_lines_the_rewrite_erases_are_named_and_not_vanished(tmp_path):
+    """Перезапись при обрезке стирает и то, что `journal_read` не смог прочесть:
+    огрызок убитой записи, строку без json, строку-не-запись. Воспроизведено
+    фактом: три нечитаемых строки (включая огрызок настоящего события) ушли из
+    файла без единого слова, а маркер рядом говорил только про возраст.
+
+    Считаем их ЗДЕСЬ, а не в докстринге `journal_read`: докстринг сторожем не
+    является, и молчаливая потеря осталась бы молчаливой. Панель зовёт
+    `journal_read` и живёт без счётчика — считает только писатель, ровно в тот
+    момент, когда он эти строки СТИРАЕТ."""
+    p = tmp_path / "j.jsonl"
+    now = 1_000_000.0
+    with open(p, "w", encoding="utf-8", newline="") as fh:
+        fh.write(json.dumps(_rec(now - 40 * DAY, detail="древняя"),
+                            ensure_ascii=False) + "\n")
+        fh.write("не-json огрызок\n")
+        fh.write('{"ts": 3.0, "check": "b", "kind": "do\n')   # убитая на середине
+        fh.write("42\n")                                       # json, но не запись
+
+    assert ow.journal_append([_rec(now, detail="свежая")], path=p, now=now) is True
+    recs = _read(p)
+    assert [r["detail"] for r in recs][:1] == ["свежая"], recs
+    assert recs[-1]["kind"] == "rotated", recs
+    assert recs[-1]["detail"] == (
+        "отброшено 1 запись старше 30 сут; перезаписью стёрто ещё "
+        "3 нечитаемые строки"), recs[-1]["detail"]
+
+
+def test_one_unreadable_line_is_counted_in_the_singular(tmp_path):
+    """Пара к предыдущему: число и слово рядом с ним согласованы и здесь —
+    маркер, читающийся как опечатка, теряет доверие ровно там, где он заведён,
+    чтобы ему верили."""
+    p = tmp_path / "j.jsonl"
+    now = 1_000_000.0
+    with open(p, "w", encoding="utf-8", newline="") as fh:
+        fh.write(json.dumps(_rec(now - 40 * DAY, detail="древняя"),
+                            ensure_ascii=False) + "\n")
+        fh.write("не-json огрызок\n")
+
+    ow.journal_append([_rec(now, detail="свежая")], path=p, now=now)
+    assert _read(p)[-1]["detail"].endswith("ещё 1 нечитаемая строка"), _read(p)[-1]
 
 
 def test_the_liveness_marker_is_touched_after_a_successful_write(tmp_path):
