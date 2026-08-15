@@ -339,6 +339,36 @@ def test_both_limits_at_once_are_both_named_in_one_marker():
     assert {r["detail"] for r in kept} == {"свежая"}, kept
 
 
+def test_the_marker_reads_like_the_sample_in_the_spec():
+    """§2.4 приводит маркер ДОСЛОВНО: «отброшено 812 записей старше 30 сут».
+    Слово «записей» там не украшение — писатель подставляет `why` в текст для
+    владельца, и «отброшено 812 старше 30 сут» приезжает к нему обрубком."""
+    now = 1_000_000.0
+    recs = [_rec(now - 40 * DAY) for _ in range(812)] + [_rec(now - 60.0)]
+    kept, dropped, why = ow.journal_trim(recs, now)
+    assert why == "812 записей старше 30 сут", why
+    assert (len(kept), dropped) == (1, 812)
+
+
+def test_the_number_and_the_word_next_to_it_agree():
+    """Числа в маркере не константы: потолок приходит аргументом, и на
+    нестандартном потолке выходило «в 3 записей». В сторожевом сообщении
+    несогласование читается как опечатка, а не как факт, — а маркер заводился
+    ровно затем, чтобы ему верили."""
+    now = 1_000_000.0
+
+    def why_for(n):
+        return ow.journal_trim([_rec(now - 40 * DAY) for _ in range(n)], now)[2]
+
+    assert why_for(1) == "1 запись старше 30 сут"
+    assert why_for(2) == "2 записи старше 30 сут"
+    assert why_for(5) == "5 записей старше 30 сут"
+    assert why_for(11) == "11 записей старше 30 сут", "11-14 идут по «многим»"
+
+    recs = [_rec(now - 60.0) for _ in range(4)]
+    assert ow.journal_trim(recs, now, max_records=3)[2] == "1 запись сверх потолка в 3"
+
+
 def test_a_record_with_no_usable_time_is_dropped_but_not_called_old():
     """Файл читает и дописывает несколько поколений кода, и `float()` на чужом
     поле БРОСАЕТ. Цена несоразмерна: `main()` исключение не ловит, обёртка
@@ -364,7 +394,10 @@ def test_a_record_with_no_usable_time_is_dropped_but_not_called_old():
     kept, dropped, why = ow.journal_trim(broken + [_rec(now - 60.0)], now)
     assert [r["detail"] for r in kept] == ["d"], kept
     assert dropped == len(broken), why
-    assert "без времени" in why, why
+    # «строк», а не «записей»: среди отброшенного есть и то, что записью не
+    # является вовсе (None, строка, список), — назвать это «записями» значило
+    # бы соврать ровно там, где маркер заводился, чтобы не врать.
+    assert why == "%d строк без пригодного времени" % len(broken), why
     assert "старше" not in why, why
 
 

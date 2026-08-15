@@ -361,9 +361,25 @@ def _record_ts(rec) -> float | None:
     return ts
 
 
+def _plural(n: int, one: str, few: str, many: str) -> str:
+    """Форма слова при числе: 1 запись, 2 записи, 5 записей, 11 записей.
+
+    Заведена не ради красоты: числа в маркере не константы — потолок приходит
+    аргументом, и на нестандартном потолке выходило «в 3 записей». В сторожевом
+    сообщении несогласование читается как опечатка, а не как факт.
+    """
+    tail = abs(n) % 100
+    if 11 <= tail <= 14:                # 11-14 идут по «многим», а не по цифре
+        return many
+    tail %= 10
+    if tail == 1:
+        return one
+    return few if 2 <= tail <= 4 else many
+
+
 def journal_trim(records: list, now: float,
                  max_age_s: float = JOURNAL_MAX_AGE_S,
-                 max_records: int = JOURNAL_MAX_RECORDS):
+                 max_records: int = JOURNAL_MAX_RECORDS) -> tuple[list, int, str]:
     """(оставшиеся, сколько отброшено, чем именно резали).
 
     Два предохранителя, «что раньше»: возраст — естественная единица для
@@ -398,9 +414,12 @@ def journal_trim(records: list, now: float,
         # файл переживает ребуты и сползание часов. Проверено фактом — срез
         # `kept[by_count:]` на неотсортированном журнале оставил обе древние
         # записи и выбросил две свежие, то есть ровно то, ради чего журнал
-        # заводился. Ключ `(ts, позиция)` делает выбор среди одинаковых времён
-        # определённым: без него результат зависел бы от того, как сложилось.
-        order = sorted(range(len(kept)), key=lambda i: (kept[i][0], i))
+        # заводился. Тайбрейка по позиции в ключе нет намеренно: `sorted`
+        # стабилен, а сортируется `range(len(kept))` — значит одинаковые времена
+        # и так остаются в порядке возрастания позиции. Ключ `(ts, i)` стоял
+        # здесь ради определённости, которой он не добавлял: 20 000 случайных
+        # входов с ничьими дали 0 расхождений между двумя ключами.
+        order = sorted(range(len(kept)), key=lambda i: kept[i][0])
         doomed = set(order[:by_count])
         kept = [pair for i, pair in enumerate(kept) if i not in doomed]
     kept = [rec for _ts, rec in kept]
@@ -410,11 +429,23 @@ def journal_trim(records: list, now: float,
         return kept, 0, ""
     parts = []
     if by_age:
-        parts.append("%d старше %d сут" % (by_age, int(max_age_s // 86400)))
+        # Дословно по образцу §2.4: «отброшено 812 записей старше 30 сут».
+        # Слово «записей» не украшение — писатель подставляет `why` в текст для
+        # владельца, и без него маркер приезжает к нему обрубком.
+        parts.append("%d %s старше %d сут"
+                     % (by_age, _plural(by_age, "запись", "записи", "записей"),
+                        int(max_age_s // 86400)))
     if by_no_ts:
-        parts.append("%d без времени" % by_no_ts)
+        # «строк», а не «записей»: сюда попадает и запись с нечитаемым `ts`, и
+        # то, что записью не является вовсе (None, строка, список). Строкой
+        # файла оно было в обоих случаях, а вот назвать его записью значило бы
+        # соврать — тем же самым способом, каким врало бы «старше 30 сут».
+        parts.append("%d %s без пригодного времени"
+                     % (by_no_ts, _plural(by_no_ts, "строка", "строки", "строк")))
     if by_count:
-        parts.append("%d сверх потолка в %d записей" % (by_count, max_records))
+        parts.append("%d %s сверх потолка в %d"
+                     % (by_count, _plural(by_count, "запись", "записи", "записей"),
+                        max_records))
     return kept, dropped, " и ".join(parts)
 
 
