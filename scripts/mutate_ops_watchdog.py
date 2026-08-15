@@ -12,6 +12,12 @@
 из всех гейтов: две мутации одинакового размера, записанные в одну секунду,
 неотличимы для кэша байткода, и вторая исполняется байткодом первой. Гейт при
 этом печатает `[ok]`. Цифры прогонов до этой правки недостоверны.
+
+⚠️ 15.08: у той же дыры была вторая половина — красным считался ЛЮБОЙ ненулевой
+rc, поэтому мутация, сломавшая СБОР тестов (rc 2/4/5), тоже печаталась как
+`[ok]`. Живой пример: мутация границы stdlib на копии дерева дала `rc=4`
+(«found no collectors») — гейт принял бы её за пойманную. Теперь красным
+считается РОВНО `rc 1` плюс `failed` в выводе, см. `run`.
 """
 from __future__ import annotations
 
@@ -519,12 +525,27 @@ MUTATIONS = [
 ]
 
 
-def run(test: str) -> bool:
+def run(test: str) -> tuple[bool, str]:
+    """(поймана ли мутация, чем именно ответил pytest).
+
+    КРАСНОЕ — это РОВНО `rc 1` плюс `failed` в выводе, а не «любой ненулевой rc»
+    (техдолг DEV-26, и он живой: мутация, сломавшая СБОР тестов, отвечает rc 2 /
+    4 / 5 и печаталась бы как `[ok]`). Проверено фактом на копии дерева: мутация
+    границы дала `rc=4` — «found no collectors» — и прежним критерием была бы
+    принята за пойманную. Сторож, которого не существует, — худший вид зелёного:
+    гейт отчитывается за него как за живого.
+
+    `failed` в выводе, а не только rc: с `-q` pytest пишет итог строкой
+    «N failed, M passed», и её отсутствие при rc 1 означает, что упал не тест.
+    """
     p = subprocess.run(
         [sys.executable, "-m", "pytest", test, "-q", "--no-header",
          "-p", "no:cacheprovider"],
         cwd=ROOT, capture_output=True, text=True)
-    return p.returncode == 0
+    out = (p.stdout or "") + (p.stderr or "")
+    tail = out.strip().splitlines()[-1] if out.strip() else "(пусто)"
+    return (p.returncode == 1 and "failed" in out,
+            "rc=%d | %s" % (p.returncode, tail[:140]))
 
 
 def revert(rel: str) -> None:
@@ -565,14 +586,16 @@ def main() -> int:
             continue
         write_mutant(path, text.replace(old, new, 1))
         try:
-            green = run(test)
+            caught, answer = run(test)
         finally:
             revert(rel)
-        if green:
-            print("[СЛЕП] %s\n        %s остался ЗЕЛЁНЫМ" % (name, test))
-            blind.append((name, test))
-        else:
+        if caught:
             print("[ok]   %s -> сторож покраснел" % name)
+        else:
+            # Ответ pytest печатается ЦЕЛИКОМ: «остался зелёным» и «сбор
+            # сломался» — разные беды, и чинят их по-разному.
+            print("[СЛЕП] %s\n        %s\n        %s" % (name, test, answer))
+            blind.append((name, answer))
     print()
     if blind:
         print("СЛЕПЫХ СТОРОЖЕЙ: %d из %d" % (len(blind), len(MUTATIONS)))
