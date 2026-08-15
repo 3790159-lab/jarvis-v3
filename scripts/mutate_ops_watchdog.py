@@ -472,6 +472,11 @@ MUTATIONS = [
      "    if False:\n        return True",
      T_JOURNAL + "::test_nothing_to_write_does_not_even_create_the_file"),
 
+    ("маркер живости: аргумент `now` не доезжает до записи", WATCHDOG,
+     "    stamp = time.time() if now is None else now",
+     "    stamp = time.time()",
+     T_JOURNAL + "::test_the_liveness_marker_is_touched_after_a_successful_write"),
+
     ("маркер живости: не записался и промолчал", WATCHDOG,
      '        print("[ops_watchdog] маркер живости не обновлён: %s" % exc,'
      " file=sys.stderr)\n        return False",

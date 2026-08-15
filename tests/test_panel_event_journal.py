@@ -696,10 +696,21 @@ def test_one_unreadable_line_is_counted_in_the_singular(tmp_path):
 
 def test_the_liveness_marker_is_touched_after_a_successful_write(tmp_path):
     """Свежий маркер + пустой журнал = настоящая тишина. Без маркера эти два
-    случая на экране неразличимы."""
+    случая на экране неразличимы.
+
+    Второй половиной закрыт `now=`: он не использовался НИ ОДНИМ вызовом и ни
+    одним тестом, то есть код, игнорирующий аргумент и берущий часы, был бы
+    зелёным. Панель смотрит на mtime, а не на содержимое, — но содержимое здесь
+    единственное, чем аргумент вообще виден, и человек с `type` читает именно
+    его."""
     beat = tmp_path / "beat"
     assert ow.touch_beat(path=beat) is True
     assert beat.exists()
+
+    stamped = tmp_path / "beat_с_часами"
+    assert ow.touch_beat(path=stamped, now=1_700_000_000.0) is True
+    assert stamped.read_text(encoding="ascii") == "1700000000", \
+        "аргумент `now` до записи не доехал"
 
 
 def test_a_failed_write_does_not_refresh_the_marker(tmp_path, capsys):
@@ -1050,9 +1061,6 @@ def test_a_kill_between_the_temp_file_and_the_swap_loses_nothing(tmp_path):
     recs = _read(p)
     assert [r["kind"] for r in recs] == ["down", "down", "rotated"], recs
     assert [r["detail"] for r in recs][:2] == ["новая", "после"]
-
-
-# ── граница stdlib-only: §2.1 и ловушка 1 спеки ────────────────────────────
 
 
 # ── граница stdlib-only: §2.1 и ловушка 1 спеки ────────────────────────────
