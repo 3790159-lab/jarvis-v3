@@ -36,7 +36,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-SCRIPT_SUFFIXES = (".py", ".ps1")
+INTERPRETERS = ("python", "pythonw", "py", "powershell", "pwsh", "cmd")
 
 
 def _norm(value) -> str:
@@ -72,12 +72,29 @@ def under(path, root) -> bool:
     return p == r or p.startswith(r.rstrip("\\/") + os.sep)
 
 
+def is_interpreter(exe, cmdline) -> bool:
+    """True = процесс ИСПОЛНЯЕТ то, что ему передали аргументом.
+
+    Без этого различителя редактор, в котором открыт файл из дерева
+    (`notepad.exe C:\\jarvis\\app\\routers\\jarvis_panel.py`), выглядит точно
+    так же, как гардиан, поднимающий из дерева прод: тот же абсолютный путь
+    первым не-флагом. Файл, ОТКРЫТЫЙ в чужой программе, деплоем не становится.
+    """
+    name = str(exe or "").strip().strip('"')
+    if not name:
+        head = list(cmdline or [])[:1]
+        name = str(head[0]) if head else ""
+    stem = os.path.basename(name).lower().split(".")[0]
+    return stem in INTERPRETERS
+
+
 def launched_script(cmdline) -> str | None:
-    """Путь скрипта, который процесс ИСПОЛНЯЕТ, либо None.
+    """Аргумент, который интерпретатор принял бы за исполняемый файл.
 
     Запуск ≠ упоминание: `python -c "... C:/jarvis/app ..."` называет дерево в
-    своей командной строке, но не исполняет из него ни строки, и считать его
-    деплой-процессом значит запретить гейт по чужому тексту.
+    своей командной строке, но не исполняет из него ни строки. Такие значения
+    отсеиваются дальше проверкой «это абсолютный путь внутри дерева» — код в
+    кавычках абсолютным путём не является.
     """
     toks = list(cmdline or [])[1:]
     for i, tok in enumerate(toks):
@@ -88,9 +105,9 @@ def launched_script(cmdline) -> str | None:
         if tok.startswith("-"):
             continue
         # Первый не-флаг — либо скрипт, либо значение флага (`-m модуль`,
-        # `-c код`). Во втором случае молчим: гадать, что это было, значит
-        # заводить ложные срабатывания на пустом месте.
-        return tok.strip('"') if tok.lower().endswith(SCRIPT_SUFFIXES) else None
+        # `-c код`). Дальше решает не догадка о том, что это было, а факт:
+        # абсолютный ли это путь и лежит ли он в дереве.
+        return tok.strip('"')
     return None
 
 
@@ -142,6 +159,8 @@ def deployers(root, table=None, *, exclude=()) -> list:
             continue
         if under(exe, root):
             found.append((pid, "интерпретатор из дерева: %s" % exe))
+            continue
+        if not is_interpreter(exe, cmdline):
             continue
         script = launched_script(cmdline)
         if script and under(script, root):

@@ -48,10 +48,19 @@ MUTATIONS = [
      f"{T}::test_a_process_whose_exe_is_a_bare_name_is_not_placed_inside_the_tree"),
 
     # ── запуск против упоминания ─────────────────────────────────────────
-    ("любой первый не-флаг снова считается запущенным скриптом", GUARD,
-     [("        return tok.strip('\"') if tok.lower().endswith(SCRIPT_SUFFIXES) else None",
-       "        return tok.strip('\"')")],
-     f"{T}::test_a_process_that_only_MENTIONS_the_tree_is_not_a_deployer"),
+    ("кто принял аргумент — больше не важно (открыл = исполнил)", GUARD,
+     [("        if not is_interpreter(exe, cmdline):\n            continue", "        pass")],
+     f"{T}::test_a_file_merely_OPENED_from_the_tree_is_not_a_deployment"),
+
+    ("интерпретатором считается кто угодно", GUARD,
+     [("    return stem in INTERPRETERS", "    return True")],
+     f"{T}::test_a_file_merely_OPENED_from_the_tree_is_not_a_deployment"),
+
+    # Парная: различитель не имеет права закрыться совсем — гардиана он
+    # обязан по-прежнему видеть.
+    ("интерпретатором не считается никто", GUARD,
+     [("    return stem in INTERPRETERS", "    return False")],
+     f"{T}::test_a_guardian_launching_prod_from_the_tree_blocks_the_gate"),
 
     ("аргумент -File больше не читается", GUARD,
      [('        if str(tok).lower() == "-file" and i + 1 < len(toks):',

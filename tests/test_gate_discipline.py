@@ -56,10 +56,20 @@ def test_an_interpreter_from_the_tree_blocks_the_gate_even_without_a_script_path
     assert [pid for pid, _ in gate_guard.deployers(LIVE, [row])] == [4848]
 
 
-def test_a_process_that_only_MENTIONS_the_tree_is_not_a_deployer():
+def test_a_file_merely_OPENED_from_the_tree_is_not_a_deployment():
     """Запуск ≠ упоминание. Панель на этом уже разбилась 14.08: процесс,
-    назвавший раннера в своей командной строке, был принят за раннера."""
-    row = (999, "C:/Python314/python.exe",
+    назвавший раннера в своей командной строке, был принят за раннера.
+
+    Здесь тот же аргумент выглядит один в один как у гардиана — абсолютный
+    путь в дерево первым не-флагом. Различает их ровно одно: кто его принял.
+    Редактор файл ОТКРЫЛ, а не ИСПОЛНИЛ."""
+    row = (999, "C:/Windows/system32/notepad.exe",
+           ["notepad.exe", "C:/jarvis/app/routers/jarvis_panel.py"])
+    assert gate_guard.deployers(LIVE, [row]) == []
+
+
+def test_a_path_quoted_inside_someone_elses_code_is_not_a_script():
+    row = (998, "C:/Python314/python.exe",
            ["python.exe", "-c",
             "print('смотри C:/jarvis/app/routers/jarvis_panel.py внимательно')"])
     assert gate_guard.deployers(LIVE, [row]) == []
