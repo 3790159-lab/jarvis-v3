@@ -15,7 +15,9 @@ from telethon.errors import AuthKeyError, UnauthorizedError
 
 from chatter.config.active import ActiveClientsError, resolve_personas
 from chatter.config.loader import Config, ConfigError, ControlConfig, load_config
-from chatter.config.yaml_edit import YamlEditError, set_funnel_gate, set_honesty_mode
+from chatter.config.yaml_edit import (
+    YamlEditError, set_funnel_gate, set_honesty_mode, set_payments_enabled)
+from chatter.config.config_commit import commit_config_file
 from chatter.core import humanizer as H
 from chatter.core.admission import admission_decision
 from chatter.core.brain import Brain
@@ -25,9 +27,9 @@ from chatter.core.config_versions import (
 from chatter.core.classifier import ClassifierResult, classify as _classify
 from chatter.core.console import (
     GLOBAL_COMMANDS, TARGETED_COMMANDS, PauseView, _humanize_gap, cfg_text,
-    console_text, contact_link, display_name, escalation_buttons, format_config,
-    format_escalation_card, format_status, html_link, parse_command,
-    parse_config_command, pause_buttons,
+    console_text, contact_link, display_name, escalation_buttons, escape_html,
+    format_config, format_escalation_card, format_status, html_link,
+    parse_allow_command, parse_command, parse_config_command, pause_buttons,
     safe_snippet,
 )
 
@@ -35,6 +37,7 @@ from chatter.core.console import (
 # которые владелец мог набрать в диалоге лида ДО Fix 3 (см. _on_connected).
 _COMMAND_PREFIXES = sorted("/" + c for c in (GLOBAL_COMMANDS | TARGETED_COMMANDS))
 from chatter.core.escalation import parse_escalation_keywords
+from chatter.telethon_identity import identity_kwargs
 from chatter.core.llm import AnthropicLLM, FakeLLM, LLMClient
 from chatter.core.pause import should_auto_resume
 from chatter.notify.base import Card, Notifier
@@ -187,6 +190,24 @@ def build_session(
     raise SecretLoaderError(
         f"нет ни зашифрованной сессии {enc}, ни legacy {plain} — "
         "залогиниться: python -m chatter.telethon_login")
+
+
+def build_client(session, api_id, api_hash, client_cls=None):
+    """TelegramClient с ПРИБИТЫМ отпечатком устройства.
+
+    Вынесено из main() отдельной функцией не ради красоты: по умолчанию Telethon
+    выводит device_model/system_version/app_version из `platform.uname()` и своей
+    версии, то есть отпечаток менялся сам при переносе хоста, смене архитектуры
+    или `pip upgrade telethon`. Пока конструктор жил внутри main(), проверить пин
+    на ПРОДАКШН-пути было нечем — тест мог подтвердить только login-путь.
+    См. chatter/telethon_identity.py.
+
+    `client_cls` инъектируется (тот же приём, что в telethon_login.make_client):
+    тест проверяет проброс отпечатка на подставном классе, без телефона и сети.
+    Прод оставляет дефолт — отложенный импорт настоящего Telethon."""
+    if client_cls is None:
+        from telethon import TelegramClient as client_cls  # noqa: N806
+    return client_cls(session, int(api_id), api_hash, **identity_kwargs())
 
 
 # Catch-up age cap: on start, don't answer anything older than this. A message
@@ -683,7 +704,60 @@ class TelethonRunner:
             return self._set_funnel_gate(arg, language)
         if name == "honesty":
             return self._set_honesty(arg, language)
+        if name == "allow":
+            return await self._set_allow(arg, language)
+        if name == "payments":
+            return self._set_payments(arg, language)
         return cfg_text("cfg_unknown", language)
+
+    def _set_payments(self, arg: str, language: str) -> str:
+        """Тумблер оплаты (§5.1) — ЕДИНСТВЕННЫЙ, и он команда, а не правка файла.
+
+        Значение в yaml — факт, а не цель: гардиан деплоит из рабочего дерева, и
+        включённая в файле фича встала бы на ребуте без команды владельца.
+
+        Направление несимметрично, как у /funnel_gate и /honesty: включение
+        требует `confirm` (бот начнёт сам называть суммы и слать реквизиты),
+        выключение исполняется сразу — аварию чинят быстро, а не через второй
+        экран.
+
+        Валидатор старта здесь не дублируется: правка → `reload_configs()` →
+        `load_config` с `assert_startable`. Конфиг, которым нечего ответить, не
+        включится ни командой, ни правкой файла, и владелец увидит ПРИЧИНУ."""
+        tokens = arg.strip().casefold().split()
+        action = tokens[0] if tokens else ""
+        confirmed = len(tokens) > 1 and tokens[1] in ("confirm", "да", "yes", "так")
+        slug = self.primary_slug
+        current = self.personas[slug].cfg.settings.payments.enabled
+
+        if not action:
+            return cfg_text("cfg_pay_status_on" if current else "cfg_pay_status_off",
+                            language, client=slug)
+        if action not in ("on", "off"):
+            return cfg_text("cfg_pay_usage", language)
+        if action == "on" and not confirmed:
+            return cfg_text("cfg_pay_confirm", language)
+
+        enabled = action == "on"
+        path = self._primary_dir() / "settings.yaml"
+        old = path.read_text(encoding="utf-8")
+        try:
+            path.write_text(set_payments_enabled(old, enabled), encoding="utf-8")
+        except (YamlEditError, OSError) as e:
+            log.warning("payments: правка settings.yaml не удалась", exc_info=True)
+            return cfg_text("cfg_pay_fail", language, reason=str(e))
+
+        ok, err = self.reload_configs()
+        if not ok:
+            path.write_text(old, encoding="utf-8")   # вернуть заведомо рабочий файл
+            self.reload_configs()
+            return cfg_text("cfg_pay_fail", language, reason=err)
+        # Имя клиента обязательно: на volska-раннере безымянное подтверждение
+        # однажды убедило владельца, что тумблер лёг в ЧУЖОЙ конфиг (дрил 22.07).
+        return cfg_text("cfg_pay_on_done" if enabled else "cfg_pay_off_done",
+                        language, client=slug) + self._commit_toggle(
+            path, language=language,
+            what="chore(%s): payments.enabled=%s командой пульта" % (slug, str(enabled).lower()))
 
     def _set_honesty(self, arg: str, language: str) -> str:
         """Тумблер честности командой пульта — но ТОЛЬКО через confirm.
@@ -743,7 +817,29 @@ class TelethonRunner:
         # «Чесність ВИМКНЕНА» рядом с хардкодом «Залишено Ані» убедило владельца,
         # что тумблер лёг в ЧУЖОЙ конфиг (дрил 2026-07-22).
         return cfg_text("cfg_honesty_on_done" if honest else "cfg_honesty_free_done",
-                        language, client=self.primary_slug)
+                        language, client=self.primary_slug) + self._commit_toggle(
+            path, language=language,
+            what="chore(%s): honesty_mode=%s командой пульта"
+                 % (self.primary_slug, "honest" if honest else "free_owner_liability"))
+
+    def _commit_toggle(self, path, *, what: str, language: str) -> str:
+        """Записать переключённый тумблер в историю. Возвращает ПРЕДУПРЕЖДЕНИЕ
+        для владельца или пустую строку.
+
+        Значение тумблера в файле — ФАКТ состояния прода, и место ему в истории:
+        иначе живое дерево остаётся грязным навсегда, а проверка worktree в
+        ops_watchdog краснеет на законном действии (11.08 она простояла так
+        ~14 часов и ослепла к настоящему недеплоенному коду).
+
+        Предупреждение возвращается, а не логируется: к этому моменту тумблер
+        УЖЕ применён и уже работает, так что «не получилось» — неправда. Правда
+        в том, что дерево грязное, и знать это обязан владелец, а не лог."""
+        out = commit_config_file(path, message=what)
+        if out.ok:
+            return ""
+        log.warning("тумблер не закоммичен (%s): %s", what, out.detail)
+        return "\n\n" + cfg_text("cfg_commit_failed", language,
+                                  reason=out.detail, path=path.name)
 
     def _set_funnel_gate(self, arg: str, language: str) -> str:
         """Онбординг-дырка №2: переключатель гейта — команда, а не правка yaml.
@@ -778,8 +874,121 @@ class TelethonRunner:
             path.write_text(old, encoding="utf-8")   # вернуть заведомо рабочий файл
             self.reload_configs()
             return cfg_text("cfg_gate_fail", language, reason=err)
-        return cfg_text("cfg_gate_on_done", language) if enabled \
+        done = cfg_text("cfg_gate_on_done", language) if enabled \
             else cfg_text("cfg_gate_off_done", language, allow=len(self.allowlist))
+        return done + self._commit_toggle(
+            path, language=language,
+            what="chore(%s): funnel_gate=%s командой пульта"
+                 % (self.primary_slug, str(enabled).lower()))
+
+    def effective_allowlist(self) -> frozenset[int]:
+        """settings.yaml.allowlist + runtime-оверлей /allow (Store).
+
+        funnel_gate НЕ трогается этой фичей: это тот же allowlist, что
+        admission_decision уже понимает (force-answer override при
+        funnel_gate=True, единственный источник допуска при funnel_gate=False)
+        — просто с ДОПОЛНИТЕЛЬНЫМИ id, добавленными командой без правки
+        settings.yaml и рестарта. reload_configs() перезатирает self.allowlist
+        из YAML и ничего не знает о Store, поэтому оверлей живёт ОТДЕЛЬНО и
+        мёржится здесь, на каждый вызов -- реальному YAML-списку ничего не
+        грозит от простоя/сбоя reload."""
+        return self.allowlist | frozenset(self.primary_store().runtime_allow_ids())
+
+    async def _display_name_for(self, peer_id: int) -> str:
+        """Имя для карточки/списка -- best-effort. Голый id ничем не хуже:
+        Telethon может не знать сущность (владелец никогда не переписывался с
+        этим id), и это НЕ повод отказывать в /allow числовым id (см.
+        _resolve_allow_target)."""
+        try:
+            entity = await self.client.get_entity(peer_id)
+        except Exception:
+            log.warning("allow: get_entity не разрешил id %s, имя -- голый id", peer_id, exc_info=True)
+            return display_name(user_id=peer_id)
+        return display_name(
+            first_name=getattr(entity, "first_name", None),
+            last_name=getattr(entity, "last_name", None),
+            title=getattr(entity, "title", None),
+            username=getattr(entity, "username", None),
+            user_id=peer_id)
+
+    async def _resolve_allow_target(self, target: str) -> tuple[int, str] | None:
+        """(id, имя) для /allow -- @user, id или t.me-ссылка. Числовой id
+        известен буквально (он и есть искомый Telegram user id), поэтому его
+        резолвим ВСЕГДА, даже если get_entity не смог найти сущность
+        (_display_name_for сама фолбэкает на голый id). @username/ссылку без
+        сети не резолвнуть -- если get_entity падает, контакт неизвестен
+        вообще, и добавлять просто нечего."""
+        raw = target.strip().rstrip("/").split("/")[-1].lstrip("@")
+        if raw.isdigit():
+            peer_id = int(raw)
+            return peer_id, await self._display_name_for(peer_id)
+        try:
+            entity = await self.client.get_entity(raw)
+        except Exception:
+            log.warning("allow: не смог разрешить %r", target, exc_info=True)
+            return None
+        return entity.id, display_name(
+            first_name=getattr(entity, "first_name", None),
+            last_name=getattr(entity, "last_name", None),
+            title=getattr(entity, "title", None),
+            username=getattr(entity, "username", None),
+            user_id=entity.id)
+
+    async def _allow_list_text(self, language: str) -> str:
+        store = self.primary_store()
+        runtime_ids = set(store.runtime_allow_ids())
+        ids = sorted(runtime_ids | set(self.allowlist))
+        if not ids:
+            return cfg_text("cfg_allow_list_empty", language)
+        lines = [cfg_text("cfg_allow_list_header", language, n=len(ids))]
+        for uid in ids:
+            name = await self._display_name_for(uid)
+            origin = cfg_text(
+                "cfg_allow_source_runtime" if uid in runtime_ids else "cfg_allow_source_static",
+                language)
+            lines.append(f"• {name} — id {uid} ({origin})")
+        return "\n".join(lines)
+
+    async def _set_allow(self, arg: str, language: str) -> str:
+        """/allow (backlog арки 3C): runtime-оверлей allowlist в Store, БЕЗ
+        правки settings.yaml и БЕЗ рестарта -- funnel_gate и его YAML-ключ
+        не трогаются вовсе, эта команда только читает self.allowlist/
+        self.funnel_gate (через effective_allowlist/admission_decision) и
+        пишет в отдельную таблицу Store."""
+        cmd = parse_allow_command(arg)
+        if cmd.action == "list":
+            return await self._allow_list_text(language)
+        if cmd.target is None:
+            return cfg_text("cfg_allow_usage", language)
+
+        resolved = await self._resolve_allow_target(cmd.target)
+        if resolved is None:
+            return cfg_text("cfg_allow_not_found", language, target=escape_html(cmd.target))
+        peer_id, name = resolved
+
+        store = self.primary_store()
+        runtime_ids = set(store.runtime_allow_ids())
+        already = peer_id in runtime_ids or peer_id in self.allowlist
+
+        if cmd.action == "add" and already:
+            return cfg_text("cfg_allow_already", language, name=name)
+        if cmd.action == "remove" and not already:
+            return cfg_text("cfg_allow_not_in_list", language, name=name)
+        if cmd.action == "remove" and peer_id in self.allowlist and peer_id not in runtime_ids:
+            # Статический id из settings.yaml -- эта команда его убрать не
+            # может (нет yaml-правки/reload в этой фиче), и молчаливый
+            # no-op соврал бы "убрал" (DEV-18).
+            return cfg_text("cfg_allow_static_remove_blocked", language, name=name, id=peer_id)
+
+        if not cmd.confirmed:
+            key = "cfg_allow_confirm_add" if cmd.action == "add" else "cfg_allow_confirm_remove"
+            return cfg_text(key, language, name=name, id=peer_id)
+
+        if cmd.action == "add":
+            store.runtime_allow_add(peer_id, ts=time.time())
+            return cfg_text("cfg_allow_added", language, name=name, id=peer_id)
+        store.runtime_allow_remove(peer_id)
+        return cfg_text("cfg_allow_removed", language, name=name)
 
     def _primary_dir(self) -> Path:
         return self._clients_dir / self.primary_slug
@@ -1248,9 +1457,14 @@ class TelethonRunner:
     def toggle_persona(self, sender_id: int) -> str:
         """Flip demo<->demo2 for this sender. Requires exactly the two-persona
         case described in spec S7; with >2 personas loaded this picks the
-        first other slug deterministically (dict insertion order)."""
+        first other slug deterministically (dict insertion order).
+
+        Состав из ОДНОЙ персоны — сегодняшний прод (`CHATTER_PERSONAS=volska`),
+        и переключать там не на кого. Без дефолта `next()` бросал StopIteration
+        прямо в обработчик события: лид получал тишину, причина оставалась в
+        логе. Возвращаем текущую — ack скажет, кто отвечает, и это правда."""
         current = self.persona_for(sender_id)
-        other = next(slug for slug in self.personas if slug != current)
+        other = next((slug for slug in self.personas if slug != current), current)
         self._sender_persona[sender_id] = other
         return other
 
@@ -1273,7 +1487,7 @@ class TelethonRunner:
         # (Telethon User.contact). funnel_gate off → старое поведение (allowlist).
         decision = admission_decision(
             sender_id=sender_id, is_contact=bool(getattr(event.sender, "contact", False)),
-            allowlist=self.allowlist, denylist=self.denylist, funnel_gate=self.funnel_gate)
+            allowlist=self.effective_allowlist(), denylist=self.denylist, funnel_gate=self.funnel_gate)
         if decision == "notify_owner":
             await self._notify_known_contact(event, sender_id)
             return
@@ -1299,6 +1513,12 @@ class TelethonRunner:
             return
 
         persona_slug = self.persona_for(sender_id)
+        # Имя лида для панели: у события есть сущность отправителя, у веба её
+        # нет. Пишем ДО дебаунсера, чтобы имя было уже на первом ходу.
+        remember_display_name(
+            self.personas[persona_slug].deps.store,
+            f"{sender_id}:{persona_slug}", getattr(event, "sender", None),
+            user_id=sender_id)
         deb = self._debouncers.get(chat_id)
         if deb is None or deb.task is None or deb.task.done():
             deb = self._new_debouncer(peer=peer, sender_id=sender_id, persona_slug=persona_slug)
@@ -1383,7 +1603,7 @@ class TelethonRunner:
             log.exception("catch-up: failed to collect dialogs; skipping catch-up")
             return
         missed = select_missed(
-            dialogs, allowlist=self.allowlist, now=now, max_age_seconds=max_age_seconds,
+            dialogs, allowlist=self.effective_allowlist(), now=now, max_age_seconds=max_age_seconds,
             denylist=self.denylist, funnel_gate=self.funnel_gate)
         log.info("catch-up: %d dialog(s) with missed messages", len(missed))
         for mm in missed:
@@ -1406,6 +1626,43 @@ class TelethonRunner:
             missed_age_seconds=mm.oldest_age_seconds,
         )
         log.info("catch-up process END %s", contact_id)
+
+
+
+def remember_display_name(store, contact_id: str, sender, *, user_id) -> None:
+    """Запомнить имя лида в БД — при первом контакте и дальше по факту.
+
+    Веб-панель показывала голый telegram-id, потому что резолв имени требует
+    Telethon-сущности, которой у веба нет. Значит положить имя обязан тот, у
+    кого сущность есть, — раннер.
+
+    Имя кладётся СЫРЫМ, без HTML-экранирования: экранирует тот, кто рендерит.
+    Хранить уже экранированное значит однажды показать «&amp;lt;» вместо «<»
+    там, где экранируют второй раз.
+
+    `display_name` из console здесь НЕ используется намеренно: его цепочка
+    fallback заканчивается голым id, и с `user_id=None` он вернул бы строку
+    «None», затерев уже известное имя. Нам нужно ровно обратное — «не узнали
+    ничего» обязано означать «ничего не пишем».
+
+    В ЛОГИ имя не идёт: там остаётся хеш контакта. Лог читают шире, чем панель,
+    и имя живого лида в файле — утечка, которой панель не требует.
+
+    Сбой не имеет права уронить ход: имя украшает экран, а не участвует в
+    ответе лиду. Ловим и логируем (DEV-18 — не глотаем молча)."""
+    try:
+        parts = [getattr(sender, "first_name", None), getattr(sender, "last_name", None)]
+        name = " ".join(p for p in parts if p).strip()
+        username = getattr(sender, "username", None)
+        if name and username:
+            name = f"{name} (@{username})"
+        elif not name and username:
+            name = f"@{username}"
+        if not name:
+            return          # не узнали ничего — не трогаем то, что знали
+        store.set_display_name(contact_id, name)
+    except Exception:
+        log.warning("не удалось запомнить имя контакта %s", contact_id, exc_info=True)
 
 
 async def config_watch_loop(
@@ -1506,11 +1763,15 @@ def _bind_classifier(llm: LLMClient, cfg: Config):
     """Замыкание дешёвого классификатора эскалации на LLM/плейбук персоны.
     profile — профиль лида (арка «память»): едет в промпт, классификатор
     возвращает обновление."""
-    def _run(history: list[dict], profile: str | None = None) -> ClassifierResult:
+    def _run(history: list[dict], profile: str | None = None, *,
+             track_obligations: bool = False, obligations_block: str = "",
+             pending_reply: str = "") -> ClassifierResult:
         return _classify(
             llm, playbook=cfg.playbook, language=cfg.settings.language,
             history=history, profile=profile,
-            profile_budget_tokens=cfg.settings.limits.profile_budget_tokens)
+            profile_budget_tokens=cfg.settings.limits.profile_budget_tokens,
+            track_obligations=track_obligations, obligations_block=obligations_block,
+            pending_reply=pending_reply)
     return _run
 
 
@@ -1850,7 +2111,6 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[telethon_run] {e}", file=sys.stderr)
         return 1
 
-    from telethon import TelegramClient  # deferred: only main() ever constructs a real client
 
     try:
         slugs = resolve_personas(
@@ -1882,7 +2142,7 @@ def main(argv: list[str] | None = None) -> int:
     except SecretLoaderError as e:
         print(f"[telethon_run] {e}", file=sys.stderr)
         return 1
-    client = TelegramClient(session, int(api_id), api_hash)
+    client = build_client(session, api_id, api_hash)
 
     store = Store(db_path)
     runner = build_runner(

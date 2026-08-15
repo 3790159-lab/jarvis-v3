@@ -11,13 +11,20 @@
 """
 from __future__ import annotations
 
+import logging
+import re
+import time
 from dataclasses import dataclass
+from functools import lru_cache
 
 from chatter.core.brand_safety import forbidden_mention
 from chatter.core.conversation import next_state
+from chatter.core.prompt_log import log_funnel_signal
 from chatter.core.disclosure import honest_prefix, is_bot_question
 from chatter.core.guardrails import contains_unbacked_claim
 from chatter.core.obligations import DEFAULT_PROMISE_TERMS, unbacked_promise
+
+logger = logging.getLogger("chatter.escalation")
 
 # Зеркалит conversation._TERMINAL (приватное там). Завершённый диалог не
 # воскрешаем ни сигналом воронки, ни эскалацией.
@@ -83,7 +90,88 @@ _OWNER_CONTACT_VERBS = (
 # у volska owner_id == "Керівниця", и ветка матча по стему ИМЕНИ закрывала роль
 # совпадением — смена owner_id на реальное имя молча вернула бы дыру, и
 # «передам керівниці» уехало бы лиду БЕЗ карточки владельцу.
-_OWNER_ROLE_STEMS = ("владел", "хозяин", "керівниц", "керівник", "власни", "owner")
+#
+# ЗАПАСНОЙ набор: работает всегда, независимо от конфига (у demo/demo2 owner_ref
+# не заполнен, и русские/английские роли держатся только им). Второе число —
+# БЮДЖЕТ ХВОСТА: сколько букв максимум может дописаться после стема. Он выведен
+# из самой длинной НАСТОЯЩЕЙ падежной формы, а не назначен на глаз (DEV-29 §7).
+# Без бюджета стем матчился подстрокой, и «керівництво студії ухвалило нові
+# ціни» считалось обещанием контакта владельца — замер на живом проде volska
+# 13.08. Цена такой ошибки — не только лишняя карточка: на шве H2 (run.py)
+# недоставленная карточка + ложное срабатывание = ЗАМЕНА готового ответа
+# заглушкой, см. док-строку mentions_owner_contact.
+_OWNER_ROLE_STEMS = (
+    ("владел", 4),     # владельца +3 · владельцем +4 · владелица +3
+    ("хозяин", 2),     # хозяина +1 · хозяином +2
+    ("керівниц", 2),   # керівниці +2 · керівницею +2 · «керівництво» +3 — мимо
+    ("керівник", 2),   # керівника +1 · керівником +2
+    ("власни", 3),     # власник +1 · власника +2 · власником +3
+    ("owner", 2),      # owner +0 · owner's +2
+)
+
+# Слово = буквы/цифры + апостроф (оба начертания, как в _OWNER_CONTACT_VERBS).
+_WORD_RE = re.compile(r"[^\w'’]+")
+# Минимальная длина стема роли, выведенного из конфига. Тот же класс защиты, что
+# `len(oid) >= 6` для имён ниже: короткий стем матчит пол-словаря («ан» из пары
+# «Ані»/«Анею» поймал бы «займатися»).
+_MIN_ROLE_STEM = 4
+
+
+def _words(text: str) -> list[str]:
+    return [w for w in _WORD_RE.split((text or "").casefold()) if w]
+
+
+def _common_prefix(a: str, b: str) -> str:
+    n = 0
+    for x, y in zip(a, b):
+        if x != y:
+            break
+        n += 1
+    return a[:n]
+
+
+def _role_hit(words: "list[str]", stem: str, budget: int) -> bool:
+    """Слово НАЧИНАЕТСЯ со стема и хвост не длиннее бюджета.
+
+    Матч по слову, а не подстроке: подстрочный матч бюджет обессмысливает
+    («майстерня» содержит «майст» в любом случае) и ловит чужие слова целиком
+    («homeowner» ← `owner`)."""
+    return any(w.startswith(stem) and len(w) - len(stem) <= budget for w in words)
+
+
+@lru_cache(maxsize=128)
+def _owner_role_spec(owner_id: str, owner_ref: str) -> "tuple[str, int] | None":
+    """Стем роли владельца + бюджет хвоста, ВЫВЕДЕННЫЕ ИЗ КОНФИГА клиента
+    (DEV-29, схема C). Ничего не угадываем морфологией — обе величины приходят
+    из двух падежных форм, которые в конфиге уже есть.
+
+    `owner_id` и `owner_ref` — две формы одного слова по конвенции конфига
+    (`owner_ref` — творительный: «зв'яжу вас з {ref}»). Берём ПОСЛЕДНИЕ токены
+    пары (носитель роли; определения и служебные слова — «старший», «нашим» —
+    отваливаются сами, отдельный стоп-лист не нужен), стем = их общий префикс,
+    бюджет = максимальный хвост, который в этих формах реально дописывается.
+
+    Пример yarina: майстер/майстром → («майст», 3). Ловит майстер/майстру/
+    майстром, НЕ ловит майстерня (+4) и майстерності (+7) — замер 13.08 на
+    репликах ниши, схема «стем из каждой пары» давала там 6 ложных из 7.
+
+    Почему общий префикс, а не отсечение хвоста у одного слова: беглая гласная.
+    майстер → майстра/майстру — обрезание на 1–2 символа даёт «майсте», который
+    не совпадает НИ С ОДНОЙ косвенной формой.
+
+    None означает «стема из конфига нет, поведение прежнее»: пустой owner_ref
+    (demo/demo2), либо роль есть только в одном поле (owner_id = личное имя),
+    либо общий префикс короче _MIN_ROLE_STEM. Фолбэка с отсечением хвоста тут
+    намеренно НЕТ — он дал бы «майсте» и ложное ощущение работы.
+    """
+    a_words, b_words = _words(owner_id), _words(owner_ref)
+    if not a_words or not b_words:
+        return None
+    a, b = a_words[-1], b_words[-1]
+    stem = _common_prefix(a, b)
+    if len(stem) < _MIN_ROLE_STEM:
+        return None
+    return stem, max(len(a) - len(stem), len(b) - len(stem))
 
 
 # Заглушки, которые получает ЛИД вместо подавленного ответа. Локализованы по
@@ -104,9 +192,15 @@ _FALLBACK_SELF = {
     "en": "Good question — let me check the details and come back to you.",
     "uk": "Гарне питання — уточню деталі та повернуся до вас.",
 }
+_FALLBACK_SELF_ALT = {
+    "ru": "Уточню этот момент и вернусь к вам с ответом.",
+    "en": "Let me check this and get back to you with an answer.",
+    "uk": "Уточню цей момент і повернуся до вас з відповіддю.",
+}
 
 
-def suppressed_fallback(*, language: str = "ru", owner_ref: str | None = None) -> str:
+def suppressed_fallback(*, language: str = "ru", owner_ref: str | None = None,
+                        variant: int = 0) -> str:
     """Что получает ЛИД вместо подавленного ответа: нейтральное «уточню и
     вернусь» + предложение вывести на владельца. Неизвестный язык → ru (тот же
     фолбэк, что console_text/honest_disclosure — лид всегда получает понятный
@@ -117,17 +211,106 @@ def suppressed_fallback(*, language: str = "ru", owner_ref: str | None = None) -
     владельца мимо H2-гейта. Держится глаголом («свяж»/«зв'яж»/«connect») и
     ролевым корнем дефолта; тест это фиксирует."""
     ref = owner_ref or _FALLBACK_OWNER_REF.get(language, _FALLBACK_OWNER_REF["ru"])
-    template = _FALLBACK_WITH_OWNER.get(language, _FALLBACK_WITH_OWNER["ru"])
-    return template.format(ref=ref)
+    table = _FALLBACK_WITH_OWNER_ALT if variant else _FALLBACK_WITH_OWNER
+    return table.get(language, table["ru"]).format(ref=ref)
 
 
-def self_action_fallback(*, language: str = "ru") -> str:
+# P20 (б): вопрос УЖЕ передан владельцу (owner_write delivered — а его закрывает
+# КОД по факту доставленной карточки, не модель). Повторять «уточню деталі та
+# повернуся» здесь — прямая ложь: мы ничего не уточняем, мы ждём человека.
+# Инцидент 2026-07-29: лид спросил «вы уточнили детали?)» и получил в ответ
+# «уточню деталі та повернуся» — третью байт-идентичную копию подряд.
+# ⚠️ ПАДЕЖ: `owner_ref` в конфигах задан в ТВОРИТЕЛЬНОМ падеже, потому что
+# исходный шаблон был «зв'яжу вас з {ref}» (у volska — «керівницею»). Поэтому и
+# здесь ref обязан стоять ПОСЛЕ «з/с/with»: «передала питання керівницею» —
+# именно это вылезло на офлайн-смоуке. Один ref не может обслужить два падежа.
+_FALLBACK_AWAITING_OWNER = {
+    "ru": ("Я уже передала ваш вопрос — он сейчас на согласовании с {ref}. "
+           "Как только будет ответ, сразу напишу вам."),
+    "en": ("I've already passed your question on — it's with {ref} now. "
+           "I'll write back as soon as there's an answer."),
+    "uk": ("Я вже передала ваше питання — воно зараз на погодженні з {ref}. "
+           "Щойно буде відповідь, одразу напишу вам."),
+}
+# Дефолты — тоже в творительном (см. падежный каветат выше).
+_FALLBACK_AWAITING_OWNER_REF = {
+    "ru": "владельцем", "en": "the owner", "uk": "керівницею",
+}
+
+
+# Вторые формулировки того же смысла — сырьё для анти-самоповтора (P20 в).
+# Вариант обязан нести ТОТ ЖЕ факт: «уточню» нельзя подменять на «передала»,
+# пока карточка не доставлена, иначе анти-повтор начнёт врать ради разнообразия.
+_FALLBACK_WITH_OWNER_ALT = {
+    "ru": "Уточню этот момент и вернусь к вам с ответом. Если удобно, могу связать вас с {ref}.",
+    "en": ("Let me check this and get back to you with an answer. If you'd like, "
+           "I can connect you with {ref}."),
+    "uk": ("Уточню цей момент і повернуся до вас з відповіддю. Якщо зручно, можу "
+           "зв'язати вас з {ref}."),
+}
+_FALLBACK_AWAITING_OWNER_ALT = {
+    "ru": "Ваш вопрос уже согласовывается с {ref} — жду ответа и сразу передам вам.",
+    "en": ("Your question is already being reviewed with {ref} — I'm waiting for "
+           "a reply and will pass it on."),
+    "uk": "Ваше питання вже погоджується з {ref} — чекаю на відповідь і одразу передам вам.",
+}
+
+
+def awaiting_owner_fallback(*, language: str = "ru", owner_ref: str | None = None,
+                            variant: int = 0) -> str:
+    """Что получает лид, когда ответ подавлен, а вопрос УЖЕ у владельца.
+
+    Отличается от `suppressed_fallback` смыслом, а не только словами: там
+    «уточню и вернусь» (обещание действия), здесь «передала, ждём» (состояние).
+    `variant=1` — вторая формулировка ТОГО ЖЕ факта для анти-самоповтора.
+    Неизвестный язык → ru (как и остальные фолбэки — лид получает текст, не
+    KeyError)."""
+    ref = owner_ref or _FALLBACK_AWAITING_OWNER_REF.get(
+        language, _FALLBACK_AWAITING_OWNER_REF["ru"])
+    table = _FALLBACK_AWAITING_OWNER_ALT if variant else _FALLBACK_AWAITING_OWNER
+    return table.get(language, table["ru"]).format(ref=ref)
+
+
+def _norm_reply(text: str | None) -> str:
+    """Нормализация для сравнения «то же самое сообщение».
+
+    Гасит регистр, разбивку пробелами И косметику `humanizer.humanize_typography`
+    (em-dash → дефис, срез «!»). Последнее обязательно: сравнивается СЫРОЙ
+    кандидат с УЖЕ отправленным (humanizer — последний шов перед отправкой), и
+    без этого заглушка «не совпадала сама с собой» из-за одного тире, а
+    анти-самоповтор молча пропускал дубль. Сторож на расхождение с реальным
+    humanizer'ом — test_norm_reply_absorbs_humanizer_typography."""
+    t = (text or "").replace("—", "-").replace("!", ".")
+    return " ".join(t.split()).casefold()
+
+
+def pick_non_repeating(candidate: str, *, previous: str | None,
+                       variants: "tuple[str, ...] | list[str]" = ()) -> str | None:
+    """P20 (в): лид не имеет права получить ту же реплику дважды подряд.
+
+    Дедуп карточек владельцу существует с 07-18 (`_ESCALATION_DEDUP_SECONDS`),
+    у текста ЛИДУ его не было — и подавление печатало константу сколько угодно
+    раз. Возвращает `candidate`, если он отличается от предыдущего исходящего;
+    иначе первый непохожий вариант; иначе None — «честная пауза» (промолчать
+    ход лучше, чем прислать третью копию; владелец уже уведомлён карточкой)."""
+    prev = _norm_reply(previous)
+    if not prev or _norm_reply(candidate) != prev:
+        return candidate
+    for v in variants:
+        if _norm_reply(v) != prev:
+            return v
+    return None
+
+
+def self_action_fallback(*, language: str = "ru", variant: int = 0) -> str:
     """Заглушка БЕЗ обещания контакта владельца — говорим только то, что персона
-    сделает сама. Ставится, когда карточка владельцу не доставлена (H2)."""
-    return _FALLBACK_SELF.get(language, _FALLBACK_SELF["ru"])
+    сделает сама. Ставится, когда карточка владельцу не доставлена (H2).
+    `variant=1` — вторая формулировка того же для анти-самоповтора (P20 в)."""
+    table = _FALLBACK_SELF_ALT if variant else _FALLBACK_SELF
+    return table.get(language, table["ru"])
 
 
-def honest_self_action_fallback(*, language: str = "ru") -> str:
+def honest_self_action_fallback(*, language: str = "ru", variant: int = 0) -> str:
     """То же самое, но с честным фактом впереди — версия для honest-режима.
 
     Условия «а лид точно спрашивал про личность?» здесь НЕТ намеренно. Замер
@@ -138,7 +321,8 @@ def honest_self_action_fallback(*, language: str = "ru") -> str:
     честный факт. Цена — лид, спросивший про цену и попавший на недоставленную
     карточку, увидит лишнюю строку про ассистента; это дёшево по сравнению с
     ответом, из которого следует, что он говорит с человеком."""
-    return f"{honest_prefix(language)} {self_action_fallback(language=language)}"
+    return (f"{honest_prefix(language)} "
+            f"{self_action_fallback(language=language, variant=variant)}")
 
 
 def mentions_owner_contact(reply: str, owner_id: str = "", owner_ref: str | None = None) -> bool:
@@ -146,21 +330,61 @@ def mentions_owner_contact(reply: str, owner_id: str = "", owner_ref: str | None
     контакта («свяжется/перезвонит/подключу»), ролевое слово («владелец» в любом
     падеже) ИЛИ имя владельца (в т.ч. склонённое: «Дмитрием»/«Дмитрия»).
 
-    Философия сети H1: лучше поймать лишнее (безобидная лишняя карточка), чем
-    пропустить обещание контакта. Имя матчим по стему (owner_id без последней
-    буквы) ТОЛЬКО для длинных имён (≥6 симв.), чтобы короткие имена не давали
-    ложных подстрок («Аня» → «заняться»)."""
+    Роль берётся из ДВУХ источников: стем из конфига клиента
+    (`_owner_role_spec`, пара owner_id×owner_ref — закрывает КЛАСС «каждый новый
+    клиент приносит своё слово роли»: майстер, лікар, тренер) и запасной
+    хардкод `_OWNER_ROLE_STEMS`. Оба матчатся по слову с бюджетом хвоста.
+
+    ⚠️ ЦЕНА ЛОЖНОГО СРАБАТЫВАНИЯ РАЗНАЯ НА ДВУХ ШВАХ. Здесь стояло «лучше
+    поймать лишнее — лишняя карточка безобидна»; это правда только про первый
+    шов, и по второму читатель принимал бы решение по неверной цене:
+    - `deterministic_escalation` ниже в этом файле, тег `owner_handoff`:
+      suppress=False, ответ уезжает лиду КАК ЕСТЬ, владелец получает лишнюю
+      карточку. Цена — шум у владельца, действительно дёшево.
+    - гейт H2 в `chatter/run.py` (ветка `not protected and not delivered and
+      implies_owner`): `reply` ЗАМЕНЯЕТСЯ заглушкой само-действия. Ложное
+      срабатывание тут СЪЕДАЕТ готовый ответ — «наша майстерня працює з 9:00
+      до 18:00» уйдёт лиду как «уточню і повернуся до вас». Съедает не на
+      каждом ходу, а когда карточка не доставлена (нет notifier, сбой notify,
+      тихая правка карточки внутри окна дедупа) — но ровно ради этого пути
+      гейт и написан. На доставленном пути расплата меньше и не нулевая:
+      `_drop_trailing_question` срезает у ответа хвостовой вопрос.
+
+    Отсюда: расширять предикат «на всякий случай» НЕЛЬЗЯ. Замер 13.08 на роли
+    «старший майстер»: вывод стема из каждой пары форм дал бы 6 ложных на 7
+    безобидных репликах ниши («старших автомобілів», «майстерня», «майстерності»)
+    — это 6 ответов под подмену, а не 6 лишних карточек. Тот же вывод уже сделан
+    независимо в `core/guardrails.py`: формула редакции намеренно не упоминает
+    владельца, иначе H2 затирает аккуратную редакцию обратно в заглушку.
+
+    Имя матчим по стему (owner_id без последней буквы) ТОЛЬКО для длинных имён
+    (≥6 симв.), чтобы короткие имена не давали ложных подстрок («Аня» →
+    «заняться»)."""
     low = (reply or "").casefold()
     if any(v in low for v in _OWNER_CONTACT_VERBS):
         return True
-    if any(s in low for s in _OWNER_ROLE_STEMS):
+    words = _words(reply)
+    if any(_role_hit(words, stem, budget) for stem, budget in _OWNER_ROLE_STEMS):
+        return True
+    spec = _owner_role_spec(owner_id or "", owner_ref or "")
+    if spec is not None and _role_hit(words, *spec):
         return True
     oid = (owner_id or "").casefold()
-    if oid and (oid in low or (len(oid) >= 6 and oid[:-1] in low)):
-        return True
     ref = (owner_ref or "").casefold()
-    if ref and (ref in low or (len(ref) >= 6 and ref[:-2] in low)):
+    if (oid and oid in low) or (ref and ref in low):
         return True
+    # Грубый стем ИМЕНИ (обрезание хвоста, матч подстрокой) — только когда пары
+    # форм НЕТ. Если пара есть, стем уже выведен из неё выше, с бюджетом; грубая
+    # ветка тогда не добавляет покрытия, а только ложные срабатывания. Замер
+    # volska 13.08: owner_id == "Керівниця" → oid[:-1] == "керівниц" → «керівницТВО
+    # студії ухвалило нові ціни» считалось обещанием контакта владельца (и на шве
+    # H2 съедало бы ответ). Ограничение ≥6 символов оставлено как было: короткие
+    # имена дают ложные подстроки («Аня» → «заняться»).
+    if spec is None:
+        if oid and len(oid) >= 6 and oid[:-1] in low:
+            return True
+        if ref and len(ref) >= 6 and ref[:-2] in low:
+            return True
     return False
 
 
@@ -253,7 +477,8 @@ def deterministic_escalation(
     return None
 
 
-def advance_funnel(store, contact_id: str, *, stage_signal: str | None, escalated: bool) -> str:
+def advance_funnel(store, contact_id: str, *, stage_signal: str | None, escalated: bool,
+                   now: float | None = None, bought: bool = False) -> str:
     """Оживляет мёртвый `conversation.next_state` (§5): stage_signal
     классификатора гонит воронку new→qualifying→hot→escalated. Эскалация —
     внешний оверрайд (сильнее переходов воронки): уводит в 'escalated' сразу,
@@ -265,14 +490,45 @@ def advance_funnel(store, contact_id: str, *, stage_signal: str | None, escalate
     current = store.get_or_create_contact(contact_id)["state"]
     if current in _TERMINAL_STATES:
         return current
-    if escalated:
+    if bought:
+        # Оплата — ФАКТ от владельца, а не догадка классификатора, поэтому она
+        # закрывает воронку из ЛЮБОГО состояния. Таблица переходов такого ребра
+        # не знает («new → closed» её нет), и это правильно для сигналов модели,
+        # но неверно для решения человека — как и эскалация, это оверрайд.
+        new = "closed"
+    elif escalated:
         new = "escalated"
     elif stage_signal:
         new = next_state(current, stage_signal)
     else:
         new = current
+    # Лог — ДО записи и БЕЗ условия `new != current`: холостой ход в БД не
+    # попадает по дизайну, поэтому лог остаётся единственным следом сигнала,
+    # который воронка проглотила (дыра `new + interested`, закрыта 2026-08-09).
+    try:
+        log_funnel_signal(contact_id=contact_id,
+                          signal="bought" if bought else stage_signal,
+                          from_state=current, to_state=new, escalated=escalated)
+    except Exception:              # DEV-18: наблюдаемость не роняет ход лиду
+        logger.exception("не удалось залогировать сигнал воронки для %s", contact_id)
+
     if new != current:
         store.set_state(contact_id, new)
+        # Фундамент дашборда (CLIENT_SCREENS §5.2): `set_state` ПЕРЕЗАПИСЫВАЕТ
+        # поле, не оставляя ни ts, ни прошлого значения. Пишем переход здесь —
+        # только здесь известны оба конца и сигнал. Холостой ход не пишем: он
+        # раздул бы метрику «квалифицировано» на пустом месте.
+        # Отсутствие метода (старый Store в чужом тесте) не имеет права ронять
+        # живой ход — воронка это аналитика, а не доставка ответа лиду.
+        rec = getattr(store, "record_transition", None)
+        if rec is not None:
+            try:
+                rec(contact_id, from_state=current, to_state=new,
+                    signal=("bought" if bought else
+                            "escalated" if escalated else stage_signal),
+                    ts=time.time() if now is None else now)
+            except Exception:              # DEV-18: пишем громко, но не падаем
+                logger.exception("не удалось записать переход воронки для %s", contact_id)
     return new
 
 

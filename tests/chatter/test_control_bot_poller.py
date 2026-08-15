@@ -74,6 +74,48 @@ def test_owner_callback_routes_edits_answers_and_advances_offset():
     assert poller._offset == 11
 
 
+def test_poller_passes_the_card_message_id_into_the_payment_key():
+    """ШОВ: личность оплаты приезжает из `callback_query.message.message_id`.
+
+    Раньше `route_callback` брал ключ из runtime-флага `esc_active`, который
+    сам же и затирал, — повторный тап плодил вторую оплату. Ключ обязан
+    приходить из события; этот тест держит проводку поллера, а не только
+    чистую функцию."""
+    store = Store(":memory:")
+    store.get_or_create_contact("42:demo")
+    api = FakeApi([[_callback_update(10, data="paidamt:900:42:demo",
+                                     from_id=237616472, message_id=777)]])
+
+    asyncio.run(_poller(api, store=store).poll_once())
+
+    rows = store.payments_between(0.0, 1e12)
+    assert len(rows) == 1
+    assert rows[0]["dedup_key"] == "tap:777", (
+        f"ключ оплаты не из message_id: {rows[0]}")
+
+
+def test_repeated_delivery_of_the_same_tap_does_not_double_the_payment():
+    """Telegram переспрашивает неподтверждённые апдейты. Повторная доставка
+    ОДНОГО тапа обязана дать одну оплату, а не две."""
+    store = Store(":memory:")
+    store.get_or_create_contact("42:demo")
+    store.set_runtime_flag("esc_active:42:demo", "bot:1:777", ts=1.0)
+    tap = dict(data="paidamt:900:42:demo", from_id=237616472, message_id=777)
+    api = FakeApi([[_callback_update(10, **tap)], [_callback_update(11, **tap)]])
+    poller = _poller(api, store=store)
+
+    asyncio.run(poller.poll_once())
+    asyncio.run(poller.poll_once())
+
+    rows = store.payments_between(0.0, 1e12)
+    assert len(rows) == 1, f"повторная доставка удвоила оплату: {rows}"
+    assert sum(r["amount_minor"] or 0 for r in rows) == 90000
+    # Схлопнулось по ИДЕНТИЧНОСТИ КАРТОЧКИ, а не случайно по сентинелу: без
+    # этой строки тест переживает снятие проводки message_id (проверено
+    # мутацией) и перестаёт что-либо доказывать.
+    assert rows[0]["dedup_key"] == "tap:777"
+
+
 def test_non_owner_callback_is_rejected_without_mutation():
     store = Store(":memory:")
     store.get_or_create_contact("42:demo")
@@ -450,3 +492,111 @@ def test_honesty_button_tap_only_warns_and_never_switches():
     sent = api.payload_for("sendMessage")
     assert "confirm" in sent["text"].casefold()
     assert "editMessageText" not in api.methods()   # карточку не трогаем
+
+
+# --- /allow: цель можно взять из пересланного сообщения (реплай) -----------
+
+
+def _allow_update(uid, *, text, chat_id=OWNER, reply_to=None):
+    m = {"message_id": uid, "text": text, "chat": {"id": chat_id}}
+    if reply_to is not None:
+        m["reply_to_message"] = reply_to
+    return {"update_id": uid, "message": m}
+
+
+def test_allow_explicit_target_passes_through_unchanged():
+    store = Store(":memory:")
+    called = {}
+
+    async def config_handler(name, arg, *, language):
+        called["args"] = (name, arg)
+        return "ok"
+
+    api = FakeApi([[_allow_update(1, text="/allow 555 confirm")]])
+    poller = ControlBotPoller(
+        "T", store=store, language="ru", snooze_seconds=3600, owner_chat_id=OWNER,
+        http_get=api.get, http_post=api.post, clock=lambda: 0.0,
+        config_handler=config_handler)
+    asyncio.run(poller.poll_once())
+
+    assert called["args"] == ("allow", "555 confirm")
+
+
+def test_allow_reply_to_forwarded_message_resolves_target():
+    """Владелец пересылает сообщение лида в контрол-бот, затем отвечает на
+    него голым /allow -- цель должна взяться из forward_from.id пересланного
+    сообщения, а не остаться пустой."""
+    store = Store(":memory:")
+    called = {}
+
+    async def config_handler(name, arg, *, language):
+        called["args"] = (name, arg)
+        return "ok"
+
+    reply_to = {"message_id": 9, "forward_from": {"id": 777888}}
+    api = FakeApi([[_allow_update(2, text="/allow", reply_to=reply_to)]])
+    poller = ControlBotPoller(
+        "T", store=store, language="ru", snooze_seconds=3600, owner_chat_id=OWNER,
+        http_get=api.get, http_post=api.post, clock=lambda: 0.0,
+        config_handler=config_handler)
+    asyncio.run(poller.poll_once())
+
+    assert called["args"] == ("allow", "777888")
+
+
+def test_allow_remove_confirm_reply_to_forward_resolves_target_in_order():
+    store = Store(":memory:")
+    called = {}
+
+    async def config_handler(name, arg, *, language):
+        called["args"] = (name, arg)
+        return "ok"
+
+    reply_to = {"message_id": 9, "forward_from": {"id": 777888}}
+    api = FakeApi([[_allow_update(3, text="/allow remove confirm", reply_to=reply_to)]])
+    poller = ControlBotPoller(
+        "T", store=store, language="ru", snooze_seconds=3600, owner_chat_id=OWNER,
+        http_get=api.get, http_post=api.post, clock=lambda: 0.0,
+        config_handler=config_handler)
+    asyncio.run(poller.poll_once())
+
+    assert called["args"] == ("allow", "remove 777888 confirm")
+
+
+def test_allow_reply_to_non_forward_message_leaves_target_unresolved():
+    store = Store(":memory:")
+    called = {}
+
+    async def config_handler(name, arg, *, language):
+        called["args"] = (name, arg)
+        return "ok"
+
+    reply_to = {"message_id": 9, "text": "обычный ответ, не форвард"}
+    api = FakeApi([[_allow_update(4, text="/allow", reply_to=reply_to)]])
+    poller = ControlBotPoller(
+        "T", store=store, language="ru", snooze_seconds=3600, owner_chat_id=OWNER,
+        http_get=api.get, http_post=api.post, clock=lambda: 0.0,
+        config_handler=config_handler)
+    asyncio.run(poller.poll_once())
+
+    assert called["args"] == ("allow", "")   # цель не подставилась -- нечего резолвить
+
+
+def test_reload_command_ignores_reply_to_message():
+    """Инъекция цели -- только для /allow; другие config-команды реплай не трогают."""
+    store = Store(":memory:")
+    called = {}
+
+    async def config_handler(name, arg, *, language):
+        called["args"] = (name, arg)
+        return "ok"
+
+    reply_to = {"message_id": 9, "forward_from": {"id": 777888}}
+    api = FakeApi([[_allow_update(5, text="/reload", reply_to=reply_to)]])
+    poller = ControlBotPoller(
+        "T", store=store, language="ru", snooze_seconds=3600, owner_chat_id=OWNER,
+        http_get=api.get, http_post=api.post, clock=lambda: 0.0,
+        config_handler=config_handler)
+    asyncio.run(poller.poll_once())
+
+    assert called["args"] == ("reload", "")

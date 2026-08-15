@@ -19,9 +19,17 @@ import asyncio
 import logging
 from dataclasses import dataclass
 
-from chatter.core.console import cfg_text, console_text, contact_link, parse_config_command
+from chatter.core.console import (
+    cfg_text, console_text, contact_link, parse_allow_command, parse_config_command,
+)
 from chatter.core.escalation import esc_active_key
+from chatter.core.obligations_slot import invoice_slug, merge_obligations
 from chatter.notify.base import Action, Card, CardHandle, Notifier
+from chatter.payments.callbacks import InvoiceAction, PaidAction, parse_callback
+from chatter.payments.model import PaymentRecord, make_dedup_key
+from chatter.payments.prompt import pick_open_invoice
+from chatter.payments.statuses import is_settled
+from chatter.payments.money import format_major
 
 log = logging.getLogger("chatter.notify.control_bot")
 
@@ -44,8 +52,80 @@ def _peer_of(contact_id: str) -> str:
     return contact_id.split(":", 1)[0]
 
 
+def _close_funnel_as_bought(store, contact_id: str, *, now: float) -> None:
+    """Оплата закрывает воронку сигналом «bought» — через тот же advance_funnel,
+    что и остальной конвейер, чтобы переход попал в funnel_transitions и был
+    виден в «Динамике»."""
+    from chatter.core.escalation import advance_funnel
+    advance_funnel(store, contact_id, stage_signal=None, escalated=False,
+                   bought=True, now=now)
+
+
+
+def _route_payment(money, *, store, now: float, language: str,
+                   card_msg_id: int | None, event_token: str | None) -> CallbackResult:
+    """Денежная ветка. CLIENT_SCREENS §3: единственный источник денежных метрик.
+    Самоотчёт владельца, не факт из банка — так и подписывается в дашборде.
+
+    Личность записи приходит ИЗ САМОГО СОБЫТИЯ: id карточки для TG-тапа,
+    собственный токен для веб-панели. Сентинел `0` снят — он был стабилен ровно
+    до второго бескарточного источника, и панель уже схлопывала свои оплаты
+    одного контакта в одну строку. Вызыватель без личности получает ОТКАЗ:
+    оплата, неотличимая от следующей, — это будущая потеря выручки, а не
+    удобство (DEV-18)."""
+    contact_id = money.contact_id
+    if card_msg_id is not None:
+        dedup_key = make_dedup_key("tap", card_msg_id)
+    elif (event_token or "").strip():
+        dedup_key = make_dedup_key("panel", event_token)
+    else:
+        log.warning("route_callback: оплата без личности события (%s)", contact_id)
+        return CallbackResult(
+            feedback_html=console_text("fb_paid_no_identity", language),
+            answer=console_text("fb_paid_no_identity", language))
+
+    store.get_or_create_contact(contact_id)
+    # Оплата привязывается к ОТКРЫТОМУ счёту, если он есть, и уходит через
+    # apply_payment — единственную дверь, которая пересчитывает статус (§14 п.4).
+    # Без этого блок счёта в промпте продолжал бы твердить «оплати ще немає»
+    # после того, как владелица оплату подтвердила.
+    #
+    # Счёта нет — путь прежний: ручное подтверждение УЖЕ в проде и остаётся
+    # рабочим. Счёт — новая возможность, а не новое условие.
+    invoice = pick_open_invoice(store.invoices_for(contact_id=contact_id))
+    invoice_id = None if invoice is None else invoice["invoice_id"]
+    store.apply_payment(PaymentRecord(
+        contact_id=contact_id, dedup_key=dedup_key, ts=now,
+        confirmed_by="owner", amount=money.amount,
+        invoice_id=invoice_id, stage_no=None if invoice_id is None else 1,
+    ), now=now)
+    # Долг оплаты на КЛИЕНТЕ закрывается ДЕНЬГАМИ, и закрывает его код — он же
+    # эту строку и завёл (`dialogue._record_obligation`). Модели путь к ней
+    # закрыт (`filter_model_updates`), так что незакрытый здесь долг не закроет
+    # уже никто: блок обязательств продолжал бы дожимать пришедшую оплату.
+    # Условие — `is_settled`, а не сам факт тапа: недоплата долг не снимает.
+    if invoice_id is not None:
+        settled = store.get_invoice(invoice_id)
+        if settled is not None and is_settled(settled["status"]):
+            store.save_obligations(contact_id, merge_obligations(
+                store.get_obligations(contact_id),
+                [{"kind": "other", "owed_by": "client", "status": "delivered",
+                  "slug": invoice_slug(invoice_id),
+                  "detail": f"оплата рахунку {invoice_id}"}],
+                now=now, current_msg_id=card_msg_id))
+    store.add_event("payment", contact_id=contact_id,
+                    detail="" if money.amount is None else f"{format_major(money.amount)} USD",
+                    ts=now)
+    _close_funnel_as_bought(store, contact_id, now=now)
+    fb = (console_text("fb_paid", language) if money.amount is None
+          else console_text("fb_paid_amount", language,
+                            amount=format_major(money.amount), currency="USD"))
+    return CallbackResult(feedback_html=fb, answer=fb)
+
+
 def route_callback(data: str, *, store, now: float, language: str, snooze_seconds: float,
-                   persona_name_for=None) -> CallbackResult:
+                   persona_name_for=None, card_msg_id: int | None = None,
+                   event_token: str | None = None) -> CallbackResult:
     """Тап кнопки → действие над Store + текст обратной связи. ЧИСТАЯ: трогает
     только store. callback_data = "<action>:<contact_id>", где contact_id сам
     содержит двоеточие ("<peer>:<slug>"), поэтому режем ПО ПЕРВОМУ двоеточию.
@@ -55,7 +135,34 @@ def route_callback(data: str, *, store, now: float, language: str, snooze_second
     «✅ Залишено Ані», и владелец решил, что действие ушло чужому клиенту
     (дрил 2026-07-22). Без резолвера — нейтральное «бот», не чужое имя.
 
+    card_msg_id: id сообщения-карточки, ПРИШЕДШИЙ С ТАПОМ
+    (`callback_query.message.message_id`) — личность оплаты. Раньше ключ брался
+    из runtime-флага `esc_active`, но его затирает эта же функция (Fix 2,
+    закрытие карточки), то есть ключ уничтожался тем же вызовом, который его
+    читал: второй тап падал на сентинел и плодил вторую оплату. Ключ обязан
+    приходить из САМОГО события, а не из изменяемого состояния, которым владеет
+    другая механика.
+
+    event_token: личность события для вызывателей БЕЗ карточки (веб-панель).
+    Прежде такие вызыватели получали сентинел `0`, и все панельные оплаты
+    одного контакта схлопывались в одну строку. Теперь панель присылает свой
+    токен, а вызыватель без всякой личности получает ОТКАЗ.
+
     Битый/неизвестный тап → без мутаций (DEV-18: не притворяемся, что сделали)."""
+    # Денежные кнопки разбирает КОДЕК (chatter/payments/callbacks.py): у него
+    # реестр версий формата, потому что кнопка, улетевшая в Telegram, тапабельна
+    # через месяцы и legacy-форму придётся понимать всегда.
+    money = parse_callback(data)
+    if isinstance(money, PaidAction):
+        return _route_payment(money, store=store, now=now, language=language,
+                              card_msg_id=card_msg_id, event_token=event_token)
+    if isinstance(money, InvoiceAction):
+        # Ф0 карточек счёта ещё не шлёт; кнопка не должна выглядеть сработавшей.
+        log.warning("route_callback: действие по счёту %r вне Ф0", money.kind)
+        return CallbackResult(
+            feedback_html=console_text("fb_unknown", language),
+            answer=console_text("fb_unknown", language))
+
     action_raw, sep, contact_id = (data or "").partition(":")
     if not sep or not contact_id:
         return CallbackResult(
@@ -99,6 +206,24 @@ def route_callback(data: str, *, store, now: float, language: str, snooze_second
         store.set_runtime_flag(esc_active_key(contact_id), "", ts=now)
     return CallbackResult(
         feedback_html=fb, answer=fb, keep_buttons=action is Action.OPEN)
+
+
+def _resolve_allow_arg(arg: str, m: dict) -> str:
+    """/allow как реплай на пересланное сообщение (Bot API кладёт весь
+    объект реплая ПРЯМО в апдейт -- сети/доп. запроса не нужно): если
+    владелец не набрал явную цель (@user/id), а сообщение -- реплай на
+    forward с известным отправителем, подставляем его id. Не-форвард или
+    форвард со скрытым отправителем (только forward_sender_name, без id) --
+    цель остаётся пустой, handle_config_command честно ответит usage/not_found."""
+    probe = parse_allow_command(arg)
+    if probe.action == "list" or probe.target is not None:
+        return arg
+    peer_id = ((m.get("reply_to_message") or {}).get("forward_from") or {}).get("id")
+    if peer_id is None:
+        return arg
+    prefix = "remove " if probe.action == "remove" else ""
+    suffix = " confirm" if probe.confirmed else ""
+    return f"{prefix}{peer_id}{suffix}"
 
 
 def _default_http_post(token: str):
@@ -318,11 +443,12 @@ class ControlBotPoller:
                 "text": cfg_text("cfg_honesty_confirm", self._language)})
             await self._post("answerCallbackQuery", {"callback_query_id": cq.get("id")})
             return
+        msg = cq.get("message", {})
         result = route_callback(
             cq.get("data", ""), store=self._store, now=self._clock(),
             language=self._language, snooze_seconds=self._snooze,
-            persona_name_for=self._persona_name_for)
-        msg = cq.get("message", {})
+            persona_name_for=self._persona_name_for,
+            card_msg_id=msg.get("message_id"))
         edit = {
             "chat_id": msg.get("chat", {}).get("id"),
             "message_id": msg.get("message_id"),
@@ -357,18 +483,24 @@ class ControlBotPoller:
         elif cmd == "/start":
             await self._on_start(chat_id, parts[1] if len(parts) > 1 else None)
         else:
-            await self._maybe_config_command(chat_id, m.get("text") or "")
+            await self._maybe_config_command(chat_id, m)
 
-    async def _maybe_config_command(self, chat_id: int, text: str) -> None:
-        """config-арка: /config /reload /knowledge /rollback — ТОЛЬКО владельцу.
-        Чужой id вообще не видит config-поверхность."""
-        cc = parse_config_command(text)
+    async def _maybe_config_command(self, chat_id: int, m: dict) -> None:
+        """config-арка: /config /reload /knowledge /rollback /allow — ТОЛЬКО
+        владельцу. Чужой id вообще не видит config-поверхность."""
+        cc = parse_config_command(m.get("text") or "")
         if cc is None or self._config_handler is None:
             return
         if chat_id != self._effective_owner():
             log.warning("control-bot: config-команда от НЕ-владельца %s — отказ", chat_id)
             return
         name, arg = cc
+        if name == "allow":
+            # /allow как реплай на пересланное сообщение лида: владелец не
+            # обязан набирать id руками -- берём его из forward_from того
+            # сообщения, на которое отвечает. Только для /allow: остальные
+            # config-команды реплай не используют вовсе.
+            arg = _resolve_allow_arg(arg, m)
         try:
             reply = await self._config_handler(name, arg, language=self._language)
         except Exception:

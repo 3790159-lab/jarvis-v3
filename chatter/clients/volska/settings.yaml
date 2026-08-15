@@ -80,3 +80,180 @@ control:
   profile_stale_threshold: 3
   snooze_seconds: 3600            # кнопка «⏸ Ще 1 год»
 honesty_mode: honest
+
+# ── Оплата (спека 2026-08-10, Ф0) ────────────────────────────────────────────
+# Ольга називає суму САМА (верх вилки прайсу з застереженням) і надсилає
+# реквізити з конфігу. Реквізити живуть в ОКРЕМОМУ файлі requisites.yaml.
+payments:
+  # ЄДИНИЙ тумблер. Значення тут — ФАКТ, не ціль: гардіан деплоїть з робочого
+  # дерева, і ввімкнена у файлі фіча піднялася б на ребуті БЕЗ команди
+  # власника — рівно та сама причина, що у funnel_gate.
+  # Вмикати: /payments on confirm  (вимкнути назад: /payments off)
+  #
+  # Поки requisites.yaml порожній, увімкнення ВПАДЕ на валідаторі старту і
+  # відкотить файл. Так і задумано: оплата не вмикається до реальних реквізитів.
+  enabled: true
+  # Канали. Ф0 вміє тільки mode: manual — підтверджує оплату ЛИШЕ власник.
+  # Upwork / PayPal / Wise з knowledge сюди НЕ виписані: це merchant-канали
+  # (mode: auto), а обіцяти автопідтвердження на нереалізованій інтеграції —
+  # ризик 10.3. Вони приходять у Ф2 разом із перевіркою живості провайдера.
+  channels:
+    - id: iban_usd
+      kind: bank_transfer
+      mode: manual
+      currency: USD
+      requisites_template: iban_usd
+      display: "Переказ на доларовий рахунок (IBAN)"
+    - id: iban_eur
+      kind: bank_transfer
+      mode: manual
+      currency: EUR
+      requisites_template: iban_eur
+      display: "Переказ на євро-рахунок (IBAN)"
+  # Строк оплати з ГОДИНОЮ («до 18:00 у пʼятницю, 14 серпня») — вимога власника.
+  due_hours: 72
+  # Антилуп. Це не «сума завелика», а «бот виставив 50 рахунків за годину».
+  daily_invoice_cap: 20
+  per_contact_invoice_cap: 3
+  # Гейт «покликати керівницю» — за СКЛАДНІСТЮ запиту, не за сумою.
+  escalate_on_complexity: true
+  # Поріг за сумою — backstop на випадок описки в розряді прайсу, і він
+  # ВИМКНЕНИЙ за замовчуванням (рішення власника 2). Вмикати свідомо:
+  #   owner_approval_above: {amount: 1500, currency: USD}
+  pricing:
+    # Бот називає ВЕРХНЮ межу вилки з застереженням — і лише те число, що
+    # опубліковане в knowledge.md. Валідатор старту звіряє межі вилки з
+    # knowledge ЛІТЕРАЛЬНО: ціна, якої клієнт ніде не публікував, не прозвучить.
+    amount_source: price_upper
+    # ── ПУБЛІЧНІ СХОДИНКИ ОБСЯГУ (рішення власника 12.08) ────────────────────
+    # Позиція може мати АБО вилку з сіткою торгу (як усі нижче), АБО публічні
+    # сходинки обсягу. Разом заборонено валідатором: два списки цін на одну
+    # позицію розходяться не одразу, а за місяць, і назовні це виходить ціною.
+    #
+    # Сходинка = ОДНА ціна + опис, що входить. Ні вилки, ні підлоги, ні торгу
+    # всередині: дешевше — це МЕНШИЙ ОБСЯГ, а не тиха знижка за той самий.
+    #
+    # ЖОДНА позиція ще НЕ переведена, і це навмисно: ціна сходинки зобовʼязана
+    # бути літералом у knowledge.md (правило №5), а knowledge пише Ольга.
+    # Вигадати числа тут = опублікувати ціну, якої клієнт ніде не називав.
+    #
+    # ЯК ПЕРЕВЕСТИ позицію (по одній, у міру того як цифри приходять):
+    #   1) додати ціни сходинок у knowledge.md як літерали;
+    #   2) прибрати у позиції price_range і ladder;
+    #   3) додати tiers і tier_texts за зразком нижче;
+    #   4) прибрати scope_texts, що лишилися без сходинок сітки.
+    #
+    #   logo:
+    #     title: "Створення логотипа"
+    #     aliases: ["логотип", "лого", "logo"]
+    #     currency: USD
+    #     tiers:
+    #       - id: logo_basic
+    #         amount: 000            # ЗАГЛУШКА — цифру дає Ольга
+    #         tier_text_key: tier_logo_basic
+    #         aliases: ["базов", "простіш", "мінімальн"]
+    #       - id: logo_standard
+    #         amount: 000            # ЗАГЛУШКА — цифру дає Ольга
+    #         tier_text_key: tier_logo_standard
+    #         aliases: ["повн", "розширен", "максимальн"]
+    positions:
+      # Торг — ДИСКРЕТНА СІТКА готових чисел, не арифметика: у готових чисел
+      # немає жодної хвороби обчислених (їх не ріже guardrail large_number і
+      # вони не чекають політики D v2). Підлога == нижня межа вилки прайсу,
+      # нижче не буває НІКОЛИ.
+      smm_month:
+        title: "SMM-ведення (місяць)"
+        aliases: ["smm", "смм", "соцмереж", "соцсет"]
+        currency: USD
+        price_range: [750, 900]
+        ladder:
+          - {amount: 900, scope_key: smm_full}
+          - {amount: 820, scope_key: smm_mid}
+          - {amount: 750, scope_key: smm_floor}
+      identity:
+        title: "Створення айдентики"
+        aliases: ["айдентик", "брендинг", "брендінг", "фірстиль"]
+        currency: USD
+        price_range: [700, 900]
+        ladder:
+          - {amount: 900, scope_key: identity_full}
+          - {amount: 800, scope_key: identity_mid}
+          - {amount: 700, scope_key: identity_floor}
+      strategy:
+        title: "Маркетингова стратегія"
+        aliases: ["стратег"]
+        currency: USD
+        price_range: [600, 800]
+        ladder:
+          - {amount: 800, scope_key: strategy_full}
+          - {amount: 600, scope_key: strategy_floor}
+      packaging:
+        title: "Упаковка"
+        aliases: ["упаковк", "пакуванн"]
+        currency: USD
+        price_range: [300, 400]
+        ladder:
+          - {amount: 400, scope_key: packaging_full}
+          - {amount: 300, scope_key: packaging_floor}
+      logo:
+        title: "Створення логотипа"
+        aliases: ["логотип", "лого", "logo"]
+        currency: USD
+        price_range: [300, 400]
+        ladder:
+          - {amount: 400, scope_key: logo_full}
+          - {amount: 300, scope_key: logo_floor}
+      logo_refine:
+        title: "Рефайн (редизайн) логотипа"
+        aliases: ["рефайн", "редизайн"]
+        currency: USD
+        price_range: [200, 200]
+        ladder:
+          - {amount: 200, scope_key: logo_refine_only}
+      presentation:
+        title: "Створення презентації"
+        aliases: ["презентац", "презенташ"]
+        currency: USD
+        price_range: [100, 200]
+        ladder:
+          - {amount: 200, scope_key: presentation_full}
+          - {amount: 100, scope_key: presentation_floor}
+  # Текст «що змінюється» на кожній сходинці. Поступка без названого обміну —
+  # це «мовчки дешевше» (ризик 10.12), тому ступінь без тексту валідатор не
+  # пропускає взагалі.
+  #
+  # ВСЕ НИЖЧЕ — ЗАГЛУШКИ. `placeholder: true` — позначка ЯВНА: рядок, схожий на
+  # TODO, заглушкою не вважається (вгадування зробило б валідатор
+  # непередбачуваним в обидва боки). Поки позначка стоїть, ці сходинки
+  # обслуговують ТІЛЬКИ дрил-контакти; живому ліду конфіг із заглушками не
+  # проходить перевірку `assert_pricing_usable`.
+  #
+  # Замінити на формулювання Ольги і ЗНЯТИ `placeholder: true` — по одному
+  # рядку, у міру того як тексти приходять.
+  scope_texts:
+    smm_full: {text: "ЗАГЛУШКА: повний обсяг ведення", placeholder: true}
+    smm_mid: {text: "ЗАГЛУШКА: менше публікацій на місяць", placeholder: true}
+    smm_floor: {text: "ЗАГЛУШКА: базовий обсяг ведення", placeholder: true}
+    identity_full: {text: "ЗАГЛУШКА: повна айдентика з брендгайдом", placeholder: true}
+    identity_mid: {text: "ЗАГЛУШКА: без частини носіїв", placeholder: true}
+    identity_floor: {text: "ЗАГЛУШКА: базовий набір айдентики", placeholder: true}
+    strategy_full: {text: "ЗАГЛУШКА: повна стратегія", placeholder: true}
+    strategy_floor: {text: "ЗАГЛУШКА: скорочена стратегія", placeholder: true}
+    packaging_full: {text: "ЗАГЛУШКА: повна упаковка", placeholder: true}
+    packaging_floor: {text: "ЗАГЛУШКА: базова упаковка", placeholder: true}
+    logo_full: {text: "ЗАГЛУШКА: логотип з варіаціями", placeholder: true}
+    logo_floor: {text: "ЗАГЛУШКА: логотип в одному варіанті", placeholder: true}
+    logo_refine_only: {text: "ЗАГЛУШКА: рефайн наявного логотипа", placeholder: true}
+    presentation_full: {text: "ЗАГЛУШКА: презентація повного обсягу", placeholder: true}
+    presentation_floor: {text: "ЗАГЛУШКА: скорочена презентація", placeholder: true}
+
+  # Книга ПУБЛІЧНИХ описів обсягу — «що ВХОДИТЬ» у сходинку. ОКРЕМА від
+  # scope_texts навмисно: ті описують «що ЗМІНЮЄТЬСЯ» при поступці, тобто
+  # дельту знижкової драбини, і вголос вона не звучить ніколи. Ці — звучать.
+  #
+  # Ключі нижче поки НІ ДО ЧОГО не привʼязані: жодна позиція ще не переведена
+  # на сходинки. Заглушки стоять готовими, щоб замінити текст і зняти
+  # `placeholder: true` по одному рядку, коли Ольга дасть формулювання.
+  tier_texts:
+    tier_logo_basic: {text: "ЗАГЛУШКА: що входить у базовий обсяг логотипа", placeholder: true}
+    tier_logo_standard: {text: "ЗАГЛУШКА: що входить у повний обсяг логотипа", placeholder: true}

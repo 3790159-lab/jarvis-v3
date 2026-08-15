@@ -1,4 +1,4 @@
-# Native ops watchdog loop — the independent monitor that pings the backend /
+﻿# Native ops watchdog loop — the independent monitor that pings the backend /
 # DEV-17 ops endpoints and Telegram-alerts Daniil directly when something is
 # DOWN. Registered as the JarvisOpsWatchdog scheduled task (S4U / RunLevel
 # Highest, AtStartup) exactly like JarvisBotGuardian / JarvisBackendGuardian, so

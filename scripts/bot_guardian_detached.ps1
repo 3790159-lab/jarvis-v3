@@ -1,4 +1,4 @@
-# Keeps the Jarvis Telegram bot alive, fully detached from any interactive/SSH
+﻿# Keeps the Jarvis Telegram bot alive, fully detached from any interactive/SSH
 # session. Invoked by the JarvisBotGuardian scheduled task (S4U / RunLevel
 # Highest, like JarvisBackendGuardian / JarvisSniperDetached) so it survives
 # logoff, SSH drops, the starting session, and a reboot (AtStartup trigger) —

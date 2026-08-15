@@ -1,4 +1,4 @@
-# Detached one-shot bot restart+confirm for /infra_restart's [bot] button
+﻿# Detached one-shot bot restart+confirm for /infra_restart's [bot] button
 # (DEV-12). Spawned (never waited on) by the LIVE bot process itself, since
 # this script's job is to kill that very process: Stop-Process on your own
 # python.exe needs no elevation, but the caller cannot outlive its own death,

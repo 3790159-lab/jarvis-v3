@@ -1,4 +1,4 @@
-# scripts/remote/install_cloudflared.ps1
+﻿# scripts/remote/install_cloudflared.ps1
 # Downloads the latest cloudflared Windows AMD64 binary to
 # C:\jarvis\scripts\remote\cloudflared.exe. Does NOT install it as a
 # service — that step requires admin and lives in REMOTE_ACCESS.md

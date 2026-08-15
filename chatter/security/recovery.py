@@ -21,7 +21,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Callable, Mapping
+from typing import Callable, Mapping, Sequence
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -126,6 +126,35 @@ def import_bundle_from_file(path: str | Path,
 #   "entropy.bin"    — optionalEntropy DPAPI (спека §6 п.4: в экспорт).
 _ENTROPY_KEY = "entropy.bin"
 _ENV_KEY = ".env"
+_SESSION_SUFFIX = ".session"
+_ENC_SUFFIX = ".enc"
+
+
+def discover_slugs(root: str | Path) -> list[str]:
+    """Слаги ВСЕХ сессий root'а — `.secrets/<slug>.session[.enc]`.
+
+    Дефолт сбора именно такой, а не «demo»: с появлением второго аккаунта
+    (тестовый лид стенда, второй клиент) односессионный экспорт молча
+    оставлял бы сессию без бэкапа — бандл при этом выглядит здоровым.
+    Молчаливый дефолт = класс бага (P17)."""
+    secrets_dir = Path(root) / ".secrets"
+    if not secrets_dir.is_dir():
+        return []
+    slugs: set[str] = set()
+    for path in secrets_dir.iterdir():
+        name = path.name
+        if name.endswith(_SESSION_SUFFIX + _ENC_SUFFIX):
+            slugs.add(name[:-len(_SESSION_SUFFIX + _ENC_SUFFIX)])
+        elif name.endswith(_SESSION_SUFFIX):
+            slugs.add(name[:-len(_SESSION_SUFFIX)])
+    return sorted(slugs)
+
+
+def _bundle_slugs(bundle: Mapping[str, bytes]) -> list[str]:
+    """Слаги, которые реально лежат в бандле (ключи именные с рождения —
+    формат менять не пришлось)."""
+    return sorted(k[:-len(_SESSION_SUFFIX)] for k in bundle
+                  if k.endswith(_SESSION_SUFFIX))
 
 
 def _resolve_entropy(root: Path, environ: Mapping[str, str]) -> Path:
@@ -144,15 +173,19 @@ def _sqlite_session_to_string(path: str) -> str:
 def collect_secrets(
     root: str | Path,
     *,
-    slug: str = "demo",
+    slugs: Sequence[str] | None = None,
     session_to_string: Callable[[str], str] | None = None,
     environ: Mapping[str, str] = os.environ,
 ) -> dict[str, bytes]:
     """Собирает секреты root'а для экспорта. Правда живёт в `.enc`
     (post-cutover plaintext мог устареть/быть шреднут) — plaintext лишь
-    фолбэк до cutover. Пустой сбор = потерянный бэкап, явная ошибка."""
+    фолбэк до cutover. Пустой сбор = потерянный бэкап, явная ошибка.
+
+    `slugs=None` — собрать ВСЕ сессии root'а (`discover_slugs`); явный
+    список сужает выбор."""
     root = Path(root)
     entropy = _resolve_entropy(root, environ)
+    wanted = list(slugs) if slugs is not None else discover_slugs(root)
     secrets: dict[str, bytes] = {}
 
     env_enc, env_plain = root / ".env.enc", root / ".env"
@@ -163,32 +196,34 @@ def collect_secrets(
         elif env_plain.exists():
             secrets[_ENV_KEY] = env_plain.read_bytes()
 
-        sess_enc = root / ".secrets" / f"{slug}.session.enc"
-        sess_plain = root / ".secrets" / f"{slug}.session"
-        if sess_enc.exists():
-            string = load_string_session(sess_enc, entropy_path=entropy)
-        elif sess_plain.exists():
-            string = (session_to_string or _sqlite_session_to_string)(
-                str(sess_plain))
-            if not string:
-                raise RecoveryError(
-                    f"{sess_plain} без auth_key — это не залогиненная "
-                    "сессия, в бэкап не годится")
-        else:
-            string = None
-        if string is not None:
-            secrets[f"{slug}.session"] = string.encode("utf-8")
+        for slug in wanted:
+            sess_enc = root / ".secrets" / f"{slug}.session.enc"
+            sess_plain = root / ".secrets" / f"{slug}.session"
+            if sess_enc.exists():
+                string = load_string_session(sess_enc, entropy_path=entropy)
+            elif sess_plain.exists():
+                string = (session_to_string or _sqlite_session_to_string)(
+                    str(sess_plain))
+                if not string:
+                    raise RecoveryError(
+                        f"{sess_plain} без auth_key — это не залогиненная "
+                        "сессия, в бэкап не годится")
+            else:
+                string = None
+            if string is not None:
+                secrets[f"{slug}.session"] = string.encode("utf-8")
     except (CryptoError, SecretLoaderError) as exc:
         raise RecoveryError(f"сбор секретов {root}: {exc}") from exc
 
     if entropy.exists():
         secrets[_ENTROPY_KEY] = entropy.read_bytes()
 
-    if _ENV_KEY not in secrets and f"{slug}.session" not in secrets:
+    if _ENV_KEY not in secrets and not _bundle_slugs(secrets):
+        listed = ", ".join(f".secrets/{s}.session[.enc]" for s in wanted) \
+            or ".secrets/<slug>.session[.enc]"
         raise RecoveryError(
             f"в {root} нечего экспортировать (нет ни .env/.env.enc, ни "
-            f".secrets/{slug}.session[.enc]) — пустой бэкап это потерянный "
-            "бэкап")
+            f"{listed}) — пустой бэкап это потерянный бэкап")
     return secrets
 
 
@@ -196,23 +231,30 @@ def restore_secrets(
     bundle: Mapping[str, bytes],
     root: str | Path,
     *,
-    slug: str = "demo",
+    slugs: Sequence[str] | None = None,
     acl: Callable[[Path], None] = restrict_to_system_admins,
     environ: Mapping[str, str] = os.environ,
 ) -> list[str]:
     """Бандл → ЧИСТЫЙ root: entropy из бандла (иначе свежая), machine-scope
     `.enc` локальным DPAPI с round-trip-верификацией. Plaintext-секреты на
     диск не ложатся. Поверх живых секретов — явный отказ, не перезапись.
-    Возвращает отчёт (строки без значений секретов)."""
+    Возвращает отчёт (строки без значений секретов).
+
+    `slugs=None` — восстановить ВСЕ сессии бандла. Клин-чек считается по
+    ним же: дефолтный один слаг не увидел бы живую сессию с другим именем
+    и молча затёр бы её."""
     root = Path(root)
     secrets_dir = root / ".secrets"
     entropy = _resolve_entropy(root, environ)
     env_enc = root / ".env.enc"
-    sess_enc = secrets_dir / f"{slug}.session.enc"
+    wanted = list(slugs) if slugs is not None else _bundle_slugs(bundle)
     report: list[str] = []
 
-    occupied = [p for p in (entropy, env_enc, root / ".env", sess_enc,
-                            secrets_dir / f"{slug}.session") if p.exists()]
+    candidates = [entropy, env_enc, root / ".env"]
+    for slug in wanted:
+        candidates.append(secrets_dir / f"{slug}.session.enc")
+        candidates.append(secrets_dir / f"{slug}.session")
+    occupied = [p for p in candidates if p.exists()]
     if occupied:
         raise RecoveryError(
             "root не чист — уже существуют: "
@@ -251,18 +293,23 @@ def restore_secrets(
         else:
             report.append(".env: в бандле нет — пропуск")
 
-        sess_key = f"{slug}.session"
-        if sess_key in bundle:
-            string = bundle[sess_key].decode("utf-8")
-            save_string_session(sess_enc, string, entropy_path=entropy)
-            if load_string_session(sess_enc, entropy_path=entropy) != string:
-                raise RecoveryError(
-                    f"{sess_enc}: верификация не сошлась — .enc не "
-                    "расшифровывается в исходную строку, НЕ использовать")
-            report.append(f"{sess_enc}: создан, верифицирован")
-            acl_targets.append(sess_enc)
-        else:
-            report.append(f"{sess_key}: в бандле нет — пропуск")
+        for slug in wanted:
+            sess_key = f"{slug}.session"
+            sess_enc = secrets_dir / f"{slug}.session.enc"
+            if sess_key in bundle:
+                string = bundle[sess_key].decode("utf-8")
+                save_string_session(sess_enc, string, entropy_path=entropy)
+                if load_string_session(sess_enc,
+                                       entropy_path=entropy) != string:
+                    raise RecoveryError(
+                        f"{sess_enc}: верификация не сошлась — .enc не "
+                        "расшифровывается в исходную строку, НЕ использовать")
+                report.append(f"{sess_enc}: создан, верифицирован")
+                acl_targets.append(sess_enc)
+            else:
+                report.append(f"{sess_key}: в бандле нет — пропуск")
+        if not wanted:
+            report.append("сессий в бандле нет — пропуск")
 
         for target in acl_targets:
             acl(target)
@@ -286,11 +333,15 @@ def main(
     sub = p.add_subparsers(dest="cmd", required=True)
     exp = sub.add_parser("export", help="root → зашифрованный бандл")
     exp.add_argument("--root", default=".", help="корень репо (дефолт: cwd)")
-    exp.add_argument("--slug", default="demo", help="slug клиента")
+    exp.add_argument("--slug", action="append", dest="slugs",
+                     help="slug клиента; можно повторять. По умолчанию — ВСЕ "
+                          "сессии root'а")
     exp.add_argument("--out", required=True, help="файл бандла (.jrvbak)")
     res = sub.add_parser("restore", help="бандл → ЧИСТЫЙ root")
     res.add_argument("--root", required=True, help="чистый корень")
-    res.add_argument("--slug", default="demo", help="slug клиента")
+    res.add_argument("--slug", action="append", dest="slugs",
+                     help="slug клиента; можно повторять. По умолчанию — ВСЕ "
+                          "сессии бандла")
     res.add_argument("--bundle", required=True, help="файл бандла (.jrvbak)")
     args = p.parse_args(argv)
 
@@ -300,17 +351,20 @@ def main(
             if ask_password("Повторите пароль: ") != pw:
                 print("[recovery] FAIL: пароли не совпадают", file=sys.stderr)
                 return 1
-            secrets = collect_secrets(args.root, slug=args.slug,
+            secrets = collect_secrets(args.root, slugs=args.slugs,
                                       session_to_string=session_to_string)
             export_bundle_to_file(args.out, secrets, pw)
+            sessions = _bundle_slugs(secrets)
             print(f"[recovery] экспортировано {len(secrets)} элемент(ов) "
                   f"из {args.root} -> {args.out}")
+            print("[recovery] сессии в бандле: "
+                  + (", ".join(sessions) if sessions else "НЕТ НИ ОДНОЙ"))
             print("[recovery] OK. Бандл хранить ВНЕ машины (рядом с "
                   "recovery-ключами BitLocker) — P1P2_SPEC §12.")
         else:
             pw = ask_password("Пароль бэкапа (владельца): ")
             bundle = import_bundle_from_file(args.bundle, pw)
-            report = restore_secrets(bundle, args.root, slug=args.slug,
+            report = restore_secrets(bundle, args.root, slugs=args.slugs,
                                      acl=acl)
             for line in report:
                 print(f"[recovery] {line}")

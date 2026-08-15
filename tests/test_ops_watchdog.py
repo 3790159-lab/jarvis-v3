@@ -173,3 +173,115 @@ def test_parse_token_reads_telegram_bot_token():
 
 def test_parse_token_missing_returns_empty():
     assert ow.parse_token("NOTHING=here\n") == ""
+
+
+# ── причина алерта: вторая, ДРУГАЯ причина обязана прозвучать ──────────────
+# Дефект найден фактом 2026-08-11: чек worktree был красным 1669 циклов подряд
+# из-за законной правки тумблера, alerted=True — и настоящий недеплоенный код
+# второго алерта уже НЕ дал бы. Сторож, поставленный ровно на это, был выключен
+# собственным законным срабатыванием. Дефект общий для всех девяти проверок.
+
+def test_a_second_different_reason_alerts_again():
+    prev = {"worktree": {"fail": 9, "alerted": True, "alerted_reason": "dirty:a.yaml"}}
+    probes = {"worktree": {"ok": False, "detail": "модифицировано 2 (a.yaml, b.py)",
+                           "reason": "dirty:a.yaml|b.py"}}
+    alerts, state = ow.evaluate(prev, probes, debounce=2)
+    assert len(alerts) == 1, "новая причина утонула в дедупе старой"
+    assert "b.py" in alerts[0]
+    assert state["worktree"]["alerted_reason"] == "dirty:a.yaml|b.py"
+
+
+def test_the_second_alert_says_it_is_a_new_reason_not_a_new_outage():
+    """Иначе владелец видит второе 🚨 и решает, что упало дважды."""
+    prev = {"disk": {"fail": 9, "alerted": True, "alerted_reason": "low_space"}}
+    probes = {"disk": {"ok": False, "detail": "проверка упала: WinError 5",
+                       "reason": "unreadable"}}
+    alerts, _ = ow.evaluate(prev, probes, debounce=2)
+    assert "DOWN" not in alerts[0]
+    assert "причин" in alerts[0].lower()
+
+
+def test_the_same_reason_stays_silent():
+    prev = {"worktree": {"fail": 9, "alerted": True, "alerted_reason": "dirty:a.yaml"}}
+    probes = {"worktree": {"ok": False, "detail": "модифицировано 1 (a.yaml)",
+                           "reason": "dirty:a.yaml"}}
+    alerts, _ = ow.evaluate(prev, probes, debounce=2)
+    assert alerts == []
+
+
+def test_a_changing_detail_with_a_stable_reason_stays_silent():
+    """Ловушка этой правки: сравнивать `detail` нельзя. У диска в нём гигабайты,
+    у heartbeat — секунды, и они меняются КАЖДЫЙ цикл. Сравнение по тексту
+    превратило бы починку дедупа в шторм раз в 30 секунд."""
+    prev = {"disk": {"fail": 9, "alerted": True, "alerted_reason": "low_space"}}
+    alerts, _ = ow.evaluate(
+        prev, {"disk": {"ok": False, "detail": "8.1GB free (min 10.0GB)",
+                        "reason": "low_space"}}, debounce=2)
+    assert alerts == []
+
+
+def test_a_probe_without_a_reason_keeps_the_one_shot_behaviour():
+    """Проба, не объявившая причину, ведёт себя ровно как раньше: один алерт на
+    падение. Молчаливое «раз причины нет, значит она каждый раз новая» дало бы
+    шторм на пробах, которых эта правка не касалась."""
+    prev = {"backend": {"fail": 9, "alerted": True, "alerted_reason": "backend"}}
+    alerts, _ = ow.evaluate(
+        prev, {"backend": {"ok": False, "detail": "HTTP 502"}}, debounce=2)
+    assert alerts == []
+
+
+def test_legacy_state_without_a_reason_does_not_alert_on_upgrade():
+    """Первый цикл после выкатки: в стейте на диске поля ещё нет. Причина
+    ПРИНИМАЕТСЯ молча — иначе выкатка сама разошлёт 🚨 по каждому красному чеку,
+    и владелец получит шторм ровно за то, что мы починили дедуп."""
+    prev = {"worktree": {"fail": 1669, "alerted": True}}
+    probes = {"worktree": {"ok": False, "detail": "модифицировано 1 (settings.yaml)",
+                           "reason": "dirty:settings.yaml"}}
+    alerts, state = ow.evaluate(prev, probes, debounce=2)
+    assert alerts == []
+    assert state["worktree"]["alerted_reason"] == "dirty:settings.yaml"
+
+
+def test_recovery_clears_the_remembered_reason():
+    """Иначе следующее падение по ТОЙ ЖЕ причине промолчит: она осталась
+    «уже объявленной»."""
+    prev = {"worktree": {"fail": 9, "alerted": True, "alerted_reason": "dirty:a.yaml"}}
+    alerts, state = ow.evaluate(
+        prev, {"worktree": {"ok": True, "detail": "транк, чисто"}}, debounce=2)
+    assert len(alerts) == 1 and "✅" in alerts[0]
+    assert state["worktree"] == {"fail": 0, "alerted": False}
+
+
+def test_the_reason_is_remembered_on_the_very_first_down_alert():
+    prev = {"worktree": {"fail": 1, "alerted": False}}
+    probes = {"worktree": {"ok": False, "detail": "модифицировано 1 (a.yaml)",
+                           "reason": "dirty:a.yaml"}}
+    alerts, state = ow.evaluate(prev, probes, debounce=2)
+    assert len(alerts) == 1 and "🚨" in alerts[0] and "DOWN" in alerts[0]
+    assert state["worktree"]["alerted_reason"] == "dirty:a.yaml"
+
+
+def test_suppressed_down_remembers_nothing():
+    """Окно загрузки: считаем, но молчим. Запомнить причину, о которой владельцу
+    не сказали, значит промолчать и потом."""
+    probes = {"backend": {"ok": False, "detail": "refused", "reason": "no_response"}}
+    alerts, state = ow.evaluate({"backend": {"fail": 5, "alerted": False}}, probes,
+                                debounce=2, suppress_down=True)
+    assert alerts == []
+    assert "alerted_reason" not in state["backend"]
+
+
+def test_disk_reason_is_stable_while_free_space_drifts():
+    """Проба обязана давать причину, не зависящую от замера."""
+    a = ow.probe_all(lambda p: 200, _fake_disk(4.0))["disk"]
+    b = ow.probe_all(lambda p: 200, _fake_disk(3.5))["disk"]
+    assert a["detail"] != b["detail"], "предпосылка теста сломана"
+    assert a["reason"] == b["reason"] == "low_space"
+
+
+def test_backend_down_and_backend_erroring_are_different_reasons():
+    """«не отвечает» и «отвечает 500» — разные аварии: первая про процесс,
+    вторая про код внутри живого процесса."""
+    refused = ow.probe_all(lambda p: None, _fake_disk(50))["backend"]
+    broken = ow.probe_all(lambda p: 500, _fake_disk(50))["backend"]
+    assert refused["reason"] != broken["reason"]

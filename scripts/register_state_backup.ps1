@@ -1,4 +1,4 @@
-# Registers (or re-registers) the JarvisStateBackup scheduled task (DEV-16).
+﻿# Registers (or re-registers) the JarvisStateBackup scheduled task (DEV-16).
 # Mirrors register_morning_digest.ps1: S4U + RunLevel Highest so it runs
 # whether the user is logged on or not (session-independent, reboot-resistant
 # — same JarvisOpsWatchdog pattern the task spec calls for). StartWhenAvailable

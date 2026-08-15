@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from chatter.core import escalation
 from chatter.core.escalation import (
     EscalationReason,
     deterministic_escalation,
@@ -222,6 +223,198 @@ def test_mentions_owner_contact_ukrainian_role_stems():
     # НЕ ловит нейтральное украинское:
     assert not mentions_owner_contact("Ціна фіксована.")
     assert not mentions_owner_contact("Дякую, чим ще можу допомогти?")
+
+
+# --- DEV-29: роль владельца ИЗ КОНФИГА клиента (спека 2026-08-13, схема C) ---
+# Стем роли = LCP ПОСЛЕДНИХ токенов owner_id/owner_ref, бюджет хвоста = сколько
+# букв максимум может дописаться после стема. Обе величины выведены из тех же
+# двух падежных форм, магических констант нет.
+#
+# ⚠️ Цена ложного срабатывания здесь НЕ «лишняя карточка»: на шве H2 (run.py)
+# ложное срабатывание при недоставленной карточке ЗАМЕНЯЕТ готовый ответ
+# заглушкой, то есть съедает ход. Поэтому негативный контроль ниже — тело
+# теста, а не иллюстрация (спека §3).
+
+YARINA = {"owner_id": "Старший майстер", "owner_ref": "нашим старшим майстром"}
+VOLSKA = {"owner_id": "Керівниця", "owner_ref": "керівницею"}
+
+
+@pytest.mark.parametrize("reply", [
+    "передам старшому майстру ваше питання",
+    "зв'яжу вас з нашим старшим майстром",
+    "старший майстер напише вам сьогодні",
+    "це вирішує старший майстер особисто",
+])
+def test_owner_role_from_config_catches_declined_forms(reply):
+    """Спека §5.1: роль «старший майстер» ловится в косвенных падежах.
+
+    Дыра, ради которой заведена спека: «передам старшому майстру» не совпадало
+    ни с одним хардкод-стемом, и обещание контакта человека уезжало лиду БЕЗ
+    карточки владельцу.
+    """
+    assert mentions_owner_contact(reply, **YARINA) is True
+
+
+def test_owner_role_from_config_control_reply_is_not_a_handoff():
+    assert mentions_owner_contact("Ціна фіксована.", **YARINA) is False
+
+
+@pytest.mark.parametrize("reply", [
+    "Ціна вища для старших автомобілів.",
+    "На старших моделях лак тонший, тому полірування обережніше.",
+    "Для старших авто рекомендуємо одноетапне полірування.",
+    "Старший з двох варіантів покриття дешевший.",
+    "Наша майстерня працює з 9:00 до 18:00.",
+    "Це вимагає майстерності, але результат того вартий.",
+])
+def test_owner_role_from_config_negative_control(reply):
+    """Спека §5.2: шесть реплик замера 13.08, ДОСЛОВНО.
+
+    Схема A (стем из каждой пары токенов) давала True на всех шести: четыре от
+    `старши`, две от `майст`. Это не шесть лишних карточек, а шесть съеденных
+    ответов на пути H2. Схема C (последние токены + бюджет) обязана давать
+    False на всех.
+    """
+    assert mentions_owner_contact(reply, **YARINA) is False
+
+
+@pytest.mark.parametrize("word,expected", [
+    ("майстер", True),    # +2 — номинатив
+    ("майстру", True),    # +2 — датив
+    ("майстром", True),   # +3 — инструменталь, ровно бюджет
+    ("майстерня", False),   # +4 — за бюджетом
+    ("майстерності", False),  # +7 — за бюджетом
+])
+def test_owner_role_stem_budget_bounds_the_tail(word, expected):
+    """Спека §5.3: бюджет хвоста сам по себе, отдельно от ниши.
+
+    Тест обязан падать, если бюджет выкинут (мутация M2) — даже если кто-то
+    ослабит негативный контроль выше.
+    """
+    assert mentions_owner_contact(f"питання вирішує {word}", **YARINA) is expected
+
+
+def test_owner_role_hardcode_alive_without_config():
+    """Спека §5.4: запасной набор не сломан — вызов БЕЗ конфига работает."""
+    assert mentions_owner_contact("передам керівниці ваше питання") is True
+
+
+def test_owner_role_config_reproduces_volska_hardcode_stem(monkeypatch):
+    """Спека §5.5: механизм ВЫВОДИТ из конфига volska ровно тот стем, что
+    сегодня лежит в хардкоде, — вместе с бюджетом.
+
+    Сверяем ХЕЛПЕР напрямую, а не поведение: у volska `owner_id == "Керівниця"`,
+    то есть ветка матча по ИМЕНИ закрывает роль совпадением и поведенческий
+    assert прошёл бы даже с выключенным конфигом (ровно тот капкан, о котором
+    предупреждает комментарий на escalation.py:86-90).
+
+    ⚠️ Граница: мужская форма «керівник» из женской пары НЕ выводится — её
+    держит только запасной набор. Это осознанно.
+    """
+    assert escalation._owner_role_spec("Керівниця", "керівницею") == ("керівниц", 2)
+    monkeypatch.setattr(escalation, "_OWNER_ROLE_STEMS", ())
+    assert mentions_owner_contact("керівник підтвердить терміни", **VOLSKA) is False
+
+
+def test_owner_role_needs_the_role_word_in_BOTH_fields(monkeypatch):
+    """Граница механизма, названная явно: стем выводится из ПАРЫ форм.
+
+    Если владелец поставит в `owner_id` личное имя («Ольга»), а роль оставит
+    только в `owner_ref`, — LCP последних токенов пуст, стема из конфига НЕТ,
+    и роль держит ТОЛЬКО хардкод. Тест держит это видимым: молчаливый провал
+    здесь выглядел бы как «конфиг работает», пока запасной набор прикрывает.
+    """
+    assert escalation._owner_role_spec("Ольга", "нашою керівницею") is None
+    monkeypatch.setattr(escalation, "_OWNER_ROLE_STEMS", ())
+    assert mentions_owner_contact(
+        "передам керівниці ваше питання",
+        owner_id="Ольга", owner_ref="нашою керівницею") is False
+
+
+def test_owner_role_short_stem_is_rejected():
+    """Спека §5.6: LCP «ан» (2 симв.) не имеет права стать стемом.
+
+    Тот же класс защиты, что `len(oid) >= 6` для имён: «Аня» → «заняться».
+    """
+    assert mentions_owner_contact(
+        "займатися цим будемо завтра", owner_id="Ані", owner_ref="Анею") is False
+
+
+def test_owner_role_known_limit_dative_ovi():
+    """Спека §5.7: ИЗВЕСТНЫЙ ПРЕДЕЛ, зафиксированный намеренно.
+
+    «майстрові» — украинский датив на -ові, хвост +4 при бюджете 3. Не ловится.
+    Тест держит границу видимой: если однажды решим её закрыть (необязательный
+    `owner_role_forms` в settings.yaml), он покраснеет и заставит обновить спеку.
+    """
+    assert mentions_owner_contact("передам майстрові ваше питання", **YARINA) is False
+
+
+def test_owner_role_empty_owner_ref_behaves_as_today():
+    """Спека §5.8: у demo/demo2 owner_ref не заполнен — поведение прежнее."""
+    assert mentions_owner_contact("Дмитрий вам перезвонит", owner_id="Дмитрий") is True
+    assert mentions_owner_contact("свяжу вас с Дмитрием", owner_id="Дмитрий",
+                                  owner_ref=None) is True
+    assert mentions_owner_contact("Цена фиксированная.", owner_id="Дмитрий",
+                                  owner_ref=None) is False
+
+
+# --- DEV-29 §7: бюджет хвоста и у ХАРДКОДНЫХ стемов -------------------------
+# Правка действующего клиента (volska), поэтому отдельным блоком: до правки
+# «керівництво студії ухвалило нові ціни» давало True через подстроку `керівниц`
+# — карточка владельцу и ответ под подмену на пути H2.
+
+def test_hardcoded_role_stems_reject_longer_words():
+    """§7: «керівництво» (+3 при бюджете 2) больше не считается ролью."""
+    assert mentions_owner_contact("керівництво студії ухвалило нові ціни") is False
+    assert mentions_owner_contact(
+        "керівництво студії ухвалило нові ціни", **VOLSKA) is False
+
+
+@pytest.mark.parametrize("reply", [
+    "передам керівниці ваше питання",
+    "це вирішує керівниця особисто",
+    "узгодьте це з керівницею",
+    "керівник підтвердить терміни",
+    "передам владельцу ваш вопрос",
+    "обсудите это с владельцем",
+    "це вирішує власник особисто",
+])
+def test_hardcoded_role_stems_keep_real_forms(reply):
+    """§7: настоящие падежные формы ролей бюджет НЕ трогает.
+
+    Требование владельца: «бюджет 2 их держит, но это должно быть тестом, а не
+    расчётом». Без глагола связки — проверяем именно ролевую ветку.
+    """
+    assert mentions_owner_contact(reply) is True
+
+
+def test_owner_name_crude_stem_only_without_a_form_pair():
+    """§7: грубый стем ИМЕНИ (`owner_id[:-1]` подстрокой) живёт только когда
+    пары форм нет.
+
+    У volska `owner_id == "Керівниця"`, и именно эта ветка (а не хардкод!)
+    держала «керівництво» после того, как хардкод получил бюджет. Когда пара
+    owner_id×owner_ref есть, стем уже выведен из неё с бюджетом — грубая ветка
+    добавляет только ложные срабатывания.
+    """
+    # пара есть → грубая ветка выключена, склонения держит стем из пары
+    assert mentions_owner_contact("передам керівниці ваше питання", **VOLSKA) is True
+    assert mentions_owner_contact("керівництво студії ухвалило нові ціни",
+                                  **VOLSKA) is False
+    # пары нет (demo: owner_ref не заполнен) → грубая ветка на месте, как была
+    assert mentions_owner_contact("вопрос решает Дмитрия помощник",
+                                  owner_id="Дмитрий") is True
+
+
+def test_hardcoded_role_stems_match_whole_words_not_substrings():
+    """§7, побочная выгода: матч по СЛОВУ убирает подстрочные совпадения.
+
+    До правки `owner` матчился внутри «homeowner», `владел` — внутри любого
+    слова с этим куском. Теперь слово обязано НАЧИНАТЬСЯ со стема.
+    """
+    assert mentions_owner_contact("we are a homeowner association") is False
+    assert mentions_owner_contact("the owner will call you back") is True
 
 
 # --- Б2: заглушка подавления локализована по settings.language ---------------

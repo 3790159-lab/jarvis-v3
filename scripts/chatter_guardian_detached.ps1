@@ -73,11 +73,69 @@ function Get-ClientPaths {
     }
 }
 
+# --- DEMO OVERRIDE (yarina, третий клиент) ----------------------------------
+# Демо новой персоны на ТОМ ЖЕ аккаунте. Ставится ПОСЛЕ блока Ольги намеренно:
+# её прод-флаг стоит всегда, и блок, идущий раньше, молча проиграл бы ему.
+#
+# Персона в раннере НЕ роутится по контакту (`persona_for` отдаёт primary_slug
+# всем, переопределение — только ручным `/switch`), а БД одна на процесс и
+# панель TAMAPI фильтра по слугу не имеет. Поэтому демо — это ВРЕМЕННАЯ
+# подмена состава, а не вторая персона рядом: СВОЯ база (иначе диалоги демо
+# попадут в счётчики и ленту панели Ольги), свои логи, та же сессия аккаунта.
+#
+# Пока флаг стоит, Ольга НЕ РАБОТАЕТ. Снять: run_yarina_demo.ps1 -Revert.
+$yarinaFlag = Join-Path $stateDir 'chatter_demo_yarina.flag'
+if (Test-Path $yarinaFlag) {
+    if (Test-Path $semidemoFlag) {
+        # Write-G здесь ещё не объявлена (функции ниже по файлу) — копим в
+        # переменную и печатаем в стартовом логе.
+        $rosterNote = 'ДЕМО ЯРИНЫ: стоят ОБА флага - поднимаю yarina, Ольга НЕ работает'
+    }
+    $env:CHATTER_PERSONAS = 'yarina'
+    $env:TELETHON_SESSION = '.secrets\demo.session'
+    $env:CHATTER_DB       = '.secrets\yarina.db'
+    $rErr = Join-Path $logDir 'chatter_yarina.log'
+    $rOut = Join-Path $logDir 'chatter_yarina.stdout.log'
+}
+
+# --- СЛОТ ОБЯЗАТЕЛЬСТВ (арка «б», принята Д-10 2026-07-24) -------------------
+# Слот в проде. Флаг остаётся рубильником отката: убрать строку + рестарт таска
+# → §8-строка молчит, блок в промпт не инъектится (byte-identical к до-арке).
+# env фиксируется на СТАРТЕ раннера (читается каждый ход, но из окружения
+# процесса) → правка этой строки требует рестарта ТАСКА гардиана, не раннера.
+#
+# ⚠️ CHATTER_PROMPT_DUMP здесь НЕ ставить: пишет ПОЛНЫЙ промпт (профиль +
+# переписка лида = ПДн) в logs/prompt_dump.log, ~30-40КБ/ход. Только на время
+# приёмки, вручную, с удалением дампа после — см. docs/chatter/DRILL_D10_OBLIGATIONS.md.
+$env:CHATTER_OBLIGATIONS_SLOT = '1'
+
+# --- КЭШ КЛАССИФИКАТОРА (арка arc/classifier-cache, приёмка 2026-07-25) ------
+# Раскладка A1: стабильный префикс под cache_control-breakpoint, профиль и блок
+# обязательств — вторым (некэшируемым) system-блоком. Убрать строку + рестарт
+# ТАСКА → промпт байт-в-байт как до арки (ветка отката, тест держит).
+# Пока строки нет, классификатор пишет ~7.8К ток кэша КАЖДЫЙ ход и не читает
+# его ни разу = 83% стоимости хода.
+$env:CHATTER_CLASSIFIER_CACHE = '1'
+
 function Write-G([string]$msg) {
     # Add-Content + Write-Host (NOT Tee-Object): keep a side-effect-free return so
     # callers using `if (-not (Stop-OldRunner))` see a real boolean, not a log array.
     $line = ('{0} | {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $msg)
-    Add-Content -LiteralPath $gOut -Value $line
+    # UTF-8 ЯВНО. Без -Encoding Add-Content берёт системную ANSI (здесь cp1251),
+    # и строка «состав: … db=…» — единственная, где лог прямо называет активную
+    # базу, — приезжала в панель кракозябрами. Читатель (jarvis_farm.read_tail)
+    # чинит УЖЕ написанное построчным фолбэком utf-8 → cp1251; эта строка
+    # убирает причину, чтобы фолбэк не был единственным рабочим путём.
+    #
+    # ⚠️ Смешанный файл после этой правки — норма, и это безопасно ИМЕННО
+    # потому, что фолбэк построчный: блочный испортил бы весь хвост из-за одной
+    # старой cp1251-байты, то есть сломал бы как раз САМЫЕ СВЕЖИЕ строки.
+    #
+    # BOM: PowerShell 5.1 под именем `utf8` пишет utf-8 С BOM, но только при
+    # СОЗДАНИИ файла — проверено 15.08 на 5.1.26100.9168: дописывание в
+    # существующий лог BOM не добавляет (позиций EF BB BF в файле нет).
+    # На случай нового лога BOM снимается при чтении.
+    Add-Content -LiteralPath $gOut -Value $line -Encoding utf8
     Write-Host $line
 }
 
@@ -101,6 +159,12 @@ if (-not $NoLoop) {
     $PID | Out-File -FilePath $lockFile -Encoding ascii -Force
     Write-GuardianBeat
     Write-G "chatter guardian started (PID $PID), heartbeat<=${HeartbeatMaxAgeSec}s every ${IntervalSeconds}s, debounce=${DebounceFailures}"
+    # Чей раннер поднимаем — в лог ЯВНО. Подмена состава флагом видна только
+    # здесь: без этой строки «Ольга молчит» ищут в Telegram, а не в флаге.
+    $roster = if ($env:CHATTER_PERSONAS) { "$env:CHATTER_PERSONAS (флаг)" }
+              else { 'active.yaml' }
+    Write-G "состав: CHATTER_PERSONAS=$roster, db=$(if ($env:CHATTER_DB) { $env:CHATTER_DB } else { 'по первому слагу' })"
+    if ($rosterNote) { Write-G $rosterNote }
 }
 
 function Invoke-WatchCheck {

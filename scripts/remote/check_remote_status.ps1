@@ -1,4 +1,4 @@
-# scripts/remote/check_remote_status.ps1
+﻿# scripts/remote/check_remote_status.ps1
 # Health check for the remote-access stack: OpenSSH Server, cloudflared,
 # firewall rule, and tunnel processes. Read-only — does not change state.
 #

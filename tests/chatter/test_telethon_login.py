@@ -85,11 +85,18 @@ def test_resolve_session_path_default_matches_telethon_run_default():
 def test_make_client_constructs_with_session_path_int_api_id_and_hash():
     calls = []
 
+    # **kwargs: с 2026-08-09 make_client дополнительно передаёт прибитый
+    # отпечаток устройства (chatter/telethon_identity.py). Позиционный контракт
+    # проверяем как и раньше, отпечаток — отдельным утверждением ниже, а не
+    # ослаблением этого теста.
     class FakeClient:
-        def __init__(self, session_path, api_id, api_hash):
+        def __init__(self, session_path, api_id, api_hash, **kwargs):
             calls.append((session_path, api_id, api_hash))
+            self.kwargs = kwargs
 
     result = make_client(".secrets/chatter_telethon.session", "12345", "deadbeef", client_cls=FakeClient)
 
     assert calls == [(".secrets/chatter_telethon.session", 12345, "deadbeef")]
     assert isinstance(result, FakeClient)
+    from chatter.telethon_identity import identity_kwargs
+    assert result.kwargs == identity_kwargs()

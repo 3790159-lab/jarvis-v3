@@ -215,6 +215,61 @@ def test_run_targeted_runs_only_mapped_tests(monkeypatch):
     assert "tests/test_runner.py" not in captured["argv"]  # only the mapped test
 
 
+# ── немаппящийся дифф: выход НЕ только «мердж вслепую» ──────────────────────
+# Инцидент 0f24fd: гейт не смог замапить дифф, и единственной кнопкой в
+# сообщении осталась [⚠️ Мердж без регресса]. Немаппящийся дифф — повод
+# ПРЕДЛОЖИТЬ полный регресс, а не толкать человека мерджить вслепую.
+def test_run_targeted_marks_unmapped_diff(monkeypatch):
+    from app.services.devtask import target_tests as tt
+    monkeypatch.setattr(tt, "changed_paths", lambda *a, **k: ["app/services/devtask/runner.py"])
+    monkeypatch.setattr(tt, "list_test_files", lambda *a, **k: ["tests/test_queue.py"])
+    res = mod._devtask_run_targeted("C:/wt", "base1")
+    assert res["ok"] is False and res.get("unmapped") is True
+
+
+def test_unmapped_diff_offers_full_regress_button(monkeypatch, tmp_path):
+    q, tid = _seed_awaiting(monkeypatch, tmp_path)
+    kb_sent = []
+    monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: None)
+    monkeypatch.setattr(mod, "send_with_keyboard",
+                        lambda cid, t, kb, *a, **k: kb_sent.append((t, kb)))
+    monkeypatch.setattr(mod, "_devtask_run_targeted",
+                        lambda wt, base, tid=None: {"ok": False, "mode": "targeted",
+                                                    "unmapped": True,
+                                                    "text": "🎯 дифф не маппится"})
+    merged = {"x": False}
+    monkeypatch.setattr(mod, "_devtask_do_merge", lambda *a, **k: merged.update(x=True))
+    from app.services.devtask import git_ops as g
+    monkeypatch.setattr(g, "is_merged", lambda *a, **k: False)
+
+    mod._devtask_merge(ADMIN, tid, mode="targeted")
+
+    assert merged["x"] is False              # по-прежнему блок, не тихий пропуск
+    assert kb_sent, "немаппящийся дифф обязан прийти с клавиатурой выбора"
+    text, kb = kb_sent[-1]
+    datas = [b["callback_data"] for row in kb for b in row]
+    assert "devtask:mergefull:%s" % tid in datas   # честный выход: полный регресс
+    assert "devtask:mergeforce:%s" % tid in datas  # слепой мердж остаётся, но не один
+
+
+def test_failed_targeted_tests_do_not_offer_full_regress(monkeypatch, tmp_path):
+    # Красные таргет-тесты — это НЕ «не смогли проверить»; предлагать полный
+    # регресс как обход тут нечего, поведение остаётся прежним (просто блок).
+    q, tid = _seed_awaiting(monkeypatch, tmp_path)
+    kb_sent, sent = [], []
+    monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
+    monkeypatch.setattr(mod, "send_with_keyboard",
+                        lambda cid, t, kb, *a, **k: kb_sent.append((t, kb)))
+    monkeypatch.setattr(mod, "_devtask_run_targeted",
+                        lambda wt, base, tid=None: {"ok": False, "mode": "targeted",
+                                                    "text": "🎯 1 failed"})
+    from app.services.devtask import git_ops as g
+    monkeypatch.setattr(g, "is_merged", lambda *a, **k: False)
+    mod._devtask_merge(ADMIN, tid, mode="targeted")
+    assert not kb_sent
+    assert any("заблокирован" in s for s in sent)
+
+
 def test_run_targeted_fails_when_targeted_tests_fail(monkeypatch):
     from app.services.devtask import target_tests as tt
     monkeypatch.setattr(tt, "changed_paths",

@@ -7,7 +7,7 @@ import random
 import re
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable
 
@@ -15,6 +15,10 @@ from chatter.config.loader import HONESTY_HONEST, Config, ControlConfig, load_co
 from chatter.core import humanizer as H
 from chatter.core.brain import Brain
 from chatter.core.window import estimate_tokens, select_window
+from chatter.core.obligations_slot import (
+    filter_model_updates, merge_obligations, render_current_for_classifier,
+    render_slot_block,
+)
 from chatter.core.brand_safety import forbidden_mention
 from chatter.core.classifier import (
     ClassifierResult, classifier_degraded, classifier_failure_count,
@@ -27,13 +31,18 @@ from chatter.core.console import (
 )
 from chatter.core.disclosure import honest_disclosure, is_bot_question
 from chatter.core.escalation import (
-    advance_funnel, decide_escalation, deterministic_escalation, esc_active_key,
-    mentions_owner_contact,
-    honest_self_action_fallback, self_action_fallback,
+    advance_funnel, awaiting_owner_fallback, decide_escalation,
+    deterministic_escalation, esc_active_key, mentions_owner_contact,
+    honest_self_action_fallback, pick_non_repeating, self_action_fallback,
     suppressed_fallback,
 )
+from chatter.payments.dialogue import OwnerNote, PaymentTurn, payment_turn
+from chatter.payments.prompt import (  # noqa: F401
+    needs_caveat,
+    UnsubstitutedPlaceholder, finalize, find_placeholders, has_disclaimer,
+)
 from chatter.core.guardrails import (
-    within_daily_cap, within_hourly_limit,
+    redact_unbacked, within_daily_cap, within_hourly_limit,
 )
 from chatter.core.llm import AnthropicLLM, FakeLLM
 from chatter.core.pause import is_attributed, is_muted
@@ -41,6 +50,14 @@ from chatter.notify.base import Card, CardHandle, Notifier
 from chatter.storage.db import Store, usage_sink_for
 from chatter.transport.base import Transport
 from chatter.transport.fake import FakeConsoleTransport
+
+
+def _obligations_enabled() -> bool:
+    """Флаг арки обязательств (спека 2026-07-24 §12): default OFF → поведение
+    БАЙТ-В-БАЙТ как до арки. Читаем env КАЖДЫЙ раз (не кэшируем на импорте),
+    чтобы тесты и выкатка переключали без перезапуска процесса."""
+    return os.getenv("CHATTER_OBLIGATIONS_SLOT", "").strip().lower() in (
+        "1", "true", "yes", "on")
 
 log = logging.getLogger("chatter.run")
 
@@ -206,6 +223,76 @@ def _muted_now(deps: Deps, contact_id: str) -> bool:
     return is_muted(row, kill_switch=kill, now=deps.clock())
 
 
+def _payment_context(deps: "Deps", contact_id: str, *, text: str) -> PaymentTurn:
+    """Обе операции §8.2 на этом ходу: реквизиты (А) и счёт (Б).
+
+    Возвращает ход целиком, потому что его части уходят в РАЗНЫЕ концы: блок —
+    в модель до ответа, значения — в текст после guardrails, заметка — владельцу.
+    Разъехаться они не могут: собраны из одного снимка.
+
+    Разбор идёт ЗДЕСЬ, до `brain.reply`, а не в классификаторе: классификатор
+    отвечает после реплики (он обязан видеть pending_reply), и цена, разобранная
+    им, доехала бы до лида только следующим ходом.
+
+    Реквизитов и цифр в блоке нет: модель их не видит вовсе (§8.3). Ошибка в
+    одном символе IBAN — это деньги, ушедшие не туда (риск 10.5)."""
+    wh = deps.cfg.settings.work_hours
+    return payment_turn(
+        store=deps.store, payments=deps.cfg.settings.payments,
+        contact_id=contact_id, text=text,
+        msg_id=deps.store.max_message_id(contact_id), now=deps.clock(),
+        language=deps.cfg.settings.language, work_hours=(wh.start, wh.end),
+        knowledge_version=deps.cfg.settings.model)
+
+
+def _post_invoice_card(deps: "Deps", contact_id: str, note: OwnerNote, *,
+                       now: float) -> None:
+    """Счёт ушёл в `awaiting_owner` — владелец обязан узнать об этом от нас.
+
+    Кнопок ✅/✏️/❌ (§6) здесь НЕТ намеренно: `route_callback` их пока не
+    исполняет и честно отвечает «вне Ф0». Кнопка, которая выглядит сработавшей и
+    не срабатывает, хуже её отсутствия — владелец решит, что счёт утверждён.
+    Карточка информирующая, действия — руками, до отдельной проводки пульта.
+
+    Никогда не роняет ход (DEV-18): деньги уже записаны, и падение на доставке
+    не имеет права стереть ответ лиду."""
+    if deps.notifier is None:
+        return
+    language = deps.cfg.settings.language
+    peer = contact_id.split(":", 1)[0]
+    why = ", ".join(note.reasons) or "причина не названа"
+    if note.kind == "invoice_change_needs_owner":
+        # Другой повод — другой текст. Прежний («лід готовий платити, але суму
+        # назвати не можна») тут прямо врал бы: сумма названа и счёт выставлен,
+        # решения ждёт его ИЗМЕНЕНИЕ.
+        text = (f"💸 Рахунок {note.invoice_id}: лід просить змінити суму\n"
+                f"Сам бот цього не зробив: {why}\n"
+                f"«money_received» — по рахунку вже є гроші; «tier_downgrade» — "
+                f"просять дешевший обсяг, тобто знижку на зафіксовану ціну. "
+                f"І те, й інше — рішення людини.")
+    else:
+        text = (f"💸 Рахунок {note.invoice_id} чекає на тебе\n"
+                f"Лід готовий платити, але суму назвати не можна: {why}\n"
+                f"Реквізити ліду вже надіслані — гроші й реквізити розділені "
+                f"навмисно (§8.2).")
+    try:
+        handle = deps.notifier.notify(Card(
+            kind=note.kind, contact_id=contact_id, text_html=escape_html(text),
+            buttons=[], reply_hints=[], link=contact_link(user_id=peer)))
+    except Exception:
+        log.exception("карточка счёта %s НЕ доставлена", note.invoice_id)
+        return
+    if handle is None:
+        log.warning("карточка счёта %s не доставлена (notifier вернул None)",
+                    note.invoice_id)
+        return
+    try:
+        deps.store.add_card(msg_id=int(handle.ref.split(":")[-1]),
+                            contact_id=contact_id, kind=note.kind, ts=now)
+    except Exception:
+        log.warning("не удалось записать карточку счёта %r", handle, exc_info=True)
+
+
 def _escalation_pass(
     deps: "Deps", contact_id: str, *, incoming_text: str, reply: str, now: float,
     disclosure_sent: bool = False,
@@ -225,14 +312,32 @@ def _escalation_pass(
         owner_id=cfg.settings.owner_id, owner_ref=cfg.settings.owner_ref,
         strict_knowledge=cfg.settings.strict_knowledge)
     profile = store.get_profile(contact_id)
+    slot_on = _obligations_enabled()
     cr = None
     if deps.classify is not None:
         lim = deps.cfg.settings.limits
-        cr = deps.classify(
-            select_window(store.history(contact_id),
-                          budget_tokens=lim.history_budget_tokens,
-                          max_messages=lim.history_max_messages),
-            profile)
+        window = select_window(store.history(contact_id),
+                               budget_tokens=lim.history_budget_tokens,
+                               max_messages=lim.history_max_messages)
+        if slot_on:
+            # Классификатор видит открытые обязательства, чтобы закрыть их по
+            # выполнению функции. track_obligations гейтит расширение промпта.
+            # pending_reply (P18, дрил №3 2026-07-26): ответ бота ЭТОГО хода в
+            # историю ещё НЕ записан — он уходит в транспорт позже. Без него
+            # классификатор судит ход по одной реплике лида и собственных
+            # обещаний бота не видит, поэтому долг возникал только СЛЕДУЮЩИМ
+            # ходом. Едет СИСТЕМНЫМ блоком, а не сообщением: разговор обязан
+            # заканчиваться репликой лида, иначе API отвечает 400 «assistant
+            # message prefill» и классификатор умирает на каждом ходу
+            # (инцидент 2026-07-26 01:2x — поймано живым прогоном).
+            cr = deps.classify(
+                window, profile, track_obligations=True,
+                obligations_block=render_current_for_classifier(
+                    store.get_obligations(contact_id)),
+                pending_reply=reply or "")
+        else:
+            # flag off: вызов 2-позиционный, как до арки (байт-в-байт).
+            cr = deps.classify(window, profile)
         # Профиль применяем ТОЛЬКО на здоровом ответе (обрезка/мусор →
         # degraded → профиль не трогаем, следующий ход догонит).
         if cr is not None and not cr.degraded:
@@ -264,6 +369,21 @@ def _escalation_pass(
                 # profile=null — это «нового ничего нет», а НЕ пропуск:
                 # классификатор жив, отставать памяти нечем. Серия рвётся.
                 reset_profile_miss(store, contact_id, now=now)
+            # Слот обязательств (спека §4): применяем на ЗДОРОВОМ классификаторе,
+            # НЕЗАВИСИМО от судьбы профиля (перебор бюджета профиля — деградация
+            # ПРОФИЛЯ, не классификатора; долг перед лидом всё равно актуален).
+            # На degraded этот блок не выполняется (guard выше) → долг не тронут.
+            if slot_on:
+                # filter_model_updates: жизненный цикл owner_write модель не ведёт —
+                # только код по факту карточки (см. _close_owner_write_by_card).
+                # existing прокидываем в фильтр: он роняет owner_write open, если
+                # строка уже есть (иначе модель переоткрыла бы code-доставку — баг
+                # дрила Д-10 T4). Читаем один раз — используем и в фильтре, и в merge.
+                existing_obl = store.get_obligations(contact_id)
+                store.save_obligations(contact_id, merge_obligations(
+                    existing_obl,
+                    filter_model_updates(cr.obligations, existing=existing_obl),
+                    now=now, current_msg_id=store.max_message_id(contact_id)))
     decision = decide_escalation(det=det, classifier_result=cr)
 
     if decision.degraded:
@@ -275,8 +395,14 @@ def _escalation_pass(
         # Профиль на этом ходу применить было нечем — память отстала на ход.
         _note_profile_miss(deps, contact_id, now=now, why=detail)
 
-    advance_funnel(store, contact_id, stage_signal=decision.stage_signal, escalated=decision.escalate)
+    advance_funnel(store, contact_id, stage_signal=decision.stage_signal,
+                   escalated=decision.escalate, now=now)
 
+    awaiting_used = False
+    # Запасные формулировки ТОЙ ЖЕ канцелярской заглушки, которую мы подставили.
+    # Нужны анти-самоповтору (P20 в), который работает В САМОМ КОНЦЕ — после
+    # H2-переписывания: иначе его легко обойти, подменив текст уже после проверки.
+    alt_variants: tuple[str, ...] = ()
     if det is not None and det.suppress:
         # Гардрейл-подавление: НЕ отправляем ни выдуманную цену/срок (unbacked_claim),
         # ни запрещённый термин (forbidden_reply, рубли/росбанк), ни безцифровое
@@ -293,13 +419,27 @@ def _escalation_pass(
         else:
             if det.tag == "forbidden_reply" and safe:
                 log.warning("safe_payment_reply сам содержит запрещённый термин — не использую")
-            # Падеж-безопасно (owner_id не склоняем: «позову Дмитрий» → криво):
-            # глагол «свяж»/«зв'яж» держит H2-детекцию, а как назвать владельца
-            # задаёт owner_ref (уже в нужном падеже; пусто → per-language дефолт).
-            # Б2: текст локализован по settings.language — украиноязычный лид не
-            # должен получать русскую аварийную фразу.
-            reply = suppressed_fallback(
-                language=cfg.settings.language, owner_ref=cfg.settings.owner_ref)
+            # P20 (D): СНАЧАЛА пробуем вырезать необеспеченное место, а не весь
+            # ответ. Замер 2026-07-29: одно число («21») убивало ответ вместе с
+            # четырьмя обеспеченными ценами, и лид трижды не увидел прайса.
+            #
+            # ⚠️ ТОЛЬКО для unbacked_claim. Редакция работает по ЧИСЛАМ, а
+            # forbidden_reply (запрещённый термин) и unbacked_promise
+            # (безцифровое «дам скидку») она не видит — пропустить их через неё
+            # значило бы проделать дыру в гардрейле, поэтому им по-прежнему
+            # полное подавление.
+            redacted = (_try_redact(deps, contact_id, reply=reply, now=now)
+                        if det.tag == "unbacked_claim" else None)
+            if redacted is not None:
+                reply = redacted
+            else:
+                # Падеж-безопасно (owner_id не склоняем: «позову Дмитрий» → криво):
+                # глагол «свяж»/«зв'яж» держит H2-детекцию, а как назвать владельца
+                # задаёт owner_ref (уже в нужном падеже; пусто → per-language дефолт).
+                # Б2: текст локализован по settings.language — украиноязычный лид не
+                # должен получать русскую аварийную фразу.
+                reply, awaiting_used, alt_variants = _suppression_fallback(
+                    deps, contact_id, slot_on=slot_on)
 
     delivered = False
     if decision.escalate and deps.notifier is not None:
@@ -321,7 +461,12 @@ def _escalation_pass(
     # free_owner_liability ответ пишет brain — и защита по тегу пропустила бы
     # его недоставленное «свяжу с владельцем» мимо гейта H2. Защищать надо
     # ровно тот текст, который мы САМИ сгенерировали как честное раскрытие.
-    protected = disclosure_sent
+    # P20 (б): «вже передала керівниці» — КОД-проверенный факт (owner_write
+    # закрывается по доставленной карточке), а не обещание за владельца.
+    # Без этой защиты H2-гейт при недоставленной карточке ЭТОГО хода затёр бы
+    # честное состояние обратно в «уточню и вернусь» — ровно ту заглушку,
+    # из-за которой P20 и открыт.
+    protected = disclosure_sent or awaiting_used
     implies_owner = mentions_owner_contact(
         reply, owner_id=cfg.settings.owner_id, owner_ref=cfg.settings.owner_ref)
     if not protected and not delivered and implies_owner:
@@ -332,10 +477,14 @@ def _escalation_pass(
         # из которого следовало, что перед ним человек). Условия «спрашивали ли
         # про личность» тут нет специально — оно совпадает с `disclosure_sent`
         # выше, то есть с уже защищённым множеством, и дыру не закрывает.
-        reply = (
-            honest_self_action_fallback(language=cfg.settings.language)
-            if cfg.settings.honesty_mode == HONESTY_HONEST
-            else self_action_fallback(language=cfg.settings.language))
+        honest = cfg.settings.honesty_mode == HONESTY_HONEST
+        maker = honest_self_action_fallback if honest else self_action_fallback
+        reply = maker(language=cfg.settings.language)
+        # H2 подменяет текст ПОСЛЕ выбора заглушки подавления, поэтому запасные
+        # формулировки тоже надо переставить на это семейство — иначе
+        # анти-самоповтор будет сравнивать не с тем, что реально уйдёт лиду
+        # (замер: два подавления подряд снова давали байт-идентичный текст).
+        alt_variants = (maker(language=cfg.settings.language, variant=1),)
         implies_owner = False   # заменили на само-действие — контакта больше нет
     # Q2 (дрил 07-19): обещание контакта/эскалация не тянет встречный вопрос —
     # лида ПЕРЕДАЛИ, а бот бы продолжал продавать в том же сообщении и сбивал его.
@@ -344,7 +493,149 @@ def _escalation_pass(
     # содержит → там no-op).
     if implies_owner and not protected:
         reply = _drop_trailing_question(reply)
-    return reply, delivered
+    # Слот §3: owner_write закрывает КОД по факту ДОСТАВЛЕННОЙ карточки (не
+    # модель). Карточка дошла → долг «керівниця напише» выполнен (владелец
+    # уведомлён); msg_id — id карточки из esc_active. Только при slot on.
+    if slot_on and delivered:
+        _close_owner_write_by_card(deps, contact_id, now=now)
+
+    # P20 (в) — ПОСЛЕДНИЙ шаг: лид не получает ту же реплику дважды подряд.
+    # Стоит здесь, после ВСЕХ подмен (подавление, H2, срез хвостового вопроса),
+    # потому что дважды-идентичным был именно ИТОГОВЫЙ текст (msg 318/320/322).
+    final = pick_non_repeating(
+        reply, previous=_last_assistant_text(deps.store, contact_id),
+        variants=alt_variants)
+    if final is None:
+        # Вариантов нет (обычный ответ brain, а не заглушка) → честная пауза.
+        # Молчание видимо: событие в ленте, иначе пауза выглядит как «бот умер».
+        log.warning("reply repeat: та же реплика подряд, пауза для %s", contact_id)
+        try:
+            deps.store.add_event("reply_repeat_paused", contact_id=contact_id,
+                                 detail="повтор предыдущей реплики", ts=now)
+        except Exception:        # DEV-18: аудит не имеет права ронять ход
+            log.exception("не удалось записать событие анти-повтора")
+        return "", delivered
+    return final, delivered
+
+
+def _last_assistant_text(store, contact_id: str) -> str | None:
+    """Предыдущий ОТВЕТ целиком — то, что реально увидел лид.
+
+    Humanizer режет ответ на баббл(ы), и каждый пишется в `messages` отдельной
+    строкой. Сравнивать надо с ХОДОМ, а не с последним бабблом: иначе длинная
+    заглушка из двух предложений «не совпадает» сама с собой и анти-самоповтор
+    молча ничего не ловит. Берём последний непрерывный ряд assistant-строк."""
+    msgs = list(store.history(contact_id) or ())
+    # Входящее ЭТОГО хода уже лежит в истории (process_batch пишет его до
+    # эскалации), поэтому сначала перешагиваем хвост из user-строк, и только
+    # потом собираем ряд assistant — иначе «предыдущего ответа» не видно вовсе.
+    i = len(msgs) - 1
+    while i >= 0 and msgs[i].get("role") != "assistant":
+        i -= 1
+    run: list[str] = []
+    while i >= 0 and msgs[i].get("role") == "assistant":
+        run.append(msgs[i].get("text") or "")
+        i -= 1
+    if not run:
+        return None
+    return " ".join(reversed(run))
+
+
+def _owner_write_delivered(store, contact_id: str, *, slot_on: bool) -> bool:
+    """Вопрос лида уже лежит у владельца: owner_write закрыт КОДОМ по факту
+    доставленной карточки (спека слота §3), поэтому это надёжный факт, а не
+    мнение модели. Слот выключен → состояния нет, ведём себя как раньше."""
+    if not slot_on:
+        return False
+    return any(o.okey == "owner_write" and o.status == "delivered"
+               for o in store.get_obligations(contact_id))
+
+
+def _try_redact(deps: "Deps", contact_id: str, *, reply: str, now: float) -> str | None:
+    """P20 (D): вырезать необеспеченные числа, сохранив остальной ответ.
+
+    None → редакцией не спаслось (или резать было нечего) ⇒ вызывающий обязан
+    подавить ответ целиком. Лог PII-free: число-причина, правило и длина
+    вырезанного куска — без текста лида и без текста ответа."""
+    cfg = deps.cfg
+    res = redact_unbacked(reply, cfg.knowledge, language=cfg.settings.language)
+    if not res.clean or not res.records:
+        return None
+    for r in res.records:
+        log.info("redaction: rule=%s number=%s clause_chars=%d lang=%s",
+                 r.rule, r.number, r.clause_chars, cfg.settings.language)
+    try:
+        deps.store.add_event(
+            "unbacked_redacted", contact_id=contact_id,
+            detail=",".join(f"{r.rule}:{r.number}" for r in res.records), ts=now)
+    except Exception:            # DEV-18: аудит-запись не имеет права ронять ход
+        log.exception("не удалось записать событие редакции")
+    return res.text
+
+
+def _suppression_fallback(deps: "Deps", contact_id: str, *,
+                          slot_on: bool) -> tuple[str, bool, tuple[str, ...]]:
+    """Какую заглушку получит лид и является ли она «ждём владельца».
+
+    P20 (а): раньше здесь стояла ОДНА константа, и три подавления подряд дали
+    три байт-идентичных сообщения — причём второе было ответом на прямой вопрос
+    «вы уточнили детали?». Теперь: если вопрос уже у владельца — говорим это
+    (состояние), иначе обещаем уточнить (действие); и в обоих случаях не
+    повторяем дословно предыдущую реплику.
+
+    ⚠️ Вариант обязан нести ТОТ ЖЕ факт: «передала» не подставляется вместо
+    «уточню», пока карточка не доставлена, иначе анти-повтор начнёт врать."""
+    cfg = deps.cfg
+    lang, ref = cfg.settings.language, cfg.settings.owner_ref
+    if _owner_write_delivered(deps.store, contact_id, slot_on=slot_on):
+        maker, awaiting = awaiting_owner_fallback, True
+    else:
+        maker, awaiting = suppressed_fallback, False
+    return (maker(language=lang, owner_ref=ref), awaiting,
+            (maker(language=lang, owner_ref=ref, variant=1),))
+
+
+def _card_msg_id(store, contact_id: str) -> int | None:
+    """id доставленной карточки из runtime_flag esc_active (`bot:<contact>:<id>`).
+    None, если формат неожиданный — тогда штампуем max(messages.id)."""
+    from chatter.core.escalation import esc_active_key
+    raw = store.get_runtime_flag(esc_active_key(contact_id))
+    if raw and ":" in raw:
+        try:
+            return int(raw.rsplit(":", 1)[1])
+        except ValueError:
+            return None
+    return None
+
+
+def _close_owner_write_by_card(deps: "Deps", contact_id: str, *, now: float) -> None:
+    """Детерминированно перевести owner_write в delivered (спека §3): карточка
+    керівниці доставлена. merge создаёт-и-закрывает, если owner_write ещё не был
+    открыт (эскалация без явного «керівниця напише»). closed_msg_id = id карточки."""
+    store = deps.store
+    card_id = _card_msg_id(store, contact_id)
+    if card_id is None:
+        card_id = store.max_message_id(contact_id)
+    existing = store.get_obligations(contact_id)
+    ow = next((o for o in existing if o.okey == "owner_write"), None)
+    if ow is not None and ow.status != "open":
+        # Повторная эскалация: owner_write уже закрыт, но доставлена НОВАЯ карточка
+        # → новое достоверное событие закрытия. Код — единственный владелец
+        # жизненного цикла owner_write (спека §3), поэтому перештамповываем closed_*
+        # на актуальную карточку НАПРЯМУЮ, в обход idempotency merge (та бережёт
+        # ПЕРВОЕ закрытие для классификатор-ведомых brief/examples/recalc). Так фикс
+        # filter (модель не переоткрывает) не запирает легитимный повтор.
+        rest = [o for o in existing if o.okey != "owner_write"]
+        rest.append(replace(ow, status="delivered",
+                            closed_msg_id=card_id, closed_ts=now))
+        store.save_obligations(contact_id, rest)
+        return
+    # первое закрытие (owner_write open) или create-and-close (строки ещё нет)
+    store.save_obligations(contact_id, merge_obligations(
+        existing,
+        [{"kind": "owner_write", "owed_by": "bot", "status": "delivered",
+          "detail": "карточка керівниці доставлена"}],
+        now=now, current_msg_id=card_id))
 
 
 # Разбивка на предложения по границе .!? + пробел (хвостовой вопрос режем с конца).
@@ -583,6 +874,13 @@ def process_batch(
         print("  [rate limit] daily cap hit; skipping")
         return
 
+    # Деньги — ПОСЛЕ лимитов: счёт, выставленный на ходу, который бот всё равно
+    # не отправит, это идущий срок и записанный долг при молчащем боте.
+    pay = _payment_context(deps, contact_id, text=text)
+    pay_block, pay_values = pay.block, pay.values
+    if pay.owner_note is not None:
+        _post_invoice_card(deps, contact_id, pay.owner_note, now=deps.clock())
+
     # honesty_mode (per-client, дефолт honest): захардкоженная гарантия честности
     # стала ОСОЗНАННЫМ выбором владельца — но именно выбором, а не удалением
     # механики. Детектор вопроса и текст раскрытия остаются на месте и под
@@ -607,12 +905,24 @@ def process_batch(
         disclosure_sent = True
     else:
         lim = deps.cfg.settings.limits
+        # Слот обязательств (спека §5): рендер из ТАБЛИЦЫ, не из окна — долг
+        # доезжает до brain, даже когда ход-источник уехал за окно истории.
+        # flag off → "" / log_shape=False → brain.reply как раньше (байт-в-байт).
+        slot_on = _obligations_enabled()
+        obl_block = ""
+        obl_list = ()
+        if slot_on:
+            obl_list = deps.store.get_obligations(contact_id)
+            obl_block = render_slot_block(obl_list, now=deps.clock())
         reply = deps.brain.reply(
             select_window(deps.store.history(contact_id),
                           budget_tokens=lim.history_budget_tokens,
                           max_messages=lim.history_max_messages),
             context_note=missed_reply_context(missed_age_seconds),
             profile=deps.store.get_profile(contact_id),
+            obligations_block=obl_block,
+            obligations=obl_list, log_shape=slot_on, contact_id=contact_id,
+            invoice_block=pay_block,
         )
 
     # Арка 3B: единый проход эскалации (детерминированный слой + классификатор),
@@ -622,6 +932,41 @@ def process_batch(
     reply, card_posted = _escalation_pass(
         deps, contact_id, incoming_text=text, reply=reply,
         now=deps.clock(), disclosure_sent=disclosure_sent)
+
+    # ПОДСТАНОВКА — ПОСЛЕ guardrails и ТОЛЬКО здесь (§14 п.16). Сделай её до
+    # редакции — и `large_number` вырежет подставленную сумму как необеспеченную:
+    # промежуточных ступеней торга в knowledge нет по определению.
+    #
+    # Проверка идёт и при выключенной фиче: служебное «{REQUISITES}» в лицо
+    # клиенту — дефект независимо от тумблера, а значений тогда просто нет.
+    if pay.requires_disclaimer and needs_caveat(reply) and not has_disclaimer(reply):
+        # §2.2 и приёмка §8.5 п.4. Сумма без оговорки — это оферта, а не оценка:
+        # клиент вправе считать её ценой и требовать её же после пересчёта.
+        # Подавляется ВЕСЬ ответ, как и полуотрендеренные реквизиты: «почти
+        # оговорка» защищает ровно настолько, насколько её нет.
+        log.error("ответ для %s подавлен: названа сумма без оговорки", contact_id)
+        deps.store.add_event("payments_disclaimer_missing", contact_id=contact_id,
+                             detail=reply[:120], ts=deps.clock())
+        return
+
+    try:
+        reply = finalize(reply, pay_values)
+    except UnsubstitutedPlaceholder as exc:
+        # §8.3: подавляется ВЕСЬ ответ, а не вырезается плейсхолдер.
+        # Полуотрендеренные реквизиты хуже молчания: ошибка в одном символе
+        # IBAN — это деньги, ушедшие не туда. Молча не глотаем (DEV-18):
+        # событие + лог, чтобы «бот замолчал» имело объяснение в БД.
+        log.error("ответ для %s подавлен: %s (плейсхолдеры: %s)",
+                  contact_id, exc, ", ".join(find_placeholders(reply)))
+        deps.store.add_event("payments_placeholder_unresolved",
+                             contact_id=contact_id, detail=str(exc), ts=deps.clock())
+        return
+
+    if not (reply or "").strip():
+        # Честная пауза анти-самоповтора (P20 в) — единственный путь сюда.
+        # Пустой текст в transport.send() был бы ошибкой API, а не молчанием.
+        log.info("нечего отправлять для %s — ход пропущен", contact_id)
+        return
 
     now_hour = _dt.datetime.fromtimestamp(deps.clock()).hour
     actions = H.compose_reply(

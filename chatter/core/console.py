@@ -11,7 +11,8 @@ GLOBAL_COMMANDS = frozenset({"status", "stop", "start", "help"})
 TARGETED_COMMANDS = frozenset({"pause", "resume"})
 # Config-арка: команды конфигурации (обрабатываются раннером, не execute_command).
 CONFIG_COMMANDS = frozenset({
-    "config", "reload", "knowledge", "rollback", "funnel_gate", "honesty"})
+    "config", "reload", "knowledge", "rollback", "funnel_gate", "honesty", "allow",
+    "payments"})
 
 
 def parse_config_command(text: str) -> tuple[str, str] | None:
@@ -25,6 +26,52 @@ def parse_config_command(text: str) -> tuple[str, str] | None:
     if name not in CONFIG_COMMANDS:
         return None
     return name, (parts[1] if len(parts) > 1 else "")
+
+
+# ---------------------------------------------------------------------------
+# /allow (контрол-бот, backlog арки 3C): runtime-оверлей allowlist поверх
+# settings.yaml — добавить/убрать контакт БЕЗ правки файла и рестарта.
+# ---------------------------------------------------------------------------
+_ALLOW_CONFIRM_WORDS = ("confirm", "да", "yes", "так")
+_ALLOW_REMOVE_WORDS = ("remove", "del", "rm")
+
+
+@dataclass(frozen=True)
+class AllowCommand:
+    action: str                 # "list" | "add" | "remove"
+    target: str | None          # сырой токен (@user / id / ссылка), как набрал владелец
+    confirmed: bool
+
+
+def parse_allow_command(arg: str) -> AllowCommand:
+    """Чистый разбор аргумента /allow -- ноль Telethon, ноль сети.
+
+    Грамматика: `[remove] [<@user|id|ссылка>] [confirm]`, `list` отдельно.
+    Подтверждение — ПОСЛЕДНИЙ токен (а не второй, как у /funnel_gate): цель
+    здесь переменной длины не бывает (один токен), но её саму может
+    подставить вызывающая сторона (реплай на пересланное сообщение,
+    см. control_bot._resolve_allow_arg) -- тогда `target` уходит `None`, а
+    `confirmed` всё равно корректно снимается с конца."""
+    tokens = (arg or "").strip().split()
+    lowered = [t.casefold() for t in tokens]
+    if tokens and lowered[0] == "list":
+        return AllowCommand(action="list", target=None, confirmed=False)
+
+    action = "add"
+    idx = 0
+    if tokens and lowered[0] in _ALLOW_REMOVE_WORDS:
+        action = "remove"
+        idx = 1
+
+    remaining = tokens[idx:]
+    remaining_lower = lowered[idx:]
+    confirmed = bool(remaining_lower) and remaining_lower[-1] in _ALLOW_CONFIRM_WORDS
+    if confirmed:
+        remaining = remaining[:-1]
+
+    target = remaining[0] if remaining else None
+    return AllowCommand(action=action, target=target, confirmed=confirmed)
+
 
 _DURATION_RE = re.compile(r"^(\d+)([hm])$", re.IGNORECASE)
 
@@ -202,6 +249,10 @@ CONSOLE_STRINGS: dict[str, dict[str, str]] = {
         "fb_snoozed": "⏸ Пауза ещё на час",
         "fb_stopped": "🔴 {persona} остановлена во всех диалогах",
         "fb_kept": "✅ Оставлено: {persona}",
+        "fb_paid": "💰 Записал оплату. Сумма не указана.",
+        "fb_paid_amount": "💰 Записал оплату: {amount} {currency}.",
+        "fb_paid_bad": "⚠️ Не понял сумму — оплата НЕ записана.",
+        "fb_paid_no_identity": "⚠️ Оплата НЕ записана: у события нет личности (нет карточки и нет токена).",
         "fb_open": "💬 Открыть диалог: {link}",
         "fb_unknown": "не понял действие",
         "fb_not_owner": "эта кнопка не для вас",
@@ -285,6 +336,10 @@ CONSOLE_STRINGS: dict[str, dict[str, str]] = {
         "fb_snoozed": "⏸ Paused for another hour",
         "fb_stopped": "🔴 {persona} stopped in all chats",
         "fb_kept": "✅ Left to {persona}",
+        "fb_paid": "💰 Payment recorded. No amount given.",
+        "fb_paid_amount": "💰 Payment recorded: {amount} {currency}.",
+        "fb_paid_bad": "⚠️ Could not read the amount — payment NOT recorded.",
+        "fb_paid_no_identity": "⚠️ Payment NOT recorded: the event carries no identity (no card, no token).",
         "fb_open": "💬 Open chat: {link}",
         "fb_unknown": "didn't get that action",
         "fb_not_owner": "this button isn't for you",
@@ -367,6 +422,10 @@ CONSOLE_STRINGS: dict[str, dict[str, str]] = {
         "fb_snoozed": "⏸ Пауза ще на годину",
         "fb_stopped": "🔴 {persona} зупинено в усіх діалогах",
         "fb_kept": "✅ Залишено: {persona}",
+        "fb_paid": "💰 Записала оплату. Суму не вказано.",
+        "fb_paid_amount": "💰 Записала оплату: {amount} {currency}.",
+        "fb_paid_bad": "⚠️ Не зрозуміла суму — оплату НЕ записано.",
+        "fb_paid_no_identity": "⚠️ Оплату НЕ записано: у події немає особистості (немає картки і немає токена).",
         "fb_open": "💬 Відкрити діалог: {link}",
         "fb_unknown": "не зрозумів дію",
         "fb_not_owner": "ця кнопка не для вас",
@@ -675,6 +734,17 @@ _CFG_STRINGS: dict[str, dict[str, str]] = {
         "cfg_gate_off_done": "✅ Гейт воронки выкл. Аня отвечает только allowlist ({allow} id).",
         "cfg_gate_usage": "Использование: /funnel_gate on | off (без аргумента — показать текущее состояние).",
         "cfg_gate_fail": "⚠️ Не переключил ({reason}). Гейт остался как был.",
+        "cfg_pay_status_on": "Оплата [{client}]: ВКЛ. Называю сумму и присылаю реквизиты из конфига. Выключить: /payments off",
+        "cfg_pay_status_off": "Оплата [{client}]: выкл. На «куда платить» отсылаю к владельцу. Включить: /payments on confirm",
+        "cfg_pay_confirm": "⚠️ Включение = Аня начнёт САМА называть сумму (верх вилки прайса) и присылать реквизиты из конфига живым лидам.\n\nПроверь, что реквизиты в requisites.yaml — те самые: ошибка в одном символе IBAN означает деньги, ушедшие не туда.\n\nПодтверди: /payments on confirm",
+        "cfg_pay_on_done": "✅ Оплата ВКЛ для {client}. Сумма — верх вилки с оговоркой, реквизиты — из конфига. Выключить: /payments off",
+        "cfg_pay_off_done": "✅ Оплата выкл для {client}. На «куда платить» снова отсылаю к владельцу.",
+        "cfg_pay_usage": "Использование: /payments on | off (без аргумента — показать состояние). Включение требует confirm.",
+        "cfg_pay_fail": "⚠️ Не переключил ({reason}). Оплата осталась как была.",
+        # Тумблер УЖЕ применён и уже работает — это не «не получилось».
+        # Не сказать здесь значит оставить владельца с грязным деревом, о
+        # котором он не знает: ровно то состояние, из которого мы выходим.
+        "cfg_commit_failed": "⚠️ Тумблер ПРИМЕНЁН и работает, но НЕ ЗАКОММИЧЕН: {reason}\n\nЖивое дерево осталось грязным — сторож даст красное, и «грязное = недеплоенный код» перестанет быть правдой.\nЗакоммить руками: git commit -- {path}",
         "btn_honesty_off": "🎭 Выключить честность",
         "cfg_honesty_status_honest": "Честность [{client}]: ВКЛ (на «ты бот?» раскрываюсь честно). Выключить: /honesty free",
         "cfg_honesty_status_free": "🎭 Честность [{client}]: ВЫКЛ (свободный режим, ответственность на владельце). Инструкция честности снята: обычно ведёт себя как живой человек, но может раскрыться сам — полное сокрытие не гарантируется. Вернуть: /honesty on",
@@ -683,6 +753,29 @@ _CFG_STRINGS: dict[str, dict[str, str]] = {
         "cfg_honesty_on_done": "✅ Честность ВКЛ для {client} — на «ты бот?» раскрываюсь честно.",
         "cfg_honesty_usage": "Использование: /honesty on | free (без аргумента — показать режим).",
         "cfg_honesty_fail": "⚠️ Не переключил ({reason}). Режим честности остался как был.",
+        "cfg_allow_usage": (
+            "Использование: /allow <@user|id> — добавить, /allow remove <@user|id> — убрать, "
+            "/allow list — показать список. Ответь /allow на пересланное сообщение, чтобы "
+            "добавить его отправителя."
+        ),
+        "cfg_allow_confirm_add": "⚠️ Добавить {name} в allowlist — Аня будет отвечать этому контакту ВСЕГДА. Подтверди: /allow {id} confirm",
+        "cfg_allow_confirm_remove": "⚠️ Убрать {name} из allowlist? Подтверди: /allow remove {id} confirm",
+        "cfg_allow_added": "✅ {name} добавлен в allowlist (id {id}).",
+        "cfg_allow_removed": "✅ {name} убран из allowlist.",
+        "cfg_allow_already": "{name} уже в allowlist.",
+        "cfg_allow_not_in_list": "{name} не в allowlist — нечего убирать.",
+        "cfg_allow_not_found": (
+            "⚠️ Не смог определить контакт «{target}» — проверь @username/id, или перешли "
+            "его сообщение и ответь на него командой /allow."
+        ),
+        "cfg_allow_static_remove_blocked": (
+            "⚠️ {name} (id {id}) — из settings.yaml, а не из /allow. Убрать можно только "
+            "правкой файла и рестартом."
+        ),
+        "cfg_allow_list_header": "📋 Allowlist ({n}):",
+        "cfg_allow_list_empty": "Allowlist пуст.",
+        "cfg_allow_source_runtime": "добавлен /allow",
+        "cfg_allow_source_static": "из settings.yaml",
     },
     "en": {
         "cfg_header": "⚙️ Settings",
@@ -719,6 +812,14 @@ _CFG_STRINGS: dict[str, dict[str, str]] = {
         "cfg_gate_off_done": "✅ Funnel gate off. Anya answers the allowlist only ({allow} ids).",
         "cfg_gate_usage": "Usage: /funnel_gate on | off (no argument — show current state).",
         "cfg_gate_fail": "⚠️ Not switched ({reason}). The gate is unchanged.",
+        "cfg_pay_status_on": "Payments [{client}]: ON. I name the price and send requisites from the config. Disable: /payments off",
+        "cfg_pay_status_off": "Payments [{client}]: off. I refer «where do I pay» to the owner. Enable: /payments on confirm",
+        "cfg_pay_confirm": "⚠️ Enabling = Anya starts naming the price herself (upper bound of the range) and sending requisites from the config to live leads.\n\nCheck that requisites.yaml holds the right details: one wrong character in an IBAN means money sent elsewhere.\n\nConfirm: /payments on confirm",
+        "cfg_pay_on_done": "✅ Payments ON for {client}. Price — upper bound with the caveat, requisites — from the config. Disable: /payments off",
+        "cfg_pay_off_done": "✅ Payments off for {client}. «Where do I pay» goes back to the owner.",
+        "cfg_pay_usage": "Usage: /payments on | off (no argument — show state). Enabling requires confirm.",
+        "cfg_pay_fail": "⚠️ Not switched ({reason}). Payments are unchanged.",
+        "cfg_commit_failed": "⚠️ The toggle IS applied and live, but NOT committed: {reason}\n\nThe live tree stayed dirty — the watchdog will go red, and «dirty = undeployed code» stops being true.\nCommit by hand: git commit -- {path}",
         "btn_honesty_off": "🎭 Turn honesty off",
         "cfg_honesty_status_honest": "Honesty [{client}]: ON (I disclose honestly when asked «are you a bot?»). Turn off: /honesty free",
         "cfg_honesty_status_free": "🎭 Honesty [{client}]: OFF (free mode, owner's liability). The honesty instruction is lifted: usually behaves like a live human, but may disclose on its own — full concealment is not guaranteed. Restore: /honesty on",
@@ -727,6 +828,29 @@ _CFG_STRINGS: dict[str, dict[str, str]] = {
         "cfg_honesty_on_done": "✅ Honesty ON for {client} — I disclose honestly when asked «are you a bot?».",
         "cfg_honesty_usage": "Usage: /honesty on | free (no argument — show current mode).",
         "cfg_honesty_fail": "⚠️ Not switched ({reason}). Honesty mode is unchanged.",
+        "cfg_allow_usage": (
+            "Usage: /allow <@user|id> — add, /allow remove <@user|id> — remove, "
+            "/allow list — show the list. Reply /allow to a forwarded message to "
+            "add its sender."
+        ),
+        "cfg_allow_confirm_add": "⚠️ Add {name} to the allowlist — Anya will ALWAYS answer this contact. Confirm: /allow {id} confirm",
+        "cfg_allow_confirm_remove": "⚠️ Remove {name} from the allowlist? Confirm: /allow remove {id} confirm",
+        "cfg_allow_added": "✅ {name} added to the allowlist (id {id}).",
+        "cfg_allow_removed": "✅ {name} removed from the allowlist.",
+        "cfg_allow_already": "{name} is already in the allowlist.",
+        "cfg_allow_not_in_list": "{name} is not in the allowlist — nothing to remove.",
+        "cfg_allow_not_found": (
+            "⚠️ Couldn't resolve contact «{target}» — check the @username/id, or forward "
+            "their message and reply to it with /allow."
+        ),
+        "cfg_allow_static_remove_blocked": (
+            "⚠️ {name} (id {id}) comes from settings.yaml, not /allow. Remove it by editing "
+            "the file and restarting."
+        ),
+        "cfg_allow_list_header": "📋 Allowlist ({n}):",
+        "cfg_allow_list_empty": "Allowlist is empty.",
+        "cfg_allow_source_runtime": "added via /allow",
+        "cfg_allow_source_static": "from settings.yaml",
     },
     "uk": {
         "cfg_header": "⚙️ Налаштування",
@@ -763,6 +887,14 @@ _CFG_STRINGS: dict[str, dict[str, str]] = {
         "cfg_gate_off_done": "✅ Гейт воронки вимк. Аня відповідає лише allowlist ({allow} id).",
         "cfg_gate_usage": "Використання: /funnel_gate on | off (без аргументу — показати поточний стан).",
         "cfg_gate_fail": "⚠️ Не перемкнув ({reason}). Гейт лишився як був.",
+        "cfg_pay_status_on": "Оплата [{client}]: УВІМК. Називаю суму і надсилаю реквізити з конфігу. Вимкнути: /payments off",
+        "cfg_pay_status_off": "Оплата [{client}]: вимк. На «куди платити» відсилаю до керівниці. Увімкнути: /payments on confirm",
+        "cfg_pay_confirm": "⚠️ Увімкнення = Аня почне САМА називати суму (верх вилки прайсу) і надсилати реквізити з конфігу живим лідам.\n\nПеревір, що реквізити в requisites.yaml — саме ті: помилка в одному символі IBAN означає гроші, що пішли не туди.\n\nПідтверди: /payments on confirm",
+        "cfg_pay_on_done": "✅ Оплата УВІМК для {client}. Сума — верх вилки із застереженням, реквізити — з конфігу. Вимкнути: /payments off",
+        "cfg_pay_off_done": "✅ Оплата вимк для {client}. На «куди платити» знову відсилаю до керівниці.",
+        "cfg_pay_usage": "Використання: /payments on | off (без аргументу — показати стан). Увімкнення вимагає confirm.",
+        "cfg_pay_fail": "⚠️ Не перемкнув ({reason}). Оплата лишилася як була.",
+        "cfg_commit_failed": "⚠️ Тумблер ЗАСТОСОВАНО і він працює, але НЕ ЗАКОМІЧЕНО: {reason}\n\nЖиве дерево лишилося брудним — сторож дасть червоне, і «брудне = незадеплоєний код» перестане бути правдою.\nЗакомітити руками: git commit -- {path}",
         "btn_honesty_off": "🎭 Вимкнути чесність",
         "cfg_honesty_status_honest": "Чесність [{client}]: УВІМК (на «ти бот?» розкриваюся чесно). Вимкнути: /honesty free",
         "cfg_honesty_status_free": "🎭 Чесність [{client}]: ВИМК (вільний режим, відповідальність на власнику). Інструкцію чесності знято: зазвичай поводиться як жива людина, але може розкритися сам — повне приховування не гарантується. Повернути: /honesty on",
@@ -771,6 +903,29 @@ _CFG_STRINGS: dict[str, dict[str, str]] = {
         "cfg_honesty_on_done": "✅ Чесність УВІМК для {client} — на «ти бот?» розкриваюся чесно.",
         "cfg_honesty_usage": "Використання: /honesty on | free (без аргументу — показати режим).",
         "cfg_honesty_fail": "⚠️ Не перемкнув ({reason}). Режим чесності лишився як був.",
+        "cfg_allow_usage": (
+            "Використання: /allow <@user|id> — додати, /allow remove <@user|id> — прибрати, "
+            "/allow list — показати список. Дай відповідь /allow на переслане повідомлення, "
+            "щоб додати його відправника."
+        ),
+        "cfg_allow_confirm_add": "⚠️ Додати {name} в allowlist — Аня відповідатиме цьому контакту ЗАВЖДИ. Підтвердь: /allow {id} confirm",
+        "cfg_allow_confirm_remove": "⚠️ Прибрати {name} з allowlist? Підтвердь: /allow remove {id} confirm",
+        "cfg_allow_added": "✅ {name} додано в allowlist (id {id}).",
+        "cfg_allow_removed": "✅ {name} прибрано з allowlist.",
+        "cfg_allow_already": "{name} вже в allowlist.",
+        "cfg_allow_not_in_list": "{name} не в allowlist — нічого прибирати.",
+        "cfg_allow_not_found": (
+            "⚠️ Не зміг визначити контакт «{target}» — перевір @username/id, або переслати "
+            "його повідомлення і дай відповідь на нього командою /allow."
+        ),
+        "cfg_allow_static_remove_blocked": (
+            "⚠️ {name} (id {id}) — із settings.yaml, а не з /allow. Прибрати можна лише "
+            "правкою файлу і рестартом."
+        ),
+        "cfg_allow_list_header": "📋 Allowlist ({n}):",
+        "cfg_allow_list_empty": "Allowlist порожній.",
+        "cfg_allow_source_runtime": "додано /allow",
+        "cfg_allow_source_static": "із settings.yaml",
     },
 }
 

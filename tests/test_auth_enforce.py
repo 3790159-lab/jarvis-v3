@@ -45,11 +45,24 @@ def mod(monkeypatch):
         ("/api/jarvis/ops/cloudflared", True),
         ("/api/jarvis/ops/disk", True),
         ("/api/jarvis/ops/restarts", True),
+        # Панель ходит не по X-API-Key, а по ключу владельца в query/cookie,
+        # которого этот middleware не видит. Без публичного префикса вход с
+        # телефона получает 401 ещё до роутера. Защита субтри — require_owner
+        # на роутерах, её держит tests/test_panel_routes_owner_guarded.py.
+        ("/panel/login", True),
+        ("/panel/jarvis", True),
+        ("/panel/jarvis/api/snapshot", True),
+        ("/panel/tamapi", True),
         ("/api/tools/execute", False),
         ("/api/jarvis/image/generate", False),
         ("/api/jarvis/tools/internet/research", False),
         ("/docs", False),
         ("/api/jarvis/ops", False),            # exact, no trailing slash — not the prefix
+        # Голый /panel — короткий адрес, который набирают с телефона: он лишь
+        # разводит на панель или на форму входа. Открыт ТОЧНЫМ совпадением, а не
+        # префиксом, иначе публичным станет и `/panelling/secret` строкой ниже.
+        ("/panel", True),
+        ("/panelling/secret", False),          # префикс — это /panel/, а не /panel
     ],
 )
 def test_is_public_path_final(mod, path, expected):

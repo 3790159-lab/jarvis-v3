@@ -111,3 +111,50 @@ def test_changed_paths_empty_on_git_failure():
 
     out = tt.changed_paths("C:/wt", "base1", run=lambda *a, **k: _R())
     assert out == []
+
+
+# ── tests/ живёт в подпапках (tests/chatter/…) — гейт обязан их видеть ───────
+# Инцидент 0f24fd (/allow, 495ec2e1): дифф добавил tests/chatter/test_allow_command.py
+# — самый очевидный кандидат на прогон — а гейт сказал «не маппится ни на один
+# тест», потому что видел только плоский tests/test_*.py.
+def test_new_nested_test_file_in_diff_maps_to_itself():
+    existing = ["tests/chatter/test_allow_command.py", "tests/test_queue.py"]
+    changed = ["tests/chatter/test_allow_command.py"]
+    assert tt.map_paths_to_tests(changed, existing) == ["tests/chatter/test_allow_command.py"]
+
+
+def test_source_maps_to_nested_stem_test():
+    existing = ["tests/chatter/test_console.py"]
+    changed = ["chatter/core/console.py"]
+    assert tt.map_paths_to_tests(changed, existing) == ["tests/chatter/test_console.py"]
+
+
+def test_source_maps_to_every_matching_test_at_any_depth():
+    # Одноимённые тесты в разных пакетах — берём ВСЕ (консервативно), а не первый.
+    existing = ["tests/test_db.py", "tests/chatter/test_db.py"]
+    changed = ["chatter/storage/db.py"]
+    assert tt.map_paths_to_tests(changed, existing) == [
+        "tests/chatter/test_db.py", "tests/test_db.py"]
+
+
+def test_deleted_nested_test_file_not_selected():
+    existing = ["tests/chatter/test_allow_command.py"]
+    changed = ["tests/chatter/test_gone.py"]
+    assert tt.map_paths_to_tests(changed, existing) == []
+
+
+def test_list_test_files_walks_subdirectories(tmp_path):
+    root = tmp_path / "tests"
+    (root / "chatter").mkdir(parents=True)
+    (root / "__pycache__").mkdir()
+    (root / "test_queue.py").write_text("", encoding="utf-8")
+    (root / "chatter" / "test_allow_command.py").write_text("", encoding="utf-8")
+    (root / "chatter" / "conftest.py").write_text("", encoding="utf-8")
+    (root / "__pycache__" / "test_stale.py").write_text("", encoding="utf-8")
+
+    out = tt.list_test_files(str(tmp_path))
+    assert out == ["tests/chatter/test_allow_command.py", "tests/test_queue.py"]
+
+
+def test_list_test_files_empty_when_no_tests_dir(tmp_path):
+    assert tt.list_test_files(str(tmp_path)) == []

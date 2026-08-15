@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$ProjectRoot = "C:\Users\Daniil Lapin\Downloads\supervisor_v1_5_smart_telegram (1)\supervisor_v1_5_smart_telegram"
 )
 

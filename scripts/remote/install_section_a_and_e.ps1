@@ -1,4 +1,4 @@
-# scripts/remote/install_section_a_and_e.ps1
+﻿# scripts/remote/install_section_a_and_e.ps1
 # Runs Sections A (OpenSSH Server) and E (cloudflared service) from
 # docs/REMOTE_ACCESS.md in one go. Requires admin elevation — the script
 # self-elevates via UAC if started without it.

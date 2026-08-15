@@ -1,4 +1,4 @@
-# Restart all Jarvis services gracefully
+﻿# Restart all Jarvis services gracefully
 # Requires: Run as Administrator
 
 param(
@@ -15,7 +15,9 @@ function Restart-JarvisService {
         Restart-Service $Name -Force
         Start-Sleep -Seconds 2
         $svc = Get-Service $Name
-        Write-Host "  $Name: $($svc.Status)" -ForegroundColor $(if ($svc.Status -eq "Running") { "Green" } else { "Red" })
+        # ${Name}, а не $Name: двоеточие после имени PowerShell читает как
+        # квалификатор области видимости ($env:PATH), и файл не парсится целиком.
+        Write-Host "  ${Name}: $($svc.Status)" -ForegroundColor $(if ($svc.Status -eq "Running") { "Green" } else { "Red" })
     } else {
         Write-Host "$Name not installed — skipping" -ForegroundColor Yellow
     }

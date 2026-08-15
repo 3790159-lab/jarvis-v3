@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from dataclasses import dataclass, replace
 
@@ -27,9 +28,16 @@ STAGE_SIGNALS = frozenset(
 _JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
 
 # Условие 1 арки «память»: замер 2026-07-23 на реальной истории дал 157–177
-# ток ответа С профилем (все JSON-ok) — старые 200 были впритык. 500 = запас
-# ×2.5; обрезка при этом лимите = аномалия и ЯВНАЯ деградация (см. classify).
-_CLASSIFIER_MAX_TOKENS = 500
+# ток ответа С профилем (все JSON-ok) — старые 200 были впритык. Обрезка при
+# этом лимите = аномалия и ЯВНАЯ деградация (см. classify).
+#
+# 2026-08-12: 500 → 1000. Замер по 113 живым вызовам показал, что разбор вырос
+# далеко за исходные 177: медиана 248, p90 409, p95 431. Потолок стоял всего на
+# 16% выше p95, и первый же длинный разбор (Т1, 11.08 23:49:50) обрезался —
+# ход стоил ещё и profile miss, то есть память лида за него не обновилась.
+# Запас берём двукратный к p95. Он почти бесплатен: max_tokens — граница, а не
+# расход, платим за фактически выданные токены.
+_CLASSIFIER_MAX_TOKENS = 1000
 
 # Условие 4: потолок профиля. Дефолт = DEFAULT_LIMITS.profile_budget_tokens
 # (прод всегда передаёт значение из settings.limits клиента через
@@ -54,6 +62,11 @@ class ClassifierResult:
     # считает ЛЮБОЙ такой ход как сбой модели — иначе «спасённые» отказы
     # исчезают из статистики и порог алерта никогда не срабатывает.
     retried: bool = False
+    # Обновления слота обязательств (спека 2026-07-24 §4): кортеж dict-ов
+    # {kind, owed_by, status, detail, slug?}. Применяется ВЫЗЫВАЮЩЕЙ стороной
+    # ТОЛЬКО при degraded=False и включённом флаге CHATTER_OBLIGATIONS_SLOT.
+    # Пусто → изменений слота нет. Валидацию делает merge_obligations.
+    obligations: tuple = ()
 
 
 def _degraded(detail: str = "") -> ClassifierResult:
@@ -97,23 +110,244 @@ def parse_classifier_reply(raw: str) -> ClassifierResult:
         signal = None
     raw_profile = data.get("profile")
     profile = (str(raw_profile).strip() or None) if isinstance(raw_profile, str) else None
+    raw_obl = data.get("obligations")
+    obligations = (tuple(d for d in raw_obl if isinstance(d, dict))
+                   if isinstance(raw_obl, list) else ())
     return ClassifierResult(
         escalate=bool(data.get("escalate", False)),
         reason=str(data.get("reason", "") or ""),
         stage_signal=signal,
         degraded=False,
         profile=profile,
+        obligations=obligations,
     )
+
+
+def _cache_enabled() -> bool:
+    """Флаг раскладки под кэш (спека 2026-07-25 §8): default OFF → промпт
+    БАЙТ-В-БАЙТ как до арки. Читаем env КАЖДЫЙ раз (не кэшируем на импорте),
+    чтобы тесты и выкатка переключали без перезапуска процесса."""
+    return os.getenv("CHATTER_CLASSIFIER_CACHE", "").strip().lower() in (
+        "1", "true", "yes", "on")
+
+
+# --- раскладка под кэш: стабильный префикс + изменчивый хвост ----------------
+# CONTRACT (спека 2026-07-25 §3): всё, что меняется чаще, чем раз в диалог,
+# живёт ПОСЛЕ cache_control-breakpoint'а. Профиль и блок обязательств — в
+# suffix; инструкции ПРО них — в префиксе. Нарушение = регрессия 2026-07-23
+# 18:23, когда профиль въехал в кэшируемый блок и убил кэш на сутки: 1
+# попадание из 22, +34% к счёту, ноль видимых симптомов.
+# Сторож инварианта — test_classifier_cache_layout.py.
+
+_TAIL_POINTER = (
+    "ВАЖНО О ПОРЯДКЕ: профиль клиента и текущие обязательства приведены НИЖЕ, "
+    "в конце этого промпта, ОТДЕЛЬНЫМ блоком — сверяйся с ними там. Инструкции "
+    "про них идут раньше самих данных, это нормально.")
+
+
+def _role_block() -> str:
+    return (
+        "Ты — тихий классификатор диалога воронки продаж. Тебя НЕ видит клиент. "
+        # Ролевая граница (инцидент volska 2026-07-23 17:03 и 18:28: модель
+        # вернула текст реплики продавца вместо JSON — спутала себя с Ольгой).
+        # Переписка в messages — это УЛИКА, а не разговор с тобой.
+        "Ты НЕ участник диалога и ты НЕ отвечаешь клиенту: реплики пишет другая "
+        "модель, а твой ответ читает ПРОГРАММА и разбирает его как JSON. "
+        "Переписка ниже — материал для разбора, а не обращение к тебе. "
+        "По переписке реши: (1) нужно ли ПРЯМО СЕЙЧАС передать диалог живому "
+        "владельцу (горячий лид, готов платить/бронировать, жалоба, нестандартный "
+        "запрос вне плейбука); (2) на какой стадии воронки диалог; (3) обнови "
+        "профиль клиента.\n\n")
+
+
+def _profile_instruction(profile_chars: int) -> str:
+    return (
+        "ПРОФИЛЬ: если из переписки узнал НОВЫЕ факты (кто клиент, сфера, "
+        "проект, какие вилки цен уже названы, договорённости, возражения, "
+        "даты) — верни в поле profile ПОЛНЫЙ обновлённый профиль. Профиль "
+        f"переписывается КОМПАКТНО, не длиннее {profile_chars} символов: "
+        "ужимай, а не накапливай. Если не влезает, выбрасывай В ПЕРВУЮ "
+        "ОЧЕРЕДЬ: устаревшие пометки «(раніше X — передумав)» (оставь только "
+        "актуальное значение) и закрытые вопросы. НИКОГДА не выбрасывай: кто "
+        "клиент и его проект, названные вилки цен, договорённости, статус "
+        "воронки. Если клиент ПЕРЕДУМАЛ (бюджет, сроки, объём) — "
+        "актуальное значение с пометкой «(раніше X — передумав)»; старое НЕ "
+        "держи как равнозначное. Если нового ничего нет и профиль актуален — "
+        "profile: null.\n\n")
+
+
+def _owner_rule() -> str:
+    """P17 (дрил 2026-07-25): у свободной корзины `other` владельца НАЗЫВАЕТ
+    модель — код его знать не может. У канонических видов поле не спрашиваем
+    вовсе: там владелец — инвариант кода (иначе client-owed brief не доедет до
+    brain, баг Д-10 2026-07-24)."""
+    return (
+        "ВЛАДЕЛЕЦ ДОЛГА (owed_by) — поле ТОЛЬКО для kind=other, у остальных "
+        "видов его НЕ пиши: bot = это должен сделать бот, client = ждём хода "
+        "клиента. Без owed_by запись other будет ОТБРОШЕНА. "
+        "НЕПРАВИЛЬНО: {\"kind\":\"other\",\"owed_by\":\"bot\","
+        "\"detail\":\"клієнт ще не оплатив\"} — оплата это ход КЛИЕНТА, бот "
+        "такое отработать не может; правильно owed_by=client. "
+        "ПРАВИЛЬНО с bot: {\"kind\":\"other\",\"owed_by\":\"bot\","
+        "\"detail\":\"надішлю договір у понеділок\"}.\n\n")
+
+
+def _obligations_instruction() -> str:
+    return (
+        "ЗОБОВ'ЯЗАННЯ: следи, что бот ДОЛЖЕН лиду (обещанный бриф, примеры "
+        "работ, пересчёт цены, «керівниця напише») и что должен лид. Верни "
+        "массив obligations — по объекту на КАЖДОЕ активное обязательство с "
+        "актуальным статусом. delivered ставь по ВЫПОЛНЕНИЮ ФУНКЦИИ, а НЕ по "
+        "упоминанию слова: brief=квалифицирующие вопросы по существу ЗАДАНЫ "
+        "ботом (сфера/обсяг/стиль/символ-vs-текст/референси) — тогда brief "
+        "СРАЗУ delivered. НЕ держи brief open в ожидании материалов от "
+        "клиента: пока лид не прислал референси/лого — это НЕ открытое "
+        "обязательство БОТА (бот свою функцию выполнил, задав вопросы; "
+        "прислать материал — долг клиента, его в этот слот не пишем). "
+        "examples=дана ссылка на портфоліо; recalc=названа сумма/зафиксирован "
+        "запрос. ПОСЛЕДНЯЯ реплика в переписке — это ответ бота на ЭТОМ ходу: "
+        "если бот в ней что-то ПООБЕЩАЛ (порахувати, передати керівниці, "
+        "надіслати) — долг возникает НА ЦЬОМУ ході, а не на следующем; ждать "
+        "нового сообщения лида НЕЛЬЗЯ. И сразу закрывай по функции: "
+        "recalc=delivered, если сумма названа ЛИБО запрос зафиксирован и "
+        "передан керівниці/владельцу — дальше ответ владельца, а это уже НЕ "
+        "долг бота. owner_write ты только СОЗДАЁШЬ (open), когда обещано "
+        "«керівниця напише»; закрывать или отменять owner_write НЕЛЬЗЯ — его "
+        "статус ведёт ПРОГРАММА по факту доставленной карточки. НЕ создавай "
+        "other, дублирующее по смыслу уже существующее обязательство другого "
+        "вида: уточнение по брифу — это часть brief, а НЕ отдельный other. "
+        "Обязательство БЕЗ изменений можно не возвращать. Это ОТДЕЛЬНЫЙ "
+        "структурный список — НЕ ужимай его при сжатии профиля. Нет "
+        "обязательств — [].\n\n")
+
+
+def _schema_block(language: str, *, track_obligations: bool) -> str:
+    signals = ", ".join(sorted(STAGE_SIGNALS))
+    schema_obl = (', "obligations": [{"kind": "brief|examples|recalc|'
+                  'owner_write|other", "owed_by": "bot|client — ТОЛЬКО для '
+                  'kind=other", "status": '
+                  '"open|delivered|cancelled", "detail": "<=80"}]'
+                  ) if track_obligations else ""
+    return (
+        "Ответь СТРОГО одним компактным JSON-объектом, без пояснений и без "
+        "markdown:\n"
+        '{"escalate": true|false, "reason": "<=120 символов, что хочет лид / '
+        'почему эскалация>", "profile": "<полный обновлённый профиль|null>", '
+        '"stage_signal": "<' + signals + '|null>"' + schema_obl + '}\n'
+        f"reason и profile пиши на языке диалога ({language}).\n\n"
+        # Анти-образец: описания правильного формата оказалось мало — модель
+        # дважды за сутки вернула живую реплику. Показываем сам провал.
+        "НЕПРАВИЛЬНО (так отвечать НЕЛЬЗЯ — это реплика клиенту, а не разбор):\n"
+        "Звучить дуже гармонійно для чайного бренду 🙂 Зелено-бежева палітра "
+        "добре працює на упаковці\n"
+        "ПРАВИЛЬНО:\n"
+        '{"escalate": false, "reason": "обговорює палітру для чайного бренду", '
+        '"profile": "чайний бренд, обрана зелено-бежева палітра", '
+        '"stage_signal": "engaged"}\n'
+        "Если тянет написать связный текст на языке диалога — это признак, что "
+        "ты перепутал роль. Первый символ твоего ответа — «{», последний — «}»."
+    )
+
+
+def classifier_stable_prefix(playbook: str, language: str,
+                             profile_budget_tokens: int = _PROFILE_BUDGET_TOKENS,
+                             *, track_obligations: bool = False) -> str:
+    """Кэшируемая часть: НИ профиля, НИ блока обязательств — только инструкции
+    о них. Меняется на `/reload` плейбука, а не на каждом ходу."""
+    profile_chars = profile_budget_tokens * _CHARS_PER_TOKEN * 2 // 3
+    return (_role_block()
+            + f"=== ПЛЕЙБУК ВОРОНКИ ===\n{playbook}\n\n"
+            + _TAIL_POINTER + "\n\n"
+            + _profile_instruction(profile_chars)
+            + (_obligations_instruction() + _owner_rule() if track_obligations else "")
+            + _schema_block(language, track_obligations=track_obligations))
+
+
+def _pending_reply_block(pending_reply: str) -> str:
+    """Ответ бота ЭТОГО хода — контекстом, а НЕ репликой в переписке.
+
+    P18 требует, чтобы классификатор видел собственные обещания бота сразу. Но
+    дописать ответ в массив сообщений нельзя: разговор обязан заканчиваться
+    репликой лида, иначе API отвечает 400 «does not support assistant message
+    prefill» и классификатор умирает на каждом ходу (инцидент 2026-07-26).
+    Поэтому ответ едет системным блоком — и обязательно ПОСЛЕ breakpoint'а,
+    он изменчив на каждом ходу."""
+    return ("\n=== ВІДПОВІДЬ БОТА НА ЦЬОМУ ХОДУ (щойно згенерована, ще НЕ в "
+            "переписці) ===\n"
+            f"{pending_reply}\n"
+            "Це репліка БОТА. Обіцянки в ній — долг бота, що виник САМЕ зараз.\n")
+
+
+def classifier_volatile_suffix(profile: str | None, obligations_block: str = "",
+                               *, track_obligations: bool = False,
+                               pending_reply: str = "") -> str:
+    """Изменчивый хвост: уходит ОТДЕЛЬНЫМ system-блоком после breakpoint'а."""
+    out = ("=== ПРОФИЛЬ КЛИЕНТА (из прошлых разговоров) ===\n"
+           f"{profile or '(порожній)'}\n")
+    if track_obligations:
+        out += ("\n=== ВІДКРИТІ ЗОБОВ'ЯЗАННЯ (поточні; онови статуси) ===\n"
+                f"{obligations_block or '(порожньо)'}\n")
+    if pending_reply:
+        out += _pending_reply_block(pending_reply)
+    return out
 
 
 def classifier_system_prompt(playbook: str, language: str,
                              profile: str | None = None,
-                             profile_budget_tokens: int = _PROFILE_BUDGET_TOKENS) -> str:
+                             profile_budget_tokens: int = _PROFILE_BUDGET_TOKENS,
+                             *, track_obligations: bool = False,
+                             obligations_block: str = "",
+                             pending_reply: str = "") -> str:
+    """СТАРАЯ сборка (флаг off): всё одной строкой, изменчивое в середине.
+    Оставлена дословно как ветка отката — не рефакторить «заодно»."""
     signals = ", ".join(sorted(STAGE_SIGNALS))
     # Просим ⅔ от жёсткого потолка: модель не считает символы точно, запас
     # между просьбой и рубежом (run.py не применяет профиль сверх потолка)
     # держит нормальную работу вне зоны отсечения.
     profile_chars = profile_budget_tokens * _CHARS_PER_TOKEN * 2 // 3
+    # Слот обязательств (спека 2026-07-24 §4) — ТОЛЬКО при track_obligations.
+    # Иначе obl_section и schema_obl пустые → промпт байт-в-байт как до арки
+    # (приёмка «flag off = поведение как сейчас»).
+    obl_section = ""
+    schema_obl = ""
+    if track_obligations:
+        # owed_by спрашиваем ТОЛЬКО для other (P17): у канонических видов это
+        # инвариант кода (filter_model_updates форсит bot) — иначе client-owed
+        # brief не доедет до brain (баг Д-10 2026-07-24). Поле держим в обеих
+        # сборках: расхождение живого пути и ветки отката — тихая мина.
+        schema_obl = (', "obligations": [{"kind": "brief|examples|recalc|'
+                      'owner_write|other", "owed_by": "bot|client — ТОЛЬКО для '
+                      'kind=other", "status": '
+                      '"open|delivered|cancelled", "detail": "<=80"}]')
+        obl_section = (
+            "=== ВІДКРИТІ ЗОБОВ'ЯЗАННЯ (поточні; онови статуси) ===\n"
+            f"{obligations_block or '(порожньо)'}\n\n"
+            "ЗОБОВ'ЯЗАННЯ: следи, что бот ДОЛЖЕН лиду (обещанный бриф, примеры "
+            "работ, пересчёт цены, «керівниця напише») и что должен лид. Верни "
+            "массив obligations — по объекту на КАЖДОЕ активное обязательство с "
+            "актуальным статусом. delivered ставь по ВЫПОЛНЕНИЮ ФУНКЦИИ, а НЕ по "
+            "упоминанию слова: brief=квалифицирующие вопросы по существу ЗАДАНЫ "
+            "ботом (сфера/обсяг/стиль/символ-vs-текст/референси) — тогда brief "
+            "СРАЗУ delivered. НЕ держи brief open в ожидании материалов от "
+            "клиента: пока лид не прислал референси/лого — это НЕ открытое "
+            "обязательство БОТА (бот свою функцию выполнил, задав вопросы; "
+            "прислать материал — долг клиента, его в этот слот не пишем). "
+            "examples=дана ссылка на портфоліо; recalc=названа сумма/зафиксирован "
+            "запрос. ПОСЛЕДНЯЯ реплика в переписке — это ответ бота на ЭТОМ "
+            "ходу: если бот в ней что-то ПООБЕЩАЛ (порахувати, передати "
+            "керівниці, надіслати) — долг возникает НА ЦЬОМУ ході, а не на "
+            "следующем; ждать нового сообщения лида НЕЛЬЗЯ. И сразу закрывай по "
+            "функции: recalc=delivered, если сумма названа ЛИБО запрос "
+            "зафиксирован и передан керівниці/владельцу — дальше ответ "
+            "владельца, а это уже НЕ долг бота. "
+            "owner_write ты только СОЗДАЁШЬ (open), когда обещано "
+            "«керівниця напише»; закрывать или отменять owner_write НЕЛЬЗЯ — его "
+            "статус ведёт ПРОГРАММА по факту доставленной карточки. НЕ создавай "
+            "other, дублирующее по смыслу уже существующее обязательство другого "
+            "вида: уточнение по брифу — это часть brief, а НЕ отдельный other. "
+            "Обязательство БЕЗ изменений можно не возвращать. Это ОТДЕЛЬНЫЙ "
+            "структурный список — НЕ ужимай его при сжатии профиля. Нет "
+            "обязательств — [].\n\n") + _owner_rule()
     return (
         "Ты — тихий классификатор диалога воронки продаж. Тебя НЕ видит клиент. "
         # Ролевая граница (инцидент volska 2026-07-23 17:03 и 18:28: модель
@@ -141,11 +375,13 @@ def classifier_system_prompt(playbook: str, language: str,
         "актуальное значение с пометкой «(раніше X — передумав)»; старое НЕ "
         "держи как равнозначное. Если нового ничего нет и профиль актуален — "
         "profile: null.\n\n"
+        + obl_section
+        + (_pending_reply_block(pending_reply) + "\n" if pending_reply else "") +
         "Ответь СТРОГО одним компактным JSON-объектом, без пояснений и без "
         "markdown:\n"
         '{"escalate": true|false, "reason": "<=120 символов, что хочет лид / '
         'почему эскалация>", "profile": "<полный обновлённый профиль|null>", '
-        '"stage_signal": "<' + signals + '|null>"}\n'
+        '"stage_signal": "<' + signals + '|null>"' + schema_obl + '}\n'
         f"reason и profile пиши на языке диалога ({language}).\n\n"
         # Анти-образец: описания правильного формата оказалось мало — модель
         # дважды за сутки вернула живую реплику. Показываем сам провал.
@@ -162,27 +398,57 @@ def classifier_system_prompt(playbook: str, language: str,
 
 
 def build_classifier_messages(history: list[dict]) -> list[dict]:
-    return [{"role": m["role"], "content": m["text"]} for m in history]
+    """Переписка для API. Хвостовые реплики БОТА срезаются: разговор обязан
+    заканчиваться сообщением лида, иначе это assistant-prefill и API отвечает
+    400 (инцидент 2026-07-26 — классификатор падал на каждом ходу). Ответ
+    текущего хода до классификатора доезжает системным блоком, см.
+    `_pending_reply_block`."""
+    msgs = [{"role": m["role"], "content": m["text"]} for m in history]
+    while msgs and msgs[-1]["role"] != "user":
+        msgs.pop()
+    return msgs
 
 
 def classify(llm, *, playbook: str, language: str, history: list[dict],
              profile: str | None = None,
-             profile_budget_tokens: int = _PROFILE_BUDGET_TOKENS) -> ClassifierResult:
+             profile_budget_tokens: int = _PROFILE_BUDGET_TOKENS,
+             track_obligations: bool = False, obligations_block: str = "",
+             pending_reply: str = "") -> ClassifierResult:
     """Один дешёвый вызов + ОДИН повтор при невалидном JSON.
     НИКОГДА не бросает: сбой вызова → деградация (§6)."""
-    system = classifier_system_prompt(
-        playbook, language, profile=profile,
-        profile_budget_tokens=profile_budget_tokens)
+    if _cache_enabled():
+        system = classifier_stable_prefix(
+            playbook, language, profile_budget_tokens,
+            track_obligations=track_obligations)
+        volatile = classifier_volatile_suffix(
+            profile, obligations_block, track_obligations=track_obligations,
+            pending_reply=pending_reply)
+    else:
+        system = classifier_system_prompt(
+            playbook, language, profile=profile,
+            profile_budget_tokens=profile_budget_tokens,
+            track_obligations=track_obligations,
+            obligations_block=obligations_block, pending_reply=pending_reply)
+        volatile = None
     messages = build_classifier_messages(history)
 
     def _call(nudge: str | None) -> str:
+        # Слот uncached_suffix один, а претендентов двое: изменчивый хвост и
+        # корректирующий нудж повтора. Нудж ДОПИСЫВАЕТСЯ к хвосту, а не
+        # вытесняет его — иначе повтор потерял бы профиль и обязательства.
+        # При выключенном флаге хвоста нет, и suffix остаётся ровно нуджем
+        # (байт-в-байт прежнее поведение).
+        if volatile is None:
+            suffix = nudge
+        else:
+            suffix = volatile + ("\n\n" + nudge if nudge else "")
         return llm.complete(
             system, messages,
             max_tokens=_CLASSIFIER_MAX_TOKENS,
             # Без этого sonnet-5 (thinking по умолчанию) сжигает весь бюджет
             # на невидимое мышление -> пустой JSON -> деградация (2026-07-22).
             no_thinking=True,
-            uncached_suffix=nudge,
+            uncached_suffix=suffix,
             tag="classifier" if nudge is None else "classifier_retry",
         )
 

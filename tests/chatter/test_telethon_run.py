@@ -278,6 +278,25 @@ def test_switch_toggles_persona_and_sends_plain_ack_not_via_llm():
     asyncio.run(scenario())
 
 
+def test_switch_with_a_single_persona_keeps_it_instead_of_crashing():
+    """Состав из ОДНОЙ персоны — не экзотика, а сегодняшний прод
+    (`CHATTER_PERSONAS=volska` по semidemo-флагу гардиана). `next()` без
+    дефолта бросал StopIteration прямо в обработчик события: лид получал
+    тишину, а причина оставалась в логе. Переключать не на кого — значит
+    персона остаётся та же, и это надо СКАЗАТЬ, а не упасть."""
+    async def scenario():
+        store = Store(":memory:")
+        runner, client = _runner(personas={"demo": _persona_bundle("demo", store=store)})
+
+        await runner.handle_event(FakeEvent(sender_id=ALLOWED, raw_text="/switch"))
+        await asyncio.sleep(0)
+
+        assert runner.persona_for(ALLOWED) == "demo"
+        client.send_message.assert_called_once()
+
+    asyncio.run(scenario())
+
+
 def test_switch_back_and_forth():
     async def scenario():
         runner, client = _runner()

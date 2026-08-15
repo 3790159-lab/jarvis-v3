@@ -112,10 +112,14 @@ def test_usage_sink_receives_model_tag_and_token_fields(fake_sdk):
     assert records[0]["tag"] == "brain"
     assert records[0]["model"] == "claude-sonnet-5"
     assert records[0]["input_tokens"] == 100
+    # cache_creation_5m/1h — разбивка записи по TTL (арка «кэш классификатора»,
+    # фаза 0). У фейкового usage объекта `cache_creation` нет, поэтому здесь
+    # честные нули: сумма известна, разбивка — нет.
     assert records[1] == {
         "tag": "classifier", "model": "claude-sonnet-5",
         "input_tokens": 7, "output_tokens": 33,
         "cache_read_input_tokens": 5000, "cache_creation_input_tokens": 0,
+        "cache_creation_5m": 0, "cache_creation_1h": 0,
     }
 
 

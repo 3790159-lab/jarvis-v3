@@ -1,4 +1,4 @@
-# DEV-1: persistent Claude Code terminal via WSL + tmux.
+﻿# DEV-1: persistent Claude Code terminal via WSL + tmux.
 #
 # Problem: an interactive `claude` session run directly in a PowerShell/SSH
 # window dies the instant SSH drops (laptop sleep, wifi blip, RDP hiccup) -

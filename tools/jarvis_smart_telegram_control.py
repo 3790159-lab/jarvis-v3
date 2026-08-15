@@ -1468,6 +1468,20 @@ def _devtask_full_guard_keyboard(tid: str) -> list:
     ]
 
 
+def _devtask_unmapped_keyboard(tid: str) -> list:
+    """Keyboard for a diff the targeted gate could not map onto any test.
+
+    "Couldn't verify" must never leave [⚠️ Мердж без регресса] as the ONLY way
+    out (task 0f24fd): the full regress is the honest escape hatch and belongs
+    on the same message as the blind override.
+    """
+    return [
+        [{"text": "🧪 Полный регресс", "callback_data": "devtask:mergefull:%s" % tid}],
+        [{"text": "⚠️ Мердж без регресса", "callback_data": "devtask:mergeforce:%s" % tid},
+         {"text": "Отмена", "callback_data": "devtask:mergecancel:%s" % tid}],
+    ]
+
+
 _DEVTASK_MIN_FREE_GB = int(os.getenv("DEVTASK_MIN_FREE_GB", "4"))
 
 
@@ -1812,7 +1826,7 @@ def _devtask_run_targeted(worktree: str, base_head: str, tid: Optional[str] = No
         if _tt.is_docs_only_diff(changed):
             return {"ok": True, "mode": "docs_only",
                     "text": "📄 docs-only дифф (%d файлов) — тесты не требуются" % len(changed)}
-        return {"ok": False, "mode": "targeted",
+        return {"ok": False, "mode": "targeted", "unmapped": True,
                 "text": "🎯 таргет-режим: дифф не маппится ни на один тест "
                         "(%d изменённых путей) — не могу верифицировать точечно" % len(changed)}
     try:
@@ -2006,6 +2020,17 @@ def _devtask_merge(chat_id, tid: str, skip_regress: bool = False,
             q.set_status(tid, item["status"],
                         gate_failed_tests=verdict.get("failed_tests"),
                         gate_log=verdict.get("log_path"))
+        if verdict.get("unmapped"):
+            # «Не смог проверить» ≠ «проверил и красно»: единственной кнопкой
+            # тут раньше оставался слепой мердж (инцидент 0f24fd). Даём честный
+            # выход — полный регресс — рядом с осознанным обходом.
+            send_with_keyboard(
+                chat_id,
+                "🚫 Мердж заблокирован (%s): %s\n"
+                "Точечно верифицировать нечем — прогнать полный регресс или "
+                "мерджить вслепую под свою ответственность?" % (mode, verdict["text"]),
+                _devtask_unmapped_keyboard(tid))
+            return
         send(chat_id, "🚫 Мердж заблокирован (%s): %s\n"
              "Можно принудительно через [⚠️ Мердж без регресса]." % (mode, verdict["text"]))
         return

@@ -423,6 +423,26 @@ def test_shipped_thresholds_are_not_quietly_tuned_up():
             f"память лида должна оставаться видимой.")
 
 
+def test_classifier_token_ceiling_keeps_headroom_over_real_answers():
+    """Потолок ответа классификатора — запас над ФАКТИЧЕСКОЙ длиной разбора, а
+    не «сколько не жалко».
+
+    Замер 12.08 по 113 живым вызовам `tag=classifier`: медиана 248, p90 409,
+    p95 431, max 500. Прежний потолок 500 стоял всего на 16% выше p95 — и
+    первый же ход, где разбор оказался длиннее обычного (Т1, 11.08 23:49:50),
+    обрезался на `max_tokens`. Цена обрыва не только в потерянном разборе: тот
+    же ход дал `profile miss`, то есть память лида за него не обновилась.
+
+    Потолок дешёв: `max_tokens` — это граница, а не расход. Платим за
+    фактически выданные токены, поэтому запас не стоит почти ничего, а его
+    отсутствие стоит хода. Держим двукратный к p95."""
+    from chatter.core.classifier import _CLASSIFIER_MAX_TOKENS
+
+    assert _CLASSIFIER_MAX_TOKENS >= 2 * 431, (
+        "потолок ответа классификатора опущен к p95 живых вызовов — "
+        "следующий длинный разбор снова обрежется на max_tokens")
+
+
 def test_default_thresholds_are_not_quietly_tuned_up():
     """Дефолты ControlConfig — то, что получит НОВЫЙ клиент без блока control."""
     from chatter.config.loader import ControlConfig

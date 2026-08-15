@@ -1,4 +1,4 @@
-# Jarvis Windows Service Uninstaller
+﻿# Jarvis Windows Service Uninstaller
 # Requires: Run as Administrator
 
 $ErrorActionPreference = "Continue"
