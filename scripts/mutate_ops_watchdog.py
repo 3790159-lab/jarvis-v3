@@ -297,12 +297,111 @@ MUTATIONS = [
      '                     % (by_no_ts, _plural(by_no_ts, "запись", "записи", "записей")))',
      T_JOURNAL + "::test_a_record_with_no_usable_time_is_dropped_but_not_called_old"),
 
+    # ── дозапись, маркер ротации, маркер живости (Task 3) ──────────────────
+    #
+    # Врезка плана: маркер дописывается в ТОТ ЖЕ файл и, занимая слот потолка,
+    # не вымывается никогда — потолок режет самые старые записи, а маркер
+    # всегда самый свежий. Обе мутации ниже воспроизводят это копление.
+    ("журнал: маркер ротации занимает слот потолка и вытесняет события",
+     WATCHDOG,
+     '        events = [r for r in on_disk if r.get("kind") != JOURNAL_ROTATED]',
+     "        events = list(on_disk)",
+     T_JOURNAL + "::test_at_the_ceiling_the_journal_does_not_turn_into_markers"),
+
+    ("журнал: прежние маркеры переживают ротацию и копятся", WATCHDOG,
+     "        kept, dropped, why = journal_trim(events, now, max_age_s, max_records)",
+     "        kept, dropped, why = journal_trim(events, now, max_age_s, max_records)\n"
+     '        kept = [r for r in on_disk if r.get("kind") == JOURNAL_ROTATED] + kept',
+     T_JOURNAL + "::test_a_journal_full_of_old_markers_collapses_on_the_first_rotation"),
+
+    ("журнал: маркер ставится на КАЖДОЙ дозаписи, а не при потере", WATCHDOG,
+     "        if dropped:\n            kept.append(",
+     "        if True:\n            kept.append(",
+     T_JOURNAL + "::test_no_marker_appears_when_nothing_was_lost"),
+
+    # Атомарность: `open(p, "w")` поверх живого журнала выглядит рабочим на
+    # любом тесте, который не убивает процесс посреди перезаписи.
+    ("журнал: перезапись поверх живого файла вместо атомарной замены", WATCHDOG,
+     '            tmp = p.with_name(p.name + ".tmp")',
+     "            tmp = p",
+     T_JOURNAL + "::test_a_kill_between_the_temp_file_and_the_swap_loses_nothing"),
+
+    ("журнал: `.tmp` от убитого прогона дописывается, а не перезаписывается",
+     WATCHDOG,
+     '            with open(tmp, "w", encoding="utf-8", newline="") as f:',
+     '            with open(tmp, "a", encoding="utf-8", newline="") as f:',
+     T_JOURNAL + "::test_a_leftover_tmp_from_an_aborted_run_is_overwritten"),
+
+    ("журнал: шва после оборванной строки нет — гибнут ОБЕ записи", WATCHDOG,
+     '            f.write(("\\n" if _needs_seam(p) else "") + "".join(lines))',
+     '            f.write("".join(lines))',
+     T_JOURNAL + "::test_a_torn_line_does_not_swallow_the_next_record"),
+
+    ("журнал: строки режутся splitlines и рвутся по U+2028", WATCHDOG,
+     '    for line in text.split("\\n"):',
+     "    for line in text.splitlines():",
+     T_JOURNAL + "::test_a_line_separator_inside_a_detail_does_not_split_the_record"),
+
+    ("журнал: BOM съедает первую запись файла", WATCHDOG,
+     '        line = line.strip(" \\t\\r\\ufeff")',
+     "        line = line.strip()",
+     T_JOURNAL + "::test_a_byte_order_mark_does_not_eat_the_first_record"),
+
+    ("журнал: чтение останавливается на первой битой строке", WATCHDOG,
+     "        except ValueError:\n            continue",
+     "        except ValueError:\n            break",
+     T_JOURNAL + "::test_reading_does_not_stop_at_the_first_broken_line"),
+
+    # DEV-18: провал записи обязан быть виден и обязан вернуть False — маркер
+    # живости обновляется ТОЛЬКО при True.
+    ("журнал: провал дозаписи выдан за успех", WATCHDOG,
+     '        print("[ops_watchdog] журнал не записан: %s" % exc, file=sys.stderr)\n'
+     "        return False",
+     "        return True",
+     T_JOURNAL + "::test_a_failed_write_does_not_refresh_the_marker"),
+
+    ("журнал: провал обрезки выдан за успех", WATCHDOG,
+     '        print("[ops_watchdog] журнал не обрезан: %s" % exc, file=sys.stderr)\n'
+     "        return False",
+     "        return True",
+     T_JOURNAL + "::test_a_failing_swap_leaves_the_journal_whole"),
+
+    ("журнал: потерянная запись выдана за записанную", WATCHDOG,
+     "    return not lost",
+     "    return True",
+     T_JOURNAL + "::test_a_record_that_cannot_be_serialised_is_loud_and_not_lost_silently"),
+
+    ("журнал: несериализуемая запись роняет цикл сторожа", WATCHDOG,
+     "    except (TypeError, ValueError, RecursionError):",
+     "    except OSError:",
+     T_JOURNAL + "::test_a_record_that_cannot_be_serialised_is_loud_and_not_lost_silently"),
+
+    ("журнал: экзотическое поле стоит всей записи о падении", WATCHDOG,
+     ', default=repr,\n                          skipkeys=True) + "\\n"',
+     ') + "\\n"',
+     T_JOURNAL + "::test_an_exotic_value_travels_as_its_repr_instead_of_killing_the_cycle"),
+
+    ("журнал: пустой цикл всё равно ходит на диск", WATCHDOG,
+     "    if not records:\n        return True",
+     "    if False:\n        return True",
+     T_JOURNAL + "::test_nothing_to_write_does_not_even_create_the_file"),
+
+    ("маркер живости: не записался и промолчал", WATCHDOG,
+     '        print("[ops_watchdog] маркер живости не обновлён: %s" % exc,'
+     " file=sys.stderr)\n        return False",
+     "        return False",
+     T_JOURNAL + "::test_the_marker_of_liveness_fails_loudly_too"),
+
     # Граница stdlib-only (§2.1, ловушка 1). Под pytest корень репозитория и так
     # на `sys.path`, поэтому мутация ниже НЕ ломает загрузку модуля и проходит
     # все прочие сторожа зелёной. Ловит её только подпроцесс без корня на пути.
+    #
+    # Фрагмент — ВЕРХ блока импортов, и он живой: Task 3 добавил `import os`
+    # (нужен `os.replace`), прежний `import json\nimport re` перестал
+    # находиться, и гейт молча считал бы мутацию неприменившейся.
     ("граница stdlib: сторож потянул app/", WATCHDOG,
-     "import json\nimport re",
-     "from app.services import jarvis_farm  # noqa: F401\nimport json\nimport re",
+     "import json\nimport os",
+     "from app.services import jarvis_farm  # noqa: F401\nimport json\nimport os",
      T_JOURNAL + "::test_the_watchdog_path_runs_where_app_and_third_party_are_unimportable"),
 ]
 
