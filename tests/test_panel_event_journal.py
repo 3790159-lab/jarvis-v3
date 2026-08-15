@@ -1069,7 +1069,7 @@ import importlib.util
 import os
 import sys
 
-WATCHDOG, REPO_ROOT = sys.argv[1], os.path.abspath(sys.argv[2])
+WATCHDOG, REPO_ROOT, WORK = sys.argv[1], os.path.abspath(sys.argv[2]), sys.argv[3]
 
 sys.path[:] = [p for p in sys.path
                if os.path.abspath(p or os.getcwd()) != REPO_ROOT]
@@ -1096,13 +1096,41 @@ trs, _st = ow.transitions(fresh, probes, debounce=2)
 assert [t["kind"] for t in trs] == ["down"], trs
 alerts, _st2 = ow.evaluate(fresh, probes, debounce=2)
 assert alerts == ["\\U0001F6A8 DOWN: BACKEND (:8010 /health). нет ответа"], alerts
+
+# Писатель журнала — тот же сторожевой путь, и он тоже обязан работать, когда
+# окружение бэкенда мертво. Пути ЯВНЫЕ и внутри временного каталога: живой
+# `state/` читает прод-сторож каждые 30 с.
+JOURNAL, BEAT = os.path.join(WORK, "j.jsonl"), os.path.join(WORK, "beat")
+NOW = 1000000.0
+
+
+def _rec(ts, detail):
+    return {"ts": ts, "check": "backend", "kind": "down",
+            "reason": "no_response", "detail": detail}
+
+
+# Первая же дозапись проходит ВЕСЬ путь: запись, чтение файла, обрезка (запись
+# древняя), маркер, `.tmp`, `os.replace` — от неё в файле остаётся один маркер.
+assert ow.journal_append([_rec(NOW - 40 * 86400, "древняя")], path=JOURNAL,
+                         now=NOW) is True
+assert ow.journal_append([_rec(NOW, "свежая")], path=JOURNAL, now=NOW) is True
+kinds = [r["kind"] for r in ow.journal_read(JOURNAL)]
+assert kinds == ["rotated", "down"], kinds
+assert ow.touch_beat(path=BEAT, now=NOW) is True
 print("STDLIB-ONLY OK")
 '''
 
 
 def test_the_watchdog_path_runs_where_app_and_third_party_are_unimportable(tmp_path):
     """Несущее требование, а не стиль: сторож обязан сообщить о смерти бэкенда
-    именно тогда, когда мертво его окружение."""
+    именно тогда, когда мертво его окружение.
+
+    Подпроцесс зовёт и ПИСАТЕЛЯ журнала: прежде он гонял только
+    `transitions`/`evaluate`, поэтому ленивый `from app...` внутри
+    `journal_append`/`journal_read`/`touch_beat` этот сторож не поймал бы —
+    а именно ленивый импорт и переживает все прочие тесты зелёным (под pytest
+    корень репозитория лежит на `sys.path`). Журнал пишется во ВРЕМЕННЫЙ путь:
+    живой `state/` читает прод-сторож каждые 30 с."""
     child = tmp_path / "isolated_watchdog_probe.py"
     with open(child, "w", encoding="utf-8", newline="") as fh:
         fh.write(_ISOLATED_CHILD)
@@ -1110,7 +1138,7 @@ def test_the_watchdog_path_runs_where_app_and_third_party_are_unimportable(tmp_p
         # -I: ни PYTHONPATH, ни user-site. -X utf8 командной строкой, а не
         # переменной окружения, — -I стёр бы PYTHONUTF8 вместе с остальными.
         [sys.executable, "-I", "-X", "utf8", str(child),
-         str(ROOT / "scripts" / "ops_watchdog.py"), str(ROOT)],
+         str(ROOT / "scripts" / "ops_watchdog.py"), str(ROOT), str(tmp_path)],
         cwd=str(tmp_path), capture_output=True, text=True,
         encoding="utf-8", errors="replace", timeout=120)
     assert proc.returncode == 0, (

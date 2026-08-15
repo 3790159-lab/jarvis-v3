@@ -489,6 +489,28 @@ MUTATIONS = [
      "import json\nimport os",
      "from app.services import jarvis_farm  # noqa: F401\nimport json\nimport os",
      T_JOURNAL + "::test_the_watchdog_path_runs_where_app_and_third_party_are_unimportable"),
+
+    # Б3: ЛЕНИВЫЙ импорт в шапке не виден — он виден только на вызове. Пока
+    # подпроцесс звал одни `transitions`/`evaluate`, три мутации ниже проходили
+    # бы гейт зелёными: под pytest корень репозитория и так на `sys.path`.
+    ("граница stdlib: ленивый app/ внутри journal_append", WATCHDOG,
+     "    now = time.time() if now is None else now\n    if not records:",
+     "    now = time.time() if now is None else now\n"
+     "    from app.services import jarvis_farm  # noqa: F401\n"
+     "    if not records:",
+     T_JOURNAL + "::test_the_watchdog_path_runs_where_app_and_third_party_are_unimportable"),
+
+    ("граница stdlib: ленивый app/ внутри чтения журнала", WATCHDOG,
+     "    out, unreadable = [], 0",
+     "    from app.services import jarvis_farm  # noqa: F401\n"
+     "    out, unreadable = [], 0",
+     T_JOURNAL + "::test_the_watchdog_path_runs_where_app_and_third_party_are_unimportable"),
+
+    ("граница stdlib: ленивый app/ внутри touch_beat", WATCHDOG,
+     "    p = Path(path or JOURNAL_BEAT)",
+     "    from app.services import jarvis_farm  # noqa: F401\n"
+     "    p = Path(path or JOURNAL_BEAT)",
+     T_JOURNAL + "::test_the_watchdog_path_runs_where_app_and_third_party_are_unimportable"),
 ]
 
 
