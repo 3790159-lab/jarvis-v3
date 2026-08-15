@@ -52,6 +52,7 @@ here — this watchdog covers the complementary gap (backend/bot/tunnel DOWN,
 disk, restart-storm), the cases the bot itself cannot report because it is dead.
 """
 import json
+import os
 import re
 import sys
 import time
@@ -447,6 +448,200 @@ def journal_trim(records: list, now: float,
                      % (by_count, _plural(by_count, "запись", "записи", "записей"),
                         max_records))
     return kept, dropped, " и ".join(parts)
+
+
+# Служебная «проверка» маркера ротации — тем же приёмом, что и `BOOT_KEY`:
+# ключ, который проверкой фермы не является. Вид записи вынесен константой,
+# потому что на него смотрят ДВА места (сборка маркера и его отсев из потолка),
+# и разъехавшись они дали бы ровно ту аварию, которую §7 запрещает.
+JOURNAL_SELF = "_journal"
+JOURNAL_ROTATED = "rotated"
+
+
+def _journal_line(rec) -> str | None:
+    """Одна строка jsonl — или None, если запись не сериализуется вовсе.
+
+    `json.dumps` БРОСАЕТ на bytes, множестве, нестроковом ключе и цикличной
+    ссылке, а цена исключения здесь та же, что у `_record_ts`: `main()` его не
+    ловит, обёртка `ops_watchdog_detached.ps1` пишет heartbeat ДО цикла и глушит
+    traceback в `catch`. Петля жива, heartbeat свеж — сторож выглядит здоровым и
+    не алертит НИКОГДА.
+
+    `default=repr` и `skipkeys=True` — не снисходительность, а выбор цены: поле,
+    которое json не умеет, стоит своего `repr`, а не всей записи о падении.
+    Цикличную ссылку не спасает и это — о ней говорят вслух (DEV-18), см.
+    `journal_append`.
+    """
+    try:
+        return json.dumps(rec, ensure_ascii=False, default=repr,
+                          skipkeys=True) + "\n"
+    except (TypeError, ValueError, RecursionError):
+        return None
+
+
+def journal_read(path) -> list:
+    """Записи журнала. Битые строки пропускаются молча и ПО ОДНОЙ: панель читает
+    файл, который в этот момент дописывает этот процесс, и последняя строка
+    может быть без `\\n`. Она приедет целиком через секунду.
+
+    Пропуск — `continue`, а не выход: остановка на первой непонятной строке
+    стоила бы всего журнала ПОСЛЕ неё, а следом за чтением идёт перезапись —
+    непрочитанное было бы стёрто.
+
+    Делим РОВНО по `"\\n"`, а не `splitlines()`. Формат — newline-delimited
+    JSON, а `splitlines()` режет текст ещё и по U+2028/U+2029/U+0085, которые
+    `json.dumps(ensure_ascii=False)` пишет В СЫРОМ ВИДЕ (проверено фактом):
+    запись с таким символом в `detail` уезжала одной строкой файла и читалась
+    как две битых, то есть событие терялось молча.
+    """
+    out = []
+    try:
+        text = Path(path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return out
+    for line in text.split("\n"):
+        # BOM в списке: файл живёт 30 суток и переживает открытие человеком, а
+        # Блокнот и PowerShell `>` ставят его в начало. `json.loads` на нём
+        # бросает, и ценой была бы ПЕРВАЯ запись файла — самая старая, то есть
+        # ровно та, ради которой в журнал и заглядывают.
+        line = line.strip(" \t\r\ufeff")
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(rec, dict):
+            out.append(rec)
+    return out
+
+
+def _needs_seam(path) -> bool:
+    """Кончается ли файл ОБОРВАННОЙ строкой, к которой нельзя дописывать встык.
+
+    Огрызок без `\\n` оставляет смерть процесса посреди записи. Без шва
+    следующая строка приклеивается к нему, и битой становится ОНА тоже: одна
+    оборванная запись стоила бы двух — старой и новой.
+    """
+    try:
+        with open(path, "rb") as fh:
+            if fh.seek(0, 2) == 0:
+                return False            # файла нет или он пуст — дописывать не к чему
+            fh.seek(-1, 2)
+            return fh.read(1) != b"\n"
+    except OSError:
+        return False
+
+
+def journal_append(records: list, *, path=None, now=None, mkdir: bool = True,
+                   max_age_s: float = JOURNAL_MAX_AGE_S,
+                   max_records: int = JOURNAL_MAX_RECORDS) -> bool:
+    """Дозаписать переходы и при необходимости обрезать журнал.
+
+    True — записали (или писать было нечего); False — не смогли, целиком или
+    частью. Возврат важен: маркер живости обновляется ТОЛЬКО при True, иначе
+    провал записи утонул бы в тишине (§2.5 спеки).
+
+    Обрезка идёт только в момент дозаписи, а дозапись — редкое событие (единицы
+    в сутки), поэтому в обычном цикле она ничего не стоит: файла даже не
+    открываем.
+
+    МАРКЕРЫ НЕ ЗАНИМАЮТ МЕСТА ПОД ПОТОЛКОМ, и в файле их не больше одного.
+    Причина не в аккуратности, а в арифметике (воспроизведено фактом): маркер
+    дописывается в ТОТ ЖЕ файл, а потолок режет самые СТАРЫЕ записи — значит
+    маркер, самая свежая запись, не вымывается никогда. Журнал на потолке терял
+    по ДВЕ настоящих записи за дозапись ради одной новой, и за восемь циклов в
+    файле оказывалось восемь маркеров: ровно в шторме рестартов — сценарии,
+    ради которого потолок и заведён, — журнал деградировал к «журнал обрезан
+    ×8» вместо событий.
+
+    Из двух средств, названных в плане, выбрано СХЛОПЫВАНИЕ (маркеры отсеиваются
+    перед обрезкой и заменяются одним новым), а не только «считать потолок по
+    не-`rotated`»: второе лечит вытеснение событий, но не копление самих
+    маркеров — их не убирает ничто, кроме возраста, и восемь строк «журнал
+    обрезан» подряд всё равно уехали бы на первый экран. Схлопывание даёт оба
+    свойства сразу и лечит файл, доставшийся от прежнего писателя.
+    Цена названа прямо: числа ПРЕЖНИХ ротаций не суммируются и теряются вместе
+    со старым маркером. Маркер отвечает на вопрос «этому списку не хватает
+    записей», а не «сколько их выпало за месяц»; накопительный итог потребовал
+    бы либо шестого поля (§2.2 называет ровно пять), либо разбора собственного
+    текста обратно в число.
+    """
+    now = time.time() if now is None else now
+    if not records:
+        return True                      # незачем заводить файл ради пустоты
+    p = Path(path or JOURNAL_PATH)
+
+    lines, lost = [], 0
+    for rec in records:
+        line = _journal_line(rec)
+        if line is None:
+            lost += 1
+            print("[ops_watchdog] запись журнала не сериализуется: %.200r" % (rec,),
+                  file=sys.stderr)
+        else:
+            lines.append(line)
+    if not lines:
+        return False                     # всё, что было, уже названо на stderr
+
+    try:
+        if mkdir:
+            p.parent.mkdir(parents=True, exist_ok=True)
+        with open(p, "a", encoding="utf-8", newline="") as f:
+            f.write(("\n" if _needs_seam(p) else "") + "".join(lines))
+    except OSError as exc:
+        print("[ops_watchdog] журнал не записан: %s" % exc, file=sys.stderr)
+        return False
+
+    try:
+        on_disk = journal_read(p)
+        events = [r for r in on_disk if r.get("kind") != JOURNAL_ROTATED]
+        kept, dropped, why = journal_trim(events, now, max_age_s, max_records)
+        if dropped:
+            kept.append({"ts": now, "check": JOURNAL_SELF, "kind": JOURNAL_ROTATED,
+                         "reason": "trim", "detail": "отброшено " + why})
+            # Отдельный `.tmp` + `os.replace`, а НЕ `open(p, "w")` поверх живого
+            # файла: смерть процесса посреди перезаписи оставила бы журнал
+            # усечённым тем, что не доехало. Здесь тот же kill оставляет прежний
+            # файл ЦЕЛЫМ (и необрезанным — лишние записи не потеря, следующий
+            # цикл дорежет), а `.tmp` подберёт `open(..., "w")` следующего
+            # прогона. `os.replace` атомарен в пределах тома — `.tmp` лежит
+            # рядом с журналом именно поэтому.
+            tmp = p.with_name(p.name + ".tmp")
+            with open(tmp, "w", encoding="utf-8", newline="") as f:
+                f.write("".join(line for line in map(_journal_line, kept)
+                                if line is not None))
+            os.replace(tmp, p)
+    except OSError as exc:
+        print("[ops_watchdog] журнал не обрезан: %s" % exc, file=sys.stderr)
+        return False
+    return not lost
+
+
+def touch_beat(path=None, now: float | None = None) -> bool:
+    """Маркер живости писателя. Раз в цикл, В КОНЦЕ и только при успехе.
+
+    Пустой журнал двусмыслен: «переходов не было» и «писатель молчит» выглядят
+    одинаково. Свежий маркер + пустой журнал = настоящая тишина; протухший
+    маркер = писатель мёртв или не пишет.
+
+    Существующий `state/ops_watchdog_heartbeat.txt` для этого не годится: его
+    пишет PowerShell-обёртка, то есть он доказывает живость ОБЁРТКИ, а не то,
+    что питоновский цикл дошёл до конца.
+
+    Панель читает mtime, а не содержимое: время внутри — для человека с `type`,
+    и оборванная на середине числа запись не должна ничего значить.
+    """
+    p = Path(path or JOURNAL_BEAT)
+    stamp = time.time() if now is None else now
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with open(p, "w", encoding="ascii", newline="") as f:
+            f.write(str(int(stamp)))
+        return True
+    except OSError as exc:
+        print("[ops_watchdog] маркер живости не обновлён: %s" % exc, file=sys.stderr)
+        return False
 
 
 # ── DEV-24: алерт «машина перезагрузилась» ────────────────────────────────

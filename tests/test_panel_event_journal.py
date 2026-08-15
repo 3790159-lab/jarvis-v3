@@ -10,6 +10,9 @@
 `test_the_watchdog_path_runs_where_app_and_third_party_are_unimportable`.
 """
 import importlib.util
+import json
+import os
+import stat
 import subprocess
 import sys
 import time
@@ -455,6 +458,370 @@ def test_a_clock_before_the_epoch_does_not_kill_the_cycle():
     Арифметика обязана остаться арифметикой, а не отдельной веткой."""
     kept, dropped, why = ow.journal_trim([_rec(-2000.0), _rec(0.0)], -1000.0)
     assert (len(kept), dropped, why) == (2, 0, "")
+
+
+# ── дозапись, маркер ротации, маркер живости: §2.4-§2.5 ────────────────────
+def _read(p):
+    """Читать журнал ТЕМ ЖЕ делением, что и писатель: по "\\n".
+
+    `splitlines()` здесь было бы не строгостью, а сообщничеством: он рвёт текст
+    ещё и по U+2028/U+2029/U+0085, и сторож на этой границе оказался бы зелёным
+    на файле, который панель прочитает иначе."""
+    text = Path(p).read_text(encoding="utf-8")
+    return [json.loads(line) for line in text.split("\n") if line.strip()]
+
+
+def _kinds(p):
+    return [r.get("kind") for r in _read(p)]
+
+
+def test_append_writes_one_line_per_transition(tmp_path):
+    p = tmp_path / "j.jsonl"
+    ok = ow.journal_append([_rec(1.0), _rec(2.0)], path=p, now=3.0)
+    assert ok is True
+    assert len(_read(p)) == 2
+
+
+def test_rotation_leaves_a_marker_in_the_journal(tmp_path):
+    """Молчаливой обрезки не бывает: мы чиним ровно этот класс дефекта —
+    окно, из которого события уезжали без следа."""
+    p = tmp_path / "j.jsonl"
+    now = 1_000_000.0
+    ow.journal_append([_rec(now - 40 * DAY)], path=p, now=now)
+    ow.journal_append([_rec(now)], path=p, now=now)
+    recs = _read(p)
+    marks = [r for r in recs if r["kind"] == "rotated"]
+    assert len(marks) == 1, recs
+    assert "старше 30 сут" in marks[0]["detail"], marks[0]
+
+
+def test_no_marker_appears_when_nothing_was_lost(tmp_path):
+    """Пара к предыдущему и к `test_trimming_nothing_reports_nothing`: маркер,
+    который пишется на КАЖДОЙ дозаписи, — шум, а не сигнал, и первый экран он
+    заливает так же, как его залили одиннадцать одинаковых грязных деревьев."""
+    p = tmp_path / "j.jsonl"
+    now = 1_000_000.0
+    for i in range(5):
+        ow.journal_append([_rec(now - 60.0 + i)], path=p, now=now)
+    assert _kinds(p) == ["down"] * 5, _read(p)
+
+
+def test_at_the_ceiling_the_journal_does_not_turn_into_markers(tmp_path):
+    """НЕСУЩИЙ сторож врезки к Task 3, воспроизведён фактом на плановом коде.
+
+    Маркер ротации дописывается В ТОТ ЖЕ файл. Если он занимает слот потолка,
+    то не вымывается никогда: потолок режет самые СТАРЫЕ записи, а маркер —
+    всегда самая свежая. Журнал на потолке терял по ДВЕ настоящих записи за
+    дозапись ради одной новой, и за восемь циклов в файле оказывалось восемь
+    маркеров: ровно в шторме рестартов — сценарии, ради которого потолок и
+    заведён, — журнал деградировал к «журнал обрезан ×8» вместо событий.
+
+    Числа здесь — арифметика, а не вкус: потолок 20, восемь дозаписей по одной
+    записи. Правильное поведение теряет РОВНО одну старую запись за дозапись,
+    и маркер в файле всегда один."""
+    p = tmp_path / "j.jsonl"
+    now, ceiling = 1_000_000.0, 20
+    ow.journal_append([_rec(now - 1000.0 + i, detail="старая %d" % i)
+                       for i in range(ceiling)],
+                      path=p, now=now, max_records=ceiling)
+    assert _kinds(p) == ["down"] * ceiling, "ровно потолок — ещё не повод резать"
+
+    for i in range(8):
+        ow.journal_append([_rec(now + i, detail="новая %d" % i)],
+                          path=p, now=now + i, max_records=ceiling)
+
+    recs = _read(p)
+    marks = [r for r in recs if r["kind"] == "rotated"]
+    events = [r for r in recs if r["kind"] != "rotated"]
+    assert len(marks) == 1, "маркеры копятся по одному за дозапись: %d" % len(marks)
+    assert len(events) == ceiling, [r["detail"] for r in events]
+    # Восемь новых вытеснили ровно восемь самых старых — не шестнадцать.
+    assert [r["detail"] for r in events] == (
+        ["старая %d" % i for i in range(8, ceiling)]
+        + ["новая %d" % i for i in range(8)]), [r["detail"] for r in events]
+
+
+def test_a_journal_full_of_old_markers_collapses_on_the_first_rotation(tmp_path):
+    """Файл переживает выкатку: к моменту этой правки в живом журнале уже могли
+    накопиться маркеры прежнего писателя. Схлопывание обязано их вылечить, а не
+    ждать, пока они истекут по возрасту."""
+    p = tmp_path / "j.jsonl"
+    now = 1_000_000.0
+    old = ([{"ts": now - 100.0 + i, "check": "_journal", "kind": "rotated",
+             "reason": "trim", "detail": "отброшено %d записей сверх потолка в 3" % i}
+            for i in range(8)]
+           + [_rec(now - 50.0, detail="настоящая")])
+    with open(p, "w", encoding="utf-8", newline="") as fh:
+        fh.write("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in old))
+
+    ow.journal_append([_rec(now, detail="новая")], path=p, now=now, max_records=1)
+    recs = _read(p)
+    assert [r["kind"] for r in recs] == ["down", "rotated"], recs
+    assert recs[0]["detail"] == "новая"
+
+
+def test_the_liveness_marker_is_touched_after_a_successful_write(tmp_path):
+    """Свежий маркер + пустой журнал = настоящая тишина. Без маркера эти два
+    случая на экране неразличимы."""
+    beat = tmp_path / "beat"
+    assert ow.touch_beat(path=beat) is True
+    assert beat.exists()
+
+
+def test_a_failed_write_does_not_refresh_the_marker(tmp_path, capsys):
+    """Провал записи обязан показывать себя протухающим маркером, а не тонуть
+    в тишине. Touch делается ТОЛЬКО после успеха (DEV-18)."""
+    unwritable = tmp_path / "нет" / "такого" / "каталога" / "j.jsonl"
+    # Родителя намеренно не создаём и запрещаем создание.
+    ok = ow.journal_append([_rec(1.0)], path=unwritable, now=2.0, mkdir=False)
+    assert ok is False
+    assert not (tmp_path / "beat").exists()
+    assert "журнал" in capsys.readouterr().err, "провал записи утонул в тишине"
+
+
+def test_the_marker_of_liveness_fails_loudly_too(tmp_path, capsys):
+    """Пара к предыдущему с другого конца: маркер, который не записался,
+    молчать не имеет права — иначе панель увидит протухший маркер и объявит
+    писателя мёртвым, а в логе не будет ни слова о причине."""
+    busy = tmp_path / "занято"
+    busy.write_text("я файл, а не каталог", encoding="utf-8")
+    assert ow.touch_beat(path=busy / "beat") is False
+    assert "маркер живости" in capsys.readouterr().err
+
+
+def test_a_corrupt_journal_line_does_not_stop_the_writer(tmp_path):
+    """Панель читает файл, который дописывает другой процесс. Битая строка не
+    имеет права остановить ни писателя, ни ротацию."""
+    p = tmp_path / "j.jsonl"
+    with open(p, "w", encoding="utf-8", newline="") as fh:
+        fh.write('{"ts": 1.0, "kind": "down"}\nне-json\n')
+    assert ow.journal_append([_rec(2.0)], path=p, now=3.0) is True
+
+
+def test_reading_does_not_stop_at_the_first_broken_line(tmp_path):
+    """`continue` против `break`: строка, которую не разобрали, стоит ОДНОЙ
+    записи, а остановка чтения — всего журнала после неё. Ротация после этого
+    переписала бы файл, оставив в нём только то, что успела прочитать."""
+    p = tmp_path / "j.jsonl"
+    with open(p, "w", encoding="utf-8", newline="") as fh:
+        fh.write("мусор\n"
+                 '{"ts": 1.0, "check": "a", "kind": "down"}\n'
+                 "42\n"                       # JSON, но не запись
+                 "\n"                         # пустая строка
+                 '["список", "тоже не запись"]\n'
+                 '{"ts": 2.0, "check": "b", "kind": "down"}\n')
+    assert [r["check"] for r in ow.journal_read(p)] == ["a", "b"]
+
+
+def test_a_byte_order_mark_does_not_eat_the_first_record(tmp_path):
+    """Файл живёт 30 суток и переживает открытие человеком: Блокнот и
+    PowerShell `>` оставляют BOM, а `json.loads("\\ufeff{...}")` бросает. Ценой
+    была бы первая запись файла — самая старая, то есть та, ради которой в
+    журнал и заглядывают."""
+    p = tmp_path / "j.jsonl"
+    with open(p, "w", encoding="utf-8-sig", newline="") as fh:
+        fh.write('{"ts": 1.0, "check": "a", "kind": "down"}\n')
+    assert [r["check"] for r in ow.journal_read(p)] == ["a"]
+
+
+def test_a_torn_line_does_not_swallow_the_next_record(tmp_path):
+    """Оборванная дозапись оставляет огрызок без "\\n" — этот случай и создаётся
+    смертью процесса посреди записи. Без шва следующая строка приклеивается к
+    огрызку, и гибнет НЕ ТОЛЬКО старое событие, но и новое: одна оборванная
+    запись стоила бы двух."""
+    p = tmp_path / "j.jsonl"
+    with open(p, "w", encoding="utf-8", newline="") as fh:
+        fh.write('{"ts": 1.0, "check": "a", "kind": "down"}\n{"ts": 2.0, "che')
+    assert ow.journal_append([_rec(3.0, check="целая")], path=p, now=4.0) is True
+    assert [r["check"] for r in ow.journal_read(p)] == ["a", "целая"]
+
+
+def test_a_line_separator_inside_a_detail_does_not_split_the_record(tmp_path):
+    """U+2028 `json.dumps(ensure_ascii=False)` пишет В СЫРОМ ВИДЕ, а
+    `str.splitlines()` по нему РЕЖЕТ — проверено фактом. Запись уезжала в файл
+    одной строкой и читалась как две битых, то есть событие терялось молча.
+    `detail` приходит из проб (пути, вывод git, тела ответов), фантазии здесь
+    нет.
+
+    Кавычки, обратный слэш и перевод строки в том же входе: их `json.dumps`
+    экранирует сам, и сторож на этом стоит рядом — граница одна."""
+    p = tmp_path / "j.jsonl"
+    detail = 'строка\u2028вторая\u2029третья\u0085четвёртая "кавычка" \\ и \n перевод'
+    assert ow.journal_append([_rec(1.0, detail=detail)], path=p, now=2.0) is True
+    recs = ow.journal_read(p)
+    assert len(recs) == 1, recs
+    assert recs[0]["detail"] == detail
+
+
+def test_nothing_to_write_does_not_even_create_the_file(tmp_path):
+    """Обычный цикл сторожа — цикл БЕЗ переходов. Заводить ради него файл (и
+    трогать диск раз в 30 с) незачем, а пустой журнал у панели читается так же,
+    как отсутствующий."""
+    p = tmp_path / "j.jsonl"
+    assert ow.journal_append([], path=p, now=1.0) is True
+    assert not p.exists()
+
+
+def test_two_appends_in_a_row_keep_both(tmp_path):
+    """Между дозаписями чтения нет — писатель не держит журнал в памяти. Если
+    вторая дозапись переоткрывает файл на запись, а не на дозапись, первая
+    исчезнет."""
+    p = tmp_path / "j.jsonl"
+    ow.journal_append([_rec(1.0, detail="первая")], path=p, now=2.0)
+    ow.journal_append([_rec(2.0, detail="вторая")], path=p, now=3.0)
+    assert [r["detail"] for r in _read(p)] == ["первая", "вторая"]
+
+
+def test_a_read_only_journal_is_loud_and_not_a_lie(tmp_path, capsys):
+    """Право на запись отбирают и антивирус, и бэкап, и неудачный `icacls`.
+    Молча вернуть True значило бы обновить маркер живости на журнале, который
+    не пишется, — единственное, что панель не имеет права показать."""
+    p = tmp_path / "j.jsonl"
+    ow.journal_append([_rec(1.0)], path=p, now=2.0)
+    os.chmod(p, stat.S_IREAD)
+    try:
+        assert ow.journal_append([_rec(3.0)], path=p, now=4.0) is False
+        assert "журнал" in capsys.readouterr().err
+    finally:
+        os.chmod(p, stat.S_IWRITE | stat.S_IREAD)
+
+
+def test_a_record_that_cannot_be_serialised_is_loud_and_not_lost_silently(
+        tmp_path, capsys):
+    """`json.dumps` БРОСАЕТ на bytes, множестве и цикличной ссылке, а
+    `main()` исключение не ловит: обёртка пишет heartbeat ДО цикла, и сторож,
+    который никогда больше не алертит, выглядит здоровым. Остальные записи
+    цикла обязаны уехать, провал — прозвучать, а маркер живости — НЕ
+    обновиться (`False`)."""
+    p = tmp_path / "j.jsonl"
+    loop = {}
+    loop["сам"] = loop
+    ok = ow.journal_append([_rec(1.0, detail="целая"), loop], path=p, now=2.0)
+    assert ok is False, "потеря записи выдана за успешную запись"
+    assert [r["detail"] for r in _read(p)] == ["целая"]
+    assert "журнал" in capsys.readouterr().err
+
+
+def test_an_exotic_value_travels_as_its_repr_instead_of_killing_the_cycle(tmp_path):
+    """Граница мягче предыдущей: bytes/множество `json.dumps` не умеет, но
+    выбрасывать из-за них ВСЮ запись значит терять событие целиком. Такой ценой
+    сторож не платит — поле уезжает своим `repr`."""
+    p = tmp_path / "j.jsonl"
+    rec = dict(_rec(1.0), detail=b"\xd0\xb1\xd0\xb0\xd0\xb9\xd1\x82\xd1\x8b")
+    assert ow.journal_append([rec], path=p, now=2.0) is True
+    assert len(_read(p)) == 1
+
+
+def test_a_journal_that_is_not_a_journal_does_not_kill_the_writer(tmp_path):
+    """Каталога `state/` может не быть вовсе (свежий клон, worktree), а на
+    месте журнала может лежать что угодно, включая каталог."""
+    fresh = tmp_path / "state" / "глубже" / "j.jsonl"
+    assert ow.journal_append([_rec(1.0)], path=fresh, now=2.0) is True
+    assert len(_read(fresh)) == 1
+
+    as_dir = tmp_path / "каталог.jsonl"
+    as_dir.mkdir()
+    assert ow.journal_read(as_dir) == []
+    assert ow.journal_append([_rec(1.0)], path=as_dir, now=2.0) is False
+
+
+def test_a_leftover_tmp_from_an_aborted_run_is_overwritten(tmp_path):
+    """`.tmp` остаётся ровно от прогона, убитого между записью и заменой.
+    Открывать его на дозапись значило бы склеить два журнала в один битый."""
+    p = tmp_path / "j.jsonl"
+    now = 1_000_000.0
+    tmp = p.with_name(p.name + ".tmp")
+    with open(tmp, "w", encoding="utf-8", newline="") as fh:
+        fh.write("огрызок прошлого прогона\n" * 50)
+
+    ow.journal_append([_rec(now - 40 * DAY), _rec(now)], path=p, now=now)
+    assert [r["kind"] for r in _read(p)] == ["down", "rotated"], _read(p)
+
+
+def test_a_failing_swap_leaves_the_journal_whole(tmp_path, monkeypatch, capsys):
+    """Диск отдаёт OSError ровно в момент замены. Половины журнала не бывает:
+    либо приехал новый файл целиком, либо остался прежний целиком."""
+    p = tmp_path / "j.jsonl"
+    now = 1_000_000.0
+    ow.journal_append([_rec(now - 20.0, detail="старая 0"),
+                       _rec(now - 10.0, detail="старая 1")],
+                      path=p, now=now, max_records=2)
+
+    def _boom(src, dst):
+        raise OSError("диск сказал нет")
+
+    monkeypatch.setattr(ow.os, "replace", _boom)
+    assert ow.journal_append([_rec(now, detail="свежая")], path=p, now=now,
+                             max_records=2) is False
+    assert "журнал" in capsys.readouterr().err
+    # Дозапись состоялась, обрезка — нет. Это законное состояние: следующий
+    # цикл дорежет. Незаконным было бы потерять хоть одну из трёх.
+    assert [r["detail"] for r in _read(p)] == ["старая 0", "старая 1", "свежая"]
+
+
+_KILL_CHILD = '''\
+# -*- coding: utf-8 -*-
+"""Процесс, убитый РОВНО между записью tmp и `os.replace`."""
+import importlib.util
+import os
+import sys
+
+WATCHDOG, JOURNAL = sys.argv[1], sys.argv[2]
+spec = importlib.util.spec_from_file_location("ops_watchdog_killed", WATCHDOG)
+ow = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(ow)
+
+
+def _die(src, dst):
+    os._exit(9)          # ни finally, ни flush, ни атексита — как настоящий kill
+
+
+os.replace = _die
+rec = {"ts": 1000000.0, "check": "новая", "kind": "down",
+       "reason": "r", "detail": "новая"}
+ow.journal_append([rec], path=JOURNAL, now=1000000.0, max_records=2)
+print("НЕ УБИТ: замена не вызывалась")
+'''
+
+
+def test_a_kill_between_the_temp_file_and_the_swap_loses_nothing(tmp_path):
+    """Прямой ответ на «что будет, если процесс убьют посреди ротации».
+
+    Дозапись уже в файле, `.tmp` дописан, замена не случилась. Журнал обязан
+    остаться ЦЕЛЫМ и НЕОБРЕЗАННЫМ: лишние записи — не потеря, следующий цикл
+    дорежет, а вот потеря — необратима. Именно поэтому пишется отдельный `.tmp`
+    и `os.replace`, а не `open(p, "w")` поверх живого файла: во втором случае
+    этот же kill оставил бы журнал усечённым записью, которая не доехала."""
+    p = tmp_path / "j.jsonl"
+    now = 1_000_000.0
+    ow.journal_append([_rec(now - 20.0, detail="старая 0"),
+                       _rec(now - 10.0, detail="старая 1")],
+                      path=p, now=now, max_records=2)
+
+    child = tmp_path / "killed_writer.py"
+    with open(child, "w", encoding="utf-8", newline="") as fh:
+        fh.write(_KILL_CHILD)
+    proc = subprocess.run(
+        [sys.executable, "-X", "utf8", str(child),
+         str(ROOT / "scripts" / "ops_watchdog.py"), str(p)],
+        cwd=str(tmp_path), capture_output=True, text=True,
+        encoding="utf-8", errors="replace", timeout=120)
+    assert proc.returncode == 9, (proc.returncode, proc.stdout, proc.stderr)
+
+    assert [r["detail"] for r in _read(p)] == ["старая 0", "старая 1", "новая"], \
+        "kill посреди ротации оставил полужурнал"
+    assert p.with_name(p.name + ".tmp").exists(), \
+        "предпосылка сторожа сломана: до замены дело не дошло"
+
+    # И следующий живой цикл доводит ротацию до конца поверх чужого `.tmp`.
+    ow.journal_append([_rec(now + 1.0, detail="после")], path=p, now=now + 1.0,
+                      max_records=2)
+    recs = _read(p)
+    assert [r["kind"] for r in recs] == ["down", "down", "rotated"], recs
+    assert [r["detail"] for r in recs][:2] == ["новая", "после"]
+
+
+# ── граница stdlib-only: §2.1 и ловушка 1 спеки ────────────────────────────
 
 
 # ── граница stdlib-only: §2.1 и ловушка 1 спеки ────────────────────────────
