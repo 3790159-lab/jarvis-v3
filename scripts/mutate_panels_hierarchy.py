@@ -740,7 +740,11 @@ MUTATIONS = [
      f"{JV}::test_machine_probe_names_break_at_the_underscore_not_mid_word"),
 
     ("возраст записи снова рвётся посреди слова", JP,
-     [("<td data-l='Когда' class='sub nobreak'>", "<td data-l='Когда' class='sub'>")],
+     # Фрагмент с ХВОСТОМ: голое `data-l='Когда' class='sub nobreak'` есть и в
+     # ленте, и в журнале, а гейт меняет ПЕРВОЕ вхождение — мутация ушла бы в
+     # ленту, и её ловил бы чужой сторож, а этот остался бы слепым.
+     [("<td data-l='Когда' class='sub nobreak'>{esc(_ago(F.journal_ts(r), now))}",
+       "<td data-l='Когда' class='sub'>{esc(_ago(F.journal_ts(r), now))}")],
      f"{JV}::test_machine_probe_names_break_at_the_underscore_not_mid_word"),
 
     # Парная: класс в разметке без правила в CSS — та же порча с другого конца.
