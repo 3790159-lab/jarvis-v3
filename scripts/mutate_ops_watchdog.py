@@ -26,6 +26,7 @@ import subprocess
 import sys
 from itertools import count
 from pathlib import Path
+from gate_guard import refuse_if_live_tree   # DEV-31: гейт мутирует только worktree
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -654,11 +655,22 @@ def run(test: str) -> tuple[bool, str]:
 
     `failed` в выводе, а не только rc: с `-q` pytest пишет итог строкой
     «N failed, M passed», и её отсутствие при rc 1 означает, что упал не тест.
+
+    Кодировка задана ЯВНО, и это не косметика. `text=True` берёт
+    `locale.getpreferredencoding()` = cp1251, а в cp1251 байт `0x98` НЕ
+    ОПРЕДЕЛЁН. В UTF-8 он приходит из «И» (`D0 98`) и из «‘» (`E2 80 98`):
+    стоит одной заглавной «И» попасть в вывод упавшего теста — читающий поток
+    subprocess падает `UnicodeDecodeError`, вывод приходит ПУСТЫМ, `failed` в
+    нём не находится, и КАЖДАЯ такая пойманная мутация печатается слепой.
+    Замерено 15.08: гейт отчитался «38 слепых из 100», притом что сторожа
+    краснели. Ловушка тем и опасна, что срабатывает от ОДНОЙ БУКВЫ в чужом
+    тексте ассерта, а выглядит как приговор сторожам.
     """
     p = subprocess.run(
         [sys.executable, "-m", "pytest", test, "-q", "--no-header",
          "-p", "no:cacheprovider"],
-        cwd=ROOT, capture_output=True, text=True)
+        cwd=ROOT, capture_output=True, text=True,
+        encoding="utf-8", errors="replace")
     out = (p.stdout or "") + (p.stderr or "")
     tail = out.strip().splitlines()[-1] if out.strip() else "(пусто)"
     return (p.returncode == 1 and "failed" in out,
@@ -692,6 +704,7 @@ def write_mutant(path: Path, text: str) -> None:
 
 
 def main() -> int:
+    refuse_if_live_tree(ROOT)
     assert_clean()
     blind = []
     for name, rel, old, new, test in MUTATIONS:

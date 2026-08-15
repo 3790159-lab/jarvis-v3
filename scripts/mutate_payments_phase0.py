@@ -11,6 +11,7 @@ import subprocess
 import sys
 from itertools import count
 from pathlib import Path
+from gate_guard import refuse_if_live_tree   # DEV-31: гейт мутирует только worktree
 
 ROOT = Path(__file__).resolve().parents[1]   # работает и в worktree
 
@@ -1103,7 +1104,8 @@ def run(test: str) -> int:
     Поэтому «не 0» больше не значит «красный»: красный — это РОВНО 1.
     """
     p = subprocess.run([sys.executable, "-m", "pytest", test, "-q", "--no-header", "-p", "no:cacheprovider"],
-                       cwd=ROOT, capture_output=True, text=True)
+                       cwd=ROOT, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
     return p.returncode
 
 
@@ -1127,6 +1129,7 @@ def assert_clean() -> None:
 
 
 def main() -> int:
+    refuse_if_live_tree(ROOT)
     assert_clean()
     blind = []
     for name, rel, old, new, test in MUTATIONS:

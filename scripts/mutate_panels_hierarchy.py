@@ -19,6 +19,7 @@ import subprocess
 import sys
 from itertools import count
 from pathlib import Path
+from gate_guard import refuse_if_live_tree   # DEV-31: гейт мутирует только worktree
 
 ROOT = Path(__file__).resolve().parents[1]   # работает и в worktree
 
@@ -767,21 +768,33 @@ def write_mutant(path: Path, text: str) -> None:
     os.utime(path, (stamp, stamp))
 
 
-def run(test: str) -> bool:
-    """True = тест зелёный."""
-    # encoding задан явно: под Windows `text=True` берёт cp1251, и первый же
-    # кириллический ассерт в выводе pytest роняет читающий поток
-    # UnicodeDecodeError — диагностика слепнет там, где мутация что-то нашла.
+def run(test: str) -> tuple[bool, str]:
+    """(поймана ли мутация, чем именно ответил pytest).
+
+    КРАСНОЕ — это РОВНО `rc 1` плюс `failed` в выводе, а не «любой ненулевой
+    rc» (техдолг DEV-26). Мутация, сломавшая СБОР тестов, отвечает rc 2/4/5:
+    прежним критерием «не 0 значит покраснел» она печаталась бы как
+    пойманная, хотя ни одна проверка не выполнилась. Сторож, которого не
+    существует, — худший вид зелёного: гейт отчитывается за него как за
+    живого.
+
+    `failed` в выводе, а не только rc: с `-q` pytest пишет итог строкой
+    «N failed, M passed», и её отсутствие при rc 1 означает, что упал не тест.
+
+    encoding задан явно: `text=True` берёт cp1251, где байт `0x98` НЕ
+    ОПРЕДЕЛЁН, а он приходит из «И» (`D0 98`) и «‘» (`E2 80 98`). Одна
+    заглавная «И» в выводе упавшего теста роняет читающий поток — вывод
+    приходит пустым, и вердикт гейта меняется от буквы в чужом ассерте.
+    """
     p = subprocess.run(
         [sys.executable, "-m", "pytest", test, "-q", "--no-header",
          "-p", "no:cacheprovider"],
         cwd=ROOT, capture_output=True, text=True,
         encoding="utf-8", errors="replace")
-    if "no tests ran" in p.stdout or "ERROR" in p.stdout[:400]:
-        # Тест не нашёлся по имени — это не «сторож поймал», это опечатка в
-        # адресе. Считаем зелёным, чтобы мутация попала в отчёт как слепая.
-        return True
-    return p.returncode == 0
+    out = (p.stdout or "") + (p.stderr or "")
+    tail = out.strip().splitlines()[-1] if out.strip() else "(пусто)"
+    return (p.returncode == 1 and "failed" in out,
+            "rc=%d | %s" % (p.returncode, tail[:140]))
 
 
 def revert(rel: str) -> None:
@@ -799,6 +812,7 @@ def assert_clean() -> None:
 
 
 def main() -> int:
+    refuse_if_live_tree(ROOT)
     assert_clean()
     blind = []
     for name, rel, edits, test in MUTATIONS:
@@ -815,11 +829,11 @@ def main() -> int:
             mutated = mutated.replace(old, new, 1)
         write_mutant(path, mutated)
         try:
-            green = run(test)
+            caught, why = run(test)
         finally:
             revert(rel)
-        if green:
-            print(f"[СЛЕП] {name}\n        {test} остался ЗЕЛЁНЫМ")
+        if not caught:
+            print(f"[СЛЕП] {name}\n        {test}\n        {why}")
             blind.append((name, test))
         else:
             print(f"[ok]   {name} -> сторож покраснел")

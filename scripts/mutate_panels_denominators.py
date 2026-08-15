@@ -13,6 +13,7 @@ import subprocess
 import sys
 from itertools import count
 from pathlib import Path
+from gate_guard import refuse_if_live_tree   # DEV-31: гейт мутирует только worktree
 
 ROOT = Path(__file__).resolve().parents[1]   # работает и в worktree
 
@@ -163,11 +164,20 @@ def write_mutant(path: Path, text: str) -> None:
 
 
 def run(test: str) -> bool:
-    """True = тест зелёный."""
+    """True = тест зелёный.
+
+    Кодировка задана ЯВНО: `text=True` берёт cp1251, где байт `0x98` НЕ
+    ОПРЕДЕЛЁН, а он приходит из «И» (`D0 98`) и «‘» (`E2 80 98`). Одна
+    заглавная «И» в выводе упавшего теста роняет читающий поток
+    `UnicodeDecodeError`, вывод приходит пустым — и вердикт гейта меняется
+    от буквы в чужом тексте ассерта (замерено 15.08 на mutate_ops_watchdog:
+    «38 слепых из 100» при краснеющих сторожах).
+    """
     p = subprocess.run(
         [sys.executable, "-m", "pytest", test, "-q", "--no-header",
          "-p", "no:cacheprovider"],
-        cwd=ROOT, capture_output=True, text=True)
+        cwd=ROOT, capture_output=True, text=True,
+        encoding="utf-8", errors="replace")
     return p.returncode == 0
 
 
@@ -186,6 +196,7 @@ def assert_clean() -> None:
 
 
 def main() -> int:
+    refuse_if_live_tree(ROOT)
     assert_clean()
     blind = []
     for name, rel, edits, test in MUTATIONS:
