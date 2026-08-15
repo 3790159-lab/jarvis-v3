@@ -522,6 +522,57 @@ MUTATIONS = [
      "    from app.services import jarvis_farm  # noqa: F401\n"
      "    p = Path(path or JOURNAL_BEAT)",
      T_JOURNAL + "::test_the_watchdog_path_runs_where_app_and_third_party_are_unimportable"),
+
+    # ── цикл сторожа: подключение писателя к main() (Task 4) ───────────────
+    #
+    # `main()` не был покрыт НИЧЕМ до 15.08, поэтому мутации ниже ловятся
+    # харнессом `_cycle` в сторожах, а не юнит-тестами `journal_append` и
+    # `reboot_record`: те до `main()` не доходят вовсе и показали бы [СЛЕП].
+    ("цикл: журнал не пишется вовсе", WATCHDOG,
+     "    written = journal_append(journal)",
+     "    written = True",
+     T_JOURNAL + "::test_the_cycle_writes_the_transition_and_touches_the_marker"),
+
+    ("цикл: маркер живости обновляется даже при провале записи", WATCHDOG,
+     "    written = journal_append(journal)\n    if written:\n        touch_beat()",
+     "    written = journal_append(journal)\n    touch_beat()\n"
+     "    if written:\n        pass",
+     T_JOURNAL + "::test_a_failed_journal_leaves_the_marker_stale_and_says_so"),
+
+    ("цикл: ребут больше не попадает в журнал", WATCHDOG,
+     "    if reboot_text and boot_time is not None:",
+     "    if False:",
+     T_JOURNAL + "::test_a_reboot_rides_in_the_same_journal_write"),
+
+    ("цикл: ✅ шлётся о падении, о котором владельцу не говорили", WATCHDOG,
+     '    alerts = [build_alert(t["check"], t["kind"], t["detail"]) for t in to_owner]',
+     '    alerts = [build_alert(t["check"], t["kind"], t["detail"]) for t in journal]',
+     T_JOURNAL + "::test_the_cycle_does_not_alert_about_what_only_the_journal_knows"),
+
+    ("цикл: провал записи журнала молчит вовсе", WATCHDOG,
+     "    for text in journal_alerts:\n        _send_tg(text)",
+     "    for text in []:\n        _send_tg(text)",
+     T_JOURNAL + "::test_a_failed_journal_leaves_the_marker_stale_and_says_so"),
+
+    ("цикл: жалоба на журнал повторяется каждые 30 секунд", WATCHDOG,
+     "    return ([] if was_broken else [JOURNAL_BROKEN_ALERT]), new_state",
+     "    return [JOURNAL_BROKEN_ALERT], new_state",
+     T_JOURNAL + "::test_a_broken_journal_alerts_once_not_every_thirty_seconds"),
+
+    ("цикл: дедуп жалобы не переживает цикл", WATCHDOG,
+     '    new_state[JOURNAL_SELF] = {"alerted": True}',
+     "    new_state.pop(JOURNAL_SELF, None)",
+     T_JOURNAL + "::test_a_broken_journal_alerts_once_not_every_thirty_seconds"),
+
+    ("цикл: о починившемся журнале владельцу не сказали", WATCHDOG,
+     "        return ([JOURNAL_FIXED_ALERT] if was_broken else []), new_state",
+     "        return [], new_state",
+     T_JOURNAL + "::test_a_journal_that_writes_again_says_so_once"),
+
+    ("ребут: запись журнала о ребуте несёт чужое время", WATCHDOG,
+     '    return {"ts": now, "check": BOOT_KEY, "kind": "reboot", "reason": "boot_id",',
+     '    return {"ts": boot_time, "check": BOOT_KEY, "kind": "reboot", "reason": "boot_id",',
+     T_JOURNAL + "::test_a_reboot_becomes_a_journal_record"),
 ]
 
 

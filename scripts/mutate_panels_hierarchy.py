@@ -36,6 +36,7 @@ PS1 = "scripts/chatter_guardian_detached.ps1"
 T = "tests/chatter/test_panels_hierarchy.py"
 FT = "tests/chatter/test_farm_self_match.py"
 FD = "tests/chatter/test_panel_feed.py"
+JV = "tests/chatter/test_panel_journal_view.py"
 
 # Блок статуса целиком — для мутации «порядок блоков». Переставляем его ВЫШЕ
 # долга и денег, то есть возвращаем ровно ту раскладку, с которой начали.
@@ -610,6 +611,110 @@ MUTATIONS = [
      [("Add-Content -LiteralPath $gOut -Value $line -Encoding utf8",
        "Add-Content -LiteralPath $gOut -Value $line")],
      f"{FD}::test_the_guardian_writes_its_log_in_utf8_not_in_the_system_codepage"),
+
+    # ── Заход 2: журнал событий (§4 спеки 2026-08-14) ─────────────────────
+    #
+    # Читатель и писатель — РАЗНЫЕ файлы с продублированным форматом (сторож
+    # stdlib-only, импортировать app/ он не имеет права). Поэтому мутации по
+    # читателю живут здесь, а по писателю — в mutate_ops_watchdog.py.
+    ("молчащий писатель снова читается как тишина фермы", FARM,
+     [("    if beat_age is None or beat_age > JOURNAL_BEAT_FRESH:",
+       "    if False:")],
+     f"{JV}::test_a_stale_marker_means_the_writer_is_silent_not_the_farm"),
+
+    ("тревога о писателе стала вечной", FARM,
+     [("    if beat_age is None or beat_age > JOURNAL_BEAT_FRESH:",
+       "    if True:")],
+     f"{JV}::test_a_fresh_marker_with_an_empty_journal_means_real_silence"),
+
+    ("порог свежести маркера поднят до суток", FARM,
+     [("JOURNAL_BEAT_FRESH = 180.0", "JOURNAL_BEAT_FRESH = 86400.0")],
+     f"{JV}::test_a_stale_marker_means_the_writer_is_silent_not_the_farm"),
+
+    ("маркер из будущего снова принят за свежий", FARM,
+     [("        beat_age = abs(now - (ROOT /", "        beat_age = (now - (ROOT /")],
+     f"{JV}::test_a_marker_from_the_future_is_not_read_as_fresh"),
+
+    ("окно экрана расширено до месяца", FARM,
+     [("JOURNAL_WINDOW_S = 72 * 3600", "JOURNAL_WINDOW_S = 30 * 86400")],
+     f"{JV}::test_records_older_than_the_window_are_not_shown"),
+
+    # Читатель обязан быть НЕ СЛАБЕЕ писателя: обе мутации ниже воспроизводят
+    # молчаливую потерю события, а не падение.
+    ("читатель снова режет журнал по U+2028", FARM,
+     [('    for line in text.split("\\n"):', "    for line in text.splitlines():")],
+     f"{JV}::test_a_line_separator_inside_detail_does_not_split_the_record"),
+
+    ("BOM снова съедает самую старую запись", FARM,
+     [('        line = line.strip(" \\t\\r\\ufeff")', "        line = line.strip()")],
+     f"{JV}::test_a_bom_does_not_eat_the_oldest_record"),
+
+    ("±inf принят за время — запись бессмертна, сортировка сломана", FARM,
+     [('    if ts != ts or ts in (float("inf"), float("-inf")):', "    if ts != ts:")],
+     f"{JV}::test_unreadable_time_does_not_take_down_the_whole_page"),
+
+    ("большое ЦЕЛОЕ время роняет ВЕСЬ первый экран фермы", FARM,
+     [("    except (TypeError, ValueError, OverflowError):",
+       "    except (TypeError, ValueError):")],
+     f"{JV}::test_unreadable_time_does_not_take_down_the_whole_page"),
+
+    ("не-словарь принят за запись — `.get` на числе роняет страницу", FARM,
+     [("    if not isinstance(rec, dict):\n        return None",
+       "    if False:\n        return None")],
+     f"{JV}::test_junk_that_is_not_an_object_is_not_a_record"),
+
+    # ── схлопывание «подавлено → исход» (§4.6) ───────────────────────────
+    ("схлопывание проглотило соседнюю пробу", FARM,
+     [('            if j in consumed or nxt.get("check") != rec.get("check"):',
+       "            if j in consumed:")],
+     f"{JV}::test_other_checks_are_not_swallowed_by_the_collapse"),
+
+    ("подавленное и подтверждение снова две строки", FARM,
+     [('        if not isinstance(rec, dict) or rec.get("kind") != "suppressed":\n'
+       "            out.append(rec)\n            continue",
+       "        out.append(rec)\n        continue")],
+     f"{JV}::test_suppressed_then_down_is_one_line_with_the_confirmation_delay"),
+
+    ("исход схвачен ЧЕРЕЗ промежуточную запись — два инцидента склеены", FARM,
+     [('                row["after_s"] = None if (a is None or b is None) else b - a\n'
+       "            break",
+       '                row["after_s"] = None if (a is None or b is None) else b - a\n'
+       "            continue")],
+     f"{JV}::test_only_the_first_outcome_is_taken_not_any_later_one"),
+
+    ("схлопывание правит запись снапшота на месте", FARM,
+     [("        row = dict(rec)", "        row = rec")],
+     f"{JV}::test_the_incoming_records_are_not_mutated"),
+
+    # ── разметка блока «Что изменилось» (§4.1-§4.3) ──────────────────────
+    ("старые сутки снова выкладываются списком", JP,
+     [('            parts.append(_group(f"{_JOURNAL_TITLES[key]}: {len(buckets[key])}",\n'
+       "                                inner, len(buckets[key])))",
+       '            parts.append(f"<h2>{_JOURNAL_TITLES[key]}</h2>{inner}")')],
+     f"{JV}::test_todays_events_are_open_and_older_days_are_counted"),
+
+    ("сутки снова 24-часовые куски вместо календарных", JP,
+     [("        return (date.fromtimestamp(now) - date.fromtimestamp(t)).days",
+       "        return int((now - t) // 86400)")],
+     f"{JV}::test_a_late_night_event_belongs_to_yesterday_not_to_today"),
+
+    ("молчание писателя снова выглядит списком, которому верят", JP,
+     [("    if note:\n        # Молчание писателя не имеет права выглядеть тишиной фермы.",
+       "    if False:\n        # Молчание писателя не имеет права выглядеть тишиной фермы.")],
+     f"{JV}::test_a_silent_writer_replaces_the_list_with_words"),
+
+    ("пустой журнал молчит вместо утверждения «переходов не было»", JP,
+     [('    if not records:\n        return ("<h2>Что изменилось</h2><div class=\'card\'>"',
+       '    if False:\n        return ("<h2>Что изменилось</h2><div class=\'card\'>"')],
+     f"{JV}::test_an_empty_journal_says_it_out_loud"),
+
+    ("разделитель рестарта снова читается подписью кнопки", JP,
+     [('        if r.get("kind") == _JOURNAL_RESTART:', "        if False:")],
+     f"{JV}::test_the_restart_divider_is_not_a_button_label"),
+
+    ("деталь записи попадает на страницу сырой", JP,
+     [("{esc((r.get('detail') or '')[:110])}", "{(r.get('detail') or '')[:110]}")],
+     f"{JV}::test_a_detail_with_markup_cannot_reach_the_page_raw"),
 ]
 
 
