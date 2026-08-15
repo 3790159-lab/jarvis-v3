@@ -1187,6 +1187,57 @@ def journal(*, now: float | None = None, window_s: float = JOURNAL_WINDOW_S):
     return out, ""
 
 
+def collapse_suppressed(records: list) -> list:
+    """`suppressed` + исход по ТОЙ ЖЕ пробе → одна строка.
+
+    В журнале обе записи законны: писатель фиксирует факты. На экране один
+    инцидент обязан занимать один элемент — приглушённая первая строка всё
+    равно осталась бы вторым элементом про то же событие, а первый экран мы
+    чистили ровно от такого (одиннадцать одинаковых грязных деревьев).
+
+    Исходов ровно три: `down` (подтвердилось), `recovered` (поднялось само),
+    None (окно ещё идёт). Четвёртого нет: `changed` до `down` прийти не может —
+    причина запоминается только вместе с алертом.
+
+    Время строки — время ПЕРВОЙ записи: искать инцидент владелец будет по
+    моменту падения, а не подтверждения.
+
+    Исход берётся ТОЛЬКО у ближайшей следующей записи той же пробы. Схватить
+    его через промежуточную значило бы склеить два разных инцидента в один и
+    соврать о задержке подтверждения.
+
+    Вход не правится на месте: список приезжает из снапшота и переживает
+    вызов — правка добавила бы записи шестое поле, которого формат §2.2 не
+    знает, и следующий читатель нашёл бы его в «сыром» журнале.
+    """
+    records = sorted(records, key=lambda r: _journal_ts(r) or 0.0)
+    consumed, out = set(), []
+    for i, rec in enumerate(records):
+        if i in consumed:
+            continue
+        if not isinstance(rec, dict) or rec.get("kind") != "suppressed":
+            out.append(rec)
+            continue
+        row = dict(rec)
+        row["outcome"], row["after_s"] = None, None
+        for j in range(i + 1, len(records)):
+            nxt = records[j]
+            if j in consumed or nxt.get("check") != rec.get("check"):
+                continue
+            if nxt.get("kind") in ("down", "recovered"):
+                consumed.add(j)
+                row["outcome"] = nxt["kind"]
+                # Задержку считаем ВЫЧИТАНИЕМ, поэтому обе стороны идут через
+                # тот же щит, что и `journal()`: нечитаемое время даёт «исход
+                # есть, задержка неизвестна», а не падение страницы и не
+                # «подтверждено через 17000 лет».
+                a, b = _journal_ts(rec), _journal_ts(nxt)
+                row["after_s"] = None if (a is None or b is None) else b - a
+            break
+        out.append(row)
+    return out
+
+
 def snapshot_fast(table: list[tuple] | None = None) -> dict:
     """Миллисекунды: psutil + два `stat`. Этого достаточно для ответа сверху.
 

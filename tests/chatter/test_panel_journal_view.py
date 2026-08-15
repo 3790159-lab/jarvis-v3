@@ -206,3 +206,88 @@ def test_a_missing_journal_with_a_fresh_marker_is_real_silence(tmp_path, monkeyp
     (tmp_path / "state" / "panel_events.heartbeat").write_text("x", encoding="ascii")
     records, note = F.journal()
     assert records == [] and note == ""
+
+
+# ── схлопывание «подавлено → исход» (§4.6) ─────────────────────────────────
+
+
+def test_suppressed_then_down_is_one_line_with_the_confirmation_delay():
+    now = 1_000_000.0
+    recs = [_rec(now - 600, kind="suppressed"), _rec(now - 300, kind="down")]
+    rows = F.collapse_suppressed(recs)
+    assert len(rows) == 1, rows
+    assert rows[0]["kind"] == "suppressed"
+    assert rows[0]["outcome"] == "down"
+    assert rows[0]["ts"] == now - 600, "время взято от подтверждения, а не от падения"
+    assert rows[0]["after_s"] == 300.0
+
+
+def test_suppressed_then_recovered_says_it_rose_by_itself():
+    now = 1_000_000.0
+    recs = [_rec(now - 600, kind="suppressed"), _rec(now - 300, kind="recovered")]
+    rows = F.collapse_suppressed(recs)
+    assert len(rows) == 1 and rows[0]["outcome"] == "recovered"
+
+
+def test_a_suppressed_fall_with_no_outcome_yet_says_so():
+    rows = F.collapse_suppressed([_rec(1.0, kind="suppressed")])
+    assert len(rows) == 1 and rows[0]["outcome"] is None
+
+
+def test_other_checks_are_not_swallowed_by_the_collapse():
+    """Парный сторож: схлопывание по ОДНОЙ пробе. Схлопнуть соседнюю значит
+    спрятать чужой инцидент."""
+    now = 1_000_000.0
+    recs = [_rec(now - 600, check="backend", kind="suppressed"),
+            _rec(now - 500, check="bot_heartbeat", kind="down"),
+            _rec(now - 300, check="backend", kind="down")]
+    rows = F.collapse_suppressed(recs)
+    assert len(rows) == 2, rows
+    assert {r["check"] for r in rows} == {"backend", "bot_heartbeat"}
+
+
+def test_only_the_first_outcome_is_taken_not_any_later_one():
+    """Между подавлением и исходом может стоять СВОЙ же переход другого вида.
+    Схватить исход через него значит склеить два разных инцидента в один и
+    соврать о задержке подтверждения."""
+    now = 1_000_000.0
+    recs = [_rec(now - 900, kind="suppressed"),
+            _rec(now - 600, kind="suppressed"),
+            _rec(now - 300, kind="down")]
+    rows = F.collapse_suppressed(recs)
+    assert [r["kind"] for r in rows] == ["suppressed", "suppressed"], rows
+    assert rows[0]["outcome"] is None, "исход приписан ЧУЖОМУ подавлению"
+    assert rows[1]["outcome"] == "down"
+
+
+def test_the_incoming_records_are_not_mutated():
+    """Список приезжает из снапшота и переживает вызов: панель рисует его же.
+    Правка на месте оставила бы в снапшоте запись с полем, которого нет в
+    формате §2.2, — и следующий читатель нашёл бы шестое поле."""
+    now = 1_000_000.0
+    recs = [_rec(now - 600, kind="suppressed"), _rec(now - 300, kind="down")]
+    before = [dict(r) for r in recs]
+    F.collapse_suppressed(recs)
+    assert recs == before, recs
+
+
+def test_a_record_with_unreadable_time_is_never_taken_as_an_outcome():
+    """`after_s` считается ВЫЧИТАНИЕМ, и голый `float(...)` здесь роняет
+    страницу так же, как в `journal()`.
+
+    Но щита мало: запись, время которой прочитать нельзя, НЕ УПОРЯДОЧИВАЕТСЯ —
+    «следующей за подавлением» она не является ни в каком смысле. Назвать её
+    исходом значит угадать, а не прочитать, и владелец увидел бы подтверждение
+    падения, которого, возможно, не было. Две честные строки лучше одной
+    выдуманной.
+
+    Через `journal()` такая запись до сюда не доходит (там она отсеивается) —
+    сторож стоит на прямом вызове, потому что функция публичная.
+    """
+    now = 1_000_000.0
+    bad = _rec(now - 300, kind="down")
+    bad["ts"] = "вчера"
+    rows = F.collapse_suppressed([_rec(now - 600, kind="suppressed"), bad])
+    assert len(rows) == 2, rows
+    assert all(r.get("after_s") is None for r in rows), rows
+    assert all(r.get("outcome") is None for r in rows), rows
