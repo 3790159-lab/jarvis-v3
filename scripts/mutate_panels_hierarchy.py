@@ -729,6 +729,24 @@ MUTATIONS = [
      [("        shown = events[:JOURNAL_ROWS_PER_DAY] + anchors",
        "        shown = items[:JOURNAL_ROWS_PER_DAY]")],
      f"{JV}::test_the_restart_anchor_survives_the_cap"),
+
+    # ── типографика журнала (найдено СКРИНШОТОМ приёмки на 707 px) ────────
+    ("имя пробы снова рвётся посреди слова", JP,
+     [("{esc(r.get('check', '—')).replace('_', '_<wbr>')}", "{esc(r.get('check', '—'))}")],
+     f"{JV}::test_machine_probe_names_break_at_the_underscore_not_mid_word"),
+
+    ("фраза вида записи снова рвётся посреди слова", JP,
+     [("<td data-l='Что' class='sub wordsafe'>", "<td data-l='Что' class='sub'>")],
+     f"{JV}::test_machine_probe_names_break_at_the_underscore_not_mid_word"),
+
+    ("возраст записи снова рвётся посреди слова", JP,
+     [("<td data-l='Когда' class='sub nobreak'>", "<td data-l='Когда' class='sub'>")],
+     f"{JV}::test_machine_probe_names_break_at_the_underscore_not_mid_word"),
+
+    # Парная: класс в разметке без правила в CSS — та же порча с другого конца.
+    ("правило wordsafe исчезло из CSS", UI,
+     [(".wordsafe{overflow-wrap:normal}", ".wordsafe{overflow-wrap:anywhere}")],
+     f"{JV}::test_the_wordsafe_rule_exists_in_the_css"),
 ]
 
 

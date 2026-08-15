@@ -440,10 +440,18 @@ def _journal_rows(records, now: float) -> str:
                         "recovered": f", поднялось само через {mins} мин",
                         None: ", исход пока неизвестен"}[r.get("outcome")]
         out.append(
-            f"<tr><td><b>{esc(r.get('check', '—'))}</b></td>"
-            f"<td data-l='Что' class='sub'>{esc(kind + tail)}</td>"
+            # Имя пробы — машинное (`chatter_runner`, `bot_heartbeat`), и
+            # `overflow-wrap:anywhere` рвёт его посреди слова: скриншот приёмки
+            # на 707 px дал «chat/ter_r/unn/er» и «wor/ktre/e». `<wbr>` после
+            # подчёркиваний даёт браузеру ЗАКОННОЕ место переноса — тот же
+            # приём, что у машинных имён в ленте. Вставляется ПОСЛЕ
+            # экранирования: `_` не экранируется, разметку это не рушит.
+            f"<tr><td><b>{esc(r.get('check', '—')).replace('_', '_<wbr>')}</b></td>"
+            # `wordsafe`, а не `nobreak`: «подавлено в загрузочном окне,
+            # подтверждено через 5 мин» с `nowrap` распёрло бы страницу вбок.
+            f"<td data-l='Что' class='sub wordsafe'>{esc(kind + tail)}</td>"
             f"<td data-l='Деталь' class='sub'>{esc((r.get('detail') or '')[:110])}</td>"
-            f"<td data-l='Когда' class='sub'>{esc(_ago(F.journal_ts(r), now))}</td></tr>")
+            f"<td data-l='Когда' class='sub nobreak'>{esc(_ago(F.journal_ts(r), now))}</td></tr>")
     return "".join(out)
 
 

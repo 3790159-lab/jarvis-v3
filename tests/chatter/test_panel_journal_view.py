@@ -475,3 +475,29 @@ def test_the_restart_anchor_survives_the_cap(tmp_path, monkeypatch):
     body = _page(_panel_client(tmp_path, monkeypatch, recs,
                                backend_since=now - 250))
     assert "здесь перезапустился бэкенд" in body, "якорь срезан потолком строк"
+
+
+def test_machine_probe_names_break_at_the_underscore_not_mid_word(tmp_path, monkeypatch):
+    """Найдено СКРИНШОТОМ приёмки на 707 px, не тестом: тридцать сторожей
+    проверяли смысл разметки и ни один — её ширину. Четвёртая колонка ужала
+    вторую до четырёх букв, и `overflow-wrap:anywhere` нарисовал
+    «chat/ter_r/unn/er», «wor/ktre/e» и «нова/я при/чина».
+
+    Три разных лечения на три разных класса значений, и путать их нельзя:
+    машинное имя — `<wbr>` по подчёркиванию, человеческая фраза — перенос
+    только по пробелам, короткий возраст — без переноса вовсе."""
+    now = time.time()
+    body = _page(_panel_client(tmp_path, monkeypatch,
+                               [_rec(now - 60, check="chatter_runner",
+                                     kind="suppressed")]))
+    assert "chatter_<wbr>runner" in body, "машинное имя без места переноса"
+    assert "class='sub wordsafe'" in body, "фраза вида записи рвётся посреди слова"
+    assert "data-l='Когда' class='sub nobreak'" in body, "возраст рвётся посреди слова"
+
+
+def test_the_wordsafe_rule_exists_in_the_css(tmp_path, monkeypatch):
+    """Парный сторож: класс в разметке без правила в CSS — та же порча, только
+    с другого конца, и выглядит она как «всё на месте»."""
+    from app.routers import panels_ui
+
+    assert ".wordsafe{overflow-wrap:normal}" in panels_ui.CSS
