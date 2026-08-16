@@ -393,7 +393,16 @@ def _stub_index(render_result) -> tuple[dict[str, str], list[str]]:
     """
     by_fact: dict[str, str] = {}
     loose: list[str] = []
-    for entry in _entries(_attr(render_result, "stubs")):
+    # `section_stubs` — заглушки ОБЯЗАТЕЛЬНЫХ РАЗДЕЛОВ (R8), вынесенные из
+    # `.stubs` отдельным решением интегратора: там они шли с синтетическим
+    # `fact_id: "section:…"`, и C10 пошла бы сверять факты, которых в словаре
+    # нет. Но выносить их из ОТЧЁТА нельзя: раздел без данных — это ровно то,
+    # о чём владелец обязан узнать. Читаем оба поля, иначе следующий клиент
+    # потеряет их молча — а на брифе Ярины это поле пустое, то есть потеря не
+    # всплыла бы и на приёмке.
+    entries = list(_entries(_attr(render_result, "stubs")))
+    entries += list(_entries(_attr(render_result, "section_stubs")))
+    for entry in entries:
         text = _text(_pick(entry, "text", "line", "stub", "title", "value", default=""))
         fact_id = _pick(entry, "fact_id", "fact", "id")
         if fact_id and any(f.id == fact_id for f in REQUIRED_FACTS):

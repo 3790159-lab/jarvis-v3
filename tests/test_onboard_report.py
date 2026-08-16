@@ -257,6 +257,10 @@ def facts_without_data(doc: dict) -> list:
     return out
 
 
+# ДВЕ формы на одну роль, и путать их нельзя — это ровно тот дефект, который
+# сторожа T2 нашли в живом тексте («точну дату підтверджує нашим старшим
+# майстром»). Именительный стоит подлежащим, орудный — только после предлога.
+OWNER_NOMINATIVE = "старший майстер"
 OWNER_REF = "нашим старшим майстром"
 
 DEFAULTS = [
@@ -357,7 +361,11 @@ class FakeRenderResult:
     def __init__(self, doc, *, defaults=None, counters=None):
         self.defaults = [dict(d) for d in (DEFAULTS if defaults is None else defaults)]
         self.stubs = {
-            f.id: vocabulary.STUB_TEMPLATE_UK.format(title=f.title_uk, owner_ref=OWNER_REF)
+            # Плейсхолдер называется `owner` и требует ИМЕНИТЕЛЬНОГО падежа:
+            # позиция подлежащая («називає X»). `owner_ref` — орудный, он
+            # годится только после предлога, и подстановка его сюда давала бы
+            # лиду «Адреса — називає нашим старшим майстром».
+            f.id: vocabulary.STUB_TEMPLATE_UK.format(title=f.title_uk, owner=OWNER_NOMINATIVE)
             for f in facts_without_data(doc)
         }
         self.files = {
