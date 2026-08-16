@@ -149,3 +149,40 @@ def test_unreadable_enc_status_is_loud(env):
     root, ent = env
     (root / ".env.enc").write_bytes(b"garbage")
     assert re_env.enc_status(root, entropy_path=ent) == "unreadable"
+
+
+# ── 3. entropy берётся от --root, а не от текущего каталога ───────────────
+
+def test_entropy_is_resolved_against_root_not_cwd(tmp_path, monkeypatch):
+    """РЕГРЕССИЯ первого живого запуска обёртки.
+
+    crypto.DEFAULT_ENTROPY_PATH — путь ОТНОСИТЕЛЬНО cwd ('.secrets/entropy.bin').
+    Для раннера это верно (гардиан пускает с -WorkingDirectory C:\\jarvis), для
+    утилиты, запускаемой откуда угодно, — нет: entropy не находится, и
+    ИСПРАВНЫЙ .env.enc докладывается как 'unreadable', то есть здоровье
+    читается как авария. Обёртка так и сделала на первом же прогоне."""
+    monkeypatch.delenv("JARVIS_ENTROPY_FILE", raising=False)
+    (tmp_path / ".secrets").mkdir()
+    generate_entropy(tmp_path / ".secrets" / "entropy.bin")
+    (tmp_path / ".env").write_bytes(b"A=1\n")
+
+    monkeypatch.chdir(tmp_path)
+    re_env.main(["--root", str(tmp_path)])          # создаёт .enc
+    monkeypatch.chdir(tmp_path.parent)              # cwd УЕХАЛ
+
+    assert re_env.main(["--root", str(tmp_path), "--check"]) == 0, (
+        "из чужого каталога статус исправного .env.enc должен остаться in_sync")
+
+
+def test_explicit_entropy_env_wins_over_root(tmp_path, monkeypatch):
+    """Гардиан и тесты пинят entropy явно — их выбор сильнее вывода из root."""
+    monkeypatch.setenv("JARVIS_ENTROPY_FILE", str(tmp_path / "custom.bin"))
+    (tmp_path / ".secrets").mkdir()
+    (tmp_path / ".secrets" / "entropy.bin").write_bytes(b"x" * 32)
+    assert re_env.default_entropy_for(tmp_path) == tmp_path / "custom.bin"
+
+
+def test_no_entropy_under_root_defers_to_crypto(tmp_path, monkeypatch):
+    """Нет своего мнения — не выдумываем путь, пусть решает crypto."""
+    monkeypatch.delenv("JARVIS_ENTROPY_FILE", raising=False)
+    assert re_env.default_entropy_for(tmp_path) is None

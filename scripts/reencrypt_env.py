@@ -48,6 +48,29 @@ def _paths(root) -> tuple[Path, Path]:
     return root / ".env", root / ".env.enc"
 
 
+def default_entropy_for(root, *, environ=None) -> Path | None:
+    """Entropy-файл для ДАННОГО корня.
+
+    ⚠️ `crypto.DEFAULT_ENTROPY_PATH` — путь ОТНОСИТЕЛЬНО cwd
+    (`.secrets/entropy.bin`). Это верно для раннера, которого гардиан пускает
+    с `-WorkingDirectory C:\\jarvis`, но неверно для утилиты, которую
+    запускают откуда угодно: entropy не находится, и `.env.enc` выглядит
+    `unreadable` — то есть исправный файл читается как авария. Ровно это и
+    случилось при первом запуске обёртки.
+
+    Поэтому корень задаёт `--root`, а не текущий каталог. Явный
+    `JARVIS_ENTROPY_FILE` сильнее: им пользуются гардиан и тесты.
+    None — «нет своего мнения», пусть решает crypto (его дефолт).
+    """
+    import os
+    environ = os.environ if environ is None else environ
+    override = environ.get("JARVIS_ENTROPY_FILE")
+    if override:
+        return Path(override)
+    candidate = Path(root) / ".secrets" / "entropy.bin"
+    return candidate if candidate.exists() else None
+
+
 def key_names(data: bytes) -> list[str]:
     """Имена ключей из plaintext-`.env`. ТОЛЬКО имена: отчёт со значением
     секрета — это тот же plaintext-путь, только через stdout."""
@@ -133,7 +156,8 @@ def main(argv: list[str] | None = None) -> int:
                    help="только доложить статус, ничего не писать")
     args = p.parse_args(argv)
 
-    status = enc_status(args.root)
+    ent = default_entropy_for(args.root)
+    status = enc_status(args.root, entropy_path=ent)
     print(f"[reencrypt] статус до: {status}")
 
     if args.check:
@@ -144,7 +168,7 @@ def main(argv: list[str] | None = None) -> int:
         print("[reencrypt] .env.enc уже совпадает с .env — ничего не делаю")
         return 0
     try:
-        for line in reencrypt(args.root):
+        for line in reencrypt(args.root, entropy_path=ent):
             print(f"[reencrypt] {line}")
     except ReencryptError as exc:
         print(f"[reencrypt] ОТКАЗ: {exc}", file=sys.stderr)

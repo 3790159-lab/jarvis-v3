@@ -1,4 +1,4 @@
-# Перешифровать .env -> .env.enc после add_secret.ps1.
+﻿# Перешифровать .env -> .env.enc после add_secret.ps1.
 #
 # ЗАЧЕМ: add_secret.ps1 пишет в PLAINTEXT .env, а bootstrap_env при наличии
 # .env.enc читает ТОЛЬКО .enc (P1P2 §2.1). Без этого шага добавленный ключ до
