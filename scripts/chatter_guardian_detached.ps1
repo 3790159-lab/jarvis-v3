@@ -315,11 +315,20 @@ function Start-Runner {
     # (онбординг-дырка №3). Пути передаём флагами раннера, а не через $env: —
     # переменные окружения процесса гардиана общие для всех клиентов, и второй
     # запуск затирал бы пины первого.
+    # ⚠️ ПАРАМЕТР НАЗЫВАЕТСЯ $DbPath, А НЕ $Db — И ЭТО НЕ КОСМЕТИКА.
+    # [Parameter(...)] выше делает функцию ADVANCED, а такая функция молча
+    # получает общие параметры вместе с алиасами; у -Debug алиас -Db. Вызов
+    # `Start-Runner ... -Db $c.db` падал на ПРИВЯЗКЕ (MetadataException,
+    # ParameterNameConflictsWithAlias) — до первой строки тела, поэтому в логе
+    # не было НИ ОДНОЙ строки Start-Runner, хотя все они безусловные. Ошибка
+    # non-terminating: при $ErrorActionPreference='Continue' цикл шёл дальше,
+    # гардиан бился heartbeat'ом, алертер звался каждый цикл — и клиент лежал
+    # 13 ч 42 мин (инцидент 16.08). Сторож: tests/test_chatter_guardian_relaunch.py.
     param(
         [Parameter(Mandatory)][string]$Slug,
         [string[]]$Personas,
         [string]$Session,
-        [string]$Db
+        [string]$DbPath
     )
     if (-not (Stop-OldRunner -Slug $Slug)) {
         Write-G "[$Slug] Start-Runner: старый раннер жив - запуск отменён (никогда не стартуем поверх живой сессии)"
@@ -329,7 +338,7 @@ function Start-Runner {
     $runnerArgs = @('-u', '-m', 'chatter.telethon_run', '--llm', 'real')
     if ($Personas -and $Personas.Count -gt 0) { $runnerArgs += @('--personas', ($Personas -join ',')) }
     if ($Session) { $runnerArgs += @('--session', $Session) }
-    if ($Db)      { $runnerArgs += @('--db', $Db) }
+    if ($DbPath)  { $runnerArgs += @('--db', $DbPath) }
     $runnerArgs += @('--client', $Slug)
 
     $p = $null
@@ -401,7 +410,7 @@ function Invoke-Converge {
             if ($script:Last[$slug] -ne 'down') { Write-G "[$slug] runner DOWN - перезапуск" }
             Set-ClientState -Slug $slug -State 'down'
             Invoke-WatchCheck -State down -Client $slug
-            $started = Start-Runner -Slug $slug -Personas $c.personas -Session $c.session -Db $c.db
+            $started = Start-Runner -Slug $slug -Personas $c.personas -Session $c.session -DbPath $c.db
             if ($started -and (Test-Runner -Slug $slug)) {
                 $script:Fail[$slug] = 0
                 Set-ClientState -Slug $slug -State 'alive'
