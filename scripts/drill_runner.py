@@ -116,11 +116,14 @@ class LeadProcess:
     оказываются в одном процессе)."""
 
     def __init__(self, *, session: str, peer: int, max_messages: int,
+                 peer_username: str | None = None,
                  python: str | None = None, log=say):
         script = Path(__file__).resolve().parent / "drill_lead.py"
         cmd = [python or sys.executable, str(script),
                "--session", session, "--peer", str(peer),
                "--max-messages", str(max_messages)]
+        if peer_username:
+            cmd += ["--peer-username", peer_username]
         self._log = log
         self._p = subprocess.Popen(
             cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -128,8 +131,18 @@ class LeadProcess:
             bufsize=1, env={**os.environ, "PYTHONUTF8": "1"})
         ready = self._readline()
         if "готов" not in ready:
+            # Дочитываем ВСЁ, что лид успел сказать. Первая строка падения —
+            # это «Traceback (most recent call last):», то есть ровно ноль
+            # сведений о причине: 17.08 отказ по TELEGRAM_API_ID выглядел как
+            # пустой трейсбек, и причину пришлось искать отдельным запуском.
+            rest = ""
+            try:
+                rest = self._p.stdout.read() or ""
+            except Exception:                         # noqa: BLE001
+                pass
             self.close()
-            raise RuntimeError(f"лид не поднялся: {ready.strip() or '(тишина)'}")
+            raise RuntimeError("лид не поднялся: "
+                               + ((ready + rest).strip() or "(тишина)"))
         self._log(f"лид поднят: {ready.strip()}")
 
     def _readline(self) -> str:
@@ -476,6 +489,10 @@ def main(argv=None, *, lead_factory=None) -> int:
     ap.add_argument("--lead-peer", type=int, default=None,
                     help="кому пишет лид (аккаунт клиента); сверяется с "
                          "allowlist'ом внутри drill_lead")
+    ap.add_argument("--lead-peer-username", default=None,
+                    help="username того же аккаунта — нужен, пока у лида нет "
+                         "диалога с ним (Telethon не резолвит голый id). "
+                         "Разрешение всё равно по --lead-peer")
     ap.add_argument("--lead-python", default=None)
     a = ap.parse_args(argv)
     if a.auto_lead:
@@ -575,6 +592,7 @@ def main(argv=None, *, lead_factory=None) -> int:
         factory = lead_factory or LeadProcess
         try:
             lead = factory(session=a.lead_session, peer=a.lead_peer,
+                           peer_username=a.lead_peer_username,
                            # Потолок = ровно длина сценария: зацикленный
                            # оркестратор упрётся в него раньше, чем в дефолт.
                            max_messages=len(sc.steps), python=a.lead_python)

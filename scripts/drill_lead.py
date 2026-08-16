@@ -98,6 +98,26 @@ def check_peer_allowed(peer: int, allowed: frozenset[int]) -> None:
             f"должна становиться сообщением незнакомому человеку")
 
 
+def check_resolved_identity(peer: int, resolved_id: int, username: str) -> None:
+    """Сверка «нашли по имени ровно того, кому разрешено».
+
+    `--peer-username` существует потому, что Telethon не резолвит ГОЛЫЙ id,
+    которого нет в кэше сущностей: `StringSession` стартует пустой, а с новым
+    аккаунтом персоны у лида ещё нет диалога (17.08, Ярина — «Could not find
+    the input entity»). С Ольгой это не всплывало: диалог T1↔TAMAPI живёт
+    с 05.08, и её id резолвился.
+
+    🔴 Имя — это способ НАЙТИ, а не способ РАЗРЕШИТЬ. Разрешение остаётся
+    числовым (`drill_lead_peers.txt`), иначе username стал бы обходом
+    allowlist: занятое кем-то другим или переданное имя увело бы реплику
+    сценария живому человеку. Поэтому id, найденный по имени, обязан
+    СОВПАСТЬ с уже разрешённым, а расхождение — отказ до первой отправки."""
+    if int(resolved_id) != int(peer):
+        raise LeadError(
+            f"@{username} — это id {resolved_id}, а разрешён {peer}. Имя могло "
+            f"смениться или его занял другой аккаунт; отправлять не буду")
+
+
 def check_session_allowed(session_path: str | Path) -> Path:
     """Сессия обязана быть дрил-сессией и обязана быть зашифрованной."""
     p = Path(session_path)
@@ -143,7 +163,7 @@ def human_pause(rnd: random.Random, *, lo: float, hi: float) -> float:
 class _TelethonSender:
     """Открывает СВОЮ сессию и умеет только `send_message` в один peer."""
 
-    def __init__(self, enc_path: Path, peer: int):
+    def __init__(self, enc_path: Path, peer: int, username: str | None = None):
         # telethon.sync (а не голый telethon) — тот же приём, что в
         # telethon_login: вызовы становятся блокирующими, и лид остаётся
         # простым stdin-циклом без своего event-loop.
@@ -162,6 +182,18 @@ class _TelethonSender:
         self._client.connect()
         if not self._client.is_user_authorized():
             raise LeadError("сессия лида не авторизована — перелогинить аккаунт")
+        if username:
+            # Резолв по имени греет кэш сущностей ЭТОГО процесса: голый id без
+            # диалога Telethon не разворачивает. Отправляем потом по найденной
+            # сущности, но только если её id совпал с разрешённым.
+            try:
+                entity = self._client.get_entity(username.lstrip("@"))
+            except Exception as exc:                  # noqa: BLE001 — DEV-18
+                raise LeadError(
+                    f"@{username.lstrip('@')} не резолвится ({exc}) — "
+                    f"отправлять некому") from None
+            check_resolved_identity(peer, int(entity.id), username.lstrip("@"))
+            self._peer = entity
 
     def send(self, text: str) -> int:
         msg = self._client.send_message(self._peer, text)
@@ -183,6 +215,10 @@ def main(argv=None, *, stdin=None, sender=None, sleep=None, out=None,
     ap = argparse.ArgumentParser(description="Отправитель реплик лида (Э2).")
     ap.add_argument("--session", required=True)
     ap.add_argument("--peer", required=True, type=int)
+    ap.add_argument("--peer-username", default=None,
+                    help="username того же аккаунта — ТОЛЬКО чтобы Telethon "
+                         "нашёл сущность, когда диалога ещё нет; разрешение "
+                         "остаётся числовым, расхождение id = отказ")
     ap.add_argument("--max-messages", type=int, default=DEFAULT_MAX_MESSAGES)
     ap.add_argument("--pause-min", type=float, default=PAUSE_MIN)
     ap.add_argument("--pause-max", type=float, default=PAUSE_MAX)
@@ -214,7 +250,7 @@ def main(argv=None, *, stdin=None, sender=None, sleep=None, out=None,
 
     if sender is None:
         try:
-            sender = _TelethonSender(enc, a.peer)
+            sender = _TelethonSender(enc, a.peer, a.peer_username)
         except LeadError as exc:
             emit(f"[lead] FAIL: {exc}")
             return 2

@@ -117,6 +117,38 @@ def test_allowed_peer_sends(mod, root):
     assert "SENT " in out
 
 
+# ── ПРЕДОХРАНИТЕЛЬ 1bis: username НАХОДИТ, но не РАЗРЕШАЕТ ───────────────────
+#
+# Повод (17.08, онбординг Ярины): Telethon не разворачивает голый id, которого
+# нет в кэше сущностей, а `StringSession` стартует пустой — с новым аккаунтом
+# персоны у лида ещё нет диалога, и первая же реплика упала «Could not find
+# the input entity». С Ольгой это не всплывало: диалог живёт с 05.08.
+#
+# Контракт: имя — способ НАЙТИ. Разрешение остаётся числовым, иначе username
+# стал бы обходом allowlist — занятое кем-то другим или переданное имя увело
+# бы реплику сценария живому человеку.
+
+
+def test_username_resolving_to_the_allowed_id_is_fine(mod):
+    mod.check_resolved_identity(8153004491, 8153004491, "Zatyshok2025")
+
+
+def test_username_resolving_to_a_DIFFERENT_id_is_refused(mod):
+    """Имя сменили или его занял другой аккаунт — отправлять нельзя."""
+    with pytest.raises(mod.LeadError) as exc:
+        mod.check_resolved_identity(8153004491, 777001, "Zatyshok2025")
+    text = str(exc.value)
+    assert "777001" in text and "8153004491" in text, \
+        "в отказе обязаны стоять ОБА id — иначе не видно, что с чем разошлось"
+
+
+def test_username_is_not_a_second_allowlist(mod):
+    """Прямой сторож обхода: id, найденный по имени, не получает права
+    отправки сам по себе — он обязан совпасть с уже разрешённым числом."""
+    with pytest.raises(mod.LeadError):
+        mod.check_resolved_identity(777000, 999999, "someone")
+
+
 def test_peers_file_junk_line_is_loud(mod, root):
     """Мусор в файле разрешений — ошибка, а не «пропустим строку»: иначе
     затёртый id молча превращается в пустой список."""
