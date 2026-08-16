@@ -40,7 +40,7 @@ clients:
   # Включить раньше — гардиан будет циклично пытаться поднять раннер без
   # сессии; registry_cli отдаст runnable=false с ошибкой про сессию.
   yarina:
-    enabled: false
+    enabled: true
     personas: [yarina]
     session: .secrets/yarina.session
     db: .secrets/yarina.db
