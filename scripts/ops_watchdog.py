@@ -121,6 +121,15 @@ LABELS = {
 CHATTER_BEAT_MAX_AGE_S = 180
 CHATTER_RUNNER_MARKER = "chatter.telethon_run"
 
+# ДВЕ ФОРМЫ ОТМЕТКИ ЖИВОСТИ, и знать нужно обе.
+#   легаси          — один безымянный раннер пишет chatter_heartbeat.txt
+#   мультиклиентная — раннер клиента пишет chatter_heartbeat_<slug>.txt
+# 16.08 проба знала только первую, а раннер писал вторую: «heartbeat 49398с
+# тому» при ЖИВОМ процессе, fail дорос до 1625 и не восстановился бы никогда.
+# Сторож, который всегда красный при нормальной работе, — это фон, а не сторож.
+CHATTER_BEAT_LEGACY_NAME = "chatter_heartbeat.txt"
+CHATTER_BEAT_CLIENT_GLOB = "chatter_heartbeat_*.txt"
+
 # Ops sub-checks, probed only when the backend itself answers (they are served
 # BY the backend, so when it is down they are unreachable, not "recovered").
 _OPS_ENDPOINTS = {
@@ -1044,7 +1053,34 @@ def _norm(text: str) -> str:
     return (text or "").replace("\\", "/").lower()
 
 
-def probe_chatter_runner(processes, *, beat_age, root, semidemo_flag=False):
+def chatter_beat_age(ages):
+    """Возраст живости chatter по ОБЕИМ формам отметки -> (возраст, источник).
+
+    Берём САМУЮ СВЕЖУЮ отметку, а не самую старую, и это осознанный выбор.
+    Смена формы оставляет файл-сироту (после отката 16.08 таким остался
+    `chatter_heartbeat_volska.txt`), и правило «красим по самому старому»
+    сделало бы каждого выведенного клиента вечным красным — то есть заменило
+    бы одно «врёт навсегда» другим.
+
+    ⚠️ НАЗВАННОЕ ОГРАНИЧЕНИЕ: пока жив хоть один клиент, смерть соседа этот
+    канал не покажет. Так и задумано — проба даёт ОДИН булев сигнал про
+    chatter в целом и реестра не знает (её проверка процесса ровно так же
+    «любой раннер», а не «каждый»). Per-client ливность — работа гардиана.
+    Ограничение зафиксировано тестом, чтобы всплыло при подключении второго
+    клиента, а не выяснилось следующей аварией.
+
+    Источник возвращаем вместе с возрастом: без имени файла разбор аварии
+    снова начинается с догадки, по какой разметке вынесен вердикт.
+    """
+    known = {name: age for name, age in (ages or {}).items() if age is not None}
+    if not known:
+        return (None, None)
+    source = min(known, key=lambda name: known[name])
+    return (known[source], source)
+
+
+def probe_chatter_runner(processes, *, beat_age, root, semidemo_flag=False,
+                         beat_source=None):
     """Раннер жив? Процесс И свежий heartbeat — оба условия обязательны:
     живой процесс с протухшим beat это зависший раннер, а не здоровье.
 
@@ -1079,7 +1115,12 @@ def probe_chatter_runner(processes, *, beat_age, root, semidemo_flag=False):
         # дедупа означал бы алерт раз в 30 секунд.
         return {"ok": False, "reason": "stale_heartbeat",
                 "detail": "heartbeat %.0fс тому (поріг %ds)" % (beat_age, CHATTER_BEAT_MAX_AGE_S)}
-    return {"ok": True, "detail": "PID %s, heartbeat %.0fс тому" % (alive[0].get("pid"), beat_age)}
+    # Имя файла в detail: оператор обязан видеть, ПО КАКОЙ разметке вынесен
+    # вердикт. Ровно этого не хватило 16.08, чтобы отличить «раннер мёртв» от
+    # «сторож смотрит не туда».
+    src = " (%s)" % beat_source if beat_source else ""
+    return {"ok": True, "detail": "PID %s, heartbeat %.0fс тому%s"
+                                  % (alive[0].get("pid"), beat_age, src)}
 
 
 def probe_chatter_guardian(processes, *, lock_pid, beat_age):
@@ -1265,7 +1306,7 @@ def probe_all(http_get, disk_usage, min_disk_gb: float = MIN_DISK_GB,
         cs = chatter_snapshot
         probes["chatter_runner"] = probe_chatter_runner(
             cs.get("processes"), beat_age=cs.get("runner_beat_age"),
-            root=cs.get("root", ROOT))
+            root=cs.get("root", ROOT), beat_source=cs.get("runner_beat_source"))
         probes["chatter_guardian"] = probe_chatter_guardian(
             cs.get("processes"), lock_pid=cs.get("guardian_lock_pid"),
             beat_age=cs.get("guardian_beat_age"))
@@ -1366,9 +1407,21 @@ def _chatter_snapshot() -> dict | None:
                               "cmdline": " ".join(proc.info["cmdline"] or [])})
             except Exception:
                 continue
+        # Собираем ОБЕ формы отметки: легаси-файл и все per-slug. Шаблон узкий
+        # намеренно — рядом в state лежат chatter_clients.json и
+        # chatter_watch_alert_<slug>.json, живостью они не являются.
+        state_dir = ROOT / "state"
+        beats = {CHATTER_BEAT_LEGACY_NAME: _file_age(state_dir / CHATTER_BEAT_LEGACY_NAME)}
+        try:
+            for p in sorted(state_dir.glob(CHATTER_BEAT_CLIENT_GLOB)):
+                beats[p.name] = _file_age(p)
+        except OSError:
+            pass
+        runner_beat_age, runner_beat_source = chatter_beat_age(beats)
         return {
             "processes": procs,
-            "runner_beat_age": _file_age(ROOT / "state" / "chatter_heartbeat.txt"),
+            "runner_beat_age": runner_beat_age,
+            "runner_beat_source": runner_beat_source,
             "guardian_beat_age": _file_age(ROOT / "state" / "chatter_guardian_heartbeat.txt"),
             "guardian_lock_pid": _read_lock_pid(ROOT / "state" / "locks" / "chatter_guardian.pid"),
             "root": str(ROOT),
