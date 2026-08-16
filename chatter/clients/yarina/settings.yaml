@@ -100,7 +100,12 @@ telegram:
   # Вмикати ТІЛЬКИ командою пульта: /funnel_gate on confirm
   funnel_gate: false
 control:
-  control_bot_token_env: CHATTER_CONTROL_BOT_TOKEN   # ІМ'Я env-змінної, НЕ токен
+  # ⚠️ СВОЯ env-змінна, НЕ спільна з Ольгою. Тут ІМ'Я змінної, НЕ токен.
+  # Два раннери з ОДНАКОВИМ ім'ям читали б ОДИН токен і билися б за
+  # getUpdates: Telegram віддає long-poll рівно одному споживачу, другий
+  # отримує 409 Conflict, і команди пульта прилітали б то одному боту, то
+  # іншому — навпіл, без жодної помилки в лозі.
+  control_bot_token_env: CHATTER_CONTROL_BOT_TOKEN_YARINA
   owner_chat_id: 237616472        # картки Ярини йдуть сюди
   classifier_enabled: true
   # УГОВІР 2026-07-23: алерт три дні поспіль → лагодимо КОРІНЬ класифікатора,

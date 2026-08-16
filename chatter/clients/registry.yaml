@@ -26,3 +26,21 @@ clients:
     personas: [demo, demo2]
     session: .secrets/demo.session
     db: .secrets/demo.db
+
+  # Ярина — ОТДЕЛЬНЫЙ аккаунт (доп. номер владельца), а НЕ подмена состава на
+  # аккаунте Ольги: демо 14.08 крутилось именно так, и это ровно тот механизм,
+  # который арка убрала. Пути свои, с volska ничего не делит.
+  #
+  # enabled: false ДО завершения онбординга. Порядок обязателен:
+  #   1) интерактивный логин -> .secrets/yarina.session.enc
+  #   2) пересъём бандла секретов (§12) — иначе в бэкапе мёртвый auth
+  #   3) CHATTER_CONTROL_BOT_TOKEN_YARINA в окружении (свой бот, см. ниже)
+  #   4) дрилы 1-7 из ONBOARDING_MANUAL §5
+  #   5) только тогда enabled: true + рестарт ТАСКА гардиана
+  # Включить раньше — гардиан будет циклично пытаться поднять раннер без
+  # сессии; registry_cli отдаст runnable=false с ошибкой про сессию.
+  yarina:
+    enabled: false
+    personas: [yarina]
+    session: .secrets/yarina.session
+    db: .secrets/yarina.db
