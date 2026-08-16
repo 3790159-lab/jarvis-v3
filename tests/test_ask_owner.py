@@ -139,6 +139,56 @@ def test_empty_options_is_a_loud_refusal():
         ao.build_keyboard("q1", [])
 
 
+# ── 3bis. тело sendMessage: вопрос обязан ДОЕХАТЬ ─────────────────────────
+#
+# Повод — живой смоук 17.08: канал вернул `__ERROR__`, хотя бот был жив и
+# токен читался. Telegram ответил 400 `can't parse entities` на `parse_mode=
+# "Markdown"`, потому что в вопросе стояло слово `ask_owner`: одиночное `_`
+# открыло курсив, а закрыть его было нечем. Ни один сторож этого не видел —
+# все проверяли чистые функции, а разметка жила в отправке.
+#
+# Контракт: текст уходит ДОСЛОВНО, разметка не применяется. Оформление не
+# стоит ни одного вопроса, не доехавшего до владельца.
+
+def test_send_payload_does_not_ask_telegram_to_parse_markup():
+    """Прямой сторож на дефект 17.08."""
+    p = ao.build_send_payload("q", "ctx", 1786900000,
+                              chat_id=OWNER, qid="q1", options=OPTS)
+    assert "parse_mode" not in p, \
+        "разметка превращает вопрос про ask_owner в отказ (400)"
+
+
+@pytest.mark.parametrize("hostile", [
+    "Мержу feat/ask-owner?",                 # тот самый `_`
+    "Рестартую ops_watchdog.py?",            # имя файла
+    "Ставлю *всё* и [это] тоже?",            # звёздочки и скобки
+    "Запускаю `chatter_heartbeat_volska`?",  # обратные кавычки
+    "Путь C:\\jarvis\\.secrets\\ — чищу?",   # обратные слэши
+])
+def test_markup_characters_survive_verbatim(hostile):
+    """Вопрос и контекст — почти всегда команда или имя файла. Если хоть один
+    такой символ меняет судьбу вопроса, канал непригоден по назначению."""
+    p = ao.build_send_payload(hostile, hostile, 1786900000,
+                              chat_id=OWNER, qid="q1", options=OPTS)
+    assert p["text"].count(hostile) == 2, "текст обязан уйти как есть"
+
+
+def test_send_payload_carries_chat_and_keyboard():
+    p = ao.build_send_payload("q", None, 1786900000,
+                              chat_id=OWNER, qid="q7", options=OPTS)
+    assert p["chat_id"] == OWNER
+    datas = [b["callback_data"]
+             for row in p["reply_markup"]["inline_keyboard"] for b in row]
+    assert datas == ["ask:q7:0", "ask:q7:1"]
+
+
+def test_send_payload_refuses_a_question_without_options():
+    """Отправить вопрос, на который нечем ответить, хуже, чем не отправить."""
+    with pytest.raises(ao.AskError):
+        ao.build_send_payload("q", None, 1786900000,
+                              chat_id=OWNER, qid="q1", options=[])
+
+
 # ── 4. смещение getUpdates ────────────────────────────────────────────────
 
 def test_offset_advances_past_the_highest_seen_update():

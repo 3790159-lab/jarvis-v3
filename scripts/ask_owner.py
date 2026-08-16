@@ -85,14 +85,36 @@ def build_keyboard(qid: str, options: list[str]) -> dict:
 
 def build_text(question: str, context: str | None, deadline_ts: float) -> str:
     """Текст вопроса. Обязан называть СУТЬ или КОМАНДУ: по «tool call»
-    решение принять нельзя, а владелец видит только это сообщение."""
+    решение принять нельзя, а владелец видит только это сообщение.
+
+    Разделитель обычными символами, а не ``` — см. build_send_payload: этот
+    текст уходит БЕЗ разметки, и ```-забор в нём выглядел бы мусором."""
     when = time.strftime("%H:%M:%S", time.localtime(deadline_ts))
     parts = ["\U0001F510 Нужно решение", "", question]
     if context:
         ctx = context if len(context) <= TEXT_LIMIT else context[:TEXT_LIMIT] + "…"
-        parts += ["", "```", ctx, "```"]
+        parts += ["", "─" * 24, ctx, "─" * 24]
     parts += ["", f"Ответить до {when} — иначе считаю за НЕТ и не делаю."]
     return "\n".join(parts)
+
+
+def build_send_payload(question: str, context: str | None, deadline_ts: float,
+                       *, chat_id: str, qid: str, options: list[str]) -> dict:
+    """Тело sendMessage. Разметка НЕ применяется — намеренно.
+
+    Живой смоук 17.08 упёрся сюда: `parse_mode="Markdown"` и вопрос со словом
+    `ask_owner`. Одиночное `_` открыло курсив, закрыть было нечем, Telegram
+    ответил 400 `can't parse entities`, и канал вернул `__ERROR__`, то есть
+    «не делаем». Контекст вопроса — почти всегда команда или имя файла
+    (`ops_watchdog.py`, `--ff-only`, `chatter_heartbeat_volska.txt`), поэтому
+    отказ был бы не редким случаем, а обычным поведением.
+
+    Экранирование здесь было бы вторым способом ошибиться: канал существует
+    ради необратимых действий, и красивое оформление не стоит НИ ОДНОГО
+    вопроса, не доехавшего до владельца. Текст уходит дословно."""
+    return {"chat_id": chat_id,
+            "text": build_text(question, context, deadline_ts),
+            "reply_markup": build_keyboard(qid, options)}
 
 
 def parse_decision(updates, *, qid: str, owner_chat_id: str,
@@ -226,11 +248,10 @@ def ask(question: str, options: list[str], *, context=None,
 
     deadline = time.time() + timeout_s
     try:
-        _api(token, "sendMessage", {
-            "chat_id": OWNER_CHAT_ID,
-            "text": build_text(question, context, deadline),
-            "parse_mode": "Markdown",
-            "reply_markup": build_keyboard(qid, options)})
+        _api(token, "sendMessage",
+             build_send_payload(question, context, deadline,
+                                chat_id=OWNER_CHAT_ID, qid=qid,
+                                options=options))
     except Exception as exc:                 # noqa: BLE001
         journal(JOURNAL_PATH, "decided", qid=qid, decision=ERROR_DECISION,
                 by=f"send_failed:{type(exc).__name__}")
