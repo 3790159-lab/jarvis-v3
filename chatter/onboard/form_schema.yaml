@@ -1,0 +1,468 @@
+# Карта формы онбординга: колонка ↔ поле ↔ отпечаток вопроса.
+#
+# Версия ФИКСИРУЕТСЯ решением владельца от 17.08.2026 (вопрос q4 спеки):
+# текущая 57-колоночная форма — это v1. Любая правка формулировок = новая
+# версия схемы с явной миграцией, а не тихая подстройка отпечатка.
+#
+# Снято с реального брифа: один лист «Ответы на форму (1)», 57 колонок,
+# строка 0 — тексты вопросов, строка 1 — ответы одной заявки.
+#
+# ── Как это работает ────────────────────────────────────────────────────────
+# `col`         — ВЕДЁТ. Формулировки правят чаще, чем переставляют вопросы.
+# `fingerprint` — СТОРОЖИТ. Позиция без сторожа однажды соберёт клиенту прайс
+#                 из чужой колонки, и узнаем мы об этом от лида. Сравнение —
+#                 Jaccard нормализованных токенов, порог 0.6, ниже порога =
+#                 SchemaMismatch с картой, а не догадка.
+#                 Токены даны УЖЕ нормализованными (casefold, без пунктуации,
+#                 без стоп-слов, апострофы сведены к U+0027) — в брифе живут
+#                 разные апострофы: U+02BC в «імʼя» и U+2019 в «обовʼязково».
+# `type`        — text | block | choice | datetime. Не украшение: мусор-детектор
+#                 судит НАПЕЧАТАННЫЙ ответ (text/block), а значение поля-выбора
+#                 приезжает из НАШЕГО списка опций и мусором быть не может.
+# `target`      — knowledge | playbook | settings | examples | report_only.
+#                 Правило по ИСТОЧНИКУ: распознавать «внутреннее» по содержанию
+#                 мы не пытаемся и не будем.
+#
+# ── Почему ICP уезжает в playbook и никогда в knowledge ─────────────────────
+# knowledge — то, из чего бот ГОВОРИТ лиду; playbook — то, как он себя ВЕДЁТ.
+# Строка «наш ідеальний клієнт — той, хто готовий інвестувати» в knowledge
+# однажды будет зачитана лиду дословно. В playbook она живёт как внутренняя
+# разметка. Это касается q37_icp, q38_anti_icp и всего, что описывает
+# сегментацию и целевую аудиторию. Сторож — C9.
+
+schema_version: 1
+
+fields:
+
+  # ── Служебное ─────────────────────────────────────────────────────────────
+  - id: q0_timestamp
+    col: 0
+    fingerprint: ["времени", "отметка"]
+    type: datetime
+    required: false
+    target: report_only
+
+  # ── Кто клиент и что продаёт → knowledge ──────────────────────────────────
+  - id: q1_company_name
+    col: 1
+    fingerprint: ["бренду", "компанії", "назва"]
+    type: text
+    required: true
+    target: knowledge
+
+  - id: q2_industry
+    col: 2
+    fingerprint: ["діяльності", "сфера"]
+    type: text
+    required: true
+    target: knowledge
+
+  - id: q3_offer
+    col: 3
+    fingerprint: ["двох", "клієнту", "опишіть", "пояснили", "продаєте", "реченнях"]
+    type: block
+    required: true
+    target: knowledge
+
+  # R7: обязательный факт «сайт, соцсети, портфолио». Нет данных → заглушка
+  # плюс строка в раздел 3 отчёта; у Ярины здесь плейсхолдер-домены.
+  - id: q4_links
+    col: 4
+    fingerprint: ["асистент", "зможе", "кейси", "клієнтам", "надсилати", "портфоліо", "посилання", "сайт"]
+    type: block
+    required: true
+    target: knowledge
+
+  # Контакт клиента с НАМИ — внутреннее, лиду не показывается никогда.
+  - id: q5_owner_contact
+    col: 5
+    fingerprint: ["зв'язку", "контакт", "нами", "ім'я"]
+    type: text
+    required: false
+    target: report_only
+
+  - id: q6_timezone_city
+    col: 6
+    fingerprint: ["місто", "пояс", "часовий"]
+    type: text
+    required: true
+    target: knowledge
+
+  # ── Где и как работает ассистент → settings ───────────────────────────────
+  - id: q7_channels
+    col: 7
+    fingerprint: ["асистент", "каналах", "працювати", "яких"]
+    type: choice
+    required: true
+    target: settings
+
+  - id: q8_accounts
+    col: 8
+    fingerprint: ["акаунти", "посилання", "працюватиме"]
+    type: text
+    required: true
+    target: settings
+
+  # Объём диалогов — тарифная полоса, разговор владельца с клиентом, не конфиг.
+  - id: q9_dialog_volume
+    col: 9
+    fingerprint: ["діалогів", "клієнтами", "місяць", "приблизно", "скільки"]
+    type: choice
+    required: false
+    target: report_only
+
+  - id: q10_current_responder
+    col: 10
+    fingerprint: ["відповідає", "день", "забирає", "зараз", "скільки", "часу"]
+    type: text
+    required: false
+    target: report_only
+
+  - id: q11_night_and_weekend
+    col: 11
+    fingerprint: ["асистент", "вихідні", "вночі", "відповідати"]
+    type: choice
+    required: true
+    target: settings
+
+  # R7: часы в форме есть, ВЫХОДНЫХ нет — недостающая половина уходит заглушкой.
+  - id: q12_hours
+    col: 12
+    fingerprint: ["вихідні", "години", "робочі"]
+    type: text
+    required: true
+    target: knowledge
+
+  # ── Персона и голос ───────────────────────────────────────────────────────
+  - id: q13_speaks_as
+    col: 13
+    fingerprint: ["пише", "чийого", "імені"]
+    type: choice
+    required: true
+    target: playbook
+
+  # Имя персоны — решение владельца, а не поле формы (§2, «что генератор не
+  # решает сам»): бриф здесь дал «Джарвис» — наше имя, а не имя персоны.
+  - id: q14_persona_name
+    col: 14
+    fingerprint: ["запитає", "клієнт", "представлятись", "яким", "ім'ям"]
+    type: text
+    required: true
+    target: settings
+
+  # honesty_mode. Дефолт `honest` жёсткий даже против брифа — конфликт
+  # печатается в раздел 2 отчёта как «бриф просил другое».
+  - id: q15_disclose_ai
+    col: 15
+    fingerprint: ["ai", "асистент", "казати", "клієнту"]
+    type: choice
+    required: true
+    target: settings
+
+  - id: q16_owner_ref
+    col: 16
+    fingerprint: ["асистент", "власник", "дизайнер", "керівниця", "клієнтом", "називати", "наш", "олена", "розмові"]
+    type: text
+    required: true
+    target: settings
+
+  - id: q17_language
+    col: 17
+    fingerprint: ["мова", "спілкування"]
+    type: choice
+    required: true
+    target: settings
+
+  - id: q18_tone
+    col: 18
+    fingerprint: ["спілкування", "тон"]
+    type: choice
+    required: true
+    target: playbook
+
+  - id: q19_emoji
+    col: 19
+    fingerprint: ["відповідях", "емодзі"]
+    type: choice
+    required: true
+    target: playbook
+
+  # R5: examples.yaml собирается из Q20 и Q46.
+  - id: q20_real_replies
+    col: 20
+    fingerprint: ["2", "3", "асистент", "ваших", "вашій", "відповідей", "задоволені", "клієнтам", "манері", "навчиться", "надішліть", "приклади", "реальних", "якими"]
+    type: block
+    required: true
+    target: examples
+
+  # ── Услуги, цены, сроки → knowledge ───────────────────────────────────────
+  - id: q21_services
+    col: 21
+    fingerprint: ["клієнти", "перелічіть", "питають", "послуги", "усі"]
+    type: block
+    required: true
+    target: knowledge
+
+  # Самое дорогое поле формы: R1/R2 стоят на нём. Точка внутри ценовой строки
+  # рвёт фрагмент, и guardrail режет собственный прайс клиента.
+  - id: q22_price_list
+    col: 22
+    fingerprint: ["вилка", "залежить", "кожної", "межами", "напишіть", "обсягу", "послуги", "ціна"]
+    type: block
+    required: true
+    target: knowledge
+
+  - id: q23_included_excluded
+    col: 23
+    fingerprint: ["вартість", "входить", "кожної", "послуги"]
+    type: block
+    required: true
+    target: knowledge
+
+  - id: q24_price_factors
+    col: 24
+    fingerprint: ["варіантів", "залежить", "кількість", "обсяг", "складність", "терміни", "фінальна", "ціна", "чого"]
+    type: block
+    required: true
+    target: knowledge
+
+  - id: q25_deadlines
+    col: 25
+    fingerprint: ["виконання", "кожної", "послуги", "терміни"]
+    type: block
+    required: true
+    target: knowledge
+
+  - id: q26_can_quote_price
+    col: 26
+    fingerprint: ["асистент", "вашої", "може", "називати", "одразу", "участі", "ціну"]
+    type: choice
+    required: true
+    target: playbook
+
+  - id: q27_discounts
+    col: 27
+    fingerprint: ["знижки"]
+    type: choice
+    required: true
+    target: playbook
+
+  # Акция может отсутствовать законно — required: false.
+  - id: q28_promo
+    col: 28
+    fingerprint: ["акція", "вкажіть", "дати", "діюча", "опишіть", "чинна", "якої"]
+    type: block
+    required: false
+    target: knowledge
+
+  - id: q29_prepayment
+    col: 29
+    fingerprint: ["передоплати", "умови"]
+    type: block
+    required: true
+    target: knowledge
+
+  - id: q30_payment_methods
+    col: 30
+    fingerprint: ["асистент", "клієнту", "може", "називати", "оплати", "способи"]
+    type: choice
+    required: true
+    target: knowledge
+
+  - id: q31_can_send_payment_details
+    col: 31
+    fingerprint: ["асистент", "може", "надсилати", "оплати", "реквізити"]
+    type: choice
+    required: true
+    target: playbook
+
+  # ── Границы, эскалация → playbook ─────────────────────────────────────────
+  - id: q32_autonomous_actions
+    col: 32
+    fingerprint: ["асистент", "може", "питаючи", "робити", "сам"]
+    type: choice
+    required: true
+    target: playbook
+
+  - id: q33_must_escalate
+    col: 33
+    fingerprint: ["асистент", "обов'язково", "передати"]
+    type: choice
+    required: true
+    target: playbook
+
+  # R4: отсюда растёт секция «Ключові слова ескалації». Заголовок секции —
+  # ровно один из трёх известных `escalation._KEYWORD_HEADINGS`, иначе
+  # детерминированный слой МОЛЧА выключен.
+  - id: q34_stop_words
+    col: 34
+    fingerprint: ["асистент", "клієнта", "одразу", "покликати", "слова", "стоп", "фрази", "яких"]
+    type: block
+    required: true
+    target: playbook
+
+  # R7 + C12: время ответа владельца бот называет ЛИДУ, значит knowledge.
+  # Именно эта строка даёт флаг C12 «обещание за третье лицо» — законный.
+  - id: q35_reply_time
+    col: 35
+    fingerprint: ["асистент", "встигаєте", "відповісти", "зазвичай", "клієнта", "передає", "скільки"]
+    type: choice
+    required: true
+    target: knowledge
+
+  - id: q36_notify_channel
+    col: 36
+    fingerprint: ["клієнтів", "надсилати", "переданих", "сповіщення"]
+    type: text
+    required: true
+    target: settings
+
+  # ── ICP: ТОЛЬКО playbook (§1.3, сторож C9) ────────────────────────────────
+  - id: q37_icp
+    col: 37
+    fingerprint: ["бюджетом", "вашого", "запитом", "клієнта", "опишіть", "яким", "ідеального"]
+    type: block
+    required: true
+    target: playbook
+
+  - id: q38_anti_icp
+    col: 38
+    fingerprint: ["асистент", "берете", "ввічливо", "витрачаючи", "відмовити", "роботу", "час"]
+    type: block
+    required: true
+    target: playbook
+
+  - id: q39_required_questions
+    col: 39
+    fingerprint: ["асистент", "клієнту", "ніж", "обов'язково", "передавати", "перш", "питання", "поставити"]
+    type: block
+    required: true
+    target: playbook
+
+  - id: q40_info_for_exact_price
+    col: 40
+    fingerprint: ["зібрана", "могли", "назвати", "точну", "ціну", "інформація"]
+    type: block
+    required: true
+    target: playbook
+
+  - id: q41_next_step
+    col: 41
+    fingerprint: ["асистент", "клієнту", "крок", "наступний", "пропонувати"]
+    type: block
+    required: true
+    target: playbook
+
+  # ── Возражения и частые вопросы → examples ────────────────────────────────
+  - id: q42_objection_expensive
+    col: 42
+    fingerprint: ["відповідаєте", "дорого"]
+    type: block
+    required: true
+    target: examples
+
+  - id: q43_objection_think
+    col: 43
+    fingerprint: ["подумаю", "реагуєте"]
+    type: block
+    required: true
+    target: examples
+
+  - id: q44_objection_competitors
+    col: 44
+    fingerprint: ["відповідь", "дешевше", "конкурентів"]
+    type: block
+    required: true
+    target: examples
+
+  - id: q45_guarantees
+    col: 45
+    fingerprint: ["гарантії", "правки", "сподобається"]
+    type: block
+    required: true
+    target: knowledge
+
+  - id: q46_top_questions
+    col: 46
+    fingerprint: ["5", "відповіді", "клієнти", "найчастіше", "них", "питань", "ставлять", "топ"]
+    type: block
+    required: true
+    target: examples
+
+  - id: q47_advantages
+    col: 47
+    fingerprint: ["асистент", "вашу", "відрізняєтесь", "казати", "конкурентів", "може", "перевагу", "чим"]
+    type: block
+    required: true
+    target: knowledge
+
+  # ── Запреты ───────────────────────────────────────────────────────────────
+  # Q48 — запреты на ПОВЕДЕНИЕ («не обіцяти строк служби без брифа»), поэтому
+  # playbook. R6 берёт отсюда ещё и полные фразы в forbidden_terms по id —
+  # маршрут по умолчанию этому не мешает.
+  - id: q48_never_promise
+    col: 48
+    fingerprint: ["асистент", "жодному", "клієнту", "обіцяти", "права", "разі"]
+    type: block
+    required: true
+    target: playbook
+
+  - id: q49_taboo_topics
+    col: 49
+    fingerprint: ["спілкуванні", "теми", "торкатися", "яких"]
+    type: block
+    required: true
+    target: playbook
+
+  # R6: отсюда forbidden_terms в settings.yaml — ПОЛНЫМИ фразами, не корнями.
+  # Корень «гарант» убил бы легальный раздел «Гарантії та якість роботи»,
+  # корень «дешев» — легальное «якщо достатньо дешевшого рішення».
+  - id: q50_forbidden_phrases
+    col: 50
+    fingerprint: ["асистент", "вживати", "подобаються", "слова", "формулювання"]
+    type: block
+    required: true
+    target: settings
+
+  - id: q51_can_discuss_competitors
+    col: 51
+    fingerprint: ["асистент", "конкурентів", "може", "обговорювати"]
+    type: choice
+    required: true
+    target: playbook
+
+  # ── Организационное: лиду не говорится никогда → report_only ──────────────
+  - id: q52_access_and_2fa
+    col: 52
+    fingerprint: ["автентифікація", "акаунтів", "двофакторна", "доступ", "надасть", "увімкнена"]
+    type: text
+    required: false
+    target: report_only
+
+  - id: q53_other_responders
+    col: 53
+    fingerprint: ["акаунта", "відповідає", "самого", "того", "хтось", "іще"]
+    type: choice
+    required: false
+    target: report_only
+
+  - id: q54_launch_date
+    col: 54
+    fingerprint: ["бажана", "дата", "запуску"]
+    type: text
+    required: false
+    target: report_only
+
+  - id: q55_success_metrics
+    col: 55
+    fingerprint: ["асистент", "добре", "зрозумієте", "місяць", "працює", "цифрами", "якими"]
+    type: text
+    required: false
+    target: report_only
+
+  - id: q56_anything_else
+    col: 56
+    fingerprint: ["бізнес", "важливо", "ваших", "запитали", "знати", "клієнтів", "ще"]
+    type: block
+    required: false
+    target: playbook
