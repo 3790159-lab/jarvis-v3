@@ -158,8 +158,16 @@ MUTATIONS = [
        "            scan = line")],
      f"{TC15}::test_c15_green_on_the_golden_client"),
 
-    ("подмена SLA перестала ловиться — сверяются тексты, а не числа", CHECKS,
+    # Прицел ЗАМЕРЕН, а не угадан: подмену SLA ловит ветка бесчисловой формы,
+    # а не сверка чисел — на ней эта мутация зеленела. Числовую ветку
+    # различает дрейф процента предоплаты.
+    ("числа раздела больше не сверяются с полем — дрейф цены проходит", CHECKS,
      [("                if number in brief_numbers:\n                    continue",
+       "                if True:\n                    continue")],
+     f"{TC15}::test_c15_red_when_the_prepayment_percent_drifted"),
+
+    ("подмена SLA перестала ловиться — бесчисловая форма не сверяется", CHECKS,
+     [("                if (unit, mult) in brief_durations:\n                    continue",
        "                if True:\n                    continue")],
      f"{TC15}::test_c15_red_when_the_sla_lost_two_thirds_of_itself"),
 
@@ -167,10 +175,9 @@ MUTATIONS = [
      [("        brief_numbers |= {mult for _, mult in brief_durations}", "        pass")],
      f"{TC15}::test_c15_green_when_the_sla_gains_a_digit_the_brief_did_not_have"),
 
-    ("забракованное поле снова считается зелёным, а не «не состоялось»", CHECKS,
-     [('    for field_id, section_title, value in comparable:',
-       '    for field_id, section_title, value in comparable:\n'
-       '        if False:\n            pass')],
+    ("забракованное поле перестало быть «не состоялось» — молча пропускается", CHECKS,
+     [("        (blockers if blocking else notes).append(reason)",
+       "        notes.append(reason)")],
      f"{TC15}::test_c15_is_blocked_when_a_source_field_was_rejected_as_garbage"),
 
     # ── checks.py: где кончается раздел ───────────────────────────────────
