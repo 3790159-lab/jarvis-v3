@@ -45,6 +45,7 @@ from pathlib import Path
 from chatter.onboard.vocabulary import (
     DUAL_PURPOSE_REPORT_LINE_UK,
     REQUIRED_FACTS,
+    ROLE_WORDING_QUESTION_UK,
     UNKNOWN_SECTION_UK,
 )
 
@@ -677,6 +678,12 @@ def build_report(brief: dict, render_result, *, slug: str, flags: list[dict] | N
         },
         "flags": _flags(flags),
         "counters": _counters(render_result),
+        # Вопрос про НАЗВАНИЕ РОЛИ (решение владельца 17.08, пункт 5). Он не
+        # привязан к пропущенному полю — роль как раз ОТВЕЧЕНА, — поэтому
+        # живёт отдельным ключом, а в списке 3.3 стоит последним: там его и
+        # ждёт человек, отправляющий вопросы клиенту.
+        "role_wording_question": ROLE_WORDING_QUESTION_UK.format(
+            role=_text((fields.get("q16_owner_ref") or {}).get("value")).strip() or "—"),
     }
     return ReportResult(document=document, markdown=render_markdown(document))
 
@@ -838,6 +845,11 @@ def render_markdown(report: dict) -> str:
         question = _text(row.get("question_for_client")).strip()
         if question and question not in questions:
             questions.append(question)
+    # Вопрос про название роли идёт ПОСЛЕДНИМ и всегда: он не про пропуск в
+    # брифе, а про слово, которое лид слышит от бота в каждой второй реплике.
+    role_question = _text(report.get("role_wording_question")).strip()
+    if role_question and role_question not in questions:
+        questions.append(role_question)
     out.append(f"### 3.3. Готовый текст вопросов клиенту — {len(questions)} (скопировать и отправить)")
     out.append("")
     if questions:

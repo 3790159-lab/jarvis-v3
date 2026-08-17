@@ -41,6 +41,7 @@ REPORT = "chatter/onboard/report.py"
 CHECKS = "chatter/onboard/checks.py"
 DRILL = "chatter/onboard/drill_scenario.py"
 MAIN = "chatter/onboard/__main__.py"
+VOCAB = "chatter/onboard/vocabulary.py"
 
 TB = "tests/test_onboard_brief.py"
 TR = "tests/test_onboard_render.py"
@@ -112,6 +113,30 @@ MUTATIONS = [
      REPORT,
      [('        if verdict == "ok":', '        if verdict == "_ok":')],
      f"{TP}::test_every_clean_field_reaches_section_one"),
+
+    # ── vocabulary/report: слова, которые слышит ЛИД ──────────────────────
+    # Решения владельца 17.08 по итогам теста Артёма: омоним «орієнтир»
+    # разводим словами (пункт 11), про название роли СПРАШИВАЕМ (пункт 5).
+    ("«орієнтир» вернулся в заглушку адреса — C13 снова флаг на каждом клиенте",
+     VOCAB,
+     [('        "address", "Адреса, як нас знайти, паркування", None,',
+       '        "address", "Адреса, орієнтир, паркування", None,')],
+     f"{TR}::test_the_address_stub_does_not_reuse_the_word_orientir"),
+
+    ("вопрос про название роли больше не задаётся", REPORT,
+     [("    role_question = _text(report.get(\"role_wording_question\")).strip()\n"
+       "    if role_question and role_question not in questions:\n"
+       "        questions.append(role_question)\n", "")],
+     f"{TP}::test_the_client_is_always_asked_how_to_call_the_role"),
+
+    ("вопрос про роль встал первым — пропущенный адрес уехал вниз", REPORT,
+     [("        questions.append(role_question)", "        questions.insert(0, role_question)")],
+     f"{TP}::test_the_role_question_comes_last"),
+
+    ("вопрос про роль перестал цитировать слово клиента", REPORT,
+     [('            role=_text((fields.get("q16_owner_ref") or {}).get("value")).strip() or "—"),',
+       '            role="—"),')],
+     f"{TP}::test_the_role_question_quotes_the_clients_own_word"),
 
     # ── checks.py: где кончается раздел ───────────────────────────────────
     # C11 краснела бы на КАЖДОМ клиенте: прайс — это заголовок и сразу

@@ -533,6 +533,58 @@ def test_every_clean_field_reaches_section_one(document, doc):
             assert fid in reported, f"{fid}: чистое поле не названо в разделе 1"
 
 
+# ══ ВОПРОС ПРО НАЗВАНИЕ РОЛИ (решение владельца 17.08, пункт 5) ════════════
+#
+# Роль уезжает лиду в каждой второй реплике («зв'яжу вас зі старшим майстром»),
+# а её происхождение лиду не видно — тестировщик принял законную роль за
+# выдумку бота. Чинить в коде нечего: роль верна. Спросить — обязательно.
+
+def _questions_block(md: str) -> list[str]:
+    lines = md.splitlines()
+    start = next(i for i, ln in enumerate(lines) if ln.startswith("### 3.3."))
+    out = []
+    for ln in lines[start + 1:]:
+        if ln.startswith("###"):
+            break
+        if ln.strip() and ln.strip()[0].isdigit():
+            out.append(ln.strip())
+    return out
+
+
+def test_the_client_is_always_asked_how_to_call_the_role(md):
+    """Ловит: вопрос, который задают только когда поле пустое.
+
+    Роль ОТВЕЧЕНА в брифе, поэтому по обычной логике раздела 3 её здесь быть
+    не должно — а спросить надо именно про отвеченное: клиент назвал слово, а
+    услышит его КЛИЕНТ КЛИЕНТА, и звучать оно может неуместно.
+    """
+    questions = " ".join(_questions_block(md))
+    assert "менеджер" in questions and "називаємо відповідального" in questions, questions
+
+
+def test_the_role_question_quotes_the_clients_own_word(doc, rendered):
+    """Ловит: вопрос «как называть роль?» без самой роли.
+
+    Без цитаты клиент не поймёт, о чём его спрашивают, и ответит наугад.
+    """
+    doc["fields"]["q16_owner_ref"] = field(
+        16, "Як звертатись до відповідального?", "старший мастер ", "старший мастер")
+    built = report.build_report(doc, rendered, slug="drivepro", flags=list(FLAGS))
+
+    questions = " ".join(_questions_block(built.markdown))
+    assert "«старший мастер»" in questions, questions
+
+
+def test_the_role_question_comes_last(md):
+    """Ловит: вопрос про слово, вставший впереди вопросов про пропущенные факты.
+
+    Первые пункты списка человек отправляет наверняка, последние — как
+    получится. Пропущенный адрес дороже спора о слове, и порядок это говорит.
+    """
+    questions = _questions_block(md)
+    assert "називаємо відповідального" in questions[-1], questions[-3:]
+
+
 def test_a_rejected_field_never_looks_like_a_taken_one(document, doc):
     """Класс ошибки: мусор попал в раздел «ВЗЯТО ИЗ БРИФА».
 
