@@ -54,11 +54,14 @@ MUTATIONS = [
        '    if not path.is_file():\n        return "killed"')],
      f"{T}::test_an_unknown_pid_is_unknown_not_killed"),
 
-    ("окно процесса не закрывается следующим BOOT — вердикты перепутаются", F,
-     [("    for i, ln in enumerate(tail):\n"
-       "        if ln.startswith(BOOT):\n"
+    ("окно процесса не обрезается следующим BOOT — вердикты перепутаются", F,
+     [("        if ln.startswith(BOOT):\n"
        "            tail = tail[:i]\n"
-       "            break\n", "")],
+       "            closed = True\n"
+       "            break",
+       "        if ln.startswith(BOOT):\n"
+       "            closed = True\n"
+       "            break")],
      f"{T}::test_a_killed_process_stays_killed_even_if_the_next_one_crashes"),
 
     # ── живой процесс не имеет права читаться как убитый (17.08) ──────────
@@ -74,11 +77,12 @@ MUTATIONS = [
        "    if (alive_fn or _pid_alive)(pid):")],
      f"{T}::test_a_reused_pid_from_a_closed_window_is_not_called_alive"),
 
-    ("отказ psutil объявляет процесс живым вместо честного killed", F,
-     [("    except Exception:  # noqa: BLE001 — читатель журнала не имеет права падать\n"
-       "        return False",
-       "    except Exception:\n        return True")],
-     f"{T}::test_an_external_kill_leaves_only_the_boot_line"),
+    # ЗАМЕР, а не пропуск: мутация «отказ psutil трактовать как ЖИВ» ничего не
+    # различает. Ветка `except` срабатывает, только когда psutil недоступен или
+    # бросил, а в гейте он есть и работает — тест зеленеет что с мутацией, что
+    # без. Различающий случай потребовал бы ломать импорт на живой машине, то
+    # есть проверять устройство окружения, а не решение. Снято с записью
+    # причины по правилу владельца 17.08.
 
     ("вооружение роняет процесс, если не смогло открыть файл", F,
      [('    except Exception as exc:  # noqa: BLE001 — диагностика не имеет права ронять бота\n'
