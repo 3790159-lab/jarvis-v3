@@ -72,7 +72,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_PATH = REPO_ROOT / "chatter" / "onboard" / "form_schema.yaml"
 PROD_CLIENTS = REPO_ROOT / "chatter" / "clients"
 
-ALL_CHECK_IDS = tuple(f"C{i}" for i in range(1, 15))
+ALL_CHECK_IDS = tuple(f"C{i}" for i in range(1, 16))
 
 
 # ═════════════════════════════════════════════════════════════════════════════

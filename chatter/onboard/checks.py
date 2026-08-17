@@ -1,19 +1,21 @@
 # -*- coding: utf-8 -*-
-"""T4 — автоприёмка онбординга: C1–C14 по готовому каталогу клиента.
+"""T4 — автоприёмка онбординга: C1–C15 по готовому каталогу клиента.
 
 Спека: `docs/superpowers/specs/2026-08-14-chatter-onboarding-pipeline.md`, §4
 (таблица C1–C14), §5 (чего не автоматизируем), §6 (приёмка арки).
+C15:   `docs/superpowers/specs/2026-08-17-c15-numbers-must-match-the-brief.md`
+       (числа knowledge обязаны совпадать с числами брифа).
 План:  `docs/superpowers/plans/2026-08-17-onboard-pipeline-plan.md`.
 
 ГРАНИЦА МОДУЛЯ. Ноль сети, ноль LLM, ноль записи на диск: вход — каталог из
-пяти файлов и уже собранный `report.json`, выход — ровно 14 вердиктов. Каталог
-читается и НЕ правится ни при каких условиях: `--check` ходит в том числе по
-боевому `chatter/clients/<slug>` (спека §6, калибровка), а проверка, которая
-чинит то, что проверяет, ничего не доказывает.
+пяти файлов, уже собранный `report.json` и `brief.json` того же прогона, выход
+— ровно 15 вердиктов. Каталог читается и НЕ правится ни при каких условиях:
+`--check` ходит в том числе по боевому `chatter/clients/<slug>` (спека §6,
+калибровка), а проверка, которая чинит то, что проверяет, ничего не доказывает.
 
 ТРИ ПРАВИЛА, которым подчинён каждый кусок ниже.
 
-1. **Проверок ВСЕГДА четырнадцать.** Проверка, которая молча исчезла из списка,
+1. **Проверок ВСЕГДА пятнадцать.** Проверка, которая молча исчезла из списка,
    неотличима от пройденной — это ровно та «зелёная ширма», о которой спека
    предупреждает в §7. Поэтому исключение внутри проверки не убирает её из
    результата, а делает `blocked` (см. `CheckResult.blocked` и `verdict`).
@@ -38,6 +40,9 @@
 * C4 и C10 опираются на `report.json`. Битый/непереданный отчёт делает
   `blocked` РОВНО эти две проверки, а не все четырнадцать: остальные двенадцать
   читают файлы и доказывают ровно столько же, сколько доказали бы с отчётом.
+* C15 опирается на `brief.json` — по той же логике `blocked` достаётся ей
+  одной. Сверять числа файла НЕ С ЧЕМ, если брифа рядом нет; молча зеленеть
+  при этом нельзя (спека C15, §4).
 """
 from __future__ import annotations
 
@@ -57,8 +62,10 @@ from chatter.core.drill import (
     DrillScenarioError, parse_scenario, vacuous_expectations)
 from chatter.core.escalation import _KEYWORD_HEADINGS, parse_escalation_keywords
 from chatter.core.obligations import DEFAULT_PROMISE_TERMS, unbacked_promise
+from chatter.onboard.report import TARGET_FILES as _TARGET_FILES
 from chatter.onboard.vocabulary import (
     DUAL_PURPOSE_FIELDS,
+    PROMO_SECTION_UK,
     REQUIRED_FACTS,
     REQUIRED_SECTIONS_UK,
     STUB_TEMPLATE_UK,
@@ -71,7 +78,7 @@ __all__ = [
     "is_reviewed", "run_checks", "verdict",
 ]
 
-CHECK_IDS: tuple[str, ...] = tuple(f"C{i}" for i in range(1, 15))
+CHECK_IDS: tuple[str, ...] = tuple(f"C{i}" for i in range(1, 16))
 
 # C12/C13 — ФЛАГИ, а не красное (спека §4, подтверждено владельцем 17.08).
 # Красный статус здесь означал бы, что пайплайн знает намерение клиента лучше
@@ -86,6 +93,11 @@ REVIEWED_FILENAME = "REVIEWED"
 
 CLIENT_FILES: tuple[str, ...] = (
     "knowledge.md", "persona.md", "playbook.md", "examples.yaml", "settings.yaml")
+
+# Разобранный бриф ТОГО ЖЕ прогона. Имя фиксировано в `__main__.BRIEF_FILENAME`
+# — здесь оно повторено строкой, потому что импорт `__main__` из проверяемого
+# модуля означал бы запуск CLI ради константы.
+BRIEF_FILENAME = "brief.json"
 
 # Коды выхода (спека, §0 и §4).
 RC_GREEN, RC_RED, RC_NOT_RUN = 0, 1, 2
@@ -512,6 +524,31 @@ class _Ctx:
             except yaml.YAMLError:
                 self._raw_settings = None
 
+        # `brief.json` — вход C15. Читается ОТДЕЛЬНО от пяти файлов клиента:
+        # это артефакт прогона, а не конфиг, и его отсутствие означает не
+        # «клиент собран плохо», а «сверять числа не с чем» (rc «не состоялось»
+        # РОВНО у C15, как отсутствующий отчёт — у C4 и C10).
+        self.brief: dict | None = None
+        self.brief_error: str | None = None
+        if self.dir_error:
+            self.brief_error = self.dir_error
+        else:
+            path = self.dir / BRIEF_FILENAME
+            if not path.is_file():
+                self.brief_error = f"{BRIEF_FILENAME} рядом с файлами нет"
+            else:
+                try:
+                    loaded = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, ValueError) as exc:
+                    self.brief_error = f"{BRIEF_FILENAME} не читается или не разбирается: {exc}"
+                else:
+                    if not isinstance(loaded, dict) or not isinstance(loaded.get("fields"), dict):
+                        self.brief_error = (
+                            f"{BRIEF_FILENAME}: ожидался словарь с ключом 'fields', "
+                            f"получено {type(loaded).__name__}")
+                    else:
+                        self.brief = loaded
+
         self._units_cache: dict[str, list[_Unit]] = {}
         self.repo_root = Path(__file__).resolve().parents[2]
 
@@ -614,6 +651,14 @@ class _Ctx:
         if self.report is None:
             return None
         return (self.report.get("counters") or {}).get(key)
+
+    # -- бриф ----------------------------------------------------------------
+
+    def brief_field(self, field_id: str) -> dict | None:
+        if self.brief is None:
+            return None
+        field = (self.brief.get("fields") or {}).get(field_id)
+        return field if isinstance(field, dict) else None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1060,27 +1105,29 @@ def _c8(ctx: _Ctx) -> CheckResult:
 # C9 — маршрут ICP соблюдён
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _playbook_fragments(ctx: _Ctx) -> list[tuple[str, str]]:
-    """(field_id, фрагмент) для полей с `target: playbook`.
+def _playbook_fragments(ctx: _Ctx) -> tuple[list[tuple[str, str]], str]:
+    """([(field_id, фрагмент)], каким источником взято) для полей `target: playbook`.
 
     Источник по убыванию точности: `brief.json` рядом с файлами (полное
     значение поля) → раздел 1 отчёта (цитата, обрезанная до 200 символов).
     Второй источник беднее, и это названо вслух в сообщении проверки: молча
     проверить четверть текста и сказать «чисто» — та же зелёная ширма.
+
+    Бриф читает `_Ctx` — один раз на прогон и одним способом. Своя вторая
+    попытка открыть тот же файл жила здесь до C15: она молча возвращала пустоту
+    на битом JSON и всё равно печатала «источник: brief.json», то есть отчёт о
+    прогоне называл не тот источник, которым прогон пользовался.
     """
     out: list[tuple[str, str]] = []
-    brief_path = ctx.dir / "brief.json"
     values: list[tuple[str, str]] = []
-    if brief_path.is_file():
-        try:
-            doc = json.loads(brief_path.read_text(encoding="utf-8"))
-            for fid, field in (doc.get("fields") or {}).items():
-                if not isinstance(field, dict) or field.get("target") != "playbook":
-                    continue
-                values.append((fid, str(field.get("value") or field.get("raw") or "")))
-        except (OSError, ValueError):
-            values = []
+    source = BRIEF_FILENAME
+    if ctx.brief is not None:
+        for fid, field in (ctx.brief.get("fields") or {}).items():
+            if not isinstance(field, dict) or field.get("target") != "playbook":
+                continue
+            values.append((fid, str(field.get("value") or field.get("raw") or "")))
     if not values:
+        source = "раздел 1 отчёта (цитаты обрезаны до 200 симв.)"
         for row in ctx.report_rows("taken"):
             if row.get("target_file") != "playbook.md":
                 continue
@@ -1103,11 +1150,11 @@ def _playbook_fragments(ctx: _Ctx) -> list[tuple[str, str]]:
             frag = _unify(piece).strip(" -•.,;:!?…")
             if len(frag) >= C9_MIN_FRAGMENT:
                 out.append((fid, frag))
-    return out
+    return out, source
 
 
 def _c9(ctx: _Ctx) -> CheckResult:
-    fragments = _playbook_fragments(ctx)
+    fragments, source = _playbook_fragments(ctx)
     if not fragments:
         return _red("C9", "не нашлось ни одного фрагмента полей с target=playbook "
                           "(ни brief.json рядом с файлами, ни строк раздела 1 отчёта) "
@@ -1126,8 +1173,6 @@ def _c9(ctx: _Ctx) -> CheckResult:
                           f"target=playbook доехало в knowledge, откуда бот говорит "
                           f"ЛИДУ; ICP/анти-ICP/ЦА едут только в playbook",
                     file="knowledge.md", line=line)
-    source = "brief.json" if (ctx.dir / "brief.json").is_file() else \
-             "раздел 1 отчёта (цитаты обрезаны до 200 симв.)"
     return _ok("C9", f"{len(fragments)} фрагментов ≥{C9_MIN_FRAGMENT} симв. полей "
                      f"target=playbook в knowledge.md не встречаются "
                      f"(источник: {source}; Q38 исключён как поле двойного назначения)")
@@ -1229,6 +1274,37 @@ def _c10(ctx: _Ctx) -> CheckResult:
 # C11 — обязательные разделы на месте
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _section_span(text: str, title: str) -> list[tuple[int, str, bool]]:
+    """Строки раздела `title`: [(номер строки, текст, это ли заголовок)].
+
+    Раздел кончается на заголовке ТОГО ЖЕ ИЛИ БОЛЕЕ ВЫСОКОГО уровня; более
+    глубокий — его собственная часть (почему именно так — см. `_section_has_content`,
+    который на этом обходе и построен). Пустой список означает «раздела нет».
+
+    Обход ОДИН на две проверки (C11 и C15) намеренно: «где кончается раздел» —
+    это ровно то правило, две копии которого разъезжаются молча, и вторая копия
+    зеленела бы, спрашивая не про тот кусок файла.
+    """
+    target = _unify(title)
+    level: int | None = None
+    out: list[tuple[int, str, bool]] = []
+    for i, line in enumerate(_strip_html_comments(text or "").splitlines(), 1):
+        head = _HEADING_RE.match(line)
+        if head:
+            depth = len(head.group(1))
+            if level is None:
+                if _unify(head.group(2)) == target:
+                    level = depth
+                continue
+            if depth <= level:
+                break
+            out.append((i, head.group(2), True))
+            continue
+        if level is not None:
+            out.append((i, line, False))
+    return out
+
+
 def _section_has_content(text: str, title: str) -> bool:
     """Есть ли в разделе хоть одна содержательная строка — С УЧЁТОМ ПОДРАЗДЕЛОВ.
 
@@ -1250,23 +1326,13 @@ def _section_has_content(text: str, title: str) -> bool:
 
     Раздел кончается на заголовке ТОГО ЖЕ ИЛИ БОЛЕЕ ВЫСОКОГО уровня; более
     глубокий — это его собственная часть.
+
+    Заголовок подраздела содержательной строкой НЕ считается: раздел, целиком
+    состоящий из пустых подразделов, — это пустой раздел.
     """
-    target = _unify(title)
-    level: int | None = None
-    for line in _strip_html_comments(text or "").splitlines():
-        head = _HEADING_RE.match(line)
-        if head:
-            depth = len(head.group(1))
-            if level is None:
-                if _unify(head.group(2)) == target:
-                    level = depth
-                continue
-            if depth <= level:
-                break
-            continue
-        if level is not None and line.strip():
-            return True
-    return False
+    return any(line.strip()
+               for _, line, is_heading in _section_span(text, title)
+               if not is_heading)
 
 
 def _c11(ctx: _Ctx) -> CheckResult:
@@ -1416,18 +1482,312 @@ def _c14(ctx: _Ctx) -> CheckResult:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# C15 — числа knowledge совпадают с числами брифа
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Спека: `docs/superpowers/specs/2026-08-17-c15-numbers-must-match-the-brief.md`.
+# Дыра, которую C15 закрывает, видна на C12: «відповідає протягом години» и
+# «відповідає протягом трьох годин» неотличимы для всех четырнадцати прежних
+# проверок — они смотрят ФОРМУ. Лид ждёт час, человек отвечает через три, и
+# виноват бот, который «пообещал».
+#
+# C15 — КРАСНОЕ, а не флаг (спека §4): флаг означает «законно или нет, решает
+# владелец», а здесь решать нечего — число либо то, либо не то.
+#
+# ── КАКОЙ ВОПРОС ЗАДАЁТСЯ И КАКОЙ НЕ ЗАДАЁТСЯ ───────────────────────────────
+# Задаётся: «число, которое стоит в собранном файле НА МЕСТЕ этого поля брифа,
+# — то же, что в поле?» Направление сверки одно, и оно не симметрично:
+#
+#   * число в РАЗДЕЛЕ файла, которого нет в поле брифа  → КРАСНОЕ (разъехалось);
+#   * число в ПОЛЕ БРИФА, которого нет в разделе файла  → НЕ красное.
+#
+# Второе — прямое требование спеки §3 («не требуем полноты в обратную сторону»)
+# и сторож C15-4: пайплайн сознательно не выпускает наружу часть ответов, и они
+# уезжают в раздел 3 отчёта. Проверка, требующая полноты, краснела бы на каждом
+# законном прогоне — то есть была бы фоном, а не сторожем.
+#
+# НЕ задаётся: «верен ли этот срок по жизни» — на это отвечает вопрос клиенту
+# (`vocabulary.SLA_REALITY_QUESTION_UK`), и машине он недоступен. И не
+# сверяется ТЕКСТ: человек вправе переписать фразу, он не вправе изменить число.
+
+# Где оседает поле брифа (спека C15, §2). Заголовки берутся из `vocabulary`,
+# то есть из ТОГО ЖЕ кортежа, которым `render` эти разделы пишет: своя копия
+# строки «Оплата та передоплата» разъехалась бы с генератором молча, и C15
+# стала бы зелёной не потому, что числа сошлись, а потому, что раздел «не
+# нашёлся».
+#
+# ⚠️ ОСТАТОЧНЫЙ РИСК, названный вслух: САМА ПРИВЯЗКА поля к разделу живёт
+# только здесь — `render` выбирает раздел по месту в коде. Если поле переедет в
+# другой раздел, C15 перестанет находить его числа и промолчит. Дешевле этого
+# сегодня нет: вынести привязку в `vocabulary` можно только вместе с
+# перестройкой `render`, а сверять «где оседает» по отчёту нельзя — якорь
+# раздела 1 у `q12_hours` на живом прогоне равен «(якір не знайдено)».
+_C15_SOURCES: tuple[tuple[str, str], ...] = (
+    ("q35_reply_time", REQUIRED_SECTIONS_UK[7]),   # «Як записатися» — SLA ответа
+    ("q29_prepayment", REQUIRED_SECTIONS_UK[3]),   # «Оплата та передоплата» — %
+    ("q22_price_list", REQUIRED_SECTIONS_UK[1]),   # «Послуги та ціни» — вилки и сроки
+    ("q12_hours", REQUIRED_SECTIONS_UK[0]),        # «Про студію» — часы работы
+    ("q28_promo", PROMO_SECTION_UK),               # «Акція» — дата окончания
+)
+
+# Группа из одних нулей числом не является: она приезжает МИНУТАМИ времени суток
+# («9:00»), где `_NUMBER` видит «9», «00» и «18», а в брифе стоит «9-18». Без
+# этого C15 краснела бы на законных часах работы каждого клиента. Значением «0»
+# при этом ничего не обещают, так что потери сигнала здесь нет.
+_C15_ZERO_RE = re.compile(r"^[0.,]+$")
+
+
+def _c15_numbers(text: str) -> set[str]:
+    """Числа так, как их видит РАНТАЙМ: `guardrails._numbers` и ничего своего.
+
+    Своя копия ответа на вопрос «что такое число» разъехалась бы с guardrail'ом
+    молча — и C15 зеленела бы ровно тогда, когда разъехалась.
+
+    Сверху ровно два шага, и оба названы спекой §3:
+      * десятичный разделитель к одному виду («1,5» и «1.5» — одно число;
+        внутри `_numbers` это сделать нельзя, там от формы записи зависит
+        поведение guardrail'а у четырёх живых клиентов);
+      * нулевые группы вон (см. `_C15_ZERO_RE`).
+    """
+    return {n.replace(",", ".") for n in _g._numbers(text)
+            if not _C15_ZERO_RE.match(n)}
+
+
+# ── Единица и множитель: спека §3, «бесчисловая формулировка» ────────────────
+#
+# «Протягом години» числа не содержит вовсе, а смысл несёт: одна година. Значит
+# сверять надо ЕДИНИЦУ и МНОЖИТЕЛЬ, иначе «протягом години» против «протягом
+# трьох годин» проходит чисто — а это ровно тот случай, из-за которого спека и
+# написана.
+#
+# Классы строятся ИЗ `_TIME_WORDS` (одного словаря единиц на весь модуль), а не
+# вторым списком слов. Порядок префиксов значим: «годин» обязан проверяться до
+# «год», иначе украинские ЧАСЫ станут русскими ГОДАМИ — той же граблёй, которую
+# `guardrails` уже ловил у себя трижды.
+_C15_UNIT_PREFIXES: tuple[tuple[str, str], ...] = (
+    ("хвилин", "хвилина"), ("минут", "хвилина"),
+    ("годин", "година"), ("час", "година"),
+    ("тижд", "тиждень"), ("тижн", "тиждень"), ("недел", "тиждень"),
+    ("місяц", "місяць"), ("месяц", "місяць"),
+    ("рік", "рік"), ("рок", "рік"), ("год", "рік"), ("лет", "рік"),
+    ("доб", "доба"), ("діб", "доба"), ("сут", "доба"),
+    ("день", "день"), ("дн", "день"),
+)
+
+
+def _c15_unit(word: str) -> str | None:
+    low = _unify(word)
+    for prefix, unit in _C15_UNIT_PREFIXES:
+        if low.startswith(prefix):
+            return unit
+    return None
+
+
+# Числительные СЛОВАМИ — только для бесчисловой формы. Цифры сюда не ходят: их
+# читает `_c15_numbers` живым `guardrails._numbers`, и второй разбор цифр был бы
+# как раз той второй правдой, которой в этом модуле быть не должно.
+_C15_NUMERAL_WORDS: dict[str, float] = {
+    "один": 1, "одна": 1, "одну": 1, "одного": 1, "однієї": 1, "одної": 1,
+    "одной": 1, "одного": 1,
+    "півтори": 1.5, "півтора": 1.5, "полтора": 1.5, "полторы": 1.5,
+    "два": 2, "дві": 2, "двох": 2, "две": 2, "двух": 2,
+    "три": 3, "трьох": 3, "трех": 3, "трёх": 3,
+    "чотири": 4, "чотирьох": 4, "четыре": 4, "четырёх": 4, "четырех": 4,
+    "п'ять": 5, "п'яти": 5, "пять": 5, "пяти": 5,
+    "шість": 6, "шести": 6, "шесть": 6,
+    "сім": 7, "семи": 7, "семь": 7,
+    "вісім": 8, "восьми": 8, "восемь": 8,
+    "дев'ять": 9, "дев'яти": 9, "девять": 9, "девяти": 9,
+    "десять": 10, "десяти": 10,
+}
+
+
+def _fmt_multiplier(value) -> str:
+    number = float(value)
+    return str(int(number)) if number == int(number) else str(number)
+
+
+def _word_multiplier(before: str) -> str:
+    """Множитель ИЗ СЛОВ слева. Ничего не нашли — «години» без числа = 1 (§3)."""
+    for word in reversed(_WORD_RE.findall(_unify(before))):
+        if word in _C15_NUMERAL_WORDS:
+            return _fmt_multiplier(_C15_NUMERAL_WORDS[word])
+    return "1"
+
+
+def _c15_durations(text: str) -> set[tuple[str, str]]:
+    """Все сроки текста как (единица, множитель) — и цифрами, и словами.
+
+    Это сторона БРИФА: она обязана быть широкой, иначе «1 година» в брифе и
+    «протягом години» в файле разошлись бы на ровном месте (одно и то же,
+    записанное двумя способами).
+    """
+    out: set[tuple[str, str]] = set()
+    for m in _time_hits(text):
+        unit = _c15_unit(m.group())
+        if unit is None:
+            continue
+        before, _ = _neighbour_words(text, m.start(), m.end())
+        digits = _c15_numbers(before)
+        for mult in (digits or {_word_multiplier(before)}):
+            out.add((unit, mult))
+    return out
+
+
+def _c15_bare_promises(text: str) -> list[tuple[str, str, str]]:
+    """Сторона ФАЙЛА: (слово, единица, множитель) для БЕСЧИСЛОВЫХ обещаний срока.
+
+    Узко и намеренно. Сроки, записанные цифрами, уже сверены множеством чисел;
+    здесь ловится ровно то, чего множество чисел поймать не может, — «протягом
+    години» без единой цифры.
+
+    Два условия сверх «единица без числа рядом»:
+      * предлог длительности слева («протягом», «за», «через») — иначе «Робочий
+        ЧАС студії» и «точний ЧАС» станут обещанием одного часа;
+      * в предложении не назван тот, кто скажет точное («підтверджує старший
+        мастер») — это отказ называть срок, а не обещание. Ровно это различие
+        уже проведено в C12/C14, и второе правило здесь было бы третьей копией.
+    """
+    if _AUTHORITY_VERBS.search(text or ""):
+        return []
+    out: list[tuple[str, str, str]] = []
+    for m in _hanging_time_hits(text):
+        unit = _c15_unit(m.group())
+        if unit is None:
+            continue
+        before, _ = _neighbour_words(text, m.start(), m.end())
+        if not _DURATION_PREPS.search(before):
+            continue
+        out.append((m.group(), unit, _word_multiplier(before)))
+    return out
+
+
+def _fmt_durations(durations) -> str:
+    """Сроки человеку, а не кортежами: «1 × година, 3 × день»."""
+    return ", ".join(f"{mult} × «{unit}»"
+                     for unit, mult in sorted(durations)) or "срока нет"
+
+
+def _c15_skip_reason(field_id: str, field: dict | None) -> tuple[str | None, bool]:
+    """(причина не сверять, надо ли это считать «не состоялось»).
+
+    `blocked` достаётся только тому случаю, который назван спекой §4: клиент
+    ЧТО-ТО написал, а мусор-детектор это забраковал. Сверять тогда не с чем, и
+    зелёное здесь было бы утверждением «числа сошлись», которого никто не
+    проверял (сторож C15-6).
+
+    ПУСТОЕ поле — другой случай, и склеивать их нельзя. Из пустой ячейки
+    пайплайн не взял НИ ОДНОГО числа, разъезжаться нечему, а `q28_promo` в
+    схеме `required: false` — акции может законно не быть. `blocked` на нём
+    означал бы rc «не состоялось» на каждом клиенте без акции: сигнал, всегда
+    красный при законной работе, — это не сторож, а фон.
+    """
+    if field is None:
+        return (f"{field_id}: поля нет в brief.json (схема формы разошлась со "
+                f"списком C15 — сверять нечего, и это надо чинить)"), False
+    verdict_ = str(field.get("verdict") or "")
+    if verdict_ != "ok":
+        raw = "" if field.get("raw") is None else str(field.get("raw")).strip()
+        reason = str(field.get("reason") or "причина не названа")
+        if raw:
+            return (f"{field_id}: ответ клиента забракован ({reason}) — сверять "
+                    f"числа не с чем"), True
+        return f"{field_id}: поле пусто ({reason}) — числа взять неоткуда", False
+    if _TARGET_FILES.get(str(field.get("target"))) != "knowledge.md":
+        return (f"{field_id}: target={field.get('target')!r} — спека C15 §2 ждёт "
+                f"knowledge.md, маршрут поля изменился"), False
+    return None, False
+
+
+def _c15(ctx: _Ctx) -> CheckResult:
+    if ctx.brief is None:
+        return _blocked("C15", f"{ctx.brief_error} — числа собранных файлов "
+                               f"сверять НЕ С ЧЕМ")
+    knowledge = ctx.text("knowledge.md")
+
+    checked: list[str] = []
+    notes: list[str] = []
+    blockers: list[str] = []
+    comparable: list[tuple[str, str, str]] = []   # (поле, раздел, значение)
+    total_numbers = 0
+
+    # Проход первый — ЧТО вообще подлежит сверке. Отдельно от сверки намеренно:
+    # «не состоялось» перевешивает «есть красное» (см. `verdict`), а при сверке
+    # в один проход первое же найденное красное вернулось бы раньше, чем стало
+    # известно о забракованном поле, и прогон, часть которого не выполнялась,
+    # выдал бы себя за «нашли один дефект».
+    for field_id, section_title in _C15_SOURCES:
+        field = ctx.brief_field(field_id)
+        reason, blocking = _c15_skip_reason(field_id, field)
+        if reason is not None:
+            (blockers if blocking else notes).append(reason)
+            continue
+        if not _section_span(knowledge, section_title):
+            notes.append(f"{field_id}: раздела «{section_title}» в knowledge.md нет "
+                         f"(наличие разделов сторожит C11)")
+            continue
+        comparable.append((field_id, section_title, str(field.get("value") or "")))
+
+    if blockers:
+        return _blocked("C15", "; ".join(blockers))
+    if not comparable:
+        return _blocked("C15", "ни одно из пяти полей-источников не сверено — "
+                               + ("; ".join(notes) or "причина не названа"))
+
+    for field_id, section_title, value in comparable:
+        span = _section_span(knowledge, section_title)
+        brief_numbers = _c15_numbers(value)
+        brief_durations = _c15_durations(value)
+        # Бесчисловая форма брифа несёт множитель (§3), и он обязан считаться
+        # числом: иначе «Протягом години» в брифе против «протягом 1 години» в
+        # файле дало бы красное на ровном месте (сторож C15-2).
+        brief_numbers |= {mult for _, mult in brief_durations}
+
+        for line_no, line, _is_heading in span:
+            for number in sorted(_c15_numbers(line)):
+                total_numbers += 1
+                if number in brief_numbers:
+                    continue
+                return _red(
+                    "C15",
+                    f"knowledge.md:{line_no} «{line.strip()}» → число {number} "
+                    f"в разделе «{section_title}» не совпадает ни с одним числом "
+                    f"поля {field_id} ({sorted(brief_numbers) or 'чисел нет'}): "
+                    f"число разъехалось с брифом, и лид получит НЕ ТО",
+                    file="knowledge.md", line=line_no)
+            for word, unit, mult in _c15_bare_promises(line):
+                total_numbers += 1
+                if (unit, mult) in brief_durations:
+                    continue
+                return _red(
+                    "C15",
+                    f"knowledge.md:{line_no} «{line.strip()}» → срок «{word}» "
+                    f"читается как {mult} × «{unit}», а поле {field_id} брифа "
+                    f"даёт {_fmt_durations(brief_durations)} "
+                    f"(«{value.strip()[:80]}»): бесчисловая форма несёт множитель, "
+                    f"и он разъехался",
+                    file="knowledge.md", line=line_no)
+        checked.append(field_id)
+
+    tail = f"; НЕ сверено: {'; '.join(notes)}" if notes else ""
+    return _ok("C15", f"числа сходятся с брифом по {len(checked)} полям "
+                      f"({', '.join(checked)}), сверено значений: {total_numbers}"
+                      + tail)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Прогон и вердикт
 # ─────────────────────────────────────────────────────────────────────────────
 
 _CHECKS = (
     ("C1", _c1), ("C2", _c2), ("C3", _c3), ("C4", _c4), ("C5", _c5),
     ("C6", _c6), ("C7", _c7), ("C8", _c8), ("C9", _c9), ("C10", _c10),
-    ("C11", _c11), ("C12", _c12), ("C13", _c13), ("C14", _c14),
+    ("C11", _c11), ("C12", _c12), ("C13", _c13), ("C14", _c14), ("C15", _c15),
 )
 
 
 def run_checks(client_dir, report_document: dict, *, slug: str) -> list[CheckResult]:
-    """Ровно 14 вердиктов по каталогу клиента, всегда и в порядке C1…C14.
+    """Ровно 15 вердиктов по каталогу клиента, всегда и в порядке C1…C15.
 
     Каталог только ЧИТАЕТСЯ: `--check` ходит в том числе по боевому
     `chatter/clients/<slug>`, где живут деньги клиента.
@@ -1439,7 +1799,7 @@ def run_checks(client_dir, report_document: dict, *, slug: str) -> list[CheckRes
                 for cid in CHECK_IDS]
 
     if ctx.dir_error:
-        # Каталога нет — прогон не состоялся ЦЕЛИКОМ. Это не «14 красных»:
+        # Каталога нет — прогон не состоялся ЦЕЛИКОМ. Это не «15 красных»:
         # красное утверждает, что проверка отработала и нашла дефект.
         return [_blocked(cid, ctx.dir_error) for cid in CHECK_IDS]
 

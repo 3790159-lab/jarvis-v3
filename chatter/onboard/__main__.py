@@ -189,7 +189,7 @@ def _load_report_document(client_dir: Path):
 
 
 def _print_checks(results) -> None:
-    _say("АВТОПРИЁМКА C1–C14")
+    _say("АВТОПРИЁМКА C1–C15")
     for r in results:
         if r.blocked:
             mark = "??"
@@ -373,7 +373,7 @@ def cmd_check(slug: str, client_dir: Path) -> int:
     if not client_dir.is_dir():
         raise _Refused(
             f"{PREFIX} каталога {client_dir} нет — проверять нечего. Это не "
-            f"«четырнадцать красных»: красное утверждает, что проверка "
+            f"«пятнадцать красных»: красное утверждает, что проверка "
             f"отработала и нашла дефект.")
 
     document, why = _load_report_document(client_dir)
@@ -382,6 +382,13 @@ def cmd_check(slug: str, client_dir: Path) -> int:
         # обязан знать, что дело в отсутствующем отчёте, а не в файлах клиента.
         _say(f"{PREFIX} ВНИМАНИЕ: {why} — C4 и C10 опираются на отчёт и не "
              f"состоятся (это ожидаемо при калибровке на ручном эталоне, §6 шаг 6)")
+    if not (client_dir / BRIEF_FILENAME).is_file():
+        # Тот же случай, что и с отчётом: C15 сверяет числа файлов с числами
+        # брифа, и без брифа сверять НЕ С ЧЕМ. Молчать нельзя — иначе rc 2
+        # выглядит дефектом клиента, а дело в отсутствующем артефакте прогона.
+        _say(f"{PREFIX} ВНИМАНИЕ: {BRIEF_FILENAME} рядом с файлами нет — C15 "
+             f"сверяет числа knowledge с числами брифа и не состоится (тоже "
+             f"ожидаемо на ручном эталоне: его собирали не пайплайном)")
 
     _say(f"{PREFIX} автоприёмка каталога {client_dir} (только чтение), slug={slug}")
     results = run_checks(client_dir, document, slug=slug)
@@ -544,7 +551,7 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--brief", metavar="ФАЙЛ.XLSX",
                       help="собрать каталог и отчёт из брифа")
     mode.add_argument("--check", nargs="?", const="", metavar="КАТАЛОГ",
-                      help="только автоприёмка C1–C14 по готовому каталогу "
+                      help="только автоприёмка C1–C15 по готовому каталогу "
                            "(по умолчанию build/onboard/<slug>)")
     mode.add_argument("--diff", metavar="КАТАЛОГ",
                       help="пофайловое сравнение с ручным эталоном (приёмка арки, §6)")

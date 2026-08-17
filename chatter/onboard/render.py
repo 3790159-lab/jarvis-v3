@@ -36,6 +36,7 @@ from chatter.core.escalation import _KEYWORD_HEADINGS, parse_escalation_keywords
 from chatter.onboard import brief as _brief
 from chatter.onboard.vocabulary import (
     DUAL_PURPOSE_FIELDS,
+    PROMO_SECTION_UK,
     REQUIRED_FACTS,
     REQUIRED_SECTIONS_UK,
     STUB_TEMPLATE_UK,
@@ -1200,7 +1201,7 @@ def _build_knowledge(brief: dict, *, services: list[_Service], owner_id: str,
     # ── Акція (необязательный раздел: её может законно не быть) ─────────────
     promo = _value(brief, "q28_promo")
     if promo:
-        section("Акція", _bullet_block(_list_items(promo), lower=False))
+        section(PROMO_SECTION_UK, _bullet_block(_list_items(promo), lower=False))
 
     # ── Оплата та передоплата ───────────────────────────────────────────────
     payment: list[str] = []

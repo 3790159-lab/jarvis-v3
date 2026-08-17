@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""T4 арки `chatter.onboard`: автоприёмка C1–C14 (спека §4, план T4).
+"""T4 арки `chatter.onboard`: автоприёмка C1–C15 (спека §4, план T4; C15 —
+отдельная спека `2026-08-17-c15-numbers-must-match-the-brief.md`).
 
 Сторожа написаны ОТ СПЕКИ. `chatter/onboard/checks.py` при написании НЕ читался
 и не грепался — на T1, T2 и T3 ровно эта дисциплина дала по три-восемь настоящих
@@ -49,6 +50,7 @@
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -63,12 +65,13 @@ from chatter.onboard import checks, vocabulary
 # ─────────────────────────────────────────────────────────────────────────────
 # Опознание результатов
 #
-# Спека §4 нумерует проверки C1…C14. Идентификатор сравнивается нормализованным
+# Спека §4 нумерует проверки C1…C14, спека C15 добавляет пятнадцатую.
+# Идентификатор сравнивается нормализованным
 # (strip + upper): спор о регистре не должен глушить сторожей поведения, а вот
 # ПРОПАВШИЙ идентификатор глушить обязан.
 # ─────────────────────────────────────────────────────────────────────────────
 
-ALL_IDS = tuple(f"C{i}" for i in range(1, 15))
+ALL_IDS = tuple(f"C{i}" for i in range(1, 16))
 FLAG_IDS = ("C12", "C13")
 RED_IDS = tuple(i for i in ALL_IDS if i not in FLAG_IDS)
 
@@ -299,7 +302,69 @@ def write_client(tmp_path: Path, *, slug: str = SLUG, knowledge: str | None = No
             yaml.safe_dump(settings_dict() if settings is None else settings,
                            allow_unicode=True, sort_keys=False),
             encoding="utf-8")
+    (out / "brief.json").write_text(
+        json.dumps(brief_document(), ensure_ascii=False, indent=2), encoding="utf-8")
     return out
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# brief.json — второй артефакт прогона, лежащий в том же каталоге
+#
+# Появился здесь вместе с C15: сборка (`--brief`) кладёт разобранный бриф рядом
+# с пятью файлами, и без него сверять числа файлов НЕ С ЧЕМ. Каталог без
+# `brief.json` — это каталог, собранный не пайплайном; моделировать им «готовый
+# прогон» значит проверять то, чего в жизни не бывает.
+#
+# Поля согласованы с `report_document()` НАМЕРЕННО: `q12_hours` и
+# `q35_reply_time` там стоят строками раздела 3 («поле не заповнене»), значит и
+# в брифе они обязаны быть пустыми. Две правды об одном поле в одной фикстуре —
+# это ровно тот дефект, который фикстура должна ловить, а не порождать.
+# ─────────────────────────────────────────────────────────────────────────────
+
+BRIEF_PRICE_VALUE = "\n".join([
+    "1. Детейлінг-мийка",
+    "Ціна 1 200–2 000 грн, тривалість 1,5–2,5 години",
+    "",
+    "2. Полірування кузова",
+    "Ціна 5 000–8 000 грн, тривалість 6–10 годин",
+])
+
+
+def brief_field(field_id: str, *, value, target: str, verdict: str = "ok",
+                reason: str | None = None, raw=None) -> dict:
+    return {
+        "col": 0,
+        "question": f"питання {field_id}",
+        "raw": value if raw is None else raw,
+        "value": value,
+        "verdict": verdict,
+        "reason": reason,
+        "target": target,
+    }
+
+
+def brief_document() -> dict:
+    return {
+        "schema_version": 1,
+        "source": "brief.xlsx",
+        "fields": {
+            "q12_hours": brief_field(
+                "q12_hours", value=None, target="knowledge", verdict="garbage",
+                reason="empty: поле не заповнене", raw=""),
+            "q22_price_list": brief_field(
+                "q22_price_list", value=BRIEF_PRICE_VALUE, target="knowledge"),
+            "q28_promo": brief_field(
+                "q28_promo", value="Акцій зараз немає", target="knowledge"),
+            "q29_prepayment": brief_field(
+                "q29_prepayment",
+                value="Часткова оплата наперед для довгих робіт, "
+                      "решта — після приймання роботи",
+                target="knowledge"),
+            "q35_reply_time": brief_field(
+                "q35_reply_time", value=None, target="knowledge", verdict="garbage",
+                reason="empty: поле не заповнене", raw=""),
+        },
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -439,21 +504,21 @@ def test_run_checks_returns_exactly_the_fourteen_checks(golden):
     client_dir, doc = golden
     res = run(client_dir, doc)
     assert sorted(set(ids_of(res))) == sorted(ALL_IDS), (
-        f"ожидались ровно C1…C14, пришло {ids_of(res)}")
-    assert len(res) == 14, (
-        f"ровно 14 результатов (без дублей), пришло {len(res)}: {ids_of(res)}")
+        f"ожидались ровно C1…C15, пришло {ids_of(res)}")
+    assert len(res) == 15, (
+        f"ровно 15 результатов (без дублей), пришло {len(res)}: {ids_of(res)}")
 
 
 def test_all_fourteen_survive_a_client_dir_that_does_not_exist(tmp_path):
     """Ловит: «проверка не смогла отработать → её просто нет в списке».
 
-    Каталога нет — ни одна проверка не может сказать «ок», но все четырнадцать
+    Каталога нет — ни одна проверка не может сказать «ок», но все пятнадцать
     обязаны СКАЗАТЬ ЭТО ВСЛУХ. Исключение наружу тоже не годится: вызывающий
     `__main__` тогда напечатает traceback вместо приёмки.
     """
     ghost = tmp_path / "build" / "onboard" / SLUG
     res = run(ghost, report_document())
-    assert len(res) == 14, f"на отсутствующем каталоге вернулось {len(res)}"
+    assert len(res) == 15, f"на отсутствующем каталоге вернулось {len(res)}"
     assert sorted(set(ids_of(res))) == sorted(ALL_IDS)
 
 
@@ -465,7 +530,7 @@ def test_all_fourteen_survive_a_broken_report_document(golden):
     """
     client_dir, _ = golden
     res = run(client_dir, {"это": "не отчёт"})
-    assert len(res) == 14, f"на битом отчёте вернулось {len(res)}"
+    assert len(res) == 15, f"на битом отчёте вернулось {len(res)}"
     assert sorted(set(ids_of(res))) == sorted(ALL_IDS)
 
 
@@ -560,7 +625,7 @@ def test_empty_result_list_is_not_green():
 def test_incomplete_result_list_is_not_green():
     """Ловит: вердикт, которому всё равно, сколько проверок до него доехало.
 
-    ⚠️ Требование зафиксировано КОНСЕРВАТИВНО: спека говорит про 14 проверок,
+    ⚠️ Требование зафиксировано КОНСЕРВАТИВНО: спека говорит про 15 проверок,
     но прямо не запрещает `verdict` считать зелёным неполный список. Считаю
     запрет обязательным: пропажа проверки уже стоила арке панели один сторож,
     который «всегда зелёный», и единственный дешёвый способ поймать пропажу —
@@ -569,7 +634,7 @@ def test_incomplete_result_list_is_not_green():
     res = [r for r in all_green() if str(r.id).upper() != "C7"]
     rc = checks.verdict(res, reviewed=True)
     assert rc != 0, (
-        "13 результатов из 14 — это не зелёный прогон, а прогон с пропавшей "
+        "14 результатов из 15 — это не зелёный прогон, а прогон с пропавшей "
         "проверкой; 0 здесь скрывает пропажу навсегда")
 
 
