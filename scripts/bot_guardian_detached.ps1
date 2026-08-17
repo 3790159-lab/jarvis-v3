@@ -170,11 +170,47 @@ function Stop-OldBot {
     return $true
 }
 
+# Последние слова умирающего экземпляра переживают подъём следующего.
+#
+# `Start-Process -RedirectStandardError` ОБРЕЗАЕТ файл при каждом запуске, и
+# 17.08 это стоило разбора: бот перезапускался четырежды за сутки (01:08,
+# 03:14, 03:59, 13:05), каждый раз на третьей провалившейся проверке
+# heartbeat, и каждый раз — во время полного гейта. Отличить голодание под
+# нагрузкой от настоящей смерти процесса было НЕЧЕМ: трассировку падения
+# затирал тот самый подъём, который её и расследует.
+#
+# Храним 12 последних (около суток при нынешней частоте). Имя — по времени
+# ПОСЛЕДНЕЙ ЗАПИСИ файла, а не по времени ротации: интересует момент смерти.
+function Rotate-BootLog {
+    param([string]$Path, [int]$Keep = 12)
+    if (-not (Test-Path $Path)) { return }
+    $item = Get-Item $Path -ErrorAction SilentlyContinue
+    if (-not $item -or $item.Length -eq 0) { return }   # пустой хранить незачем
+    $stamp = $item.LastWriteTime.ToString('yyyyMMdd-HHmmss')
+    $dir   = Split-Path $Path -Parent
+    $base  = [IO.Path]::GetFileNameWithoutExtension($Path)
+    $ext   = [IO.Path]::GetExtension($Path)
+    $target = Join-Path $dir "$base.$stamp$ext"
+    if (Test-Path $target) { $target = Join-Path $dir "$base.$stamp-$PID$ext" }
+    try { Move-Item $Path $target -Force -ErrorAction Stop }
+    catch {
+        # Ротация НЕ ИМЕЕТ ПРАВА мешать подъёму бота: лог — это удобство
+        # разбора, а бот — прод. Не смогли сохранить — говорим и идём дальше.
+        Write-G "Rotate-BootLog: не смог сохранить $Path ($($_.Exception.GetType().Name)) - продолжаю подъём"
+        return
+    }
+    Get-ChildItem -Path $dir -Filter "$base.*$ext" -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending | Select-Object -Skip $Keep |
+        ForEach-Object { Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue }
+}
+
 function Start-Bot {
     if (-not (Stop-OldBot)) {
         Write-G "Start-Bot: old bot still alive - aborting launch (never start on top of a live poller)"
         return $false
     }
+    Rotate-BootLog $bOut
+    Rotate-BootLog $bErr
     $p = Start-Process -FilePath $py -ArgumentList @($botFile) -WorkingDirectory $Root `
         -WindowStyle Hidden -RedirectStandardOutput $bOut -RedirectStandardError $bErr -PassThru
     Write-G "launched bot (PID $($p.Id)) -> $bOut"
