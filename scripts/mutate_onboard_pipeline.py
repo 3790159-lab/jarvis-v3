@@ -49,6 +49,7 @@ TP = "tests/test_onboard_report.py"
 TC = "tests/test_onboard_checks.py"
 TD = "tests/test_onboard_drill_scenario.py"
 TL = "tests/test_onboard_cli.py"
+TC15 = "tests/test_onboard_checks_c15.py"
 
 MUTATIONS = [
     # ── brief.py: граница мусор-детектора ─────────────────────────────────
@@ -148,6 +149,29 @@ MUTATIONS = [
      [('            role=_text((fields.get("q16_owner_ref") or {}).get("value")).strip() or "—"),',
        '            role="—"),')],
      f"{TP}::test_the_role_question_quotes_the_clients_own_word"),
+
+    # ── checks.py: C15, числа knowledge против чисел брифа ────────────────
+    # Проверка заведена 18.08 разнесённой парой авторов. Обе мутации ниже —
+    # это дефекты, которые пара нашла ЖИВЬЁМ, а не выдуманные случаи.
+    ("нумерация подраздела снова считается числом прайса", CHECKS,
+     [('            scan = re.sub(r"^\\s*#*\\s*\\d+[.)]\\s*", "", line) if _is_heading else line',
+       "            scan = line")],
+     f"{TC15}::test_c15_green_on_the_golden_client"),
+
+    ("подмена SLA перестала ловиться — сверяются тексты, а не числа", CHECKS,
+     [("                if number in brief_numbers:\n                    continue",
+       "                if True:\n                    continue")],
+     f"{TC15}::test_c15_red_when_the_sla_lost_two_thirds_of_itself"),
+
+    ("бесчисловая форма больше не несёт множитель", CHECKS,
+     [("        brief_numbers |= {mult for _, mult in brief_durations}", "        pass")],
+     f"{TC15}::test_c15_green_when_the_sla_gains_a_digit_the_brief_did_not_have"),
+
+    ("забракованное поле снова считается зелёным, а не «не состоялось»", CHECKS,
+     [('    for field_id, section_title, value in comparable:',
+       '    for field_id, section_title, value in comparable:\n'
+       '        if False:\n            pass')],
+     f"{TC15}::test_c15_is_blocked_when_a_source_field_was_rejected_as_garbage"),
 
     # ── checks.py: где кончается раздел ───────────────────────────────────
     # C11 краснела бы на КАЖДОМ клиенте: прайс — это заголовок и сразу
