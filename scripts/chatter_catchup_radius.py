@@ -42,15 +42,23 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from chatter.core.pause import is_muted  # noqa: E402
 from chatter.telethon_run import CATCHUP_MAX_AGE_SECONDS  # noqa: E402
 
 RC_CLEAN = 0
 RC_RISK = 1
 RC_NOT_RUN = 2
 
-# Состояния, в которых молчание бота — РЕШЕНИЕ, а не пропуск. Ответ поверх
-# такого молчания это не «лишняя реплика», а вмешательство в диалог, который
-# ведёт человек.
+# Состояния контакта, в которых молчание бота — РЕШЕНИЕ, а не пропуск. Ответ
+# поверх такого молчания это не «лишняя реплика», а вмешательство в диалог,
+# который ведёт человек.
+#
+# Пауза сюда НЕ входит списком: про неё отвечает `pause.is_muted` — та же
+# функция, которой раннер решает, молчать ли ему в живом диалоге. Вторая
+# правда про паузу разъехалась бы на первом же снузе: кнопка «⏸ Ще 1год»
+# ставит `paused` + `pause_until`, и ИСТЁКШИЙ снуз это уже не молчание по
+# решению, а обычный диалог. Читать поле `paused` в лоб значило бы считать
+# вчерашний снуз вечным.
 SILENT_BY_DECISION = ("escalated",)
 
 
@@ -76,7 +84,7 @@ def dialogs_at_risk(db_path, *, now: float | None = None,
         rows = con.execute(
             """
             select m.contact_id, m.role, m.ts, m.text,
-                   c.state, c.paused, c.human_took_over
+                   c.state, c.paused, c.human_took_over, c.pause_until
               from messages m
               join (select contact_id, max(ts) as ts
                       from messages group by contact_id) last
@@ -93,19 +101,23 @@ def dialogs_at_risk(db_path, *, now: float | None = None,
             pass
 
     out: list[dict] = []
-    for contact_id, role, ts, text, state, paused, took_over in rows:
+    for contact_id, role, ts, text, state, paused, took_over, pause_until in rows:
         if role != "user":
             continue
         age = now - float(ts or 0)
         if age > max_age_seconds:
             # Старше порога catch-up не тронет — и мы не тревожим зря.
             continue
+        # kill_switch=False сознательно: рубильник глушит ВСЕХ, и при нём
+        # переотвечать некого вовсе. Здесь спрашивается про конкретный диалог.
+        muted = is_muted({"paused": paused, "pause_until": pause_until},
+                         kill_switch=False, now=now)
         out.append({
             "contact_id": contact_id,
             "age_hours": round(age / 3600, 1),
             "text": (text or "").strip()[:120],
             "deliberate_silence": bool(
-                (state or "") in SILENT_BY_DECISION or paused or took_over),
+                (state or "") in SILENT_BY_DECISION or took_over or muted),
             "state": state,
         })
     return sorted(out, key=lambda r: (-int(r["deliberate_silence"]), r["age_hours"]))

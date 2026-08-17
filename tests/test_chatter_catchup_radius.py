@@ -32,18 +32,24 @@ NOW = 1_700_000_000.0
 
 
 def make_db(path: Path, rows, contacts=None) -> Path:
-    """rows: (contact_id, role, ts_offset_seconds, text) — offset ОТ NOW назад."""
+    """rows: (contact_id, role, ts_offset_seconds, text) — offset ОТ NOW назад.
+
+    contacts: (contact_id, state, paused, human_took_over[, pause_until]).
+    """
     con = sqlite3.connect(path)
     con.execute("create table messages (id integer primary key, contact_id text, "
                 "role text, text text, ts real)")
     con.execute("create table contacts (contact_id text primary key, state text, "
-                "paused integer, human_took_over integer)")
+                "paused integer, human_took_over integer, pause_until real)")
     for contact_id, role, back, text in rows:
         con.execute("insert into messages (contact_id, role, text, ts) values (?,?,?,?)",
                     (contact_id, role, text, NOW - back))
-    for contact_id, state, paused, took in (contacts or []):
-        con.execute("insert into contacts (contact_id, state, paused, human_took_over) "
-                    "values (?,?,?,?)", (contact_id, state, paused, took))
+    for contact in (contacts or []):
+        contact_id, state, paused, took = contact[:4]
+        until = contact[4] if len(contact) > 4 else None
+        con.execute("insert into contacts (contact_id, state, paused, human_took_over, "
+                    "pause_until) values (?,?,?,?,?)",
+                    (contact_id, state, paused, took, until))
     con.commit()
     con.close()
     return path
@@ -166,6 +172,51 @@ def test_a_registry_without_an_explicit_db_falls_back_like_the_runner(tmp_path):
     got = radius.db_for(tmp_path, "bezdb")
 
     assert got == tmp_path / derive_db_path("bezdb", tmp_path / ".secrets"), got
+
+
+def test_an_unexpired_snooze_is_deliberate_silence(tmp_path):
+    """Ловит: снуз, прочитанный как «бот не успел».
+
+    Кнопка «⏸ Ще 1год» в карточке эскалации — это человек сказал «позже».
+    Ставит она `paused` + `pause_until`. Подъём раннера, который ответит
+    поверх снуза, ломает ровно то решение, ради которого кнопку и нажали.
+    """
+    db = make_db(tmp_path / "c.db", [
+        ("888:yarina", "user", 600, "то що по ціні?"),
+    ], contacts=[("888:yarina", "active", 1, 0, NOW + 1800)])
+
+    rows = radius.dialogs_at_risk(db, now=NOW)
+
+    assert rows and rows[0]["deliberate_silence"] is True, rows
+
+
+def test_an_expired_snooze_is_not_deliberate_silence(tmp_path):
+    """Парная: вчерашний снуз — не вечная тишина.
+
+    `pause.is_muted` уже решает это для ЖИВОГО диалога (истёкший дедлайн =
+    не заглушено, даже если таймер не добежал). Замер обязан отвечать так же,
+    иначе один и тот же контакт «молчит по решению» для замера и «обычный»
+    для раннера — а это две правды об одном.
+    """
+    db = make_db(tmp_path / "c.db", [
+        ("999:yarina", "user", 600, "ще актуально?"),
+    ], contacts=[("999:yarina", "active", 1, 0, NOW - 60)])
+
+    rows = radius.dialogs_at_risk(db, now=NOW)
+
+    assert rows, "диалог вообще потерялся — переотвечен он будет в любом случае"
+    assert rows[0]["deliberate_silence"] is False, rows
+
+
+def test_the_pause_verdict_comes_from_the_runners_own_function():
+    """Ловит: вторую правду о паузе.
+
+    Разойдясь с `is_muted`, замер начнёт врать в обе стороны: считать
+    истёкший снуз молчанием и пропускать бессрочную паузу.
+    """
+    src = (REPO_ROOT / "scripts" / "chatter_catchup_radius.py").read_text(encoding="utf-8")
+    assert "from chatter.core.pause import is_muted" in src, (
+        "решение о паузе выведено заново, а не взято у раннера")
 
 
 def test_the_riskiest_dialogs_are_printed_first(tmp_path):

@@ -47,6 +47,18 @@ MUTATIONS = [
        '            "deliberate_silence": bool((state or "") in SILENT_BY_DECISION),')],
      f"{TR}::test_paused_and_human_took_over_count_as_deliberate_silence"),
 
+    ("вердикт о паузе выведен заново — истёкший снуз стал вечным", R,
+     [("        muted = is_muted({\"paused\": paused, \"pause_until\": pause_until},\n"
+       "                         kill_switch=False, now=now)",
+       "        muted = bool(paused)")],
+     f"{TR}::test_an_expired_snooze_is_not_deliberate_silence"),
+
+    ("снуз перестал считаться молчанием по решению вовсе", R,
+     [("        muted = is_muted({\"paused\": paused, \"pause_until\": pause_until},\n"
+       "                         kill_switch=False, now=now)",
+       "        muted = False")],
+     f"{TR}::test_an_unexpired_snooze_is_deliberate_silence"),
+
     ("порядок вывода потерян — главное больше не сверху", R,
      [('    return sorted(out, key=lambda r: (-int(r["deliberate_silence"]), r["age_hours"]))',
        "    return out")],
