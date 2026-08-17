@@ -79,10 +79,14 @@ MUTATIONS = [
        "        candidates = [e for e in entries if len(e) > len(title)]")],
      f"{TR}::test_a_title_the_services_list_does_not_continue_is_left_alone"),
 
-    ("длина больше не обязательна — заголовок можно укоротить", RENDER,
+    # Прицел именно сюда, и это ЗАМЕР: на укорачивании эта мутация не краснеет
+    # вовсе — короткий кандидат отсекается префиксом раньше длины. Условие
+    # длины наблюдаемо только на РАВНОМ кандидате в другом регистре.
+    ("длина больше не обязательна — заголовок переписан регистром клиента",
+     RENDER,
      [("if e.casefold().startswith(low) and len(e) > len(title)]",
        "if e.casefold().startswith(low)]")],
-     f"{TR}::test_a_shorter_entry_never_replaces_the_price_heading"),
+     f"{TR}::test_an_equal_entry_never_rewrites_the_price_heading"),
 
     ("два кандидата — берём первый, то есть угадываем за владельца", RENDER,
      [("if len(candidates) == 1 else svc)", "if len(candidates) >= 1 else svc)")],
