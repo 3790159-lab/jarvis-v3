@@ -58,6 +58,12 @@ MUTATIONS = [
        "    except sqlite3.Error:\n        return []")],
      f"{TR}::test_a_measurement_that_did_not_happen_is_not_a_clean_one"),
 
+    ("путь к БД без записи в реестре выводится своей формулой", R,
+     [("        from chatter.telethon_run import derive_db_path\n\n"
+       "        return root / derive_db_path(slug, root / \".secrets\")",
+       '        return root / ".secrets" / f"{slug}_db.sqlite"')],
+     f"{TR}::test_a_registry_without_an_explicit_db_falls_back_like_the_runner"),
+
     # ── что делает дверь подъёма ──────────────────────────────────────────
     ("несостоявшийся замер снова читается как разрешение", C,
      [("    if ($rc -eq 0) { return }", "    if ($rc -ne 1) { return }")],

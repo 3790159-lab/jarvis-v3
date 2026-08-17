@@ -149,6 +149,25 @@ def test_paused_and_human_took_over_count_as_deliberate_silence(tmp_path):
     assert rows["555:yarina"]["deliberate_silence"] is True, "human_took_over не учтён"
 
 
+def test_a_registry_without_an_explicit_db_falls_back_like_the_runner(tmp_path):
+    """Ловит: вторую правду о пути к БД.
+
+    Реестр вправе не называть `db` — раннер тогда выводит путь из слага
+    (`resolve_runtime_paths`). Если замер выведет его иначе, он будет читать
+    ПУСТОЕ МЕСТО и отвечать «чисто» на любом клиенте: молчание вместо
+    находки, самый дорогой из отказов.
+    """
+    from chatter.telethon_run import derive_db_path
+
+    (tmp_path / "chatter" / "clients").mkdir(parents=True)
+    (tmp_path / "chatter" / "clients" / "registry.yaml").write_text(
+        "clients:\n  bezdb:\n    enabled: false\n", encoding="utf-8")
+
+    got = radius.db_for(tmp_path, "bezdb")
+
+    assert got == tmp_path / derive_db_path("bezdb", tmp_path / ".secrets"), got
+
+
 def test_the_riskiest_dialogs_are_printed_first(tmp_path):
     """Ловит: список, в котором главное потерялось.
 

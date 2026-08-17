@@ -405,9 +405,20 @@ def _write_registry(root: Path, text: str = REG_TEXT) -> Path:
 
 
 def _client_ps(root: Path, slug: str, action: str) -> subprocess.CompletedProcess:
+    """Прогон пульта клиента на временном -Root.
+
+    С 17.08 у `-Action start` появился обязательный шаг ДО правки реестра:
+    замер, кого переответит catch-up (решение владельца после случая, когда
+    рестарт ответил клиенту через 13 ч 49 мин поверх человека). Замер — это
+    python-скрипт, а у временного `-Root` своего `.venv` нет, поэтому
+    интерпретатор передаётся явно. Утверждения тестов ниже не менялись: они
+    по-прежнему про правку реестра, а не про замер — его сторожа стоят в
+    `test_chatter_client_start_measures_radius.py`.
+    """
     return subprocess.run(
         ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-         "-File", str(CLIENT_PS), "-Root", str(root), "-Slug", slug, "-Action", action],
+         "-File", str(CLIENT_PS), "-Root", str(root), "-Slug", slug, "-Action", action,
+         "-PythonExe", sys.executable],
         capture_output=True, text=True, timeout=60, encoding="utf-8", errors="replace")
 
 

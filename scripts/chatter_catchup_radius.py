@@ -130,7 +130,13 @@ def db_for(root: Path, slug: str) -> Path:
             f"(есть: {', '.join(sorted(clients)) or 'ни одного'})")
     db = (entry or {}).get("db")
     if not db:
-        raise RadiusError(f"у клиента '{slug}' в реестре не указан db")
+        # Реестр вправе не называть БД — тогда раннер выводит её из слага
+        # (`resolve_runtime_paths`: явный флаг > env > вывод из слага). Своей
+        # второй правды об этом пути мы не заводим: разъехавшись, она заставит
+        # мерить пустую БД и молча отвечать «чисто».
+        from chatter.telethon_run import derive_db_path
+
+        return root / derive_db_path(slug, root / ".secrets")
     return root / db
 
 
