@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from chatter.core import guardrails as _guardrails
 from chatter.core.brain import EXAMPLES_CHAR_BUDGET
@@ -676,6 +676,41 @@ def _parse_services(price_block: str) -> list[_Service]:
             depends=depends, notes=tuple(notes), sub_prices=tuple(sub_prices),
         ))
     return services
+
+
+def _lengthen_titles(services: list[_Service], services_list) -> list[_Service]:
+    """Заголовок прайса (Q22) дополняется полным названием из перечня (Q21).
+
+    Решение владельца 17.08. Клиент пишет прайс сокращённо («Локальна
+    хімчистка»), а перечень услуг — полностью («Локальна хімчистка окремих
+    елементів»). Пока хвоста нет, услуга неотличима от «Комплексна хімчистка
+    салону», и лид получает цену НЕ ТОЙ работы: это неверный счёт, а не
+    некрасивое слово.
+
+    Обе стороны — ответы САМОГО клиента, ничего не сочиняется. Условия
+    замены жёсткие, и каждое закрывает свой способ ошибиться:
+
+    * кандидат обязан НАЧИНАТЬСЯ с заголовка прайса — «похоже» не считается,
+      иначе «Нанесення керамічного покриття» переименовало бы «Керамічне
+      покриття кузова», то есть генератор начал бы сочинять названия;
+    * кандидат обязан быть ДЛИННЕЕ — укорачивать нельзя никогда;
+    * кандидат обязан быть ОДИН. Два продолжения одного заголовка — вопрос к
+      владельцу («салону» и «салону та багажника» стоят разных денег), а
+      молчаливый выбор одного из них ничем не лучше молчаливого дефолта.
+
+    Состав услуг не меняется НИКОГДА: правило трогает текст заголовка, а
+    числовые инварианты приёмки (14 услуг) считаются по составу.
+    """
+    entries = [ln.strip(" -–•\t") for ln in _unify_chars(services_list or "").split("\n")]
+    entries = [re.sub(r"^\d+[.)]\s*", "", e).strip() for e in entries if e.strip()]
+    out: list[_Service] = []
+    for svc in services:
+        title = svc.title
+        low = title.casefold()
+        candidates = [e for e in entries
+                      if e.casefold().startswith(low) and len(e) > len(title)]
+        out.append(replace(svc, title=candidates[0]) if len(candidates) == 1 else svc)
+    return out
 
 
 def _service_lines(svc: _Service) -> list[str]:
@@ -2044,7 +2079,8 @@ def render_all(brief: dict, *, slug: str) -> RenderResult:
             "knowledge не собрать, а собранный без него клиент будет выдумывать "
             "цены. Это rc «не состоялось», а не «сгенерировали как смогли»")
 
-    services = _parse_services(price_block)
+    services = _lengthen_titles(_parse_services(price_block),
+                                _value(brief, "q21_services"))
     if not services:
         raise RenderError(
             "прайс не разобран ни на одну услугу: ожидались строки вида "

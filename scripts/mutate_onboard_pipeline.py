@@ -63,6 +63,31 @@ MUTATIONS = [
      [("    if len(stripped) > _NUMERIC_STUB_LEN:\n        return False\n", "")],
      f"{TB}::test_a_long_digits_only_answer_is_not_a_stub"),
 
+    # ── render.py: название услуги, Q21 против Q22 ────────────────────────
+    # Решение владельца 17.08. Три условия замены — три способа ошибиться, и
+    # каждое обязано держаться своим сторожем, иначе правило «берём длинное»
+    # незаметно превратится в «сочиняем похожее».
+    ("правило названий выключено — цена снова у сокращённой услуги", RENDER,
+     [("        out.append(replace(svc, title=candidates[0]) if len(candidates) == 1 else svc)",
+       "        out.append(svc)")],
+     f"{TR}::test_a_service_title_is_completed_from_the_services_list"),
+
+    ("префикс больше не обязателен — генератор переименовывает по похожести",
+     RENDER,
+     [("        candidates = [e for e in entries\n"
+       "                      if e.casefold().startswith(low) and len(e) > len(title)]",
+       "        candidates = [e for e in entries if len(e) > len(title)]")],
+     f"{TR}::test_a_title_the_services_list_does_not_continue_is_left_alone"),
+
+    ("длина больше не обязательна — заголовок можно укоротить", RENDER,
+     [("if e.casefold().startswith(low) and len(e) > len(title)]",
+       "if e.casefold().startswith(low)]")],
+     f"{TR}::test_a_shorter_entry_never_replaces_the_price_heading"),
+
+    ("два кандидата — берём первый, то есть угадываем за владельца", RENDER,
+     [("if len(candidates) == 1 else svc)", "if len(candidates) >= 1 else svc)")],
+     f"{TR}::test_two_candidates_leave_the_heading_untouched"),
+
     # ── render.py: R9, обе стороны ────────────────────────────────────────
     ("маркеры модальности сняты — «може залишатися до наступного дня» повисло",
      RENDER,

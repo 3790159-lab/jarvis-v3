@@ -950,6 +950,94 @@ def test_every_required_section_exists_with_a_meaningful_line(f):
         assert meaningful_lines(body), f"раздел «{title}» пуст — только заголовок"
 
 
+# ══ НАЗВАНИЕ УСЛУГИ: Q21 ПРОТИВ Q22 (решение владельца 17.08) ══════════════
+#
+# Прайс (Q22) клиент пишет сокращёнными заголовками, перечень услуг (Q21) —
+# полными. Решение владельца: брать ДЛИННОЕ из Q21, если оно НАЧИНАЕТСЯ с
+# заголовка Q22 и длиннее его. Довод не косметический: «Локальна хімчистка»
+# без хвоста путается с «Комплексна хімчистка салону», и лид получает цену НЕ
+# ТОЙ работы — то есть неверный счёт, а не некрасивое слово.
+#
+# Границы правила задаются здесь, потому что решение их и задаёт: не совпал
+# префикс — не наше дело; короче — никогда не укорачиваем; два кандидата —
+# не угадываем.
+
+def _titles(files) -> list[str]:
+    return [ln.strip("# ").strip()
+            for ln in files["knowledge.md"].splitlines()
+            if ln.startswith("## ")]
+
+
+def test_a_service_title_is_completed_from_the_services_list():
+    """Ловит: цену, названную не для той работы.
+
+    Заголовок прайса — сокращение самого клиента; полное название он дал в
+    Q21. У Ярины так вышло 7 раз из 14, и самая дорогая пара — «Локальна
+    хімчистка» против «Комплексна хімчистка салону»: без хвоста услуги
+    неотличимы, а цены у них разные.
+    """
+    result = render.render_all(make_brief(
+        q21_services="Детейлінг-мийка автомобіля\nКомплексна хімчистка салону",
+    ), slug=SLUG)
+    titles = " | ".join(_titles(files_of(result)))
+    assert "Детейлінг-мийка автомобіля" in titles, titles
+
+
+def test_a_title_the_services_list_does_not_continue_is_left_alone():
+    """Парная: правило не имеет права переименовывать по похожести.
+
+    Q21 «Нанесення керамічного покриття» НЕ начинается с заголовка прайса
+    «Керамічне покриття кузова». Разрешить «похоже» — значит дать генератору
+    право сочинять названия услуг, а это ровно тот класс, ради которого
+    strict_knowledge и существует.
+    """
+    result = render.render_all(make_brief(
+        q21_services="Нанесення керамічного покриття",
+    ), slug=SLUG)
+    titles = " | ".join(_titles(files_of(result)))
+    assert "Керамічне покриття кузова" in titles, titles
+    assert "Нанесення" not in titles, titles
+
+
+def test_a_shorter_entry_never_replaces_the_price_heading():
+    """Парная: укорачивать нельзя НИКОГДА — решение владельца про длинные."""
+    result = render.render_all(make_brief(
+        q21_services="Комплексна хімчистка",
+    ), slug=SLUG)
+    titles = " | ".join(_titles(files_of(result)))
+    assert "Комплексна хімчистка салону" in titles, titles
+
+
+def test_two_candidates_leave_the_heading_untouched():
+    """Ловит: угаданное название.
+
+    Два продолжения одного заголовка — это вопрос к владельцу, а не выбор
+    генератора: «Комплексна хімчистка салону» и «Комплексна хімчистка салону
+    та багажника» стоят разных денег. Молчаливый выбор одного из них — то же
+    самое, что молчаливый дефолт.
+    """
+    result = render.render_all(make_brief(
+        q21_services=("Детейлінг-мийка автомобіля\n"
+                      "Детейлінг-мийка мотоцикла"),
+    ), slug=SLUG)
+    joined = " | ".join(_titles(files_of(result)))
+    assert "Детейлінг-мийка" in joined, joined
+    assert "автомобіля" not in joined and "мотоцикла" not in joined, joined
+
+
+def test_the_number_of_services_never_changes_with_the_titles():
+    """Ловит: правило названий, которое склеило или потеряло услугу.
+
+    Инвариант приёмки — 14 услуг у эталона. Заголовок меняет ТЕКСТ, а не
+    состав; если состав поехал, красным станет не тут, а на приёмке клиента.
+    """
+    plain = render.render_all(make_brief(), slug=SLUG)
+    long_ = render.render_all(make_brief(
+        q21_services="Детейлінг-мийка автомобіля\nКерамічне покриття кузова авто",
+    ), slug=SLUG)
+    assert len(_titles(files_of(plain))) == len(_titles(files_of(long_)))
+
+
 # ══ R9. ВИСЯЩИЙ СРОК ═══════════════════════════════════════════════════════
 
 def test_dangling_deadline_names_who_will_tell_the_exact_one(f):
