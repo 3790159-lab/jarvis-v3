@@ -65,8 +65,7 @@ MUTATIONS = [
      f"{T}::test_a_missing_handle_is_reported_out_loud_not_silently"),
 
     ("код выхода спрашивают у ЖИВОГО процесса", G,
-     [("        if (-not $alive -and $script:BotProc -and $script:BotProc.HasExited) {",
-       "        if ($script:BotProc) {")],
+     [("        if (-not $alive) {", "        if ($true) {")],
      f"{T}::test_a_live_process_is_never_asked_for_an_exit_code"),
 ]
 
