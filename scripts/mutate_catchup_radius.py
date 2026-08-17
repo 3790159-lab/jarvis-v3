@@ -43,7 +43,7 @@ MUTATIONS = [
 
     ("пауза и взятый человеком диалог больше не считаются молчанием по решению", R,
      [('            "deliberate_silence": bool(\n'
-       '                (state or "") in SILENT_BY_DECISION or paused or took_over),',
+       '                (state or "") in SILENT_BY_DECISION or took_over or muted),',
        '            "deliberate_silence": bool((state or "") in SILENT_BY_DECISION),')],
      f"{TR}::test_paused_and_human_took_over_count_as_deliberate_silence"),
 
