@@ -37,6 +37,7 @@ from chatter.core.console import (
 # которые владелец мог набрать в диалоге лида ДО Fix 3 (см. _on_connected).
 _COMMAND_PREFIXES = sorted("/" + c for c in (GLOBAL_COMMANDS | TARGETED_COMMANDS))
 from chatter.core.escalation import parse_escalation_keywords
+from chatter.core.pause import is_muted
 from chatter.telethon_identity import identity_kwargs
 from chatter.core.llm import AnthropicLLM, FakeLLM, LLMClient
 from chatter.core.pause import should_auto_resume
@@ -257,19 +258,37 @@ class MissedMessage:
 def select_missed(
     dialogs: list[dict], *, allowlist: frozenset[int], now: float, max_age_seconds: float,
     denylist: frozenset[int] = frozenset(), funnel_gate: bool = False,
+    on_skip: Callable[[dict, str], None] | None = None,
 ) -> list[MissedMessage]:
     """Pure core of catch-up. Given a snapshot of private dialogs with unread
     messages, decide which to answer after a restart.
 
     `dialogs` is transport-agnostic: each item is
         {sender_id: int, is_user: bool, is_bot: bool,
+         silent_by_decision: bool, silence_reason: str,
          messages: [{text: str, out: bool, date_ts: float}, ...]}
 
     Keeps, per allowlisted human DM: inbound (`out` False), non-blank messages
     within `max_age_seconds`, in chronological order. Drops groups/channels
     (`is_user` False), bots, non-allowlisted senders, our own outgoing, blanks,
     and anything older than the age cap. Empty result for a dialog with nothing
-    left to answer."""
+    left to answer.
+
+    🔴 МОЛЧАНИЕ БОТА ИМЕЕТ ДВЕ ПРИЧИНЫ, и снаружи они выглядят одинаково:
+    «не успел» (лежал, деплой, ребут — ради этого catch-up и существует) и
+    «решил молчать» (диалог передан человеку, стоит пауза или снуз). Раньше
+    различия не было, и 17.08 это стоило живого случая: клиент получил ответ
+    бота через 13 ч 49 мин ПОВЕРХ человека, который уже вёл разговор.
+
+    Решение принимает НЕ этот модуль: признак `silent_by_decision` приезжает
+    вместе с диалогом (`_collect_dialogs` спрашивает `pause.is_muted` — ту же
+    функцию, которой живой путь решает, молчать ли ему). Ядро остаётся чистым,
+    а второй копии правила про паузу не появляется.
+
+    Пропуск ГРОМКИЙ: `on_skip(dialog, reason)` зовётся ровно там, где диалог
+    прошёл ВСЕ остальные фильтры и был отброшен именно по этой причине.
+    Молчаливый пропуск — тот же класс, что молчаливый ответ: через месяц никто
+    не скажет, почему клиент остался без реплики."""
     out: list[MissedMessage] = []
     for d in dialogs:
         if not d.get("is_user") or d.get("is_bot"):
@@ -288,12 +307,20 @@ def select_missed(
             and (m.get("text") or "").strip()
             and (now - m["date_ts"]) <= max_age_seconds
         ]
-        if picked:
-            out.append(MissedMessage(
-                sender_id=d["sender_id"],
-                texts=[m["text"] for m in picked],
-                oldest_age_seconds=now - picked[0]["date_ts"],
-            ))
+        if not picked:
+            continue
+        if d.get("silent_by_decision"):
+            # Проверка стоит ПОСЛЕ отбора сообщений намеренно: иначе в журнал
+            # уехали бы и те эскалированные диалоги, где отвечать было нечего
+            # (всё старше порога), и громкая строка превратилась бы в фон.
+            if on_skip is not None:
+                on_skip(d, str(d.get("silence_reason") or "silent_by_decision"))
+            continue
+        out.append(MissedMessage(
+            sender_id=d["sender_id"],
+            texts=[m["text"] for m in picked],
+            oldest_age_seconds=now - picked[0]["date_ts"],
+        ))
     return out
 
 
@@ -1577,14 +1604,54 @@ class TelethonRunner:
                     "out": bool(getattr(m, "out", False)),
                     "date_ts": m.date.timestamp(),
                 })
+            silent, reason = self._silence_by_decision(sender_id)
             dialogs.append({
                 "sender_id": sender_id,
                 "is_user": True,
                 "is_bot": bool(getattr(entity, "bot", False)),
                 "is_contact": bool(getattr(entity, "contact", False)),  # арка 3C
+                "silent_by_decision": silent,
+                "silence_reason": reason,
                 "messages": messages,
             })
         return dialogs
+
+    def _silence_by_decision(self, sender_id: int) -> tuple[bool, str]:
+        """Молчал ли бот в этом диалоге ПО РЕШЕНИЮ, и по какому именно.
+
+        Три состояния, и все три означают «этим диалогом занимается человек»:
+
+        * `escalated` — бот сам передал разговор старшему и ждёт его;
+        * `human_took_over` — человек уже пишет в диалог;
+        * пауза и снуз («⏸ Ще 1год» из карточки) — вердикт берётся у
+          `pause.is_muted`, ТОЙ ЖЕ функции, которой живой путь решает, молчать
+          ли ему. Своей копии правила здесь нет намеренно: снуз живёт как
+          `paused` + `pause_until`, и вторая правда о нём считала бы вчерашний
+          снуз вечным.
+
+        `kill_switch` сюда не входит: он глушит ВСЕХ, его уважает общий путь
+        отправки (`run._muted_now`), и подниматься до катч-апа ему незачем.
+
+        Отказ БД не имеет права решать за нас: не смогли прочитать состояние —
+        считаем, что решения не было (диалог обычный), и говорим об этом
+        громко. Обратный выбор («не знаем — молчим») превратил бы любую ошибку
+        чтения в тихую потерю лида.
+        """
+        try:
+            persona_slug = self.persona_for(sender_id)
+            store = self.personas[persona_slug].deps.store
+            row = store.get_or_create_contact(f"{sender_id}:{persona_slug}")
+        except Exception:
+            log.exception("catch-up: состояние контакта %s не прочиталось — "
+                          "считаю диалог обычным", sender_id)
+            return (False, "")
+        if (row or {}).get("state") == "escalated":
+            return (True, "escalated")
+        if (row or {}).get("human_took_over"):
+            return (True, "human_took_over")
+        if is_muted(row, kill_switch=False, now=time.time()):
+            return (True, "paused")
+        return (False, "")
 
     async def catch_up_missed(
         self, *, now: float | None = None, max_age_seconds: float = CATCHUP_MAX_AGE_SECONDS,
@@ -1602,15 +1669,43 @@ class TelethonRunner:
         except Exception:
             log.exception("catch-up: failed to collect dialogs; skipping catch-up")
             return
+        skipped: list[tuple[int, str]] = []
+
+        def _say_skip(dialog: dict, reason: str) -> None:
+            sender = dialog.get("sender_id")
+            skipped.append((sender, reason))
+            log.info("catch-up SKIP %s — %s: молчание по решению, отвечать не буду",
+                     sender, reason)
+
         missed = select_missed(
             dialogs, allowlist=self.effective_allowlist(), now=now, max_age_seconds=max_age_seconds,
-            denylist=self.denylist, funnel_gate=self.funnel_gate)
-        log.info("catch-up: %d dialog(s) with missed messages", len(missed))
+            denylist=self.denylist, funnel_gate=self.funnel_gate, on_skip=_say_skip)
+        log.info("catch-up: %d dialog(s) with missed messages, %d skipped (человек ведёт)",
+                 len(missed), len(skipped))
         for mm in missed:
             try:
                 await self._process_missed(mm)
             except Exception:
                 log.exception("catch-up: FAILED for sender %s", mm.sender_id)
+        if skipped:
+            await self._notify_skipped_on_catchup(skipped)
+
+    async def _notify_skipped_on_catchup(self, skipped: list[tuple[int, str]]) -> None:
+        """ОДНО уведомление владельцу про диалоги, которые бот не тронул.
+
+        Пропуск без уведомления чинит вмешательство бота ценой другой потери:
+        клиент написал, бот промолчал (правильно), и никто не заметил, что
+        человек об этом не знает. Карточку эскалации при этом НЕ поднимаем —
+        она по этим диалогам уже поднята, и вторая была бы шумом.
+
+        Одно сообщение на весь подъём, а не по одному на диалог: пять карточек
+        подряд на старте читаются как авария, хотя это штатная работа.
+        """
+        lines = [f"• {sender} — {reason}" for sender, reason in skipped]
+        text = ("ℹ️ При подъёме пропущено диалогов: "
+                f"{len(skipped)} — их ведёшь ты, бот не вмешивался.\n"
+                + escape_html("\n".join(lines)))
+        await self._notify_owner_notice(text)
 
     async def _process_missed(self, mm: MissedMessage) -> None:
         persona_slug = self.persona_for(mm.sender_id)

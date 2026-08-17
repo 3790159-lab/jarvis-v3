@@ -523,6 +523,179 @@ def test_catch_up_answers_messages_that_arrived_while_offline(monkeypatch):
     asyncio.run(scenario())
 
 
+# ---------------------------------------------------------------------------
+# 7c. catch-up ОТЛИЧАЕТ «не успел» от «решил молчать» (спека 17.08).
+#
+# Живой случай, ради которого правило заведено: рестарт раннера заставил
+# catch-up ответить на сообщение 13 ч 49 мин давности в ЭСКАЛИРОВАННОМ диалоге.
+# Бот молчал не потому, что не успел, а потому что передал ведение человеку —
+# и ответил поверх него. Сторожа ниже написаны ОТ СПЕКИ, по таблице C1–C8.
+# ---------------------------------------------------------------------------
+def _fresh_dialog(now: float, *, silent: bool = False, reason: str = "") -> dict:
+    return {
+        "sender_id": ALLOWED, "is_user": True, "is_bot": False,
+        "silent_by_decision": silent, "silence_reason": reason,
+        "messages": [{"text": "покажіть договір", "out": False, "date_ts": now - 3600}],
+    }
+
+
+def test_C1_a_dialog_silent_by_decision_is_not_answered():
+    """Молчание по решению — это не пропуск. Ответ туда идёт поверх человека,
+    который уже ведёт разговор, и приходит он спустя часы."""
+    now = 10_000.0
+    assert select_missed([_fresh_dialog(now, silent=True, reason="escalated")],
+                         allowlist=frozenset({ALLOWED}), now=now,
+                         max_age_seconds=CATCHUP_MAX_AGE_SECONDS) == []
+
+
+def test_C2_an_ordinary_dialog_is_still_answered():
+    """Парная к C1: пропуск, ставший безусловным, убил бы то, ради чего
+    catch-up существует — лид, написавший в лежащего бота, обязан получить
+    ответ после подъёма."""
+    now = 10_000.0
+    missed = select_missed([_fresh_dialog(now)], allowlist=frozenset({ALLOWED}),
+                           now=now, max_age_seconds=CATCHUP_MAX_AGE_SECONDS)
+    assert [m.sender_id for m in missed] == [ALLOWED]
+
+
+def test_C6_every_skip_is_reported_with_its_reason():
+    """Молчаливый пропуск — тот же класс, что молчаливый ответ: через месяц
+    никто не скажет, почему клиент остался без реплики."""
+    now = 10_000.0
+    seen: list[tuple[int, str]] = []
+    select_missed([_fresh_dialog(now, silent=True, reason="human_took_over")],
+                  allowlist=frozenset({ALLOWED}), now=now,
+                  max_age_seconds=CATCHUP_MAX_AGE_SECONDS,
+                  on_skip=lambda d, why: seen.append((d["sender_id"], why)))
+    assert seen == [(ALLOWED, "human_took_over")]
+
+
+def test_a_skip_is_not_reported_for_a_dialog_that_had_nothing_to_answer():
+    """Ловит: громкую строку, ставшую фоном.
+
+    Эскалированный диалог, где всё старше порога, catch-up не тронул бы и
+    раньше. Сообщать о таком пропуске — значит печатать строку на каждом
+    подъёме и приучить её не читать.
+    """
+    now = 10_000.0
+    old = _fresh_dialog(now, silent=True, reason="escalated")
+    old["messages"] = [{"text": "прошлогоднее", "out": False, "date_ts": now - 30 * 3600}]
+    seen = []
+    select_missed([old], allowlist=frozenset({ALLOWED}), now=now,
+                  max_age_seconds=24 * 3600, on_skip=lambda d, why: seen.append(why))
+    assert seen == []
+
+
+def test_C8_the_pure_core_never_reads_the_state_itself():
+    """Ловит: ядро, полезшее в БД.
+
+    Состояние приезжает ВМЕСТЕ с диалогом. Разбор снимка обязан оставаться
+    чистой функцией — иначе тридцать существующих сторожей catch-up начнут
+    требовать живого Store, и правило станет непроверяемым.
+    """
+    import inspect
+    src = inspect.getsource(select_missed)
+    for forbidden in ("store", "get_or_create_contact", "sqlite"):
+        assert forbidden not in src, f"ядро само лезет за состоянием: {forbidden}"
+
+
+def test_C3_C4_the_collector_marks_escalated_takeover_and_pause():
+    """Три состояния означают одно: этим диалогом занимается человек."""
+    runner, _ = _runner()
+    store = runner.personas["demo"].deps.store
+    contact_id = f"{ALLOWED}:demo"
+    store.get_or_create_contact(contact_id)
+
+    assert runner._silence_by_decision(ALLOWED) == (False, "")
+
+    store.set_state(contact_id, "escalated")
+    assert runner._silence_by_decision(ALLOWED) == (True, "escalated")
+
+    store.set_state(contact_id, "active")
+    store.mute(contact_id, source="command", now=time.time())
+    silent, reason = runner._silence_by_decision(ALLOWED)
+    assert (silent, reason) == (True, "paused")
+
+
+def test_C5_an_expired_snooze_is_answered_again():
+    """Парная: вчерашний снуз («⏸ Ще 1год») — не вечная тишина.
+
+    `pause.is_muted` уже решает это для ЖИВОГО диалога; здесь проверяется, что
+    catch-up отвечает так же, а не заводит вторую правду о паузе.
+    """
+    runner, _ = _runner()
+    store = runner.personas["demo"].deps.store
+    contact_id = f"{ALLOWED}:demo"
+    store.get_or_create_contact(contact_id)
+    store.mute(contact_id, source="command", until=time.time() - 60, now=time.time() - 3600)
+
+    assert runner._silence_by_decision(ALLOWED) == (False, "")
+
+
+def test_a_state_that_cannot_be_read_does_not_silence_the_dialog(monkeypatch):
+    """Ловит: отказ БД, превращённый в тихую потерю лида.
+
+    Обратный выбор («не знаем — молчим») звучит осторожнее, но он дороже:
+    любая ошибка чтения оставила бы живого лида без ответа и без следа.
+    """
+    runner, _ = _runner()
+    store = runner.personas["demo"].deps.store
+    monkeypatch.setattr(store, "get_or_create_contact",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("БД упала")))
+
+    assert runner._silence_by_decision(ALLOWED) == (False, "")
+
+
+def test_the_owner_is_told_once_about_everything_that_was_skipped(monkeypatch):
+    """Пропуск без уведомления чинит вмешательство ценой другой потери:
+    клиент написал, бот промолчал (верно), и человек об этом не знает.
+    Одно сообщение на весь подъём — пять карточек подряд читаются как авария."""
+    async def scenario():
+        runner, client = _runner()
+        client.get_input_entity = AsyncMock(return_value="inputpeer:catchup")
+        notices: list[str] = []
+        monkeypatch.setattr(tr, "process_batch", lambda *a, **k: None)
+
+        async def fake_notice(self, text):
+            notices.append(text)
+
+        monkeypatch.setattr(type(runner), "_notify_owner_notice", fake_notice)
+        now = 10_000.0
+
+        async def collect():
+            return [_fresh_dialog(now, silent=True, reason="escalated")]
+
+        await runner.catch_up_missed(now=now, collect=collect)
+
+        assert len(notices) == 1, notices
+        assert "escalated" in notices[0] and str(ALLOWED) in notices[0]
+
+    asyncio.run(scenario())
+
+
+def test_no_notice_when_nothing_was_skipped(monkeypatch):
+    """Парная: уведомление на каждом подъёме — это шум, который перестают
+    читать ровно к тому дню, когда оно понадобится."""
+    async def scenario():
+        runner, client = _runner()
+        client.get_input_entity = AsyncMock(return_value="inputpeer:catchup")
+        notices = []
+        monkeypatch.setattr(tr, "process_batch", lambda *a, **k: None)
+
+        async def fake_notice(self, text):
+            notices.append(text)
+
+        monkeypatch.setattr(type(runner), "_notify_owner_notice", fake_notice)
+
+        async def collect():
+            return [_fresh_dialog(10_000.0)]
+
+        await runner.catch_up_missed(now=10_000.0, collect=collect)
+        assert notices == []
+
+    asyncio.run(scenario())
+
+
 def test_write_heartbeat_stamps_current_unix_time(tmp_path):
     from chatter.telethon_run import write_heartbeat
     hb = tmp_path / "state" / "chatter_heartbeat.txt"
