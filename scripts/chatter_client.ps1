@@ -17,7 +17,12 @@
 param(
     [string]$Slug,
     [Parameter(Mandatory)][ValidateSet('start', 'stop', 'status', 'list')][string]$Action,
-    [string]$Root = 'C:\jarvis'
+    [string]$Root = 'C:\jarvis',
+    # Подъём поверх диалога, который ведёт человек, — осознанное действие.
+    # Ключ существует, чтобы отказ можно было пройти НАЗВАВ ЕГО, а не обойти
+    # мимо скрипта: запрет без выхода учит обходить сам инструмент.
+    [switch]$Force,
+    [string]$PythonExe
 )
 
 $ErrorActionPreference = 'Stop'
@@ -80,8 +85,49 @@ function Set-Enabled([string]$TargetSlug, [bool]$Value) {
         (New-Object System.Text.UTF8Encoding $false))
 }
 
+# Замер радиуса переответа ПЕРЕД подъёмом.
+#
+# 17.08: рестарт Ярины заставил catch-up ответить на сообщение 13 ч 49 мин
+# давности в ЭСКАЛИРОВАННОМ диалоге — поверх человека, который его уже вёл.
+# Правило «сначала замерь» родилось тогда же, и живёт оно ЗДЕСЬ, а не в
+# памяти: знание забывается ровно в тот вечер, когда некогда.
+#
+# Отказ строгий в обе стороны: «нашли, кого переответят» и «замерить не
+# удалось» одинаково останавливают подъём. Молчание инструмента не имеет права
+# читаться как разрешение.
+function Assert-CatchupRadius([string]$TargetSlug) {
+    $probe = Join-Path $PSScriptRoot 'chatter_catchup_radius.py'
+    if (-not (Test-Path $probe)) {
+        Fail "замер радиуса не найден ($probe) — подъём без замера запрещён с 17.08"
+    }
+    $py = $PythonExe
+    if (-not $py) { $py = Join-Path $Root '.venv\Scripts\python.exe' }
+    if (-not (Test-Path $py)) {
+        Fail "интерпретатор не найден ($py) — замер радиуса не выполнить, подъём остановлен"
+    }
+
+    & $py $probe --slug $TargetSlug --root $Root
+    $rc = $LASTEXITCODE
+
+    if ($rc -eq 0) { return }
+    if ($rc -eq 1) {
+        Write-Host ""
+        Write-Host "[chatter_client] ОТКАЗ: при подъёме catch-up ответит на диалоги выше."
+        Write-Host "  Диалог, помеченный 🔴, ведёт ЧЕЛОВЕК — ответ бота там перебьёт его."
+        Write-Host "  Ответь клиенту сам (тогда последнее слово станет за ботом) либо"
+        Write-Host "  подними осознанно: -Action start -Force"
+        exit 1
+    }
+    Fail "замер радиуса НЕ СОСТОЯЛСЯ (код $rc) — подъём остановлен: не смогли посмотреть не равно чисто"
+}
+
 switch ($Action) {
     'start' {
+        if ($Force) {
+            Write-Host "[chatter_client] -Force: замер радиуса пропущен ОСОЗНАННО"
+        } else {
+            Assert-CatchupRadius -TargetSlug $Slug
+        }
         Set-Enabled -TargetSlug $Slug -Value $true
         Write-Host "[chatter_client] $Slug -> enabled: true"
         Write-Host "Супервизор поднимет его в течение ~30с. Проверить: -Action status"
