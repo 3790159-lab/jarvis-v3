@@ -131,7 +131,18 @@ MUTATIONS = [
 
     ("вопрос про роль встал первым — пропущенный адрес уехал вниз", REPORT,
      [("        questions.append(role_question)", "        questions.insert(0, role_question)")],
-     f"{TP}::test_the_role_question_comes_last"),
+     f"{TP}::test_the_standing_questions_come_after_the_missing_ones"),
+
+    ("вопрос про реальность SLA больше не задаётся", REPORT,
+     [("    sla_question = _text(report.get(\"sla_reality_question\")).strip()\n"
+       "    if sla_question and sla_question not in questions:\n"
+       "        questions.append(sla_question)\n", "")],
+     f"{TP}::test_the_client_is_asked_whether_the_promised_sla_is_real"),
+
+    ("про SLA спрашивают, даже когда клиент срока не называл", REPORT,
+     [('            SLA_REALITY_QUESTION_UK.format(sla=sla_value) if sla_value else None),',
+       '            SLA_REALITY_QUESTION_UK.format(sla=sla_value or "—")),')],
+     f"{TP}::test_no_sla_question_when_the_brief_never_named_a_deadline"),
 
     ("вопрос про роль перестал цитировать слово клиента", REPORT,
      [('            role=_text((fields.get("q16_owner_ref") or {}).get("value")).strip() or "—"),',

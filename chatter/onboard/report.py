@@ -46,6 +46,7 @@ from chatter.onboard.vocabulary import (
     DUAL_PURPOSE_REPORT_LINE_UK,
     REQUIRED_FACTS,
     ROLE_WORDING_QUESTION_UK,
+    SLA_REALITY_QUESTION_UK,
     UNKNOWN_SECTION_UK,
 )
 
@@ -659,6 +660,8 @@ def build_report(brief: dict, render_result, *, slug: str, flags: list[dict] | N
         # ниже — единственное место, где он об этом узнаёт.
         notes.append(DUAL_PURPOSE_REPORT_LINE_UK)
 
+    sla_value = _text((fields.get("q35_reply_time") or {}).get("value")).strip()
+
     document = {
         "schema_version": SCHEMA_VERSION,
         "meta": {
@@ -684,6 +687,11 @@ def build_report(brief: dict, render_result, *, slug: str, flags: list[dict] | N
         # ждёт человек, отправляющий вопросы клиенту.
         "role_wording_question": ROLE_WORDING_QUESTION_UK.format(
             role=_text((fields.get("q16_owner_ref") or {}).get("value")).strip() or "—"),
+        # Вопрос про реальность SLA задаётся, только если срок в брифе ЕСТЬ.
+        # Нет ответа — про него уже спрашивает общий вопрос раздела 3, и два
+        # вопроса об одном поле в одном письме читаются как невнимательность.
+        "sla_reality_question": (
+            SLA_REALITY_QUESTION_UK.format(sla=sla_value) if sla_value else None),
     }
     return ReportResult(document=document, markdown=render_markdown(document))
 
@@ -850,6 +858,12 @@ def render_markdown(report: dict) -> str:
     role_question = _text(report.get("role_wording_question")).strip()
     if role_question and role_question not in questions:
         questions.append(role_question)
+    # И последним — вопрос про реальность обещанного срока (решение владельца
+    # 17.08 по C12): значение перенесено верно, а верно ли оно ПО ЖИЗНИ, знает
+    # только клиент.
+    sla_question = _text(report.get("sla_reality_question")).strip()
+    if sla_question and sla_question not in questions:
+        questions.append(sla_question)
     out.append(f"### 3.3. Готовый текст вопросов клиенту — {len(questions)} (скопировать и отправить)")
     out.append("")
     if questions:

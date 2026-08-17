@@ -575,14 +575,54 @@ def test_the_role_question_quotes_the_clients_own_word(doc, rendered):
     assert "«старший мастер»" in questions, questions
 
 
-def test_the_role_question_comes_last(md):
-    """Ловит: вопрос про слово, вставший впереди вопросов про пропущенные факты.
+def test_the_standing_questions_come_after_the_missing_ones(md):
+    """Ловит: вопрос про слово или про SLA, вставший впереди пропущенных фактов.
 
     Первые пункты списка человек отправляет наверняка, последние — как
     получится. Пропущенный адрес дороже спора о слове, и порядок это говорит.
+    Два постоянных вопроса идут в конце и в объявленном порядке: сперва роль
+    (пункт 5 решений), затем реальность срока (C12).
     """
     questions = _questions_block(md)
-    assert "називаємо відповідального" in questions[-1], questions[-3:]
+    role = next(i for i, q in enumerate(questions) if "називаємо відповідального" in q)
+    sla = next(i for i, q in enumerate(questions) if "на практиці" in q)
+
+    assert sla == len(questions) - 1, questions[-2:]
+    assert role == sla - 1, questions[-3:]
+    assert all("називаємо відповідального" not in q and "на практиці" not in q
+               for q in questions[:role]), questions[:role]
+
+
+def test_the_client_is_asked_whether_the_promised_sla_is_real(doc, rendered):
+    """Ловит: обещание бота, которое зависит от чужого процесса.
+
+    Срок из брифа бот повторяет лиду дословно («він відповість протягом
+    години»). Машиной проверить нечего: значение перенесено ВЕРНО. А верно ли
+    оно по жизни — знает только клиент, и на тесте Ярины ответ пришёл через
+    три часа при обещанном часе.
+    """
+    doc["fields"]["q35_reply_time"] = field(
+        35, "За який час ви відповідаєте?", "Протягом години", "Протягом години")
+    built = report.build_report(doc, rendered, slug="drivepro", flags=list(FLAGS))
+
+    questions = _questions_block(built.markdown)
+    assert "Протягом години" in questions[-1] and "на практиці" in questions[-1], (
+        questions[-2:])
+
+
+def test_no_sla_question_when_the_brief_never_named_a_deadline(doc, rendered):
+    """Парная: два вопроса об одном поле в одном письме читаются как
+    невнимательность.
+
+    Если срок не отвечен, про него уже спрашивает общий вопрос раздела 3 —
+    второй, про «так і є на практиці», спрашивал бы про то, чего клиент не
+    говорил.
+    """
+    doc["fields"].pop("q35_reply_time", None)
+    built = report.build_report(doc, rendered, slug="drivepro", flags=list(FLAGS))
+
+    questions = " ".join(_questions_block(built.markdown))
+    assert "на практиці" not in questions, questions
 
 
 def test_a_rejected_field_never_looks_like_a_taken_one(document, doc):
