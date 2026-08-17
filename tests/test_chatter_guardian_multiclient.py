@@ -23,6 +23,7 @@ import time
 from pathlib import Path
 
 import pytest
+import yaml
 
 pytestmark = [
     pytest.mark.skipif(
@@ -376,7 +377,16 @@ def test_real_cli_output_parses_in_powershell(tmp_path):
         capture_output=True, text=True, timeout=60, encoding="utf-8", errors="replace")
     assert res.returncode == 0, res.stderr
     out = [l.strip() for l in res.stdout.strip().splitlines() if l.strip()]
-    assert out[0] == "2", f"ожидали 2 клиента в реестре, получили {out}"
+    # Число берётся ИЗ РЕЕСТРА, а не пишется здесь. Литерал «2» протух в тот
+    # день, когда завели Ярину: тест краснел с 14.08 и прятал в этом файле всё
+    # остальное. Сторож обязан проверять КОНТРАКТ (Python → PowerShell → JSON
+    # разбирается, типы сохраняются), а не количество клиентов у бизнеса.
+    expected = len(
+        (yaml.safe_load(
+            (REPO_ROOT / "chatter" / "clients" / "registry.yaml").read_text(encoding="utf-8"))
+         or {}).get("clients") or {})
+    assert out[0] == str(expected), (
+        f"реестр объявляет {expected} клиента(ов), CLI отдал {out}")
     assert out[1] == "volska"
     assert out[2] == "Boolean", "runnable должен разбираться как bool, а не строка"
 
