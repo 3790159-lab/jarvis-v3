@@ -403,7 +403,16 @@ def _stub_index(render_result) -> tuple[dict[str, str], list[str]]:
     entries = list(_entries(_attr(render_result, "stubs")))
     entries += list(_entries(_attr(render_result, "section_stubs")))
     for entry in entries:
-        text = _text(_pick(entry, "text", "line", "stub", "title", "value", default=""))
+        # `stub_line` ПЕРВЫМ — это имя, под которым генератор кладёт ПОЛНУЮ
+        # строку заглушки. Раньше ключ не спрашивался, поиск проваливался до
+        # `title`, и владелец видел в разделе 3 «Адреса, орієнтир, паркування»
+        # вместо «Адреса, орієнтир, паркування — називає Старший мастер».
+        # Раздел 3 существует, чтобы показать то, что ДОСЛОВНО уехало в
+        # knowledge; обрезанная строка сверке не поддаётся, а выглядит как
+        # полноценная запись. Расхождение нашёл третий автор (T4) — ни
+        # генератор, ни отчёт своей половиной контракта его увидеть не могли.
+        text = _text(_pick(entry, "stub_line", "text", "line", "stub", "title",
+                           "value", default=""))
         fact_id = _pick(entry, "fact_id", "fact", "id")
         if fact_id and any(f.id == fact_id for f in REQUIRED_FACTS):
             by_fact[str(fact_id)] = text or str(fact_id)
