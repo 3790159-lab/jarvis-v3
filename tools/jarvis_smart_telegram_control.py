@@ -11490,7 +11490,26 @@ def register_native_commands() -> None:
         print(f"[menu] setMyCommands failed: {e}", flush=True)
 
 
+_DEATH_FINGERPRINT_HANDLE = None   # держим дескриптор живым весь процесс
+
+
 def main() -> None:
+    # Отпечаток смерти вооружается ПЕРВЫМ делом — до локов и до всего, что
+    # может выйти с ошибкой. 17.08 бот умер 16 раз за сутки, и ни одна смерть
+    # не оставила следа: гардианский DIAGNOSIS показал, что процесс был МЁРТВ
+    # при свободных 8.7 ГБ и 12% CPU, то есть ни OOM, ни голодания, а
+    # трассировки нет ни в одном архиве stderr.
+    #
+    # Дескриптор кладём в модульную переменную: faulthandler пишет прямо в fd,
+    # и сборка мусора закрыла бы файл, превратив крах в тишину.
+    global _DEATH_FINGERPRINT_HANDLE
+    try:
+        from app.services.death_fingerprint import arm as _arm_death_fingerprint
+
+        _DEATH_FINGERPRINT_HANDLE = _arm_death_fingerprint()
+    except Exception as exc:  # noqa: BLE001 — диагностика не роняет прод
+        print(f"[death-fingerprint] не вооружился: {exc!r}", flush=True)
+
     # Primary gate: kernel-enforced OS lock (survives a guardian that fails to
     # kill the old bot). Then the pid check (friendly message + guardian target).
     if not _acquire_single_instance_lock():
