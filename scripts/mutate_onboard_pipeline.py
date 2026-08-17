@@ -1,4 +1,4 @@
-"""DEV-26 для арки `chatter.onboard`: снимаем решения арки и требуем КРАСНОГО.
+﻿"""DEV-26 для арки `chatter.onboard`: снимаем решения арки и требуем КРАСНОГО.
 
 Правило заведено владельцем 17.08 и стоит на трёх случаях одних суток, когда
 зелёная сюита промолчала, а мутация нашла: стем «годин» в guardrails, номер
@@ -56,12 +56,12 @@ MUTATIONS = [
     # ревью, и оба обязаны остаться `ok`.
     ("порог числовой заглушки сдвинут — «9-18» стало мусором", BRIEF,
      [("_NUMERIC_STUB_RATIO = 0.8", "_NUMERIC_STUB_RATIO = 0.7")],
-     f"{TB}::test_a_short_but_meaningful_answer_survives"),
+     f"{TB}::test_working_hours_written_as_a_range_survive"),
 
     ("длина перестала ограничивать правило — содержательный ответ стал мусором",
      BRIEF,
      [("    if len(stripped) > _NUMERIC_STUB_LEN:\n        return False\n", "")],
-     f"{TB}::test_a_short_but_meaningful_answer_survives"),
+     f"{TB}::test_a_long_digits_only_answer_is_not_a_stub"),
 
     # ── render.py: R9, обе стороны ────────────────────────────────────────
     ("маркеры модальности сняты — «може залишатися до наступного дня» повисло",
@@ -113,7 +113,7 @@ MUTATIONS = [
     # ── __main__.py: метка защищает сборку от переписывания ───────────────
     ("пересборка поверх метки вычитки снова разрешена", MAIN,
      [("    if is_reviewed(out_dir):", "    if False:")],
-     f"{TL}::test_the_mark_is_read_from_the_client_directory_only"),
+     f"{TL}::test_a_rebuild_over_the_reviewed_mark_is_refused"),
 ]
 
 
