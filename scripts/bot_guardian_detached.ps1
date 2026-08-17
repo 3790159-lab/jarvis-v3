@@ -125,6 +125,69 @@ function Test-Bot {
     } catch { return $false }
 }
 
+# ── Диагноз в момент решения «бот DOWN» ──────────────────────────────────────
+#
+# 17.08: бот перезапускался ШЕСТЬ раз за сутки (03:59, 13:05, 14:55, 15:08,
+# 15:39, 16:17), и каждый раз — во время полного прогона гейтов. Ротация
+# boot-логов показала, что Python-исключения не было: архив умершего
+# экземпляра обрывается на обычных строках старта, без трассировки.
+#
+# Значит остаётся ровно два объяснения, и различить их можно только ЗДЕСЬ,
+# ДО того, как Stop-OldBot снесёт процесс:
+#   * процесс МЁРТВ  -> он умер сам (OOM-киллер, аварийный выход);
+#   * процесс ЖИВ    -> heartbeat не писался при живом процессе, то есть
+#                       голодание или заклинивший event loop, и чинить надо
+#                       порог/приоритет, а не бота.
+#
+# Совпадение времени с гейтами сильное, но принимать его на веру нельзя:
+# у нас уже был случай, когда очевидная причина оказалась третьей
+# (`-Db` против алиаса `-Debug`). Поэтому строка несёт ЗАМЕР нагрузки, а не
+# вывод: живость, возраст heartbeat, загрузку CPU, свободную память и число
+# идущих pytest-прогонов.
+function Get-DownDiagnosis {
+    param(
+        [bool]$Alive, [int]$HeartbeatAgeSec, [int]$CpuPercent,
+        [int]$FreeRamMb, [int]$PytestCount, [string]$BotPid = '-'
+    )
+    $state = if ($Alive) { "процесс ЖИВ (PID $BotPid) - heartbeat не писался при живом процессе" }
+             else        { "процесс МЁРТВ - умер сам" }
+    return ("DIAGNOSIS: {0} | heartbeat {1}s назад | CPU {2}% | RAM свободно {3} МБ | pytest-прогонов {4}" `
+            -f $state, $HeartbeatAgeSec, $CpuPercent, $FreeRamMb, $PytestCount)
+}
+
+function Measure-DownContext {
+    # Снимок машины на момент решения. Всё через try: замер НЕ ИМЕЕТ ПРАВА
+    # мешать подъёму бота, а отсутствующее число обязано быть видно как -1,
+    # а не как ноль (ноль читался бы как «нагрузки нет»).
+    $proc = @(Get-BotProcesses)
+    $alive = [bool]$proc
+    $botPid = if ($alive) { [string]$proc[0].ProcessId } else { '-' }
+
+    $hbAge = -1
+    try {
+        if (Test-Path $hbFile) {
+            $last = [int64]((Get-Content $hbFile -ErrorAction Stop | Select-Object -First 1).Trim())
+            $hbAge = [int]([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - $last)
+        }
+    } catch { $hbAge = -1 }
+
+    $cpu = -1
+    try { $cpu = [int]((Get-CimInstance Win32_Processor -ErrorAction Stop |
+                        Measure-Object -Property LoadPercentage -Average).Average) } catch { $cpu = -1 }
+
+    $freeMb = -1
+    try { $freeMb = [int](((Get-CimInstance Win32_OperatingSystem -ErrorAction Stop).FreePhysicalMemory) / 1024) } catch { $freeMb = -1 }
+
+    $pytest = -1
+    try {
+        $pytest = @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction Stop |
+                    Where-Object { $_.CommandLine -like '*pytest*' }).Count
+    } catch { $pytest = -1 }
+
+    return (Get-DownDiagnosis -Alive $alive -HeartbeatAgeSec $hbAge -CpuPercent $cpu `
+                              -FreeRamMb $freeMb -PytestCount $pytest -BotPid $botPid)
+}
+
 function Stop-OldBot {
     # Layer B: kill by PID-from-file AND by cmdline match, both as a full
     # process TREE (taskkill /T), then POLL for confirmed death up to
@@ -255,6 +318,10 @@ if (-not $NoLoop) {
                 Write-G "bot check failed (${consecutiveFail}/${DebounceFailures}) - debouncing, not relaunching yet"
             } else {
                 if ($lastState -ne 'dead') { Write-G 'bot DOWN - restarting'; $lastState = 'dead' }
+                # ЗАМЕР ДО СНОСА: Start-Bot зовёт Stop-OldBot, и после него
+                # вопрос «был ли процесс жив» становится неотвечаемым навсегда.
+                try { Write-G (Measure-DownContext) }
+                catch { Write-G "DIAGNOSIS: замер не удался ($($_.Exception.GetType().Name)) - продолжаю подъём" }
                 $started = Start-Bot
                 if ($started -and (Test-Bot)) {
                     $lastState = 'alive'

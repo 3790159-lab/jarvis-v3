@@ -26,8 +26,35 @@ _mtime_seq = count()
 
 R = "chatter/telethon_run.py"
 T = "tests/chatter/test_telethon_run.py"
+G = "scripts/bot_guardian_detached.ps1"
+TG = "tests/test_bot_guardian_down_diagnosis.py"
 
 MUTATIONS = [
+    # ── диагноз гардиана: жив ли был процесс ──────────────────────────────
+    ("диагноз перестал различать живого и мёртвого", G,
+     [('    $state = if ($Alive) { "процесс ЖИВ (PID $BotPid) - heartbeat не писался при живом процессе" }\n'
+       '             else        { "процесс МЁРТВ - умер сам" }',
+       '    $state = "процесс МЁРТВ - умер сам"')],
+     f"{TG}::test_a_live_process_is_named_live_not_just_down"),
+
+    ("диагноз потерял числа нагрузки — гипотезу нечем проверить", G,
+     [('    return ("DIAGNOSIS: {0} | heartbeat {1}s назад | CPU {2}% | RAM свободно {3} МБ | pytest-прогонов {4}" `\n'
+       '            -f $state, $HeartbeatAgeSec, $CpuPercent, $FreeRamMb, $PytestCount)',
+       '    return ("DIAGNOSIS: {0}" -f $state)')],
+     f"{TG}::test_the_diagnosis_carries_the_load_numbers"),
+
+    ("счёт pytest-прогонов снят — совпадение с гейтами нечем подтвердить", G,
+     [("        $pytest = @(Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" -ErrorAction Stop |\n"
+       "                    Where-Object { $_.CommandLine -like '*pytest*' }).Count",
+       "        $pytest = -1")],
+     f"{TG}::test_a_real_measurement_answers_all_five_questions"),
+
+    ("замер снимается после сноса — вопрос «был ли жив» становится неотвечаемым", G,
+     [("                try { Write-G (Measure-DownContext) }\n"
+       "                catch { Write-G \"DIAGNOSIS: замер не удался ($($_.Exception.GetType().Name)) - продолжаю подъём\" }\n",
+       "")],
+     f"{TG}::test_the_measurement_happens_before_the_kill_and_cannot_block_it"),
+
     # ── ядро: что пропускаем ──────────────────────────────────────────────
     ("правило снято — бот снова отвечает поверх человека", R,
      [('        if d.get("silent_by_decision"):', "        if False:")],
@@ -83,7 +110,13 @@ MUTATIONS = [
 
 
 def write_mutant(path: Path, text: str) -> None:
-    path.write_text(text.lstrip("﻿"), encoding="utf-8")
+    if path.suffix == ".ps1":
+        # BOM обязателен: PS 5.1 без него читает .ps1 как cp1251 и падает на
+        # кириллице — мутант не запустился бы вовсе, и это зачлось бы как
+        # пойманная мутация. У .py зеркальное правило: BOM запрещён.
+        path.write_text("﻿" + text.lstrip("﻿"), encoding="utf-8")
+    else:
+        path.write_text(text.lstrip("﻿"), encoding="utf-8")
     stamp = _MTIME_BASE + next(_mtime_seq)
     os.utime(path, (stamp, stamp))
 
