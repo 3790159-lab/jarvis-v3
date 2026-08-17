@@ -61,6 +61,37 @@ def test_code_zero_reads_as_a_self_exit(tmp_path):
     assert "УБИТ" not in run.stdout, run.stdout
 
 
+def test_minus_one_is_an_external_termination_not_a_crash(tmp_path):
+    """🔴 Ловит подпись, которая врёт про настоящее число.
+
+    18.08 00:58 пришёл первый живой код выхода: -1. Строка назвала его «КРАХ
+    процесса (NTSTATUS)», потому что в PowerShell 5.1 литерал `0xC0000000`
+    разбирается как Int32 (-1073741824), и проверка диапазона давала True на
+    ЛЮБОМ отрицательном коде.
+
+    Цена ошибки прямая: -1 это внешнее завершение чужой рукой, а «крах» увёл
+    бы разбор в поиск бага внутри бота — то есть чинили бы не то.
+    """
+    run = _run_ps("Get-ExitCodeVerdict -1", tmp_path)
+
+    assert run.returncode == 0, run.stderr
+    assert "ВНЕШНЕЕ завершение" in run.stdout, run.stdout
+    assert "КРАХ" not in run.stdout, run.stdout
+    assert "0xFFFFFFFF" in run.stdout, run.stdout
+
+
+def test_a_negative_code_never_falls_into_the_ntstatus_branch_by_accident(tmp_path):
+    """Парная к предыдущей на СОСЕДНЕМ значении.
+
+    -2 не имеет отношения ни к NTSTATUS, ни к taskkill. Если он снова попадёт
+    в ветку краха, значит приведение к 32 битам сняли, и подпись врёт опять —
+    просто на другом числе.
+    """
+    run = _run_ps("Get-ExitCodeVerdict -2", tmp_path)
+    assert "КРАХ" not in run.stdout, run.stdout
+    assert "0xFFFFFFFE" in run.stdout, run.stdout
+
+
 @pytest.mark.parametrize("code,label", [
     (0xC0000409, "КРАХ"),   # fail-fast CRT — ровно то, чем падает WindowsTerminal
     (0xC0000005, "КРАХ"),   # access violation

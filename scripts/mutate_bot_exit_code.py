@@ -35,6 +35,15 @@ MUTATIONS = [
        '        0 { return "код 0 - УБИТ снаружи" }')],
      f"{T}::test_code_zero_reads_as_a_self_exit"),
 
+    ("приведение к 32 битам снято — любой отрицательный код снова «крах»", G,
+     [("    $u = ([int64]$Code) -band 0xFFFFFFFFL", "    $u = [int64]$Code")],
+     f"{T}::test_minus_one_is_an_external_termination_not_a_crash"),
+
+    ("диапазон NTSTATUS открыт сверху — 0xFFFFFFFE снова читается крахом", G,
+     [("            if ($u -ge 3221225472L -and $u -le 3238002687L) {",
+       "            if ($u -ge 3221225472L) {")],
+     f"{T}::test_a_negative_code_never_falls_into_the_ntstatus_branch_by_accident"),
+
     ("крах перестал быть отдельным показанием", G,
      [('                return "код $hex - КРАХ процесса (NTSTATUS)"',
        '                return "код $hex - вышел САМ"')],
