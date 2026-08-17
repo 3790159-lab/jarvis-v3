@@ -144,15 +144,36 @@ function Test-Bot {
 # (`-Db` против алиаса `-Debug`). Поэтому строка несёт ЗАМЕР нагрузки, а не
 # вывод: живость, возраст heartbeat, загрузку CPU, свободную память и число
 # идущих pytest-прогонов.
+function Get-ExitCodeVerdict {
+    param($Code)
+    # Расшифровка ЗДЕСЬ, а не в голове разбирающего: через неделю никто не
+    # вспомнит, что 1 — это taskkill, а 0 — это два os._exit(0) в боте.
+    if ($null -eq $Code) { return "код выхода недоступен (хэндла нет)" }
+    $c = [int64]$Code
+    $hex = "0x{0:X8}" -f ($c -band 0xFFFFFFFF)
+    switch ($c) {
+        0 { return "код 0 - вышел САМ (os._exit(0): dev_task merge или /restart_bot)" }
+        1 { return "код 1 - УБИТ снаружи (taskkill /F = TerminateProcess)" }
+        default {
+            if (($c -band 0xC0000000) -eq 0xC0000000 -or $hex -like '0xC0*') {
+                return "код $hex - КРАХ процесса (NTSTATUS)"
+            }
+            return "код $c ($hex) - ни 0, ни 1: смотреть вручную"
+        }
+    }
+}
+
 function Get-DownDiagnosis {
     param(
         [bool]$Alive, [int]$HeartbeatAgeSec, [int]$CpuPercent,
-        [int]$FreeRamMb, [int]$PytestCount, [string]$BotPid = '-'
+        [int]$FreeRamMb, [int]$PytestCount, [string]$BotPid = '-',
+        [string]$ExitVerdict = ''
     )
     $state = if ($Alive) { "процесс ЖИВ (PID $BotPid) - heartbeat не писался при живом процессе" }
              else        { "процесс МЁРТВ - умер сам" }
-    return ("DIAGNOSIS: {0} | heartbeat {1}s назад | CPU {2}% | RAM свободно {3} МБ | pytest-прогонов {4}" `
-            -f $state, $HeartbeatAgeSec, $CpuPercent, $FreeRamMb, $PytestCount)
+    $tail = if ($ExitVerdict) { " | $ExitVerdict" } else { "" }
+    return ("DIAGNOSIS: {0} | heartbeat {1}s назад | CPU {2}% | RAM свободно {3} МБ | pytest-прогонов {4}{5}" `
+            -f $state, $HeartbeatAgeSec, $CpuPercent, $FreeRamMb, $PytestCount, $tail)
 }
 
 function Measure-DownContext {
@@ -184,8 +205,18 @@ function Measure-DownContext {
                     Where-Object { $_.CommandLine -like '*pytest*' }).Count
     } catch { $pytest = -1 }
 
+    # Код выхода спрашиваем ТОЛЬКО у мёртвого и только по своему хэндлу: у
+    # живого его нет по определению, а чужой процесс о своём коде не расскажет.
+    $exitVerdict = ''
+    try {
+        if (-not $alive -and $script:BotProc -and $script:BotProc.HasExited) {
+            $exitVerdict = Get-ExitCodeVerdict $script:BotProc.ExitCode
+        }
+    } catch { $exitVerdict = "код выхода не прочитался ($($_.Exception.GetType().Name))" }
+
     return (Get-DownDiagnosis -Alive $alive -HeartbeatAgeSec $hbAge -CpuPercent $cpu `
-                              -FreeRamMb $freeMb -PytestCount $pytest -BotPid $botPid)
+                              -FreeRamMb $freeMb -PytestCount $pytest -BotPid $botPid `
+                              -ExitVerdict $exitVerdict)
 }
 
 function Stop-OldBot {
@@ -284,6 +315,15 @@ function Start-Bot {
     Rotate-BootLog $bErr
     $p = Start-Process -FilePath $py -ArgumentList @($botFile) -WorkingDirectory $Root `
         -WindowStyle Hidden -RedirectStandardOutput $bOut -RedirectStandardError $bErr -PassThru
+    # Держим объект процесса, чтобы после смерти спросить у ОС КОД ВЫХОДА.
+    # Отпечаток (`bot_death.log`) 17.08 дал вердикт «killed»: ни трассировки, ни
+    # метки чистого выхода. Но он по построению НЕ различает внешнее убийство и
+    # `os._exit()` — оба обрывают процесс без atexit. Код выхода различает:
+    #   1          — `taskkill /F` (TerminateProcess с кодом 1), кто-то убил;
+    #   0          — процесс вышел сам (в боте это ровно два os._exit(0));
+    #   0xC0000409 — fail-fast CRT, 0xC0000005 — access violation, то есть крах.
+    # Хэндл живёт только у ЗАПУСТИВШЕГО, поэтому спросить может лишь гардиан.
+    $script:BotProc = $p
     Write-G "launched bot (PID $($p.Id)) -> $bOut"
     for ($i = 0; $i -lt 45; $i++) {
         Start-Sleep -Seconds 1
