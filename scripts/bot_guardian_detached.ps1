@@ -209,8 +209,17 @@ function Measure-DownContext {
     # живого его нет по определению, а чужой процесс о своём коде не расскажет.
     $exitVerdict = ''
     try {
-        if (-not $alive -and $script:BotProc -and $script:BotProc.HasExited) {
-            $exitVerdict = Get-ExitCodeVerdict $script:BotProc.ExitCode
+        if (-not $alive) {
+            if ($script:BotProc -and $script:BotProc.HasExited) {
+                $exitVerdict = Get-ExitCodeVerdict $script:BotProc.ExitCode
+            } else {
+                # Живой случай 17.08 23:04: бота поднял ПРЕЖНИЙ экземпляр
+                # гардиана, у нынешнего хэндла нет — и строка молча выходила
+                # без вердикта. Молчание неотличимо от «не смотрели»; говорим
+                # вслух, что именно недоступно и почему.
+                $exitVerdict = (Get-ExitCodeVerdict $null) +
+                    " — бот поднят другим экземпляром гардиана"
+            }
         }
     } catch { $exitVerdict = "код выхода не прочитался ($($_.Exception.GetType().Name))" }
 

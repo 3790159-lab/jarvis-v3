@@ -93,6 +93,21 @@ def test_the_diagnosis_line_carries_the_exit_verdict(tmp_path):
     assert "процесс МЁРТВ" in run.stdout and "УБИТ снаружи" in run.stdout, run.stdout
 
 
+def test_a_missing_handle_is_reported_out_loud_not_silently(tmp_path):
+    """Ловит: строку диагноза, которая молчит про недоступный код.
+
+    Живой случай 17.08 23:04: смерть №20 пришла, различитель уже стоял — а
+    вердикта в строке не было. Бота поднял ПРЕЖНИЙ экземпляр гардиана, хэндл
+    остался у него, и ветка просто не выполнилась. Молчание тут неотличимо от
+    «не смотрели», и разбор снова начинается с догадки.
+    """
+    run = _run_ps("Measure-DownContext", tmp_path)
+
+    assert run.returncode == 0, run.stderr
+    assert "недоступен" in run.stdout, run.stdout
+    assert "другим экземпляром гардиана" in run.stdout, run.stdout
+
+
 def test_a_live_process_is_never_asked_for_an_exit_code():
     """Ловит: вопрос, заданный не тому.
 

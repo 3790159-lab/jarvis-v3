@@ -49,6 +49,17 @@ MUTATIONS = [
      [('    $tail = if ($ExitVerdict) { " | $ExitVerdict" } else { "" }', '    $tail = ""')],
      f"{T}::test_the_diagnosis_line_carries_the_exit_verdict"),
 
+    ("недоступный код выхода снова молчит вместо объяснения", G,
+     [("            } else {\n"
+       "                # Живой случай 17.08 23:04: бота поднял ПРЕЖНИЙ экземпляр\n"
+       "                # гардиана, у нынешнего хэндла нет — и строка молча выходила\n"
+       "                # без вердикта. Молчание неотличимо от «не смотрели»; говорим\n"
+       "                # вслух, что именно недоступно и почему.\n"
+       "                $exitVerdict = (Get-ExitCodeVerdict $null) +\n"
+       "                    \" — бот поднят другим экземпляром гардиана\"\n"
+       "            }\n", "            }\n")],
+     f"{T}::test_a_missing_handle_is_reported_out_loud_not_silently"),
+
     ("код выхода спрашивают у ЖИВОГО процесса", G,
      [("        if (-not $alive -and $script:BotProc -and $script:BotProc.HasExited) {",
        "        if ($script:BotProc) {")],
