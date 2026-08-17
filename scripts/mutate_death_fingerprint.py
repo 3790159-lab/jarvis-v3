@@ -59,7 +59,7 @@ MUTATIONS = [
        "        if ln.startswith(BOOT):\n"
        "            tail = tail[:i]\n"
        "            break\n", "")],
-     f"{T}::test_two_processes_do_not_confuse_each_others_verdicts"),
+     f"{T}::test_a_killed_process_stays_killed_even_if_the_next_one_crashes"),
 
     ("вооружение роняет процесс, если не смогло открыть файл", F,
      [('    except Exception as exc:  # noqa: BLE001 — диагностика не имеет права ронять бота\n'

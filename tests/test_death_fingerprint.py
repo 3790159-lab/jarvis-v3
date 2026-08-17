@@ -159,6 +159,40 @@ def test_two_processes_do_not_confuse_each_others_verdicts(tmp_path):
     assert read_fingerprint(log, pid=clean) == "clean"
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="taskkill /F — Windows")
+def test_a_killed_process_stays_killed_even_if_the_next_one_crashes(tmp_path):
+    """Ловит: чужой след, зачтённый предыдущему процессу.
+
+    Именно эта пара и живёт в проде: гардиан убивает бота и через секунду
+    поднимает следующего. Если разбор не закрывает окно процесса следующим
+    BOOT, трассировка НОВОГО падения зачтётся СТАРОМУ, и «убили снаружи»
+    навсегда прочитается как «упал сам» — то есть починят не то.
+
+    Мутационный гейт нашёл этот пробел: пара «крах, потом чистый выход»
+    оставалась зелёной и на снятом окне, потому что вердикт «crash» там
+    получался по своей же трассировке. Различает только этот порядок.
+    """
+    log = tmp_path / "bot_death.log"
+    victim = _run_child("time.sleep(60)", log, wait=False)
+    try:
+        killed_pid = _wait_for_boot(log)
+        subprocess.run(["taskkill", "/PID", str(killed_pid), "/T", "/F"],
+                       capture_output=True, check=False)
+        victim.wait(timeout=30)
+    finally:
+        if victim.poll() is None:
+            victim.kill()
+
+    _run_child("import faulthandler; faulthandler._sigsegv()", log)
+    crashed_pid = _boot_pids(log)[-1]
+
+    assert crashed_pid != killed_pid, "PID совпали — тест ничего не различает"
+    assert read_fingerprint(log, pid=crashed_pid) == "crash"
+    assert read_fingerprint(log, pid=killed_pid) == "killed", (
+        "трассировка СЛЕДУЮЩЕГО процесса зачтена убитому — разбор укажет на "
+        "крах там, где было внешнее убийство")
+
+
 def test_arming_never_takes_the_process_down(tmp_path):
     """Ловит: диагностику, ставшую условием старта.
 
