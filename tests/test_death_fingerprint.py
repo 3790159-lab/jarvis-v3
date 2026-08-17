@@ -205,6 +205,58 @@ def test_arming_never_takes_the_process_down(tmp_path):
     assert arm(blocked / "logs" / "bot_death.log") is None
 
 
+def test_a_process_that_is_still_running_reads_as_alive(tmp_path):
+    """Ловит: инструмент, который врёт про ЖИВОЙ процесс.
+
+    У последнего `BOOT` следующего нет по определению, и до 17.08 это читалось
+    как «убили»: живой бот (pid 1372) прочитался `killed`. Вердикт, который
+    врёт на живом, обесценит следующую настоящую смерть — а она и есть весь
+    смысл файла.
+    """
+    log = tmp_path / "bot_death.log"
+    proc = _run_child("time.sleep(30)", log, wait=False)
+    try:
+        pid = _wait_for_boot(log)
+        assert read_fingerprint(log, pid=pid) == "alive"
+    finally:
+        proc.kill()
+        proc.wait(timeout=30)
+
+
+def test_a_reused_pid_from_a_closed_window_is_not_called_alive(tmp_path):
+    """Парная: живость спрашивается ТОЛЬКО у незакрытого окна.
+
+    Гардиан поднимает бота каждые несколько минут, номера переиспользуются
+    системой. Если считать «жив» по номеру из ЗАКРЫТОГО окна, вердикт будет
+    про чужой процесс — и «убит» превратится в «работает» на ровном месте.
+    """
+    log = tmp_path / "bot_death.log"
+    _run_child("sys.exit(0)", log)          # первое окно: закрыто вторым BOOT
+    first = _boot_pids(log)[-1]
+    _run_child("sys.exit(0)", log)
+
+    assert read_fingerprint(log, pid=first, alive_fn=lambda _pid: True) == "clean"
+
+    # То же для окна без следа: закрытое окно не имеет права стать 'alive'.
+    log2 = tmp_path / "second.log"
+    log2.write_text(f"{BOOT} pid=4242 ts=1 x\n{BOOT} pid=4243 ts=2 y\n", encoding="utf-8")
+    assert read_fingerprint(log2, pid=4242, alive_fn=lambda _pid: True) == "killed"
+
+
+def test_liveness_is_asked_through_an_injectable_function(tmp_path):
+    """Ловит: вердикт, который нельзя проверить тестом.
+
+    Без внедряемой функции живость пришлось бы проверять настоящими процессами
+    в каждом сторожe — а значит правило про закрытое окно осталось бы без
+    прицельной проверки.
+    """
+    log = tmp_path / "bot_death.log"
+    log.write_text(f"{BOOT} pid=777 ts=1 x\n", encoding="utf-8")
+
+    assert read_fingerprint(log, pid=777, alive_fn=lambda _pid: True) == "alive"
+    assert read_fingerprint(log, pid=777, alive_fn=lambda _pid: False) == "killed"
+
+
 def test_an_unknown_pid_is_unknown_not_killed(tmp_path):
     """Ловит: вердикт «убит», выданный по отсутствию данных.
 

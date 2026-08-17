@@ -86,10 +86,36 @@ def _say_clean_exit(handle, pid: int) -> None:
         pass
 
 
-def read_fingerprint(log_path=DEFAULT_LOG, *, pid: int) -> str:
+def _pid_alive(pid: int) -> bool:
+    """Жив ли процесс с таким номером ПРЯМО СЕЙЧАС.
+
+    `psutil` уже стоит и используется сторожем `ops_watchdog`, поэтому второй
+    правды о живости процесса тут не заводим. Отказ библиотеки трактуется как
+    «не знаем» = не жив: вердикт `killed` в этом случае честнее, чем `alive`,
+    потому что он не выдаёт догадку за наблюдение.
+    """
+    try:
+        import psutil
+
+        return bool(psutil.pid_exists(int(pid)))
+    except Exception:  # noqa: BLE001 — читатель журнала не имеет права падать
+        return False
+
+
+def read_fingerprint(log_path=DEFAULT_LOG, *, pid: int, alive_fn=None) -> str:
     """Чем кончился процесс `pid` по записям файла: 'crash' | 'clean' |
-    'killed' | 'unknown'. Разбор ЗДЕСЬ, чтобы разбирающий человек не собирал
-    правило заново в голове (и чтобы у правила был сторож)."""
+    'killed' | 'alive' | 'unknown'. Разбор ЗДЕСЬ, чтобы разбирающий человек не
+    собирал правило заново в голове (и чтобы у правила был сторож).
+
+    🔴 `alive` появился 17.08 по факту: читатель отвечал `killed` про ЖИВОЙ
+    процесс — у последнего `BOOT` следующего просто нет, а «нет следа» до этого
+    значило «убили». Инструмент, который врёт на живом, обесценит вердикт ровно
+    в тот момент, когда он понадобится.
+
+    Живость спрашивается ТОЛЬКО когда окно не закрыто следующим `BOOT`: если
+    процесс уже сменился, номер мог достаться кому угодно, и «жив» сказало бы
+    о ЧУЖОМ процессе.
+    """
     path = Path(log_path)
     if not path.is_file():
         return "unknown"
@@ -102,12 +128,18 @@ def read_fingerprint(log_path=DEFAULT_LOG, *, pid: int) -> str:
         return "unknown"
     tail = lines[start + 1:]
     # Следующий BOOT закрывает окно этого процесса: всё после него — чужое.
+    closed = False
     for i, ln in enumerate(tail):
         if ln.startswith(BOOT):
             tail = tail[:i]
+            closed = True
             break
     if any(ln.startswith(EXIT_CLEAN) and marker in ln for ln in tail):
         return "clean"
     if any(ln.strip() for ln in tail):
         return "crash"
+    if not closed and (alive_fn or _pid_alive)(pid):
+        # Следа нет, потому что процесс ещё НЕ УМЕР. Это не улика, а текущее
+        # состояние, и путать их нельзя.
+        return "alive"
     return "killed"

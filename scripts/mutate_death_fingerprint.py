@@ -61,6 +61,25 @@ MUTATIONS = [
        "            break\n", "")],
      f"{T}::test_a_killed_process_stays_killed_even_if_the_next_one_crashes"),
 
+    # ── живой процесс не имеет права читаться как убитый (17.08) ──────────
+    ("живость не спрашивают — работающий процесс снова читается как убитый", F,
+     [('    if not closed and (alive_fn or _pid_alive)(pid):\n'
+       '        # Следа нет, потому что процесс ещё НЕ УМЕР. Это не улика, а текущее\n'
+       '        # состояние, и путать их нельзя.\n'
+       '        return "alive"\n', "")],
+     f"{T}::test_liveness_is_asked_through_an_injectable_function"),
+
+    ("закрытое окно тоже объявляется живым — вердикт про ЧУЖОЙ процесс", F,
+     [("    if not closed and (alive_fn or _pid_alive)(pid):",
+       "    if (alive_fn or _pid_alive)(pid):")],
+     f"{T}::test_a_reused_pid_from_a_closed_window_is_not_called_alive"),
+
+    ("отказ psutil объявляет процесс живым вместо честного killed", F,
+     [("    except Exception:  # noqa: BLE001 — читатель журнала не имеет права падать\n"
+       "        return False",
+       "    except Exception:\n        return True")],
+     f"{T}::test_an_external_kill_leaves_only_the_boot_line"),
+
     ("вооружение роняет процесс, если не смогло открыть файл", F,
      [('    except Exception as exc:  # noqa: BLE001 — диагностика не имеет права ронять бота\n'
        '        print(f"[death-fingerprint] не смог открыть {path}: {exc!r}", flush=True)\n'
