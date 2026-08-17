@@ -49,6 +49,10 @@ MUTATIONS = [
      [('    $tail = if ($ExitVerdict) { " | $ExitVerdict" } else { "" }', '    $tail = ""')],
      f"{T}::test_the_diagnosis_line_carries_the_exit_verdict"),
 
+    ("хэндл не кэшируется — код выхода снова теряется на живой смерти", G,
+     [("    try { $null = $p.Handle } catch { Write-G \"не удалось закэшировать хэндл бота: $($_.Exception.GetType().Name)\" }\n\n", "")],
+     f"{T}::test_the_guardian_caches_the_handle_right_after_launch"),
+
     ("недоступный код выхода снова молчит вместо объяснения", G,
      [("            } else {\n"
        "                # Живой случай 17.08 23:04: бота поднял ПРЕЖНИЙ экземпляр\n"

@@ -324,6 +324,15 @@ function Start-Bot {
     Rotate-BootLog $bErr
     $p = Start-Process -FilePath $py -ArgumentList @($botFile) -WorkingDirectory $Root `
         -WindowStyle Hidden -RedirectStandardOutput $bOut -RedirectStandardError $bErr -PassThru
+    # 🔴 Прикосновение к .Handle ОБЯЗАТЕЛЬНО и не является украшением.
+    # Замер 17.08 23:31 (смерть №21): объект от Start-Process был, HasExited
+    # отвечал, а `.ExitCode` вернул $null — строка диагноза сказала «код выхода
+    # недоступен» там, где хэндл вроде бы есть. Причина известная: PowerShell
+    # не кэширует системный хэндл процесса, и после его смерти читать код
+    # выхода уже не у чего. Одно обращение к .Handle заставляет .NET сохранить
+    # хэндл, и код выхода доживает до вопроса.
+    try { $null = $p.Handle } catch { Write-G "не удалось закэшировать хэндл бота: $($_.Exception.GetType().Name)" }
+
     # Держим объект процесса, чтобы после смерти спросить у ОС КОД ВЫХОДА.
     # Отпечаток (`bot_death.log`) 17.08 дал вердикт «killed»: ни трассировки, ни
     # метки чистого выхода. Но он по построению НЕ различает внешнее убийство и

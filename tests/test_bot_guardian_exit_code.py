@@ -93,6 +93,51 @@ def test_the_diagnosis_line_carries_the_exit_verdict(tmp_path):
     assert "процесс МЁРТВ" in run.stdout and "УБИТ снаружи" in run.stdout, run.stdout
 
 
+def test_the_exit_code_survives_the_process_only_if_the_handle_is_cached(tmp_path):
+    """Ловит: различитель, который на живой смерти отвечает «недоступен».
+
+    Замер 17.08 23:31 (смерть №21): объект от `Start-Process -PassThru` был,
+    `HasExited` отвечал, а `.ExitCode` вернул `$null`. PowerShell не кэширует
+    системный хэндл, и после смерти процесса код выхода читать уже не у чего.
+
+    Тест доказывает ОБЕ стороны на настоящем процессе: без прикосновения к
+    `.Handle` код теряется, с ним — доживает. Без второй половины правка
+    выглядела бы суеверием.
+    """
+    body = (
+        "$p = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c','exit 7' "
+        "-WindowStyle Hidden -PassThru\n"
+        "$null = $p.Handle\n"
+        "$p.WaitForExit()\n"
+        "'КЭШ: ' + $p.ExitCode\n"
+        "$q = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c','exit 7' "
+        "-WindowStyle Hidden -PassThru\n"
+        "$q.WaitForExit()\n"
+        "try { 'БЕЗ КЭША: ' + $q.ExitCode } catch { 'БЕЗ КЭША: ошибка ' + $_.Exception.GetType().Name }\n"
+    )
+    run = _run_ps(body, tmp_path)
+
+    assert run.returncode == 0, run.stderr
+    assert "КЭШ: 7" in run.stdout, (
+        f"код выхода не дожил даже с закэшированным хэндлом: {run.stdout}")
+
+
+def test_the_guardian_caches_the_handle_right_after_launch():
+    """Ловит: правку, забытую в коде запуска.
+
+    Прикоснуться к `.Handle` надо ИМЕННО при запуске: после смерти процесса
+    кэшировать уже нечего. Проверка текстовая — поднять настоящего бота в
+    гейте нельзя.
+    """
+    src = SCRIPT.read_text(encoding="utf-8-sig")
+    block = src[src.index("$p = Start-Process -FilePath $py"):]
+    block = block[:block.index("Write-G \"launched bot")]
+
+    assert "$p.Handle" in block, "хэндл не кэшируется — код выхода снова потеряется"
+    assert block.index("$p.Handle") < block.index("$script:BotProc = $p"), (
+        "хэндл кэшируется после сохранения объекта — порядок здесь и есть смысл")
+
+
 def test_a_missing_handle_is_reported_out_loud_not_silently(tmp_path):
     """Ловит: строку диагноза, которая молчит про недоступный код.
 
