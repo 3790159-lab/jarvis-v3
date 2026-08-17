@@ -117,6 +117,35 @@ def test_the_archive_has_an_upper_bound(tmp_path):
     assert len(saved) <= 2, f"граница не держится: {[p.name for p in saved]}"
 
 
+def test_two_crashes_in_the_same_second_both_survive(tmp_path):
+    """Ловит: улику, затёртую следующей уликой.
+
+    Имя архива строится из времени с точностью до секунды, а два падения
+    подряд — обычное дело: гардиан поднимает бота, тот умирает на старте,
+    гардиан поднимает снова. Если второе падение перезапишет файл первого,
+    потеряется именно то, что нужно, — ПЕРВАЯ причина.
+
+    Нашёл этот дефект мутационный гейт: без счётчика столкновений пять
+    ротаций подряд давали два файла, и проверка верхней границы зеленела
+    просто потому, что складывать было нечего.
+    """
+    logs = _logs(tmp_path)
+    body = (
+        "$p = Join-Path $Root 'state\\logs\\bot_boot.stderr.log'\n"
+        "Set-Content -Path $p -Value 'падение первое' -Encoding utf8\n"
+        "Rotate-BootLog $p\n"
+        "Set-Content -Path $p -Value 'падение второе' -Encoding utf8\n"
+        "Rotate-BootLog $p\n"
+    )
+    run = _run_ps(body, tmp_path)
+    assert run.returncode == 0, run.stderr
+
+    saved = _archives(tmp_path)
+    texts = " | ".join(p.read_text(encoding="utf-8-sig").strip() for p in saved)
+    assert len(saved) == 2, f"одна из двух улик потеряна: {[p.name for p in saved]}"
+    assert "падение первое" in texts and "падение второе" in texts, texts
+
+
 def test_the_launch_path_actually_rotates_before_it_redirects():
     """Ловит: правильную функцию, которую никто не зовёт.
 

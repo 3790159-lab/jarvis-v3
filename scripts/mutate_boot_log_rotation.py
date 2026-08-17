@@ -42,6 +42,14 @@ MUTATIONS = [
        "")],
      f"{T}::test_the_archive_has_an_upper_bound"),
 
+    ("столкновение имён не разводится — вторая улика затирает первую", G,
+     [("    $n = 1\n"
+       "    while (Test-Path $target) {\n"
+       "        $target = Join-Path $dir \"$base.$stamp-$n$ext\"\n"
+       "        $n++\n"
+       "    }\n", "")],
+     f"{T}::test_two_crashes_in_the_same_second_both_survive"),
+
     ("копия вместо переноса — путь занят, два экземпляра пишут в один файл", G,
      [("    try { Move-Item $Path $target -Force -ErrorAction Stop }",
        "    try { Copy-Item $Path $target -Force -ErrorAction Stop }")],

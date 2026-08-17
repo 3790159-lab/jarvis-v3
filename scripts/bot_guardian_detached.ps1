@@ -190,8 +190,16 @@ function Rotate-BootLog {
     $dir   = Split-Path $Path -Parent
     $base  = [IO.Path]::GetFileNameWithoutExtension($Path)
     $ext   = [IO.Path]::GetExtension($Path)
+    # Секунды на имя мало: два падения подряд (или перезапуск сразу после
+    # неудачного подъёма) укладываются в одну, и вторая улика затёрла бы
+    # первую МОЛЧА. Мутационный гейт поймал это на живом коде: без счётчика
+    # пять ротаций подряд дают два файла вместо пяти.
     $target = Join-Path $dir "$base.$stamp$ext"
-    if (Test-Path $target) { $target = Join-Path $dir "$base.$stamp-$PID$ext" }
+    $n = 1
+    while (Test-Path $target) {
+        $target = Join-Path $dir "$base.$stamp-$n$ext"
+        $n++
+    }
     try { Move-Item $Path $target -Force -ErrorAction Stop }
     catch {
         # Ротация НЕ ИМЕЕТ ПРАВА мешать подъёму бота: лог — это удобство
