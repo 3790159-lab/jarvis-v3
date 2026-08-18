@@ -36,18 +36,34 @@ $problems = @()
 
 # 1) heartbeat-файли. ВІК беремо з LastWriteTime, а не з розміру: на NTFS розмір
 #    живого лога бреше (0 байт при відкритому write-хендлі).
+#    ДВІ ФОРМИ ВІДМІТКИ ЖИВОСТІ chatter-раннера, і знати треба обидві:
+#      легаси          — один безіменний раннер писав chatter_heartbeat.txt
+#      мультиклієнтна  — раннер клієнта пише chatter_heartbeat_<slug>.txt
+#    16.08 17:08 піднявся мультиклієнтний гардіан, і легаси-файл з тієї хвилини
+#    не чіпає НІХТО. Той самий дефект уже ловили двічі: в ops_watchdog.py
+#    (16.08) і в панелі клієнта (18.08, екран Ольги двоє діб брехав «Немає
+#    зв'язку» при живому боті). Тут він лежав ТИХО, бо HEALTHCHECKS_URL не
+#    заданий і скрипт виходить нулем вище — тобто зброя була б несправна рівно
+#    в день, коли її зарядять.
+#    Беремо НАЙСВІЖІШУ з відомих форм і НАЗИВАЄМО файл у тексті проблеми:
+#    «heartbeat застарів» без імені — це те саме мовчання, тільки голосніше.
 $beats = @{
-  'chatter раннер'   = 'chatter_heartbeat.txt'
-  'головний бот'     = 'bot_heartbeat.txt'
-  'chatter гардіан'  = 'chatter_guardian_heartbeat.txt'
-  'ops_watchdog'     = 'ops_watchdog_heartbeat.txt'
+  'chatter раннер'   = @('chatter_heartbeat_*.txt', 'chatter_heartbeat.txt')
+  'головний бот'     = @('bot_heartbeat.txt')
+  'chatter гардіан'  = @('chatter_guardian_heartbeat.txt')
+  'ops_watchdog'     = @('ops_watchdog_heartbeat.txt')
 }
+$stateDir = Join-Path $Root 'state'
 foreach ($name in $beats.Keys) {
-  $p = Join-Path $Root "state\$($beats[$name])"
-  if (-not (Test-Path $p)) { $problems += "$name : heartbeat відсутній"; continue }
-  $age = ((Get-Date) - (Get-Item $p).LastWriteTime).TotalSeconds
+  $found = @()
+  foreach ($pat in $beats[$name]) {
+    $found += @(Get-ChildItem -Path $stateDir -Filter $pat -File -ErrorAction SilentlyContinue)
+  }
+  $best = $found | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+  if (-not $best) { $problems += "$name : heartbeat відсутній"; continue }
+  $age = ((Get-Date) - $best.LastWriteTime).TotalSeconds
   if ($age -gt $FreshSeconds) {
-    $problems += ("{0} : heartbeat {1:N0} с тому" -f $name, $age)
+    $problems += ("{0} : heartbeat {1:N0} с тому ({2})" -f $name, $age, $best.Name)
   }
 }
 
