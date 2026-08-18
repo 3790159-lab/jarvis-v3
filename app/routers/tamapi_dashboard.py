@@ -431,7 +431,10 @@ async def main_screen(request: Request):
     # том месте, где экран обязан быть честным (красный статус + свежий
     # heartbeat читается как «всё хорошо, но красное»).
     hb_txt = "невідомо" if st["age"] is None else ago(now - st["age"], now)
-    # ИСТОЧНИК ОТМЕТКИ — в разметку, комментарием. Клиенту имя файла не нужно,
+    # ИСТОЧНИК ОТМЕТКИ — в разметку, комментарием СНАРУЖИ карточки статуса:
+    # внутри он разрывает пару </div></div>, по которой сторожа panels_hierarchy
+    # находят статус-строку (поймано полным гейтом: 41-й красный).
+    # Клиенту имя файла не нужно,
     # а вот «панель врёт, и непонятно откуда» стоило двух суток лжи на экране
     # Ольги: канал обязан быть видимым в том же артефакте, который врёт.
     beat_src_html = "<!-- heartbeat: %s -->" % esc(st.get("beat_source") or "джерела немає")
@@ -493,8 +496,8 @@ async def main_screen(request: Request):
 <div class='card statusline'>
   <div class='row'><span><span class='dot {st['dot']}'></span>
     <b>{esc(st['title'])}</b> <span class='sub'>· {esc(st['sub'])}
-    · heartbeat {esc(hb_txt)}</span></span>{pause_btn}</div>{beat_src_html}
-</div>
+    · heartbeat {esc(hb_txt)}</span></span>{pause_btn}</div>
+</div>{beat_src_html}
 
 <h2>Навантаження · 7 днів</h2>
 <div class='card'>{_load_html(sm)}</div>
