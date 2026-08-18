@@ -143,10 +143,25 @@ def parse_scenario(text: str) -> Scenario:
                 f"допустимы: {', '.join(sorted(EXPECT_KEYS))}")
         steps.append(Step(say=str(s["say"]).strip(), expect=dict(expect)))
 
+    # DEV-32, вариант 3: сценарий, шаг которого не опознаёт САМ СЕБЯ, обречён
+    # покраснеть или разъехаться на шаг — и узнают об этом уже потратив деньги
+    # и время человека. Отказ обязан быть ДО старта и громким; иначе судья
+    # припишет проверки чужому ходу молча (прогон №5, 26.07).
+    ordered = tuple(steps)
+    for i, step in enumerate(ordered):
+        got = match_step(step.say, ordered)
+        if got == i:
+            continue
+        where = (f"шаг {got + 1} «{ordered[got].say}»" if got is not None
+                 else "НИ ОДИН шаг")
+        raise DrillScenarioError(
+            f"шаг {i + 1} «{step.say}» опознаётся как {where} — судья припишет "
+            f"проверки чужому ходу. Сделай реплику отличимой от соседних")
+
     return Scenario(name=str(raw.get("name", "дрил")),
                     contact=str(raw.get("contact", "")),
                     client=str(raw.get("client", "")),
-                    steps=tuple(steps))
+                    steps=ordered)
 
 
 # --- суфлёр -----------------------------------------------------------------
@@ -197,10 +212,25 @@ def match_step(text: str, steps, *, threshold: float = 0.72) -> int | None:
     from difflib import SequenceMatcher
 
     want = _normalize_say(text)
-    if not want:
-        return None
-    scores = [SequenceMatcher(None, want, _normalize_say(s.say)).ratio()
-              for s in steps]
+    if want:
+        scores = [SequenceMatcher(None, want, _normalize_say(s.say)).ratio()
+                  for s in steps]
+    else:
+        # DEV-32. Нормализация выбрасывает всё, кроме букв и цифр, поэтому у
+        # «🔥👍», «...», «!!!» она пуста — и прежний `return None` объявлял
+        # ЛЮБУЮ бесбуквенную реплику непознаваемой. Живьём 17.08 это дало
+        # красное на шаге, который бот отработал безупречно: красное
+        # относилось к судье, а не к боту.
+        #
+        # Запасной путь сравнивает СЫРЫЕ строки — тем же `SequenceMatcher` и
+        # тем же порогом, поэтому «👍» и «...» остаются РАЗНЫМИ репликами, а
+        # посторонняя фраза по-прежнему не притворяется шагом. Ослабления
+        # инварианта здесь нет: изменился текст сравнения, не строгость.
+        raw = " ".join((text or "").split())
+        if not raw:
+            return None
+        scores = [SequenceMatcher(None, raw, " ".join((s.say or "").split())).ratio()
+                  for s in steps]
     if not scores:
         return None
     best = max(range(len(scores)), key=lambda i: scores[i])
