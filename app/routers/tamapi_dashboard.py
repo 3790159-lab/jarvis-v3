@@ -35,12 +35,64 @@ def _slug() -> str:
     return os.getenv("TAMAPI_SLUG", "volska")
 
 
+# ДВЕ ФОРМЫ ОТМЕТКИ ЖИВОСТИ, и знать нужно обе — та же грабля, что в
+# `ops_watchdog.py` (чинилась 16.08, см. CHATTER_BEAT_LEGACY_NAME там же).
+#   легаси          — один безымянный раннер писал state/chatter_heartbeat.txt
+#   мультиклиентная — раннер клиента пишет state/chatter_heartbeat_<slug>.txt
+# 16.08 17:08 поднялся мультиклиентный гардиан, легаси-файл с той минуты не
+# трогает НИКТО — а панель читала только его и вторые сутки показывала клиенту
+# «Немає зв'язку» при живом боте. Экран, всегда красный при нормальной работе,
+# — это не сторож, а фон, и клиент перестаёт ему верить ровно к тому дню,
+# когда связь оборвётся по-настоящему.
+BEAT_LEGACY_NAME = "chatter_heartbeat.txt"
+
+
+def _beat_candidates() -> list[Path]:
+    """Обе формы, в порядке «своя, потом общая». Порядок здесь ни на что не
+    влияет (побеждает свежесть, а не позиция) — он только для читаемости."""
+    state = Path("state")
+    return [state / f"chatter_heartbeat_{_slug()}.txt", state / BEAT_LEGACY_NAME]
+
+
+def _heartbeat() -> tuple[float | None, str | None]:
+    """Возраст отметки живости И ИМЯ ФАЙЛА, из которого он взят.
+
+    Источник возвращается наружу намеренно: дефект прожил двое суток именно
+    потому, что канал был не виден — экран говорил «технічна проблема», и по
+    нему нельзя было понять, ЧТО он прочитал.
+
+    `TAMAPI_HEARTBEAT`, если задан, остаётся ЕДИНСТВЕННЫМ источником: на нём
+    стоит демо-стенд (`scripts/panels_demo.py`) и инстанс клиента со своим
+    файлом. Догадка поверх явного указания увела бы стенд на чужую отметку —
+    тот же класс, только зеркальный.
+
+    Без него — берём САМУЮ СВЕЖУЮ из известных форм. Правило отличается от
+    `ops_watchdog` («красим по самому старому») осознанно: там проба смотрит на
+    ВСЮ ферму и обязана заметить любого упавшего, здесь экран показывает ОДНОГО
+    клиента, и самая старая форма — это просто заброшенный файл.
+    """
+    now = time.time()
+    env = os.getenv("TAMAPI_HEARTBEAT")
+    if env:
+        p = Path(env)
+        try:
+            return now - p.stat().st_mtime, p.name
+        except OSError:
+            return None, None
+    best: tuple[float | None, str | None] = (None, None)
+    for p in _beat_candidates():
+        try:
+            age = now - p.stat().st_mtime
+        except OSError:
+            continue
+        if best[0] is None or age < best[0]:
+            best = (age, p.name)
+    return best
+
+
 def _heartbeat_age() -> float | None:
-    p = Path(os.getenv("TAMAPI_HEARTBEAT", "state/chatter_heartbeat.txt"))
-    try:
-        return time.time() - p.stat().st_mtime
-    except OSError:
-        return None
+    """Совместимость: возраст без источника."""
+    return _heartbeat()[0]
 
 
 def _cfg():
@@ -57,7 +109,7 @@ def _status() -> dict:
     """Три состояния, не два (спека §2.1): «зелёный» при взведённом kill_switch
     был бы прямой ложью — бот жив, но молчит всем."""
     from chatter.storage.db import Store
-    age = _heartbeat_age()
+    age, beat_src = _heartbeat()
     killed = False
     try:
         s = Store(_db_path())
@@ -69,12 +121,13 @@ def _status() -> dict:
     # «чекає вас» (пауза снимается вами), «на зв'язку» цвета не получает вовсе.
     if age is None or age > 90:
         return {"code": "down", "dot": "broken", "title": "Немає зв'язку",
-                "sub": "технічна проблема, ми вже бачимо", "age": age}
+                "sub": "технічна проблема, ми вже бачимо", "age": age,
+                "beat_source": beat_src}
     if killed:
         return {"code": "paused", "dot": "wait", "title": "На паузі",
-                "sub": "зупинено вами", "age": age}
+                "sub": "зупинено вами", "age": age, "beat_source": beat_src}
     return {"code": "live", "dot": "calm", "title": "На зв'язку",
-            "sub": "відповідає", "age": age}
+            "sub": "відповідає", "age": age, "beat_source": beat_src}
 
 
 def _answer(st: dict, att: list[dict]) -> tuple[str, str]:
@@ -378,6 +431,10 @@ async def main_screen(request: Request):
     # том месте, где экран обязан быть честным (красный статус + свежий
     # heartbeat читается как «всё хорошо, но красное»).
     hb_txt = "невідомо" if st["age"] is None else ago(now - st["age"], now)
+    # ИСТОЧНИК ОТМЕТКИ — в разметку, комментарием. Клиенту имя файла не нужно,
+    # а вот «панель врёт, и непонятно откуда» стоило двух суток лжи на экране
+    # Ольги: канал обязан быть видимым в том же артефакте, который врёт.
+    beat_src_html = "<!-- heartbeat: %s -->" % esc(st.get("beat_source") or "джерела немає")
 
     # Кнопка паузы/включения — вне f-строки: в Python 3.11 выражение f-строки
     # не может содержать обратный слэш, а тут нужны экранированные кавычки.
@@ -436,7 +493,7 @@ async def main_screen(request: Request):
 <div class='card statusline'>
   <div class='row'><span><span class='dot {st['dot']}'></span>
     <b>{esc(st['title'])}</b> <span class='sub'>· {esc(st['sub'])}
-    · heartbeat {esc(hb_txt)}</span></span>{pause_btn}</div>
+    · heartbeat {esc(hb_txt)}</span></span>{pause_btn}</div>{beat_src_html}
 </div>
 
 <h2>Навантаження · 7 днів</h2>
