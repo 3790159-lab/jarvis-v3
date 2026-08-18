@@ -56,7 +56,7 @@ import pytest
 import yaml
 
 from chatter.core import guardrails
-from chatter.onboard import checks, report as report_module, vocabulary
+from chatter.onboard import brief as brief_module, checks, report as report_module, vocabulary
 
 SLUG = "detailpro"
 OWNER_ID = "Старший майстер"
@@ -989,6 +989,96 @@ def test_c15_without_any_source_of_brief_values_is_not_green(tmp_path):
     assert not c15.ok, (
         "ни брифа, ни строк раздела 1 — сверять было НЕ С ЧЕМ, а C15 зелёная: "
         "это «проверка не нашла, что смотреть, и сочла это успехом»")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 5.1. ПУСТО ≠ ЗАБРАКОВАНО (§4, поправка 18.08 — решение владельца)
+#
+# Ловушка здесь в КОНТРАКТЕ, а не в формулировке спеки: `brief.classify_value`
+# отдаёт ОДИН И ТОТ ЖЕ вердикт `garbage` и пустой ячейке, и заполненной мусором
+# (см. brief.py: «Пустое поле — не мусор, а ответа нет… понижаем тем же
+# механизмом»). Различает их только `raw`. Поэтому реализация, честно читающая
+# вердикт, склеит два разных состояния и будет выглядеть правильной.
+#
+# Цена склейки в обе стороны:
+#   * пустое → `blocked`: `q28_promo` не обязательно, и каждый клиент без акции
+#     получает rc «не состоялось» — сигнал, всегда красный при законной работе;
+#   * забракованное → skip: клиент ДО поля дошёл и ответил мимо, а прогон
+#     объявляет «числа сверены», хотя число в knowledge никем не подтверждено.
+#
+# Сторож — ПАРА в одном тесте. Двумя отдельными тестами склейку не поймать: тот,
+# что требует `blocked`, зеленеет на склейке «всё блокирует», а тот, что требует
+# skip, — на склейке «ничто не блокирует». Красным обязано становиться РАЗЛИЧИЕ.
+# ═════════════════════════════════════════════════════════════════════════════
+
+NO_PROMO_LINE = "- Акцій зараз немає"   # числа в строке нет: клиент без акции
+
+
+def _cell_as_the_pipeline_sees_it(raw: str) -> dict:
+    """Ячейка брифа, разобранная НАСТОЯЩИМ детектором, а не моей рукой.
+
+    Если проставить вердикт вручную, тест докажет моё представление о
+    контракте. Здесь важен именно факт «вердикт у обоих случаев ОДИН», и
+    держать его обязан продакшен-код.
+    """
+    verdict, reason = brief_module.classify_value(raw, set())
+    field = brief_field(raw, verdict=verdict, raw=raw)
+    field["reason"] = reason
+    return field
+
+
+def test_an_empty_cell_and_a_rejected_cell_are_not_the_same_state(tmp_path):
+    """C15-8 спеки. Мутация: склеить пусто и забраковано (в любую сторону)."""
+    empty_cell = _cell_as_the_pipeline_sees_it("")
+    junk_cell = _cell_as_the_pipeline_sees_it("1 1 1")
+
+    # Предусловие теста — то самое, что делает ошибку возможной. Если контракт
+    # когда-нибудь заведёт отдельный вердикт для пустого, этот assert покраснеет
+    # первым и скажет, что сторож стал сторожить несуществующую ловушку.
+    assert empty_cell["verdict"] == junk_cell["verdict"] == "garbage", (
+        f"предусловие сломано: вердикты уже разные "
+        f"({empty_cell['verdict']!r} против {junk_cell['verdict']!r}) — "
+        f"проверь, что тест ещё про то самое")
+    assert empty_cell["reason"] != junk_cell["reason"], (
+        "детектор перестал называть РАЗНЫЕ причины — тогда различать нечем")
+
+    empty_brief = brief_document(extra={"q28_promo": empty_cell})
+    empty_dir = write_client(tmp_path / "empty",
+                             knowledge=knowledge_with(promo=NO_PROMO_LINE),
+                             brief=empty_brief)
+    empty = c15_of(run(empty_dir, report_document(empty_brief)))
+
+    junk_brief = brief_document(extra={"q28_promo": junk_cell})
+    junk_dir = write_client(tmp_path / "junk",
+                            knowledge=knowledge_with(promo=NO_PROMO_LINE),
+                            brief=junk_brief)
+    junk = c15_of(run(junk_dir, report_document(junk_brief)))
+
+    assert empty.blocked != junk.blocked, (
+        f"пустое поле и забракованное дали ОДНО состояние "
+        f"(blocked={empty.blocked!r} у обоих): клиент, не дошедший до поля, и "
+        f"клиент, ответивший мимо, — разные сигналы и разные вопросы ему, а "
+        f"склейка теряет то, что форму заполняли невнимательно. "
+        f"пусто: {empty.message!r} | мусор: {junk.message!r}")
+
+    assert not empty.blocked, (
+        f"пустая необязательная ячейка остановила прогон: `q28_promo` в схеме "
+        f"не обязательна, и rc «не состоялось» получал бы КАЖДЫЙ клиент без "
+        f"акции — это фон, а не сторож: {empty.message!r}")
+    assert empty.ok, (
+        f"пустое поле не только не блокирует — остальные четыре обязаны быть "
+        f"сверены: {empty.message!r}")
+    assert junk.blocked, (
+        f"мусор в поле-источнике прошёл мимо: зелёное здесь утверждает «числа "
+        f"сверены», хотя сверять было не с чем: {junk.message!r}")
+
+    # Пропуск обязан быть НАЗВАН ВСЛУХ и своей причиной — иначе «сверено 4 из 5»
+    # неотличимо от «сверено всё», и дыра закрывается тишиной.
+    assert "q28_promo" in str(empty.message), (
+        f"C15 не назвала поле, которое пропустила: {empty.message!r}")
+    assert str(empty_cell["reason"]).split(":")[0] in str(empty.message), (
+        f"причина пропуска не названа словами детектора "
+        f"({empty_cell['reason']!r}): {empty.message!r}")
 
 
 # ═════════════════════════════════════════════════════════════════════════════
