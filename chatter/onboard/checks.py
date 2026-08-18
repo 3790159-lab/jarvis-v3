@@ -94,6 +94,12 @@ REVIEWED_FILENAME = "REVIEWED"
 CLIENT_FILES: tuple[str, ...] = (
     "knowledge.md", "persona.md", "playbook.md", "examples.yaml", "settings.yaml")
 
+# Корень репозитория — КОНСТАНТА модуля, а не выражение внутри `_Ctx`: C7
+# ходит отсюда в `docs/chatter/drills/` и в `scripts/drill_reset.py`, и без
+# подменяемой точки сторож происхождения сценария (DEV-36) пришлось бы писать
+# либо на живой репозиторий, либо на приватную функцию в обход `run_checks`.
+_REPO_ROOT: Path = Path(__file__).resolve().parents[2]
+
 # Разобранный бриф ТОГО ЖЕ прогона. Имя фиксировано в `__main__.BRIEF_FILENAME`
 # — здесь оно повторено строкой, потому что импорт `__main__` из проверяемого
 # модуля означал бы запуск CLI ради константы.
@@ -550,7 +556,7 @@ class _Ctx:
                         self.brief = loaded
 
         self._units_cache: dict[str, list[_Unit]] = {}
-        self.repo_root = Path(__file__).resolve().parents[2]
+        self.repo_root = _REPO_ROOT
 
     # -- файлы ---------------------------------------------------------------
 
@@ -971,21 +977,30 @@ def _scripts_drill_contacts(repo_root: Path) -> frozenset[str] | None:
     return None
 
 
-def _drill_scenarios(ctx: _Ctx) -> list[Path]:
+def _drill_scenarios(ctx: _Ctx) -> tuple[list[Path], str]:
+    """Найденные сценарии И ОТКУДА они взяты: `build` или `manual`.
+
+    DEV-36: происхождение возвращается рядом с путями, а не восстанавливается
+    потом по имени файла. Отбор в фолбэке идёт по ПРЕФИКСУ слага, поэтому
+    «файл называется как наш» и «файл собран для нас» — разные утверждения, и
+    сложить их обратно из одного лишь пути нельзя.
+    """
     local = [ctx.dir / "drill.yaml", ctx.dir / "drill_scenario.yaml",
              ctx.dir / f"{ctx.slug}-drill.yaml", ctx.dir / f"drill_{ctx.slug}.yaml"]
     found = [p for p in local if p.is_file()]
     if found:
-        return found
+        return found, "build"
     # Ручной эталон держит сценарии не в каталоге клиента, а в `docs/chatter/
     # drills/`. Ищем и там: иначе калибровка §6 краснела бы на файле, который
     # существует и отработал живой дрил.
     drills = ctx.repo_root / "docs" / "chatter" / "drills"
-    return sorted(drills.glob(f"{ctx.slug}*.yaml")) if drills.is_dir() else []
+    if not drills.is_dir():
+        return [], "manual"
+    return sorted(drills.glob(f"{ctx.slug}*.yaml")), "manual"
 
 
 def _c7(ctx: _Ctx) -> CheckResult:
-    paths = _drill_scenarios(ctx)
+    paths, origin = _drill_scenarios(ctx)
     if not paths:
         return _red("C7", f"дрил-сценария нет ни в {ctx.dir}, ни в "
                           f"docs/chatter/drills/{ctx.slug}*.yaml — сценарий не "
@@ -1027,8 +1042,31 @@ def _c7(ctx: _Ctx) -> CheckResult:
             return _red("C7", f"{name}: контакт «{contact}» есть в drill_gate, но нет "
                               f"в scripts/drill_reset.py ({sorted(second)}) — копии "
                               f"канона разошлись", file=name)
+    names = ", ".join(p.name for p in paths)
+    if origin != "build":
+        # DEV-36. Сценарий разобран, ожидания не вакуумны, контакт законный —
+        # придраться НЕ К ЧЕМУ, и всё же зелёным это быть не может: файл нашли
+        # по совпадению имени со слагом, а не потому, что его собрал пайплайн.
+        # Ночью 17.08 так зеленел сперва чужой `drill.yaml` из каталога сборки,
+        # потом ручной эталон месячной давности под другой прайс.
+        #
+        # Поэтому ФЛАГ, а не красное (решение владельца по C12/C13 тем же
+        # рассуждением): ручной эталон — законное состояние, и красное здесь
+        # значило бы, что пайплайн знает про клиента больше владельца. Но и
+        # зелёным он не притворяется: живой дрил стоит денег и времени
+        # человека, и «по какому файлу» обязано стоять в отчёте, а не в
+        # памяти того, кто собирал.
+        return CheckResult(
+            "C7", False, True,
+            f"сценарий взят из docs/chatter/drills/ ({names}): это РУЧНОЙ "
+            f"сценарий, а не выход пайплайна — его нашли по совпадению имени "
+            f"со слагом «{ctx.slug}». Разбор чистый: ожидания не вакуумны, "
+            f"контакт есть в обоих списках DRILL_CONTACTS. Проверить глазами, "
+            f"что он про ЭТУ сборку (услуги, прайс, контакт), прежде чем "
+            f"звать человека на живой прогон",
+            paths[0].name, None)
     return _ok("C7", f"сценариев разобрано {len(paths)} "
-                     f"({', '.join(p.name for p in paths)}): ожидания не вакуумны, "
+                     f"({names}): ожидания не вакуумны, "
                      f"контакт есть в обоих списках DRILL_CONTACTS")
 
 
