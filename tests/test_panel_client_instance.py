@@ -280,3 +280,85 @@ def test_missing_tailscale_does_not_break_the_launch(tmp_path):
     """Нет tailscale — уходим на петлю, а не падаем и не открываемся наружу."""
     rpc = _launcher(tmp_path)
     assert rpc.tailnet_ip(exe=str(tmp_path / "no-such-tailscale.exe")) == ""
+
+
+def test_the_tailscale_path_survived_being_written_to_a_file(tmp_path):
+    r"""`TAILSCALE_EXE` обязан быть ПУТЁМ, а не строкой с проглоченным экраном.
+
+    Замер (19.08): в файле по этому смещению лежит байт 0x09 — то есть `\t`
+    из `...\Tailscale\tailscale.exe` был раскрыт в ТАБУЛЯЦИЮ ещё при записи
+    файла, и raw-строка сохранила уже табуляцию. Путь стал
+    `C:\Program Files\Tailscale<TAB>ailscale.exe`, `subprocess` на нём кидает,
+    `tailnet_ip()` возвращает "" — и инстанс МОЛЧА уходит на петлю, то есть
+    становится недоступен тому самому человеку, ради которого поднимается.
+
+    Соседний сторож (`test_missing_tailscale_does_not_break_the_launch`) это
+    пропустил ПО ПОСТРОЕНИЮ: он проверяет поведение при ОТСУТСТВУЮЩЕМ exe, а
+    сломанная константа — ровно отсутствующий exe. Сторож на поведение обязан
+    быть дополнен сторожем на САМУ КОНСТАНТУ.
+    """
+    from pathlib import Path as _Path
+    rpc = _launcher(tmp_path)
+    assert chr(9) not in rpc.TAILSCALE_EXE, (
+        "в пути табуляция — экран `\t` был раскрыт при записи файла: %r"
+        % (rpc.TAILSCALE_EXE,))
+    assert _Path(rpc.TAILSCALE_EXE).name == "tailscale.exe", rpc.TAILSCALE_EXE
+
+
+# ──────────────── ключ клиента: где он на самом деле лежит ────────────────
+
+def test_the_client_key_is_found_when_it_lives_in_the_env_file(tmp_path):
+    """Ключ клиента владелец держит в `.env` — и больше нигде.
+
+    Запускающий читает окружение ДО `app.env_bootstrap` (иначе сверка с ключом
+    владельца слепнет, см. соседний сторож), поэтому `.env` он обязан
+    прочитать САМ. Без этого fail-closed отказывает при ВЕРНО настроенном
+    ключе — отказ звучит как «ключ не задан», хотя он задан.
+    """
+    rpc = _launcher(tmp_path)
+    (tmp_path / ".env").write_text(
+        "JARVIS_PANELS_KEY=" + OWNER_KEY + chr(10)
+        + "JARVIS_PANELS_KEY_YARINA=" + KEY + chr(10), encoding="utf-8")
+    env = rpc.build_instance_env("yarina", {}, root=tmp_path)
+    assert env["JARVIS_PANELS_KEY"] == KEY, (
+        "ключ настроен в .env, но запускающий его не нашёл: %r"
+        % (env["JARVIS_PANELS_KEY"],))
+
+
+def test_the_process_variable_wins_over_the_env_file(tmp_path):
+    """Переменная процесса — способ поднять инстанс НЕ трогая `.env`.
+    Файл остаётся запасным источником, а не главным."""
+    rpc = _launcher(tmp_path)
+    (tmp_path / ".env").write_text(
+        "JARVIS_PANELS_KEY_YARINA=key-from-file" + chr(10), encoding="utf-8")
+    env = rpc.build_instance_env(
+        "yarina", {"JARVIS_PANELS_KEY_YARINA": KEY}, root=tmp_path)
+    assert env["JARVIS_PANELS_KEY"] == KEY, env["JARVIS_PANELS_KEY"]
+
+
+def test_reading_the_env_file_does_not_open_a_door_to_the_owner_key(tmp_path):
+    """Чтение файла обязано искать ТОЧНОЕ имя `JARVIS_PANELS_KEY_<SLUG>`.
+
+    Ошибка на префиксе здесь означает ровно ту катастрофу, ради которой всё
+    это писалось: ключ владельца уезжает стороннему человеку."""
+    rpc = _launcher(tmp_path)
+    (tmp_path / ".env").write_text(
+        "JARVIS_PANELS_KEY=" + OWNER_KEY + chr(10), encoding="utf-8")
+    env = rpc.build_instance_env("yarina", {}, root=tmp_path)
+    assert env["JARVIS_PANELS_KEY"] == "", (
+        "запускающий подобрал ключ владельца из файла: %r"
+        % (env["JARVIS_PANELS_KEY"],))
+
+
+def test_the_owner_key_is_still_refused_when_it_comes_from_the_file(tmp_path):
+    """Fail-closed не должен ослабнуть от нового источника: если владелец
+    вписал в `JARVIS_PANELS_KEY_<SLUG>` СВОЙ ключ, инстанс не поднимается."""
+    import app.panel_client as pc
+    rpc = _launcher(tmp_path)
+    (tmp_path / ".env").write_text(
+        "JARVIS_PANELS_KEY=" + OWNER_KEY + chr(10)
+        + "JARVIS_PANELS_KEY_YARINA=" + OWNER_KEY + chr(10), encoding="utf-8")
+    env = rpc.build_instance_env("yarina", {}, root=tmp_path)
+    problems = pc.instance_env_problems(env, owner_key=OWNER_KEY)
+    assert problems, "ключ владельца из файла проехал молча"
+    assert any("владельца" in p for p in problems), problems

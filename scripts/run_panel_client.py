@@ -34,7 +34,12 @@ DEFAULT_PORT = 8011
 ANY_INTERFACE = "0.0.0.0"
 LOOPBACK = "127.0.0.1"
 HOST_VAR = "PANEL_CLIENT_HOST"
-TAILSCALE_EXE = r"C:\Program Files\Tailscale	ailscale.exe"
+# Путь собирается ПО ЧАСТЯМ намеренно. В литерале `"...\Tailscale\tailscale.exe"`
+# экран `\t` однажды уже раскрылся в табуляцию ЕЩЁ ПРИ ЗАПИСИ ФАЙЛА, и raw-строка
+# сохранила уже табуляцию: путь стал несуществующим, `tailnet_ip()` молча вернул
+# "" — и инстанс ушёл на петлю, то есть стал недоступен тому, ради кого поднят.
+# Здесь `\t` не появляется вовсе, поэтому раскрывать нечего.
+TAILSCALE_EXE = os.path.join(r"C:\Program Files", "Tailscale", "tailscale.exe")
 
 
 def tailnet_ip(exe: str = TAILSCALE_EXE) -> str:
@@ -79,28 +84,45 @@ def resolve_client_host(explicit=None, environ=None, ip="",
     return host, None
 
 
-def owner_key_from_env_file(root: Path = _ROOT) -> str:
-    """Ключ владельца ИЗ ФАЙЛА, до всякого bootstrap'а.
+def env_file_var(name: str, root: Path = _ROOT) -> str:
+    """Значение переменной ИЗ ФАЙЛА `.env`, до всякого bootstrap'а.
 
-    Читаем файл, а не `os.environ`: после `app.env_bootstrap` эти два значения
-    сливаются в одно, и сверить их станет невозможно ровно тогда, когда это
-    важнее всего.
+    Читаем файл, а не `os.environ`: после `app.env_bootstrap` ключ владельца и
+    ключ инстанса сливаются в одно значение, и сверить их станет невозможно
+    ровно тогда, когда это важнее всего.
+
+    Имя сверяется ВМЕСТЕ со знаком `=`. Это не педантизм: `JARVIS_PANELS_KEY`
+    — префикс `JARVIS_PANELS_KEY_YARINA`, и совпадение по префиксу отдало бы
+    стороннему человеку ключ владельца.
     """
     path = root / ".env"
     try:
         text = path.read_text(encoding="utf-8-sig")
     except OSError:
         return ""
+    prefix = name + "="
     for line in text.splitlines():
-        if line.startswith(OWNER_KEY_VAR + "="):
+        if line.startswith(prefix):
             return line.split("=", 1)[1].strip()
     return ""
+
+
+def owner_key_from_env_file(root: Path = _ROOT) -> str:
+    """Ключ владельца из `.env`. Тонкая обёртка: имя названо в одном месте."""
+    return env_file_var(OWNER_KEY_VAR, root=root)
 
 
 def build_instance_env(slug: str, environ=None, root: Path = _ROOT) -> dict:
     """Окружение инстанса. Чистая функция — её и проверяют сторожа."""
     environ = os.environ if environ is None else environ
-    key = (environ.get("JARVIS_PANELS_KEY_%s" % slug.upper()) or "").strip()
+    var = "JARVIS_PANELS_KEY_%s" % slug.upper()
+    # Два источника, и порядок важен. Переменная процесса первая — это способ
+    # поднять инстанс, не трогая `.env`. Файл второй, потому что владелец
+    # держит ключи клиентов именно там; без чтения файла fail-closed отказывал
+    # при ВЕРНО настроенном ключе, и отказ звучал как «ключ не задан».
+    # Читаем ТОЧНОЕ имя `JARVIS_PANELS_KEY_<SLUG>`, а не общее: общее в `.env`
+    # — это ключ владельца, открывающий панель Джарвиса на 8010.
+    key = (environ.get(var) or "").strip() or env_file_var(var, root=root)
     return {
         "JARVIS_PANELS_KEY": key,
         "TAMAPI_DB": str(root / ".secrets" / ("%s.db" % slug)),
