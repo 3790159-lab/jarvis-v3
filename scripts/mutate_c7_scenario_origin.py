@@ -59,7 +59,7 @@ MUTATIONS = [
        '        return CheckResult(\n            "C7", False, False,')],
      f"{T}::test_a_foreign_manual_scenario_is_a_flag_and_never_a_plain_green"),
 
-    ("🔴 флаг выставлен ДО разбора — накрывает и настоящие дефекты", C,
+    ("ГЛАВНОЕ: флаг выставлен ДО разбора — накрывает и настоящие дефекты", C,
      [("    paths, origin = _drill_scenarios(ctx)\n",
        "    paths, origin = _drill_scenarios(ctx)\n"
        "    if paths and origin != 'build':\n"
@@ -67,7 +67,7 @@ MUTATIONS = [
        "docs/chatter/drills/', paths[0].name, None)\n")],
      f"{T}::test_a_real_defect_in_a_foreign_file_stays_red"),
 
-    ("🔴 то же, вторая жертва: неразбираемый сценарий тонет во флаге", C,
+    ("ГЛАВНОЕ: то же, вторая жертва: неразбираемый сценарий тонет во флаге", C,
      [("    paths, origin = _drill_scenarios(ctx)\n",
        "    paths, origin = _drill_scenarios(ctx)\n"
        "    if paths and origin != 'build':\n"
