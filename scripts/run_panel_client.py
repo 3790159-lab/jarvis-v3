@@ -31,6 +31,52 @@ sys.path.insert(0, str(_ROOT))
 
 OWNER_KEY_VAR = "JARVIS_PANELS_KEY"
 DEFAULT_PORT = 8011
+ANY_INTERFACE = "0.0.0.0"
+LOOPBACK = "127.0.0.1"
+HOST_VAR = "PANEL_CLIENT_HOST"
+TAILSCALE_EXE = r"C:\Program Files\Tailscale	ailscale.exe"
+
+
+def tailnet_ip(exe: str = TAILSCALE_EXE) -> str:
+    """IPv4 машины в тайнете, или пустая строка. Best-effort по замыслу:
+    отсутствие tailscale не должно ронять запуск, оно должно уводить на
+    петлю."""
+    import subprocess
+    try:
+        r = subprocess.run([exe, "ip", "-4"], capture_output=True, timeout=10)
+    except Exception:
+        return ""
+    if r.returncode != 0:
+        return ""
+    for line in (r.stdout or b"").decode("ascii", "replace").splitlines():
+        line = line.strip()
+        if line:
+            return line
+    return ""
+
+
+def resolve_client_host(explicit=None, environ=None, ip="",
+                        allow_any=False):
+    """(host, problem). Адрес инстанса клиента НЕ берётся из
+    `app.backend_bind.resolve_bind_host`.
+
+    Причина названа замером: у основного бэкенда `JARVIS_BACKEND_HOST=0.0.0.0`
+    — для него это осознанно (он и должен отвечать в тайнете и на петле). Для
+    панели, ключ от которой уходит стороннему человеку, `0.0.0.0` означает
+    «отвечаю всей локальной сети», и единственной защитой остаётся ключ.
+    Поэтому здесь свой резолвер: явный адрес -> PANEL_CLIENT_HOST -> тайнет ->
+    петля. `0.0.0.0` — только осознанным флагом.
+    """
+    environ = os.environ if environ is None else environ
+    host = (explicit or environ.get(HOST_VAR) or "").strip()
+    if not host:
+        host = ip.strip() or LOOPBACK
+    if host == ANY_INTERFACE and not allow_any:
+        return None, (
+            "адрес %s открыл бы панель клиента ВСЕЙ локальной сети; "
+            "нужен адрес тайнета или петля (--allow-any-interface, если это "
+            "и правда нужно)" % ANY_INTERFACE)
+    return host, None
 
 
 def owner_key_from_env_file(root: Path = _ROOT) -> str:
@@ -67,6 +113,10 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--slug", required=True, help="слаг клиента (yarina, volska, ...)")
     ap.add_argument("--port", type=int, default=DEFAULT_PORT)
+    ap.add_argument("--host", default=None,
+                    help="адрес бинда; по умолчанию тайнет, иначе петля")
+    ap.add_argument("--allow-any-interface", action="store_true",
+                    help="разрешить 0.0.0.0 ОСОЗНАННО (панель увидит вся сеть)")
     a = ap.parse_args(argv)
 
     owner_key = owner_key_from_env_file()
@@ -74,7 +124,6 @@ def main(argv=None) -> int:
     instance = build_instance_env(a.slug)
 
     import app.env_bootstrap  # noqa: F401  side-effect: .env -> os.environ
-    from app.backend_bind import resolve_bind_host
     from app.panel_client import build_app, instance_env_problems
 
     problems = instance_env_problems(instance, owner_key=owner_key)
@@ -87,8 +136,14 @@ def main(argv=None) -> int:
         print("  ключ задаётся переменной JARVIS_PANELS_KEY_%s" % a.slug.upper())
         return 1
 
+    host, problem = resolve_client_host(a.host, ip=tailnet_ip(),
+                                        allow_any=a.allow_any_interface)
+    if problem:
+        print("[panel_client] ОТКАЗ, инстанс не поднят:")
+        print("  * %s" % problem)
+        return 1
+
     os.environ.update(instance)
-    host = resolve_bind_host()
     print("[panel_client] %s -> %s:%s  (db=%s)"
           % (a.slug, host, a.port, instance["TAMAPI_DB"]))
 

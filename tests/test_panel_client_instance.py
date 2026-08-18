@@ -227,3 +227,56 @@ def test_missing_env_file_does_not_crash_the_launcher(tmp_path):
     """Нет `.env` — не повод падать: сверка просто нечем занята."""
     rpc = _launcher(tmp_path)
     assert rpc.owner_key_from_env_file(root=tmp_path / "nope") == ""
+
+
+# ──────────────── адрес бинда: НЕ на все интерфейсы ────────────────
+
+def test_the_instance_never_binds_all_interfaces_by_default(tmp_path):
+    """Замер: у основного бэкенда JARVIS_BACKEND_HOST=0.0.0.0, и взять его
+    резолвер значило бы открыть панель клиента ВСЕЙ локальной сети — при том,
+    что ключ от неё уходит стороннему человеку."""
+    rpc = _launcher(tmp_path)
+    host, problem = rpc.resolve_client_host(environ={}, ip="")
+    assert problem is None, problem
+    assert host == "127.0.0.1", host
+
+
+def test_the_tailnet_address_wins_when_available(tmp_path):
+    """Решение владельца — вариант A (Tailscale): по умолчанию слушаем ровно
+    там, а не везде."""
+    rpc = _launcher(tmp_path)
+    host, problem = rpc.resolve_client_host(environ={}, ip="100.102.179.47")
+    assert problem is None, problem
+    assert host == "100.102.179.47"
+
+
+def test_all_interfaces_is_refused_even_when_asked_explicitly(tmp_path):
+    rpc = _launcher(tmp_path)
+    host, problem = rpc.resolve_client_host("0.0.0.0", environ={}, ip="")
+    assert host is None and problem, (host, problem)
+    assert "0.0.0.0" in problem
+
+
+def test_all_interfaces_stays_possible_when_named_out_loud(tmp_path):
+    """ГРАНИЦА: запрет без выхода учит обходить сам инструмент. Осознанный
+    флаг обязан работать."""
+    rpc = _launcher(tmp_path)
+    host, problem = rpc.resolve_client_host("0.0.0.0", environ={}, ip="",
+                                            allow_any=True)
+    assert problem is None and host == "0.0.0.0"
+
+
+def test_the_backend_bind_setting_does_not_leak_in(tmp_path):
+    """JARVIS_BACKEND_HOST — настройка ДРУГОГО процесса. Если она когда-нибудь
+    начнёт влиять на панель клиента, это и будет тихое открытие наружу."""
+    rpc = _launcher(tmp_path)
+    host, problem = rpc.resolve_client_host(
+        environ={"JARVIS_BACKEND_HOST": "0.0.0.0"}, ip="100.102.179.47")
+    assert problem is None
+    assert host == "100.102.179.47", host
+
+
+def test_missing_tailscale_does_not_break_the_launch(tmp_path):
+    """Нет tailscale — уходим на петлю, а не падаем и не открываемся наружу."""
+    rpc = _launcher(tmp_path)
+    assert rpc.tailnet_ip(exe=str(tmp_path / "no-such-tailscale.exe")) == ""
