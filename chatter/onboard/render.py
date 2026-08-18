@@ -33,6 +33,7 @@ from chatter.core import guardrails as _guardrails
 from chatter.core.brain import EXAMPLES_CHAR_BUDGET
 from chatter.core.brand_safety import forbidden_mention
 from chatter.core.escalation import _KEYWORD_HEADINGS, parse_escalation_keywords
+from chatter.core import reply_rules
 from chatter.onboard import brief as _brief
 from chatter.onboard.vocabulary import (
     DUAL_PURPOSE_FIELDS,
@@ -1482,6 +1483,17 @@ def _build_playbook(brief: dict, *, persona_name: str, owner_id: str, owner_ref:
     if voice:
         section("Голос продавця, не довідки",
                 _bullet_block([_upper_first(i) for i in _list_items(voice)], lower=False))
+
+    # Правила ответа (спека 17.08). Текст берётся ДОСЛОВНО из `core.reply_rules`
+    # — того же источника, что едет в системный слой промпта. Переписать его
+    # здесь «под стиль генератора» значит завести вторую редакцию правила,
+    # которая разъедется с первой молча.
+    #
+    # Секция безусловная, в отличие от соседей: она не зависит от ответа
+    # клиента в брифе. Правило «не додумуй послугу» не становится
+    # необязательным оттого, что клиент не заполнил поле.
+    section("Правила відповіді",
+            reply_rules.playbook_rules_block_uk(heading="").strip().splitlines())
 
     # ── ICP: ТОЛЬКО playbook, и это единственное место с ослабленным R2 ─────
     #

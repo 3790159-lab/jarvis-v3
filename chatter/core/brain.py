@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 from chatter.config.loader import HONESTY_HONEST, Config
 from chatter.core.llm import LLMClient
-from chatter.core import prompt_log
+from chatter.core import prompt_log, reply_rules
 
 log = logging.getLogger("chatter.core.brain")
 
@@ -72,6 +72,11 @@ def build_style(cfg: Config) -> str:
     ]
     if cfg.settings.honesty_mode == HONESTY_HONEST:
         parts.append(_STYLE_HONESTY)
+    # Правила ответа (спека 17.08, решения 6 и 9) — ДОСЛОВНО из одного
+    # источника, а не пересказом: та же строка едет в playbook клиента, и
+    # пересказ развёл бы их молча. Текст стабилен между /reload, поэтому живёт
+    # внутри кэшируемого префикса и кэш не рвёт.
+    parts.append("\n" + reply_rules.prompt_rules_block())
     return "".join(parts).strip()
 
 

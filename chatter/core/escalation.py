@@ -23,6 +23,7 @@ from chatter.core.prompt_log import log_funnel_signal
 from chatter.core.disclosure import honest_prefix, is_bot_question
 from chatter.core.guardrails import contains_unbacked_claim
 from chatter.core.obligations import DEFAULT_PROMISE_TERMS, unbacked_promise
+from chatter.core.reply_rules import COMPLAINT_TAG, complaint_promise
 
 logger = logging.getLogger("chatter.escalation")
 
@@ -468,6 +469,20 @@ def deterministic_escalation(
     if hit:
         return EscalationReason(
             tag="forbidden_reply", detail=f"ответ упомянул запрещённое «{hit}»",
+            suppress=True)
+    # Правило претензии (спека 17.08, решение 7). Стоит ДО обещаний вне базы
+    # намеренно: «зробимо безкоштовно» ловится и старым слоем, но там оно
+    # называется «обещание вне базы», а владельцу нужно другое слово — бот
+    # принял решение о компенсации ЗА него. Разные строки «почему» в карточке
+    # требуют от человека разных действий.
+    #
+    # Проверяется ОТВЕТ, а не входящее: лид имеет право требовать возврат
+    # этими же словами — это работа слоя ключевых слов, и подавлять там нечего.
+    complaint = complaint_promise(reply or "")
+    if complaint:
+        return EscalationReason(
+            tag=COMPLAINT_TAG,
+            detail=f"ответ решил вопрос компенсации за владельца «{complaint}»",
             suppress=True)
     promise = unbacked_promise(reply or "", knowledge or "", promise_terms)
     # strict_knowledge=True (дефолт): обещание вне базы подавляется ЗДЕСЬ,
