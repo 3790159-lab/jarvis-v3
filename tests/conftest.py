@@ -17,6 +17,8 @@ that genuinely exercise the router still opt in explicitly via
 after this autouse fixture, it correctly overrides the default for those tests.
 """
 
+import subprocess
+
 import pytest
 
 
@@ -106,3 +108,68 @@ def _silence_telegram_sends(monkeypatch):
     own ``running_under_pytest()`` auto-detection.
     """
     monkeypatch.setenv("JARVIS_DISABLE_TELEGRAM_SEND", "1")
+
+
+# ---------------------------------------------------------------------------
+# DEV-38: сторож КЛАССА, а не случая
+# ---------------------------------------------------------------------------
+
+_STARTER = "start_jarvis.ps1"
+
+
+def _unscoped_starter_argv(args) -> str | None:
+    """Вернуть командную строку, если это запуск боевого стартера БЕЗ скоупа.
+
+    Правило ровно одно и проверяемое: если в аргументах помянут
+    ``start_jarvis.ps1``, там ОБЯЗАН быть ``-Root`` — единственное, что уводит
+    стартер с живого дерева. Без ``-Root`` корнем становится каталог самого
+    скрипта, то есть НАСТОЯЩЕЕ дерево, и первое, что стартер там делает —
+    ``Stop-OldBot``.
+    """
+    if isinstance(args, (list, tuple)):
+        parts = [str(a) for a in args]
+    else:
+        parts = [str(args)]
+    blob = " ".join(parts)
+    low = blob.lower()
+    if _STARTER not in low:
+        return None
+    if "-root" in low:
+        return None
+    return blob
+
+
+@pytest.fixture(autouse=True)
+def _no_test_may_launch_the_real_starter(monkeypatch):
+    """Ни один тест не имеет права запустить боевой ``start_jarvis.ps1``.
+
+    18.08 19:25:04 ``test_restart_bot_no_script_returns_false`` пропатчил
+    ``check_bot_alive``, но не ``Popen`` — и ``restart_bot_if_dead()``
+    по-настоящему запустил стартер из worktree. Тот снёс ЖИВОГО бота из
+    ``C:\\jarvis`` (ETW: NtTerminateProcess, цель PID 760; код выхода −1 —
+    подпись ``Stop-Process``). ~16 прогонов гейта в день = ~16 смертей в день.
+
+    Починка одного теста этот класс не закрывает: следующий такой же напишется
+    завтра. Поэтому проверка стоит НА СОСТАВЕ ВЫЗОВОВ, а не на глазах ревьюера,
+    и падает ГРОМКО — молчаливый пропуск здесь неотличим от старого зелёного.
+
+    Подмена одного ``subprocess.Popen`` накрывает и ``run``/``call``/
+    ``check_output``: все они разрешают ``Popen`` через глобаль модуля.
+    Тестам, которым стартер нужен по делу, достаточно передать ``-Root`` на
+    tmp-дерево — тогда стартер физически не может дотянуться до прода.
+    """
+    real_popen = subprocess.Popen
+
+    def guarded(*args, **kwargs):
+        argv = args[0] if args else kwargs.get("args")
+        offender = _unscoped_starter_argv(argv)
+        if offender is not None:
+            raise AssertionError(
+                "DEV-38: тест пытается запустить БОЕВОЙ start_jarvis.ps1 "
+                "(без -Root). Стартер первым делом убивает бота этого дерева. "
+                "Пропатчи Popen или передай -Root на tmp-дерево. "
+                f"argv: {offender}"
+            )
+        return real_popen(*args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "Popen", guarded)

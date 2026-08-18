@@ -94,35 +94,78 @@ def test_restart_bot_if_dead_skips_when_alive():
     assert result is False, "Should skip restart when bot is alive"
 
 
+def _arrange_dead_bot(wd, root: Path):
+    """Общая расстановка для restart_bot_if_dead: бот мёртв, свапа нет, окно
+    прогрева позади, а КОРЕНЬ — подставной.
+
+    Прод-код берёт корень как `Path(__file__).parent.parent.parent`, поэтому
+    подменяем сам `Path` функцией, возвращающей НАСТОЯЩИЙ путь на три уровня
+    глубже `root`: семантика `.parent` и `/` остаётся живой, а результат
+    гарантированно лежит в tmp. Никаких MagicMock-цепочек: они и позволяли
+    тесту «пройти» при любом исходе.
+    """
+    deep = root / "a" / "b" / "system_watchdog.py"
+    return [
+        patch.object(wd, "check_bot_alive", return_value=False),
+        patch.object(wd, "is_swap_active", return_value=False),
+        # Прогрев: без этого исход зависит от того, КОГДА модуль был
+        # импортирован в прогоне — ровно та недетерминированность, ради
+        # которой и был написан ассерт `isinstance(result, bool)`.
+        patch.object(wd, "_module_started_at", 0.0),
+        patch.object(wd, "send_telegram_alert"),
+        patch.object(wd, "Path", lambda *_a, **_k: deep),
+    ]
+
+
 def test_restart_bot_if_dead_attempts_when_dead(tmp_path):
-    from app.services.system_watchdog import restart_bot_if_dead
-    fake_script = tmp_path / "start_jarvis.ps1"
-    fake_script.write_text("# stub", encoding="utf-8")
+    """Скрипт НАЙДЕН -> Popen вызван РОВНО с ним, и вернулось True."""
+    import app.services.system_watchdog as wd
+    from contextlib import ExitStack
 
-    with patch("app.services.system_watchdog.check_bot_alive", return_value=False), \
-         patch("app.services.system_watchdog.Path") as mock_path_cls, \
-         patch("app.services.system_watchdog.subprocess.Popen") as mock_popen, \
-         patch("app.services.system_watchdog.send_telegram_alert"):
-        fake_root = MagicMock()
-        fake_root.__truediv__ = MagicMock(side_effect=lambda x: fake_script if x == "start_jarvis.ps1" else MagicMock())
-        fake_root.exists = MagicMock(return_value=True)
-        mock_path_cls.return_value.__truediv__ = MagicMock(return_value=fake_root)
-        fake_script_mock = MagicMock()
-        fake_script_mock.exists.return_value = True
+    root = tmp_path / "fake_tree"
+    root.mkdir()
+    script = root / "start_jarvis.ps1"
+    script.write_text("# stub", encoding="utf-8")
 
-        # Simpler: just test the logic path when script is found
-        result = restart_bot_if_dead()
-    # Result is bool
-    assert isinstance(result, bool)
+    with ExitStack() as stack:
+        for cm in _arrange_dead_bot(wd, root):
+            stack.enter_context(cm)
+        popen = stack.enter_context(patch.object(wd.subprocess, "Popen"))
+        result = wd.restart_bot_if_dead()
+
+    assert result is True, "скрипт на месте — перезапуск обязан быть заявлен"
+    assert popen.call_count == 1, f"ожидался ровно один запуск, было {popen.call_count}"
+    argv = popen.call_args.args[0]
+    assert str(script) in argv, f"запущен не тот скрипт: {argv}"
+    assert "-BotOnly" in argv, f"перезапуск обязан быть -BotOnly, argv={argv}"
 
 
-def test_restart_bot_no_script_returns_false():
-    from app.services.system_watchdog import restart_bot_if_dead
-    with patch("app.services.system_watchdog.check_bot_alive", return_value=False), \
-         patch("app.services.system_watchdog.send_telegram_alert"):
-        result = restart_bot_if_dead()
-    # Either False (script not found) or True (script found and popen called)
-    assert isinstance(result, bool)
+def test_restart_bot_no_script_returns_false(tmp_path):
+    """DEV-38, половина 1. Этот тест ~16 раз в сутки УБИВАЛ ЖИВОГО бота.
+
+    Он патчил `check_bot_alive`, но НЕ патчил `Popen` и НЕ подменял корень.
+    Значит `start_jarvis.ps1` находился по-настоящему — и по-настоящему
+    запускался, а стартер первым делом сносит бота (половина 2). Ассерт
+    `isinstance(result, bool)` истинен и при выстреле, и без него, поэтому
+    тест был зелёным ровно в те прогоны, в которые убивал прод.
+
+    Теперь: корень подставной -> скрипта нет -> False И НИ ОДНОГО Popen.
+    """
+    import app.services.system_watchdog as wd
+    from contextlib import ExitStack
+
+    root = tmp_path / "empty_tree"
+    root.mkdir()
+    assert not (root / "start_jarvis.ps1").exists()
+
+    with ExitStack() as stack:
+        for cm in _arrange_dead_bot(wd, root):
+            stack.enter_context(cm)
+        popen = stack.enter_context(patch.object(wd.subprocess, "Popen"))
+        result = wd.restart_bot_if_dead()
+
+    assert result is False, "скрипта нет — перезапуск невозможен"
+    popen.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

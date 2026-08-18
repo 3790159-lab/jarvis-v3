@@ -15,11 +15,19 @@ param(
     [int]$Port = 8010,
     [string]$BindHost = "127.0.0.1",
     [switch]$Detached,          # headless: hidden processes + redirected logs (autostart)
-    [switch]$RegisterAutostart  # register the At-Log-On Scheduled Task, then exit
+    [switch]$RegisterAutostart, # register the At-Log-On Scheduled Task, then exit
+    # DEV-38. -Root: переопределение корня. В проде НЕ задаётся — корень остаётся
+    # $PSScriptRoot. Существует ради того, чтобы сторож мог гонять Stop-OldBot на
+    # подставном дереве и доказывать, что чужого бота он не трогает.
+    [string]$Root = "",
+    # DEV-38. -NoLaunch: определить функции и выйти, НИЧЕГО не запуская и никого
+    # не убивая. Тот же приём, что -NoLoop у bot_guardian_detached.ps1: без него
+    # сторож не может дотянуться до Stop-OldBot, не запустив боевой стартер.
+    [switch]$NoLaunch
 )
 
 $ErrorActionPreference = "Stop"
-$ProjectRoot = $PSScriptRoot
+if ($Root) { $ProjectRoot = $Root } else { $ProjectRoot = $PSScriptRoot }
 
 chcp 65001 | Out-Null
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -114,6 +122,25 @@ function Write-TempScript {
     return $tmp
 }
 
+function Get-BotProcesses {
+    # DEV-38. Единственный источник правды «что считается процессом НАШЕГО бота».
+    #
+    # Было: глобальное совпадение по подстроке 'jarvis_smart_telegram_control' —
+    # без скоупа на $ProjectRoot. 18.08 19:25:04 это стоило прода: pytest из
+    # worktree C:\jarvis_worktrees\dev36-c7 запустил ТАМОШНИЙ стартер, и тот
+    # снёс ЖИВОГО бота из C:\jarvis (ETW: NtTerminateProcess, цель PID 760,
+    # инициатор — powershell стартера; код выхода −1 = подпись Stop-Process).
+    # Убив чужого, стартер поднимал СВОЕГО — из своего дерева.
+    #
+    # Стало: скоуп по $ProjectRoot. Бот всегда стартует как "$PythonExe $BotFile",
+    # где $BotFile = "$ProjectRoot	ools\jarvis_smart_telegram_control.py", то
+    # есть корень ОБЯЗАН присутствовать в командной строке. Ровно так это уже
+    # починено в bot_guardian_detached.ps1::Get-BotProcesses — здесь не было.
+    # -like, а не -match: обратные слэши в пути читаются буквально, не как regex.
+    Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -like "*$ProjectRoot*jarvis_smart_telegram_control*" }
+}
+
 function Stop-OldBot {
     # Kill any existing Telegram bot before starting a new one. The bot enforces
     # single-instance via state\bot.pid, so a stale bot (e.g. one stuck on a long
@@ -133,10 +160,10 @@ function Stop-OldBot {
         } catch { }
     }
 
-    # 2) By command line — covers a stale/missing pid file.
+    # 2) By command line — covers a stale/missing pid file. INSTANCE-SCOPED to
+    # $ProjectRoot (DEV-38): бот из ДРУГОГО дерева нам не жертва.
     try {
-        $procs = Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" -ErrorAction SilentlyContinue |
-            Where-Object { $_.CommandLine -and $_.CommandLine -match 'jarvis_smart_telegram_control' }
+        $procs = Get-BotProcesses
         foreach ($p in $procs) {
             Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
             Write-Host "[INFO] Stopped bot process $($p.ProcessId) (by command line)"
@@ -147,6 +174,10 @@ function Stop-OldBot {
     if (Test-Path $pidFile) { Remove-Item $pidFile -Force -ErrorAction SilentlyContinue }
     Start-Sleep -Milliseconds 500
 }
+
+# DEV-38: сборка без запуска. Всё, что ниже, ЗАПУСКАЕТ и УБИВАЕТ; сторожу нужны
+# только функции выше. Ставится ПОСЛЕ определений и ДО первого побочного эффекта.
+if ($NoLaunch) { return }
 
 # ---- backend ----------------------------------------------------------------
 if (-not $BotOnly) {
