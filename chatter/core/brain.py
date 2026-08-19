@@ -132,12 +132,24 @@ def build_time_block(now: datetime | None = None) -> str:
 
 
 def build_system_prompt(cfg: Config) -> str:
+    # Импорт внутри функции: `escalation` тянет conversation/guardrails/
+    # disclosure, а `brain` импортируют тесты и офлайн-пути, которым этот хвост
+    # не нужен; кольца импортов тоже нет только благодаря этому.
+    from chatter.core.escalation import strip_keyword_section
+
     lang = _LANG_NAME.get(cfg.settings.language, "русском")
     return (
         f"Ты ведёшь личную переписку от лица персоны. Отвечай на {lang} языке.\n\n"
         f"=== ПЕРСОНА ===\n{cfg.persona}\n\n"
         f"=== ЗНАНИЯ (товар, прайс, условия, FAQ) ===\n{cfg.knowledge}\n\n"
-        f"=== ПЛЕЙБУК (воронка, цели, чего не обещать) ===\n{cfg.playbook}\n\n"
+        # Плейбук БЕЗ секции ключевых слов эскалации: её читает КОД
+        # (`parse_escalation_keywords`) и отрабатывает детерминированно, без
+        # модели и без сети. Отдавать модели список, по которому и так сработает
+        # код, значит платить за префикс дважды и ничего не получать взамен —
+        # спека 2026-08-19-playbook-trim §1(а). Из ФАЙЛА секция не убрана: она
+        # остаётся источником для парсера.
+        f"=== ПЛЕЙБУК (воронка, цели, чего не обещать) ===\n"
+        f"{strip_keyword_section(cfg.playbook)}\n\n"
         f"=== ПРАВИЛА ===\n{build_style(cfg)}"
         f"{_examples_section(cfg)}"
     )
