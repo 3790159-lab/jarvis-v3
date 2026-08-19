@@ -6,6 +6,7 @@ import shutil
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
+from chatter.config.loader import load_config
 from chatter.storage.db import Store
 from chatter.telethon_run import build_runner
 
@@ -35,11 +36,16 @@ def _run(coro):
 
 
 def test_config_shows_human_summary(tmp_path):
-    r = _runner(_clients(tmp_path))
+    clients = _clients(tmp_path)
+    r = _runner(clients)
     out = _run(r.handle_config_command("config", "", language="ru"))
     assert "Аня" in out                 # имя персоны
     assert "ru" in out or "рус" in out.lower()  # язык
-    assert "haiku" in out.lower()        # модель
+    # Предмет проверки — что сводка ПОКАЗЫВАЕТ модель, а не какая она именно.
+    # Литерал «haiku» был скрытой привязкой к настройке demo: перевод клиента
+    # на sonnet ронял тест, который про выбор модели ничего не утверждает.
+    model = load_config(clients, "demo").settings.model
+    assert model.lower() in out.lower(), f"сводка не показала модель {model}"
     # что-то про базу знаний (кол-во)
     assert any(w in out.lower() for w in ("знани", "позиц", "раздел"))
 
