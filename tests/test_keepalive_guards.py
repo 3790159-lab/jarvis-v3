@@ -1846,11 +1846,19 @@ CONFIG_CHANGED_FLAG = "config_changed_ts"
 CORRUPT_FLAG_LOG_MARKERS = ("config_changed_ts", "конфиг", "флаг", "reload")
 
 # Мусор во флаге. Список ЛИТЕРАЛЬНЫЙ и намеренно разношёрстный: часть значений
-# `float()` СЪЕДАЕТ (nan, inf), часть роняет (буквы, пустота). Обе половины
-# опасны по-разному — съеденное молча становится «правдоподобным» моментом
-# смены конфига, уронившее уходит в except, где его легко проглотить.
-CORRUPT_FLAG_VALUES = ("", "   ", "недавно", "abc", "nan", "NaN", "inf",
+# `float()` СЪЕДАЕТ (nan, inf, 1e999 → inf), часть роняет (буквы, знаки). Обе
+# половины опасны по-разному, и вторая опаснее: съеденное молча становится
+# «правдоподобным» моментом смены конфига, то есть работающим гасителем на
+# мусорных данных.
+CORRUPT_FLAG_VALUES = ("   ", "недавно", "abc", "nan", "NaN", "inf",
                        "1e999", "-", "None", "12,5", "0x10")
+
+# ОТСУТСТВИЕ флага — НЕ мусор. Клиент, ни разу не делавший `/reload`, живёт с
+# пустым значением всю свою жизнь, и это его НОРМАЛЬНОЕ состояние. Требовать
+# здесь WARNING значило бы завести запись, которая пишется каждый тик у каждого
+# такого клиента, — то есть сигнал, красный при исправной работе. Этот случай
+# сторожится ОТДЕЛЬНО и с противоположным требованием.
+ABSENT_FLAG_VALUES = ("",)
 
 
 def _reload_scene(tmp_path: Path, *, now: float, changed: str | None = None,
@@ -1936,14 +1944,22 @@ def test_c3_config_change_before_the_gap_does_not_excuse_the_miss(tmp_path, flag
 @pytest.mark.parametrize("bad", CORRUPT_FLAG_VALUES)
 def test_c4_corrupt_flag_does_not_silence_the_alert_quietly(tmp_path, flags,
                                                             caplog, bad):
-    """§5 дословно: «Порченое значение `config_changed_ts` НЕ гасит алерт молча
-    — иначе битый флаг стал бы способом выключить сторожа, не оставив следа».
+    """§5 (уточнено 20.08): порченое значение `config_changed_ts` читается как
+    «правки НЕ БЫЛО» — алерт УХОДИТ владельцу, ПЛЮС отдельный `WARNING` про сам
+    флаг. Требуется И ТО, И ДРУГОЕ, а не одно из двух.
 
-    Требование НЕ в том, чтобы алерт обязательно ушёл: у мусора нет верного
-    прочтения, и «считать разрыв неоправданным» — законный выбор, как и
-    «отказаться судить». Требование в том, что ТИШИНЫ быть не должно: либо
-    алерт, либо запись WARNING+, называющая флаг. Молчаливый `except` здесь —
-    это выключенный сторож без следа (DEV-18).
+    ⚠️ НЕ ослаблять обратно до `or`. Прежняя редакция этого сторожа требовала
+    «алерт ЛИБО громкая запись» и пропустила мутанта, который алерт ГЛУШИЛ:
+    условие выполнялось одной строчкой в логе. Формулировка выглядела
+    терпимее, а на деле охраняла на порядок меньше.
+
+    Почему «отказаться судить и громко написать» здесь НЕ равноценный выбор —
+    довод не про строгость, а про то, ЧТО ИМЕННО ломается. Флаг управляет
+    ГАСИТЕЛЕМ, и сломанный гаситель обязан отказывать в БЕЗОПАСНУЮ сторону:
+    гасить нельзя, иначе запись мусора в `runtime_flags` становится способом
+    выключить сторожа, не оставив следа. А лог смягчающим обстоятельством быть
+    не может — парой абзацев выше в том же §5 сказано, что логи никто не
+    читает, и что ровно поэтому алерт обязан ДОХОДИТЬ.
     """
     now = _at(12)
     cfg, store = _reload_scene(tmp_path, now=now, changed=bad,
@@ -1956,10 +1972,45 @@ def test_c4_corrupt_flag_does_not_silence_the_alert_quietly(tmp_path, flags,
     assert any(r.sent for r in results), "сцена вырождена: пинг не ушёл вовсе"
     loud = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING
             and any(m in r.getMessage().lower() for m in CORRUPT_FLAG_LOG_MARKERS)]
-    assert owner.cards or loud, (
-        f"мусор {bad!r} в {CONFIG_CHANGED_FLAG} погасил алерт МОЛЧА: ни "
-        f"карточки владельцу, ни записи WARNING+ про флаг. Весь лог: "
+    assert owner.cards, (
+        f"мусор {bad!r} в {CONFIG_CHANGED_FLAG} ПОГАСИЛ алерт: порченый флаг "
+        f"стал способом выключить сторожа. Порченое значение читается как "
+        f"«правки не было» (§5), значит промах остаётся уликой. Весь лог: "
         f"{[(r.levelname, r.getMessage()) for r in caplog.records]}")
+    assert loud, (
+        f"мусор {bad!r} в {CONFIG_CHANGED_FLAG} съеден МОЛЧА: алерт ушёл, но "
+        f"про сам флаг ни слова уровня WARNING+. Порча флага, о которой никто "
+        f"не сказал, чинится только тогда, когда сломается что-то ещё. Весь "
+        f"лог: {[(r.levelname, r.getMessage()) for r in caplog.records]}")
+
+
+@pytest.mark.parametrize("empty", ABSENT_FLAG_VALUES)
+def test_c4_absent_flag_alerts_without_crying_about_the_flag(tmp_path, flags,
+                                                            caplog, empty):
+    """Обратная половина C4, и она же — граница между «мусор» и «флага нет».
+
+    Клиент, ни разу не делавший `/reload`, живёт с пустым `config_changed_ts`
+    постоянно. Алерт о сломанном префиксе обязан доходить (гасить нечем), но
+    жаловаться на флаг здесь НЕЛЬЗЯ: такая запись пойдёт каждый тик у каждого
+    такого клиента, а сигнал, красный при исправной работе, — это фон, который
+    перестают читать, и вместе с ним перестают читать настоящие.
+    """
+    now = _at(12)
+    cfg, store = _reload_scene(tmp_path, now=now, changed=empty,
+                               name=f"empty{abs(hash(empty))}")
+    owner = SpyNotifier()
+
+    with caplog.at_level(logging.WARNING):
+        _cycle(cfg, store, _miss_llm(), now=now, notifier=owner)
+
+    assert len(owner.cards) == 1, (
+        "пустой флаг погасил алерт — гасить нечем, правки не было")
+    noisy = [r.getMessage() for r in caplog.records
+             if r.levelno >= logging.WARNING
+             and CONFIG_CHANGED_FLAG in r.getMessage()]
+    assert noisy == [], (
+        f"жалоба на ОТСУТСТВУЮЩИЙ флаг — она пойдёт каждый тик у каждого "
+        f"клиента, который не делал /reload: {noisy}")
 
 
 def test_c4_corrupt_flag_does_not_crash_the_cycle(tmp_path, flags):
@@ -1967,7 +2018,7 @@ def test_c4_corrupt_flag_does_not_crash_the_cycle(tmp_path, flags):
     §5 п.1 — отказ keep-alive не трогает лида; исключение, вылетевшее наружу,
     обрывает общий проход по клиентам (§6 п.4)."""
     now = _at(12)
-    for bad in CORRUPT_FLAG_VALUES:
+    for bad in CORRUPT_FLAG_VALUES + ABSENT_FLAG_VALUES:
         cfg, store = _reload_scene(tmp_path, now=now, changed=bad,
                                    name=f"crash{abs(hash(bad))}")
         results = _cycle(cfg, store, _miss_llm(), now=now, notifier=SpyNotifier())

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -327,6 +328,31 @@ async def run_keepalive_cycle(cfg, store, llm, *, now: float | None = None,
     return results
 
 
+def flag_ts(raw) -> float | None:
+    """Метка времени из `runtime_flags` — или None, если значение НЕ ЧИСЛО.
+
+    Отдельная функция, потому что `float()` числом считает больше, чем человек:
+    `float("nan")`, `float("inf")` и `float("1e999")` (переполнение до inf)
+    проходят БЕЗ исключения. Наивная проверка через `try/except ValueError` их
+    пропускает, и дальше они ведут себя тихо и по-разному в каждом месте:
+    сравнение с `nan` всегда ложно, `now - inf` уводит любой возраст в минус.
+
+    Сегодня это отказывает в безопасную сторону — но лишь потому, что операторы
+    сравнения оказались теми, какие есть. Это удача, а не замысел: замена `<` на
+    `>=` при рефакторинге превратила бы `inf` в способ выключить сторожа
+    строкой в `runtime_flags`. Поэтому нечисло отсекается ЗДЕСЬ и одинаково для
+    всех читателей флагов, а не в каждом по-своему.
+
+    `math.isfinite` — единственная проверка, ловящая все три случая сразу:
+    `nan` не равен сам себе, а `inf` не сравним по величине ни с чем разумным.
+    """
+    try:
+        ts = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return ts if math.isfinite(ts) else None
+
+
 def _own_ping_ts(store, slug: str) -> dict[str, float | None]:
     """Когда МЫ сами в последний раз грели каждый префикс ЭТОГО клиента.
 
@@ -341,12 +367,11 @@ def _own_ping_ts(store, slug: str) -> dict[str, float | None]:
         if not raw:
             out[tag] = None
             continue
-        try:
-            out[tag] = float(raw)
-        except (TypeError, ValueError):
+        ts = flag_ts(raw)
+        if ts is None:
             log.warning("keep-alive [%s/%s]: метка своего пинга = %r — не число, "
                         "считаю, что пинга не было", slug, tag, raw)
-            out[tag] = None
+        out[tag] = ts
     return out
 
 
@@ -464,20 +489,32 @@ def _config_changed_between(store, lo: float | None, hi: float) -> bool:
     """Менялся ли конфиг между двумя моментами.
 
     Флаг `config_changed_ts` пишет `reload_configs` — тот же источник, по
-    которому пульт показывает возраст правки. Порченое значение НЕ гасит алерт
-    молча: тихое «наверное, была правка» превратило бы сторожа в то, что он
-    сторожит.
+    которому пульт показывает возраст правки.
+
+    Этот флаг управляет ГАСИТЕЛЕМ алерта, и сломанный гаситель обязан отказывать
+    в безопасную сторону. Порченое значение читается как «правки НЕ БЫЛО» —
+    алерт уходит владельцу — И отдельной строкой сообщается про сам флаг (§5,
+    редакция 20.08). Оба конца обязательны: гасить нельзя, иначе мусор в
+    `runtime_flags` становится способом выключить сторожа; и промолчать про
+    порчу нельзя, иначе она чинится только тогда, когда сломается что-то ещё.
+    «Громко написал в лог ВМЕСТО алерта» тут не смягчающее обстоятельство, а тот
+    же отказ: логи никто не читает, ради этого весь §5 и переписан.
+
+    ПУСТОЙ флаг — НЕ порча и предупреждения не даёт. Клиент, ни разу не
+    делавший `/reload`, живёт так законно и постоянно; строка на каждом тике у
+    каждого такого клиента сделала бы сигнал красным при исправной работе, а
+    такие перестают читать вместе с настоящими.
     """
     if lo is None:
         return False
     raw = store.get_runtime_flag("config_changed_ts")
     if not raw:
-        return False
-    try:
-        ts = float(raw)
-    except (TypeError, ValueError):
+        return False        # /reload не делали ни разу — это норма, не порча
+    ts = flag_ts(raw)
+    if ts is None:
         log.warning("keep-alive: config_changed_ts = %r — не число; считаю, "
-                    "что правки не было", raw)
+                    "что правки конфига не было (алерт про сломанный префикс "
+                    "уходит владельцу), но сам флаг после reload испорчен", raw)
         return False
     return lo < ts <= hi
 
@@ -511,15 +548,18 @@ async def _alert_broken_prefix(cfg, store, notifier, tag: str, *, gap: float,
     key = alert_flag_key(cfg.slug, tag)
     last = await asyncio.to_thread(store.get_runtime_flag, key)
     if last:
-        try:
-            if now - float(last) < window:
-                log.info("keep-alive [%s/%s]: алерт о сломанном префиксе "
-                         "подавлён дебаунсом (окно %.0fч), поломка В СИЛЕ",
-                         cfg.slug, tag, window / 3600.0)
-                return False
-        except (TypeError, ValueError):
+        # Тот же разбор, что у остальных флагов: `float("inf")` здесь увёл бы
+        # возраст алерта в минус и заглушил владельца НАВСЕГДА — одной строкой
+        # в `runtime_flags`. Гаситель, сломавшись, обязан перестать гасить.
+        last_ts = flag_ts(last)
+        if last_ts is None:
             log.warning("keep-alive [%s/%s]: флаг дебаунса = %r — не число, "
                         "алертую", cfg.slug, tag, last)
+        elif now - last_ts < window:
+            log.info("keep-alive [%s/%s]: алерт о сломанном префиксе "
+                     "подавлён дебаунсом (окно %.0fч), поломка В СИЛЕ",
+                     cfg.slug, tag, window / 3600.0)
+            return False
 
     if notifier is None:
         # ГРОМКО и отдельной строкой: «посчитано» уже случилось, а «доехало»
