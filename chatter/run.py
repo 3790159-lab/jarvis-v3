@@ -46,7 +46,8 @@ from chatter.core.guardrails import (
 )
 from chatter.core.llm import AnthropicLLM, FakeLLM
 from chatter.core.pause import is_attributed, is_muted
-from chatter.core.prefix_budget import check_client_prefixes
+from chatter.core.prefix_budget import (
+    PrefixGuardRefusal, check_client_prefixes)
 from chatter.notify.base import Card, CardHandle, Notifier
 from chatter.storage.db import Store, usage_sink_for
 from chatter.transport.base import Transport
@@ -59,6 +60,13 @@ def _obligations_enabled() -> bool:
     чтобы тесты и выкатка переключали без перезапуска процесса."""
     return os.getenv("CHATTER_OBLIGATIONS_SLOT", "").strip().lower() in (
         "1", "true", "yes", "on")
+
+
+# Публичное имя того же флага. Читателей у него обязан быть ОДИН источник:
+# сторож порога кэша (§2.2) меряет БОЕВУЮ форму префикса классификатора, а она
+# зависит ровно от этого флага. Второй `os.getenv` в другом модуле разошёлся бы
+# с этим молча — и сторож мерил бы не ту строку, которая уходит в API.
+obligations_slot_enabled = _obligations_enabled
 
 log = logging.getLogger("chatter.run")
 
@@ -1053,7 +1061,16 @@ def main(argv: list[str] | None = None) -> int:
     # Правится ВМЕСТЕ с telethon_run.load_personas: правка одной из двух точек
     # сборки означает, что дрил меряет не то, что стоит в проде.
     if isinstance(llm, AnthropicLLM):
-        for v in check_client_prefixes(cfg):
+        verdicts = check_client_prefixes(cfg)
+        # §2.2: порог кэша — ОТКАЗ и здесь. Дать дрилу подняться там, где
+        # боевой раннер откажет, значит мерить экономику конфигурации, которая
+        # в прод не поедет, — а дрил ставят ровно затем, чтобы мерить прод.
+        fatal = [v for v in verdicts if v.fatal]
+        if fatal:
+            for v in fatal:
+                print(f"[chatter] {v.message}")
+            raise PrefixGuardRefusal(chr(10).join(v.message for v in fatal))
+        for v in verdicts:
             if v.loud:
                 print(f"[chatter] ⚠️ {v.message}")
     deps = Deps(

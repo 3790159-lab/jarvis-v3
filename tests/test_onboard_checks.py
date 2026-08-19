@@ -72,7 +72,7 @@ from chatter.onboard import checks, vocabulary
 # ПРОПАВШИЙ идентификатор глушить обязан.
 # ─────────────────────────────────────────────────────────────────────────────
 
-ALL_IDS = tuple(f"C{i}" for i in range(1, 17))
+ALL_IDS = tuple(f"C{i}" for i in range(1, 18))   # C1…C17 (C17 — порог кэша, §2.3)
 # C16 — флаг по §9.2 спеки Хайку: рост префикса бывает законным, и красное
 # означало бы отказ подключать клиента из-за правки его же плейбука.
 FLAG_IDS = ("C12", "C13", "C16")
@@ -507,9 +507,9 @@ def test_run_checks_returns_exactly_the_fourteen_checks(golden):
     client_dir, doc = golden
     res = run(client_dir, doc)
     assert sorted(set(ids_of(res))) == sorted(ALL_IDS), (
-        f"ожидались ровно C1…C16, пришло {ids_of(res)}")
-    assert len(res) == 16, (
-        f"ровно 16 результатов (без дублей), пришло {len(res)}: {ids_of(res)}")
+        f"ожидались ровно C1…C17, пришло {ids_of(res)}")
+    assert len(res) == 17, (
+        f"ровно 17 результатов (без дублей), пришло {len(res)}: {ids_of(res)}")
 
 
 def test_all_fourteen_survive_a_client_dir_that_does_not_exist(tmp_path):
@@ -521,7 +521,7 @@ def test_all_fourteen_survive_a_client_dir_that_does_not_exist(tmp_path):
     """
     ghost = tmp_path / "build" / "onboard" / SLUG
     res = run(ghost, report_document())
-    assert len(res) == 16, f"на отсутствующем каталоге вернулось {len(res)}"
+    assert len(res) == 17, f"на отсутствующем каталоге вернулось {len(res)}"
     assert sorted(set(ids_of(res))) == sorted(ALL_IDS)
 
 
@@ -533,7 +533,7 @@ def test_all_fourteen_survive_a_broken_report_document(golden):
     """
     client_dir, _ = golden
     res = run(client_dir, {"это": "не отчёт"})
-    assert len(res) == 16, f"на битом отчёте вернулось {len(res)}"
+    assert len(res) == 17, f"на битом отчёте вернулось {len(res)}"
     assert sorted(set(ids_of(res))) == sorted(ALL_IDS)
 
 

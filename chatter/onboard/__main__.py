@@ -191,7 +191,7 @@ def _load_report_document(client_dir: Path):
 
 
 def _prefix_token_counter():
-    """Счётчик токенов для C16 — ЕСЛИ в окружении есть ключ (спека Хайку §9.5).
+    """Счётчик токенов для C16 и C17 — ЕСЛИ в окружении есть ключ (§9.5, §2.3).
 
     Единственная дверь наружу во всей приёмке, и открывается она только ключом:
     без него `--check` остаётся полностью офлайновым, как и был. Отсутствие
@@ -202,14 +202,15 @@ def _prefix_token_counter():
     if os.environ.get("ANTHROPIC_API_KEY"):
         return count_tokens
     _say(f"{PREFIX} ВНИМАНИЕ: замер префикса НЕ ВЫПОЛНЕН — нет ANTHROPIC_API_KEY "
-         f"в окружении. C16 сверяет размер системного промпта brain с эталоном "
+         f"в окружении. C16 сверяет размер системного промпта brain с эталоном, "
+         f"C17 — префикс классификатора с порогом включения кэша "
          f"в {DEFAULT_BASELINES_PATH} и без ключа останется флагом-отметкой о "
          f"пропуске, а не замером")
     return None
 
 
 def _print_checks(results) -> None:
-    _say("АВТОПРИЁМКА C1–C16")
+    _say("АВТОПРИЁМКА C1–C17")
     for r in results:
         if r.blocked:
             mark = "??"
@@ -573,7 +574,7 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--brief", metavar="ФАЙЛ.XLSX",
                       help="собрать каталог и отчёт из брифа")
     mode.add_argument("--check", nargs="?", const="", metavar="КАТАЛОГ",
-                      help="только автоприёмка C1–C16 по готовому каталогу "
+                      help="только автоприёмка C1–C17 по готовому каталогу "
                            "(по умолчанию build/onboard/<slug>)")
     mode.add_argument("--diff", metavar="КАТАЛОГ",
                       help="пофайловое сравнение с ручным эталоном (приёмка арки, §6)")

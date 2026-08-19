@@ -147,14 +147,15 @@ def entry(brain: int, *, measured_with: str = SONNET, measured_on: str = "2026-0
 
 
 def only(verdicts) -> "prefix_budget.PrefixVerdict":
-    """Единственный вердикт `check_client_prefixes` в этой ветке (brain_drift).
+    """Вердикт `brain_drift` из отчёта — РОВНО ОДИН.
 
-    Пустой список здесь — не «претензий нет», а исчезнувшая проверка: она
-    неотличима от пройденной, и её отсутствие обязано валить тест.
+    Отчёт с §2.3 несёт две проверки (рядом едет сторож порога кэша), поэтому
+    выбираем свою по имени, а не по длине списка. Но «ровно один» остаётся
+    требованием: пусто — это исчезнувшая проверка, неотличимая от пройденной;
+    два — это два ответа на один вопрос, и меньший погасит больший молча.
     """
-    rows = list(verdicts)
-    assert len(rows) == 1, f"ожидался ровно один вердикт (brain_drift), пришли {rows!r}"
-    assert rows[0].check == "brain_drift"
+    rows = [v for v in verdicts if v.check == "brain_drift"]
+    assert len(rows) == 1, f"ожидался ровно один вердикт brain_drift, пришли {list(verdicts)!r}"
     return rows[0]
 
 
@@ -675,7 +676,11 @@ def test_d9_a_silent_within_measurement_leaves_no_findings(tmp_path, monkeypatch
     from chatter import telethon_run as tr
 
     slug = "demo"
-    make_cfg(tmp_path, slug=slug)
+    # model=SONNET намеренно: у haiku порог включения кэша 4096, а замер здесь
+    # задан эталоном brain demo (2394) — клиент на haiku законно ОТКАЗАЛСЯ бы
+    # подниматься по §2.2, и тест про дрейф упал бы на чужом вердикте. Это не
+    # обход сторожа порога: он проверен своим файлом, здесь предмет другой.
+    make_cfg(tmp_path, slug=slug, model=SONNET)
     personas = tr.load_personas(tmp_path, [slug], Store(":memory:"), llm_mode="real")
 
     assert spy.calls, (

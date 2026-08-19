@@ -491,12 +491,13 @@ def test_c15_is_the_fifteenth_check(golden):
     """Ловит: проверку, написанную, но не подключённую к списку."""
     assert "C15" in {str(i).strip().upper() for i in checks.CHECK_IDS}, (
         f"C15 нет в CHECK_IDS: {list(checks.CHECK_IDS)}")
-    assert len(checks.CHECK_IDS) == 16, (
-        f"проверок в списке {len(checks.CHECK_IDS)}, а их должно быть 16: "
-        f"пятнадцать по §6.4 плюс C16 (префикс brain, спека Хайку §9)")
+    assert len(checks.CHECK_IDS) == 17, (
+        f"проверок в списке {len(checks.CHECK_IDS)}, а их должно быть 17: "
+        f"пятнадцать по §6.4, плюс C16 (дрейф префикса brain, спека Хайку "
+        f"§9) и C17 (порог включения кэша, §2.3)")
     client_dir, doc = golden
     res = run(client_dir, doc)
-    assert len(res) == 16, f"вернулось {len(res)} результатов: {[r.id for r in res]}"
+    assert len(res) == 17, f"вернулось {len(res)} результатов: {[r.id for r in res]}"
     c15_of(res)
 
 
@@ -509,7 +510,7 @@ def test_c15_survives_a_client_dir_that_does_not_exist(tmp_path):
     """
     ghost = tmp_path / "build" / "onboard" / SLUG
     res = run(ghost)
-    assert len(res) == 16, f"на отсутствующем каталоге вернулось {len(res)}"
+    assert len(res) == 17, f"на отсутствующем каталоге вернулось {len(res)}"
     assert not c15_of(res).ok, "каталога нет, а C15 зелёная"
 
 
@@ -517,7 +518,7 @@ def test_c15_survives_a_broken_report_document(golden):
     """Ловит: битый отчёт, уносящий C15 из списка вместе с собой."""
     client_dir, _ = golden
     res = run(client_dir, {"это": "не отчёт"})
-    assert len(res) == 16, f"на битом отчёте вернулось {len(res)}"
+    assert len(res) == 17, f"на битом отчёте вернулось {len(res)}"
     c15_of(res)
 
 

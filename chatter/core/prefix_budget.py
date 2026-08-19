@@ -15,11 +15,24 @@
 обновляющий себя сам, воспроизвёл бы ровно тот дефект, ради которого сторож
 ставится: он бы догонял дрейф и всегда молчал.
 
-Сторож ГРОМКИЙ, но НЕ отказ (§9.2): рост префикса бывает законным — клиент
-правит свой плейбук через пульт, — и запрещать из-за этого старт нельзя.
-Поэтому `fatal` во всех вердиктах ниже ВСЕГДА False, а сбой замера (сеть) не
-роняет клиента, но и не глотается молча (DEV-18): он становится громким
-вердиктом `measure_failed` и строкой в логе.
+Сторож дрейфа ГРОМКИЙ, но НЕ отказ (§9.2): рост префикса бывает законным —
+клиент правит свой плейбук через пульт, — и запрещать из-за этого старт нельзя.
+Поэтому `fatal` у вердиктов дрейфа ВСЕГДА False, а сбой замера (сеть) не роняет
+клиента, но и не глотается молча (DEV-18): он становится громким вердиктом
+`measure_failed` и строкой в логе.
+
+ВТОРОЙ сторож модуля (§2.2) — порог включения кэша. Он ОТКАЗ, и это не
+непоследовательность: «префикс вырос» и «префикс провалился под порог» — разные
+беды. Рост стоит денег постепенно и бывает осознанным; провал под порог молча
+ВЫКЛЮЧАЕТ кэш, и клиент начинает платить полный вход вместо чтения по 0.1× —
+то есть перевод на более дешёвую модель поднимает счёт. Предупреждение в логе
+на шести клиентах никто не прочтёт, а счёт вырастет. Поэтому отказ.
+
+Но отказ ТОЛЬКО по ИЗМЕРЕННОМУ числу. Упавший замер (нет сети, нет кредитов,
+таймаут) отказом НЕ становится ни при каких условиях: иначе первая же икота
+API положила бы весь парк клиентов разом, и сторож стоимости стал бы причиной
+простоя. Незнакомая модель — тоже не отказ, а громкий вердикт: судить её
+порогом чужого семейства значит выдумать число.
 
 МОДЕЛЬ СЧЁТА = МОДЕЛЬ ЭТАЛОНА, а при отсутствии эталона — модель клиента.
 Основание — §2.0 спеки: токенизаторы sonnet-5 и haiku-4-5 расходятся на 7–12%,
@@ -48,8 +61,10 @@ log = logging.getLogger("chatter.core.prefix_budget")
 
 __all__ = [
     "DEFAULT_BASELINES_PATH", "DEFAULT_THRESHOLD_PERCENT", "BRAIN_DRIFT",
-    "PrefixBaselineError", "Baseline", "PrefixVerdict",
+    "CACHE_THRESHOLD",
+    "PrefixBaselineError", "PrefixGuardRefusal", "Baseline", "PrefixVerdict",
     "load_baselines", "count_tokens", "brain_drift_verdict",
+    "classifier_model_of", "cache_threshold_verdict",
     "check_client_prefixes",
 ]
 
@@ -67,6 +82,11 @@ DEFAULT_THRESHOLD_PERCENT = 15
 # кэша 4096 (§2.2), и оба поедут одним списком в один отчёт.
 BRAIN_DRIFT = "brain_drift"
 
+# Вторая проверка того же модуля (§2.2): не провалился ли стабильный префикс
+# КЛАССИФИКАТОРА под порог кэша своей модели. Она единственная в модуле умеет
+# `fatal=True` — см. её вердикт.
+CACHE_THRESHOLD = "classifier_cache_threshold"
+
 # ЗОНД — ЧАСТЬ КОНТРАКТА ЗАМЕРА, а не деталь реализации.
 #
 # `/v1/messages/count_tokens` требует непустой `messages`, а меряем мы СИСТЕМУ.
@@ -76,6 +96,18 @@ BRAIN_DRIFT = "brain_drift"
 # §9.3 сняты именно этой формой (проверено живьём 19.08: volska 9131,
 # yarina 14847, demo 2394). Менять зонд = сдвинуть ВСЕ эталоны разом.
 _PROBE_MESSAGES = [{"role": "user", "content": "."}]
+
+
+class PrefixGuardRefusal(Exception):
+    """ОТКАЗ поднимать клиента по вердикту §2.2 (кэш выключен под порогом).
+
+    Отдельный тип, а НЕ `ConfigError`, и это существенно. Стартовый fail-safe
+    (`_load_personas_failsafe`) ловит именно `ConfigError` и на нём откатывает
+    клиента на last-known-good. Провал под порог кэша откатом «чинить» нельзя:
+    в лучшем случае это тихо вернёт вчерашний плейбук вместо ответа на вопрос
+    «почему клиент не поднялся», в худшем — вернёт конфиг, который проходит
+    порог случайно. Отказ обязан быть слышен как отказ.
+    """
 
 
 class PrefixBaselineError(Exception):
@@ -106,9 +138,9 @@ class PrefixVerdict:
     `measure_failed` — не-ok при исправном ВСЁМ. Склеить их в один флаг значит
     выбирать между «молчать о непроверенном» и «кричать о законном».
 
-    `fatal` всегда False (§9.2 «не отказ»); поле оставлено, потому что рядом
-    сядет сторож порога кэша 4096, который отказ как раз обязан (§2.2), и оба
-    поедут одним списком.
+    `fatal` у BRAIN_DRIFT всегда False (§9.2 «не отказ»). У CACHE_THRESHOLD он
+    бывает True — и ТОЛЬКО там: провал под порог кэша это не «выросло», а
+    «кэша нет», и молчаливый рост счёта здесь лечится отказом (§2.2).
     """
 
     slug: str
@@ -310,6 +342,127 @@ def brain_drift_verdict(cfg, *, baselines, threshold_percent,
             f"руками в {path} — сам он не поднимется (§9.2)"))
 
 
+def classifier_model_of(cfg) -> str:
+    """Модель, которой РЕАЛЬНО считает классификатор. ОДНО место на весь код.
+
+    Сегодня классификатор и brain делят один объект LLM (`_build_llm` берёт
+    `cfg.settings.model`), поэтому здесь возвращается модель клиента — и
+    сторож судит ровно ту модель, которая сейчас платит. §1.1 спеки вводит
+    отдельное поле `classifier_model`; та арка остановлена красным гейтом Х2,
+    но появиться она может в любой день, и сторож обязан пережить это, не
+    поменяв НИ ОДНОГО вызова: как только поле появится в настройках, оно
+    начнёт побеждать здесь — и только здесь.
+
+    Именно поэтому функция существует отдельно от одной строчки `getattr`:
+    вопрос «какой моделью считать порог» обязан иметь один ответ, иначе
+    онбординг и раннер разойдутся молча и разойдутся именно в тот день, когда
+    поле добавят.
+    """
+    return str(getattr(cfg.settings, "classifier_model", None)
+               or cfg.settings.model)
+
+
+def _slot_on() -> bool:
+    """Включён ли слот обязательств — ЧИТАЕТСЯ ИЗ ЕДИНСТВЕННОГО ИСТОЧНИКА.
+
+    Форма префикса классификатора от этого флага зависит напрямую
+    (`track_obligations` добавляет инструкции о слоте), а гардиан ставит
+    `CHATTER_OBLIGATIONS_SLOT=1`. Замер, снятый в другой форме, мерил бы НЕ ту
+    строку, которая уходит в API: разница между формами на боевых клиентах —
+    около 900 токенов, то есть четверть порога. Свой `os.getenv` здесь стал бы
+    вторым числом на одну вещь и разошёлся бы с раннером молча.
+
+    Импорт ленивый: `chatter.run` тянет пол-продукта, а этот модуль обязан
+    импортироваться в офлайне — и он же импортируется ИЗ `chatter.run`.
+    """
+    from chatter.run import obligations_slot_enabled
+    return obligations_slot_enabled()
+
+
+def cache_threshold_verdict(cfg, *, counter=count_tokens,
+                            slot_on=None) -> PrefixVerdict:
+    """Вердикт §2.2 по ОДНОМУ клиенту: пролезает ли стабильный префикс
+    классификатора над порогом кэша СВОЕЙ модели. НИКОГДА не бросает.
+
+    Считаем ЦЕЛЕВОЙ моделью (§2.0). Токенизаторы haiku-4-5 и sonnet-5
+    расходятся на 7–12% — это величина порядка самого порога, и проверка чужой
+    моделью у клиента около границы скажет «проходит» там, где не проходит.
+    """
+    # Оба импорта ленивые и по той же причине, что `build_system_prompt` выше:
+    # модуль обязан импортироваться в офлайне и не замыкать кольцо с core.
+    from chatter.core.classifier import classifier_stable_prefix
+    from chatter.core.llm import cache_min_prompt_tokens
+
+    slug = str(getattr(cfg, "slug", "") or "?")
+    model = classifier_model_of(cfg)
+    floor = cache_min_prompt_tokens(model)
+
+    if floor is None:
+        return PrefixVerdict(
+            slug=slug, check=CACHE_THRESHOLD, ok=False, loud=True, fatal=False,
+            kind="unknown_model", actual=None, baseline=None,
+            threshold_percent=0,
+            message=(
+                f"⚠️ [{slug}] порог кэша модели {model!r} НЕИЗВЕСТЕН: её нет в "
+                f"таблице chatter/core/llm.py::CACHE_MIN_PROMPT_TOKENS. Клиент "
+                f"поднят, но кэш у него никто не сторожит — а промпт короче "
+                f"порога не кэшируется МОЛЧА. Впиши порог этой модели в "
+                f"таблицу. Старт не роняем: судить незнакомую модель порогом "
+                f"чужого семейства значит выдумать число"))
+
+    if slot_on is None:
+        slot_on = _slot_on()
+    try:
+        prefix = classifier_stable_prefix(
+            cfg.playbook, cfg.settings.language,
+            cfg.settings.limits.profile_budget_tokens,
+            track_obligations=bool(slot_on))
+        actual = int(counter(model, prefix))
+    except Exception as exc:                              # noqa: BLE001
+        # НЕ отказ (см. шапку): упавший замер не имеет права положить клиента.
+        # Но и не тишина (DEV-18) — громкий вердикт плюс трассировка в логе.
+        log.warning("cache-guard [%s]: замер префикса классификатора не выполнен",
+                    slug, exc_info=True)
+        return PrefixVerdict(
+            slug=slug, check=CACHE_THRESHOLD, ok=False, loud=True, fatal=False,
+            kind="measure_failed", actual=None, baseline=floor,
+            threshold_percent=0,
+            message=(
+                f"⚠️ [{slug}] порог кэша НЕ ПРОВЕРЕН: замер префикса "
+                f"классификатора не выполнен ({type(exc).__name__}: {exc}). "
+                f"Порог модели {model} — {floor} токенов. Клиент поднят: отказ "
+                f"по упавшему замеру положил бы парк из-за икоты API. Проверить "
+                f"повторно, когда сеть/кредиты вернутся"))
+
+    if actual >= floor:
+        return PrefixVerdict(
+            slug=slug, check=CACHE_THRESHOLD, ok=True, loud=False, fatal=False,
+            kind="within", actual=actual, baseline=floor, threshold_percent=0,
+            message=(f"[{slug}] префикс классификатора {actual} токенов ≥ порога "
+                     f"{floor} (модель {model}) — кэш включается"))
+
+    # ЕДИНСТВЕННЫЙ fatal в модуле. Оба выхода названы прямо в тексте: молчаливое
+    # «клиент не поднялся» — это ровно тот дефект, ради которого сторож ставят.
+    return PrefixVerdict(
+        slug=slug, check=CACHE_THRESHOLD, ok=False, loud=True, fatal=True,
+        kind="below_threshold", actual=actual, baseline=floor,
+        threshold_percent=0,
+        message=(
+            f"⛔ [{slug}] ОТКАЗ поднимать клиента: стабильный префикс "
+            f"классификатора {actual} токенов, а порог включения кэша у модели "
+            f"{model} — {floor}. Ниже порога кэш выключается МОЛЧА (ни ошибки, "
+            f"ни лога), и каждый вызов платит полный вход вместо чтения по "
+            f"0.1× — дешёвая модель выходит ДОРОЖЕ дорогой. Два выхода, оба "
+            f"работают СЕГОДНЯ: (1) нарастить плейбук клиента выше {floor} "
+            f"токенов; (2) поставить этому клиенту в settings.yaml "
+            f"model: claude-sonnet-5 (порог 1024) — но это переводит и brain, "
+            f"то есть меняет РЕЧЬ бота живым клиентам, и решает это владелец. "
+            f"Отдельного тумблера classifier_model пока НЕТ: §1 спеки его "
+            f"вводит, но арка остановлена красным гейтом Х2, и дописанная в "
+            f"settings.yaml строка сейчас будет молча проигнорирована. Молча "
+            f"оставить как есть тоже нельзя: счёт вырастет, и никто не заметит"))
+
+
 def check_client_prefixes(cfg, *, counter=count_tokens,
                           baselines_path=None) -> list[PrefixVerdict]:
     """Все проверки префиксов ОДНОГО клиента. Список — потому что рядом сядет
@@ -330,14 +483,26 @@ def check_client_prefixes(cfg, *, counter=count_tokens,
         # чинится это не сетью, а руками в файле. Слепить их в один вид значило
         # бы предложить владельцу «подождать, пока сеть вернётся», когда ждать
         # нечего.
-        return [PrefixVerdict(
-            slug=slug, check=BRAIN_DRIFT, ok=False, loud=True, fatal=False,
-            kind="baselines_broken", actual=None, baseline=None,
-            threshold_percent=DEFAULT_THRESHOLD_PERCENT,
-            message=(
-                f"⚠️ [{slug}] файл эталонов {path} не прочитан: {exc}. Пока он "
-                f"битый, дрейф префикса brain не сторожит НИКТО ни у одного "
-                f"клиента. Старт не роняем (§9.5) — чинить руками"))]
-    return [brain_drift_verdict(
-        cfg, baselines=baselines, threshold_percent=threshold, counter=counter,
-        baselines_path=baselines_path)]
+        # Порог кэша от файла эталонов НЕ зависит и обязан отработать всё
+        # равно: битый yaml — не повод молча пустить клиента с выключенным
+        # кэшем. Две проверки, две причины, один отчёт.
+        return [
+            cache_threshold_verdict(cfg, counter=counter),
+            PrefixVerdict(
+                slug=slug, check=BRAIN_DRIFT, ok=False, loud=True, fatal=False,
+                kind="baselines_broken", actual=None, baseline=None,
+                threshold_percent=DEFAULT_THRESHOLD_PERCENT,
+                message=(
+                    f"⚠️ [{slug}] файл эталонов {path} не прочитан: {exc}. Пока "
+                    f"он битый, дрейф префикса brain не сторожит НИКТО ни у "
+                    f"одного клиента. Старт не роняем (§9.5) — чинить руками")),
+        ]
+    # Порядок в списке — не косметика: сначала ОТКАЗ (§2.2), потом громкое-но-
+    # не-отказ (§9). Вызывающий, который остановится на первом fatal, обязан
+    # увидеть именно ту причину, по которой клиент не поднялся.
+    return [
+        cache_threshold_verdict(cfg, counter=counter),
+        brain_drift_verdict(
+            cfg, baselines=baselines, threshold_percent=threshold,
+            counter=counter, baselines_path=baselines_path),
+    ]

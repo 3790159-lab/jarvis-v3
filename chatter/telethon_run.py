@@ -38,7 +38,8 @@ from chatter.core.console import (
 _COMMAND_PREFIXES = sorted("/" + c for c in (GLOBAL_COMMANDS | TARGETED_COMMANDS))
 from chatter.core.escalation import parse_escalation_keywords
 from chatter.core.pause import is_muted
-from chatter.core.prefix_budget import check_client_prefixes
+from chatter.core.prefix_budget import (
+    PrefixGuardRefusal, check_client_prefixes)
 from chatter.telethon_identity import identity_kwargs
 from chatter.core.llm import AnthropicLLM, FakeLLM, LLMClient
 from chatter.core.pause import should_auto_resume
@@ -1918,7 +1919,14 @@ def load_personas(
         # доносит их build_runner (владельцу) и reload_configs (в лог).
         findings: tuple[str, ...] = ()
         if isinstance(llm, AnthropicLLM):
-            findings = tuple(v.message for v in check_client_prefixes(cfg) if v.loud)
+            verdicts = check_client_prefixes(cfg)
+            # §2.2: провал под порог кэша — ОТКАЗ, а не заметка. Бросаем ДО
+            # того, как персона попадёт в словарь: полусобранный парк, где один
+            # клиент «есть, но не должен работать», хуже явного отказа.
+            fatal = [v for v in verdicts if v.fatal]
+            if fatal:
+                raise PrefixGuardRefusal(chr(10).join(v.message for v in fatal))
+            findings = tuple(v.message for v in verdicts if v.loud)
         personas[slug] = PersonaBundle(cfg=cfg, deps=deps, prefix_findings=findings)
     return personas
 
@@ -2280,10 +2288,18 @@ def main(argv: list[str] | None = None) -> int:
     client = build_client(session, api_id, api_hash)
 
     store = Store(db_path)
-    runner = build_runner(
-        client=client, clients_dir=Path(args.clients_dir), persona_slugs=slugs,
-        store=store, loop=loop, llm_mode=args.llm,
-    )
+    try:
+        runner = build_runner(
+            client=client, clients_dir=Path(args.clients_dir), persona_slugs=slugs,
+            store=store, loop=loop, llm_mode=args.llm,
+        )
+    except PrefixGuardRefusal as e:
+        # §2.2: клиент не поднимается, и причина обязана быть ПРОЧИТАНА, а не
+        # добыта из трассировки. Печатаем текст вердикта целиком: в нём уже
+        # названы число, порог и оба выхода. rc 1 — гардиан увидит аварию.
+        print(f"[telethon_run] ОТКАЗ СТАРТА:{chr(10)}{e}", file=sys.stderr)
+        log.error("prefix-guard: старт отклонён:%s%s", chr(10), e)
+        return 1
 
     async def _on_connected() -> None:
         # me_id ПЕРВЫМ ДЕЛОМ, до heartbeat и до catch-up: _outgoing_handler
