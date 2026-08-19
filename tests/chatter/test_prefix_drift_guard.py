@@ -649,6 +649,42 @@ def test_d9_measure_failure_does_not_break_load_personas(tmp_path, monkeypatch):
     assert personas[slug].prefix_findings, "сбой замера прошёл молча (DEV-18)"
 
 
+def test_d9_a_silent_within_measurement_leaves_no_findings(tmp_path, monkeypatch):
+    """Д9 (четвёртая сторона): замер В ПРЕДЕЛАХ эталона не оставляет НИ ОДНОЙ
+    строки владельцу.
+
+    Почему важно: `prefix_findings` — канал к владельцу, и половина контракта
+    этого канала не «громкое доехало», а «спокойное НЕ доехало». Реализация,
+    складывающая туда все вердикты подряд, шлёт по строке на каждом подъёме
+    каждого клиента: на шести клиентах настоящий дрейф уедет вместе с пятью
+    спокойными «в пределах» — тем самым механизмом, которым канал перестают
+    читать (§9.2 ставит алерт в общий канал сторожей).
+
+    Половина 2 этого гейта проверяет только «непустой список при дрейфе» и
+    поэтому зеленеет на снятом фильтре `if v.loud` — дыру нашёл мутационный
+    гейт `scripts/mutate_prefix_drift_guard.py`.
+
+    Замер задан РОВНО эталоном из файла (а не литералом): подъём эталона
+    человеком — законное событие §9.2 и не должен ронять этот тест.
+    """
+    baselines, _threshold = prefix_budget.load_baselines()
+    at_baseline = baselines["demo"].brain_tokens
+    spy = _install_fake_anthropic(monkeypatch, _CountTokensSpy(at_baseline))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+
+    from chatter import telethon_run as tr
+
+    slug = "demo"
+    make_cfg(tmp_path, slug=slug)
+    personas = tr.load_personas(tmp_path, [slug], Store(":memory:"), llm_mode="real")
+
+    assert spy.calls, (
+        "замер не выполнялся вовсе — тогда пустой список ничего не доказывает")
+    assert personas[slug].prefix_findings == (), (
+        "спокойный вердикт «в пределах» уехал владельцу: в таком шуме тонет "
+        f"настоящий дрейф; пришло {personas[slug].prefix_findings!r}")
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Д10. Точка вызова №2: `onboard.checks.run_checks` — проверка C16
 # ─────────────────────────────────────────────────────────────────────────────
@@ -693,6 +729,13 @@ def test_d10_without_a_counter_c16_says_the_measurement_did_not_happen(tmp_path)
     assert row.is_flag is True
     assert row.blocked is False, "отсутствие счётчика — это флаг, а не сорванный прогон"
     assert row.message.startswith("ЗАМЕР НЕ ВЫПОЛНЕН"), row.message
+    # `ok` — отдельное утверждение, и без него текст «ЗАМЕР НЕ ВЫПОЛНЕН» ничего
+    # не стоит: строка с ним, но зелёная, читается в отчёте ровно как
+    # пройденная проверка (статус видно раньше текста). Мутационный гейт
+    # показал это прямо: `_red` → `_ok` при том же тексте не краснел нигде.
+    assert row.ok is False, (
+        "непроведённый замер объявлен зелёным — это выдача пропуска за "
+        f"пройденную проверку: {row!r}")
 
 
 def test_d10_c16_does_not_change_the_exit_code(tmp_path):
