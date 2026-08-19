@@ -38,6 +38,7 @@ from chatter.core.console import (
 _COMMAND_PREFIXES = sorted("/" + c for c in (GLOBAL_COMMANDS | TARGETED_COMMANDS))
 from chatter.core.escalation import parse_escalation_keywords
 from chatter.core.pause import is_muted
+from chatter.core.prefix_budget import check_client_prefixes
 from chatter.telethon_identity import identity_kwargs
 from chatter.core.llm import AnthropicLLM, FakeLLM, LLMClient
 from chatter.core.pause import should_auto_resume
@@ -483,6 +484,12 @@ def execute_command(cmd, *, store: Store, contact_id: str | None, now: float,
 class PersonaBundle:
     cfg: Config
     deps: Deps
+    # Тексты ГРОМКИХ вердиктов сторожа префикса (спека 2026-08-19 §9), снятых
+    # при сборке этой персоны. Поле, а не лог: тот, кто собирает раннер, обязан
+    # довезти их до владельца, а на перечитывании — до лога. Пустой кортеж
+    # значит «сторож отработал и промолчал» ЛИБО «клиент на fake-LLM» — эти два
+    # случая различает сам факт реального клиента, см. load_personas.
+    prefix_findings: tuple[str, ...] = ()
 
 
 def _switch_ack(cfg: Config) -> str:
@@ -630,6 +637,12 @@ class TelethonRunner:
         # config-арка §2b: непусто, если стартовали на last-known-good из-за
         # битого текущего конфига — _on_connected об этом алертит владельцу.
         self._startup_recovery: str | None = None
+        # Спека 2026-08-19 §9: громкие вердикты сторожа префикса по ВСЕМ
+        # персонам, собранные на старте. Ставит build_runner, читает
+        # _on_connected — как и _startup_recovery выше, и по той же причине:
+        # алертить можно только после client.start(), а знать об этом надо
+        # уже в момент сборки.
+        self._prefix_findings: tuple[str, ...] = ()
         # config-арка §5: базовый mtime конфига для авто-перечитывания.
         self._config_mtime: float = 0.0
         self._auto_reload_error: str | None = None
@@ -662,6 +675,15 @@ class TelethonRunner:
         for bundle in new_personas.values():
             bundle.deps.notifier = self.notifier
             bundle.deps.escalation_card = self.build_escalation_card
+        # Сторож префикса (спека §9) отработал внутри load_personas на НОВОМ
+        # конфиге — здесь его громкие вердикты идут в ЛОГ, а не в пульт.
+        # Решение сознательное (план §4.2): перечитывание бывает частым
+        # (/reload, авто по mtime), и алерт на каждом превратил бы сторож в
+        # фон, который перестают читать. Старт остаётся точкой, где владельца
+        # будят.
+        for bundle in new_personas.values():
+            for finding in bundle.prefix_findings:
+                log.warning("reload: %s", finding)
         # Атомарный своп (одно присваивание ссылки dict).
         self.personas = new_personas
         tg = new_personas[self.primary_slug].cfg.settings.telegram
@@ -1888,7 +1910,16 @@ def load_personas(
         # ложный алерт). Детерминированный слой эскалации работает всегда.
         if cfg.settings.control.classifier_enabled and isinstance(llm, AnthropicLLM):
             deps.classify = _bind_classifier(llm, cfg)
-        personas[slug] = PersonaBundle(cfg=cfg, deps=deps)
+        # Сторож дрейфа префикса brain (спека 2026-08-19 §9) — только на
+        # РЕАЛЬНОМ LLM, по тому же критерию, что и классификатор выше: в
+        # fake-режиме нет ни сети, ни денег, защищать нечего, а count_tokens
+        # гонял бы каждый офлайн-тест в API. Вердикты НЕ роняют старт (§9.2 —
+        # рост префикса бывает законным), но громкие обязаны быть услышаны:
+        # доносит их build_runner (владельцу) и reload_configs (в лог).
+        findings: tuple[str, ...] = ()
+        if isinstance(llm, AnthropicLLM):
+            findings = tuple(v.message for v in check_client_prefixes(cfg) if v.loud)
+        personas[slug] = PersonaBundle(cfg=cfg, deps=deps, prefix_findings=findings)
     return personas
 
 
@@ -2005,6 +2036,15 @@ def build_runner(
     # стартовому fail-safe последний-хороший на будущее.
     runner._snapshot_configs(time.time())
     runner._startup_recovery = startup_recovery
+    # Спека §9: собираем громкие вердикты сторожа префикса по всем персонам.
+    # В лог кладём ЗДЕСЬ же, не дожидаясь _on_connected: алерт уедет через
+    # Notifier, а Notifier бывает не настроен, не доехал или отвалился — и
+    # тогда единственный след сторожа исчез бы вместе с ним. Наблюдаемость не
+    # имеет права зависеть от доставки (DEV-18).
+    runner._prefix_findings = tuple(
+        finding for bundle in personas.values() for finding in bundle.prefix_findings)
+    for finding in runner._prefix_findings:
+        log.warning("startup: %s", finding)
     runner._config_mtime = runner._config_mtime_now()   # базовый mtime (config-арка §5)
 
     async def _handler(event) -> None:
@@ -2275,6 +2315,16 @@ def main(argv: list[str] | None = None) -> int:
             lang = runner.personas[runner.primary_slug].cfg.settings.language
             await runner._notify_owner_notice(
                 cfg_text("cfg_startup_recovered", lang, reason=runner._startup_recovery))
+        # Спека 2026-08-19 §9: префикс brain вырос против ЗАПИСАННОГО эталона.
+        # Не отказ (§9.2) — клиент уже отвечает, — но владелец обязан узнать
+        # это здесь, а не через месяц при пересчёте полос. Текст вердикта
+        # экранируем: в нём живут пути и текст исключения, а сообщение уезжает
+        # с parse_mode=HTML, где «<» из пути закрыл бы половину алерта.
+        if runner._prefix_findings:
+            lang = runner.personas[runner.primary_slug].cfg.settings.language
+            await runner._notify_owner_notice(cfg_text(
+                "prefix_drift", lang,
+                detail=escape_html("\n".join(runner._prefix_findings))))
         # config-арка §5: авто-перечитывание по mtime (opt-in из settings).
         if runner.control.auto_reload:
             log.info("config auto-reload watch starting (mtime)")

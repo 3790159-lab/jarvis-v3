@@ -727,6 +727,12 @@ _CFG_STRINGS: dict[str, dict[str, str]] = {
         "cfg_rollback_fail": "⚠️ Откат не удался ({reason}). Остаюсь на текущем.",
         "cfg_unknown": "неизвестная config-команда",
         "cfg_startup_recovered": "⚠️ Стартовал на ПОСЛЕДНЕЙ РАБОЧЕЙ версии конфига — текущий сломан ({reason}). Аня работает. Проверь /config, при нужде /rollback или почини файл.",
+        # Спека 2026-08-19 §9: сторож дрейфа префикса brain. Не отказ — Аня уже
+        # отвечает, — но владелец обязан услышать это сейчас, а не через месяц
+        # при пересчёте полос. Текст обязан назвать оба выхода: срезать промпт
+        # ЛИБО поднять эталон руками; иначе алерт превращается в шум, на
+        # который нечего ответить.
+        "prefix_drift": "⚠️ Префикс brain РАЗДУЛСЯ против записанного эталона — цена вызова растёт вместе с ним, а полоса тарифа съезжает.\n\n{detail}\n\nАня работает: это не отказ. Решать тебе — срезать системный промпт или поднять эталон руками в chatter/prefix_baselines.yaml (сам он не поднимется).",
         "cfg_gate_status_on": "Гейт воронки: ВКЛ (незнакомцы→лиды, знакомые→уведомление владельцу).",
         "cfg_gate_status_off": "Гейт воронки: выкл (отвечаю только allowlist).",
         "cfg_gate_confirm": "⚠️ Включение гейта = Аня начнёт отвечать НЕЗНАКОМЦАМ, а знакомым (контактам) отвечать перестанет — вместо ответа тебе придёт уведомление.\n\nЭто безопасно ТОЛЬКО на аккаунте, ВЫДЕЛЕННОМ под воронку. На личном аккаунте Аня заговорит с чужими людьми от твоего имени.\n\nАккаунт выделенный? Подтверди: /funnel_gate on confirm",
@@ -805,6 +811,7 @@ _CFG_STRINGS: dict[str, dict[str, str]] = {
         "cfg_rollback_fail": "⚠️ Rollback failed ({reason}). Staying on current.",
         "cfg_unknown": "unknown config command",
         "cfg_startup_recovered": "⚠️ Started on the LAST KNOWN-GOOD config — the current one is broken ({reason}). Anya is serving. Check /config, then /rollback or fix the file.",
+        "prefix_drift": "⚠️ The brain prefix has GROWN past its recorded baseline — the per-call price grows with it and the pricing band slips.\n\n{detail}\n\nAnya keeps serving: this is not a refusal. Your call — trim the system prompt or raise the baseline by hand in chatter/prefix_baselines.yaml (it never raises itself).",
         "cfg_gate_status_on": "Funnel gate: ON (strangers→leads, contacts→owner notice).",
         "cfg_gate_status_off": "Funnel gate: off (answering allowlist only).",
         "cfg_gate_confirm": "⚠️ Enabling the gate = Anya starts answering STRANGERS and stops answering your contacts — you get a notice instead.\n\nThis is safe ONLY on an account DEDICATED to the funnel. On a personal account Anya will talk to real people as you.\n\nIs the account dedicated? Confirm: /funnel_gate on confirm",
@@ -880,6 +887,7 @@ _CFG_STRINGS: dict[str, dict[str, str]] = {
         "cfg_rollback_fail": "⚠️ Відкат не вдався ({reason}). Залишаюся на поточному.",
         "cfg_unknown": "невідома config-команда",
         "cfg_startup_recovered": "⚠️ Стартував на ОСТАННІЙ РОБОЧІЙ версії конфігу — поточний зламаний ({reason}). Аня працює. Перевір /config, за потреби /rollback або полагодь файл.",
+        "prefix_drift": "⚠️ Префікс brain РОЗДУВСЯ проти записаного еталона — ціна виклику зростає разом із ним, а смуга тарифу з'їжджає.\n\n{detail}\n\nАня працює: це не відмова. Вирішувати тобі — зрізати системний промпт чи підняти еталон руками в chatter/prefix_baselines.yaml (сам він не підніметься).",
         "cfg_gate_status_on": "Гейт воронки: УВІМК (незнайомці→ліди, знайомі→сповіщення власнику).",
         "cfg_gate_status_off": "Гейт воронки: вимк (відповідаю лише allowlist).",
         "cfg_gate_confirm": "⚠️ Увімкнення гейта = Аня почне відповідати НЕЗНАЙОМЦЯМ, а знайомим (контактам) відповідати перестане — замість відповіді тобі прийде сповіщення.\n\nЦе безпечно ЛИШЕ на акаунті, ВИДІЛЕНОМУ під воронку. На особистому акаунті Аня заговорить із чужими людьми від твого імені.\n\nАкаунт виділений? Підтверди: /funnel_gate on confirm",

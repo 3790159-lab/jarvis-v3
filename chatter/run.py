@@ -46,6 +46,7 @@ from chatter.core.guardrails import (
 )
 from chatter.core.llm import AnthropicLLM, FakeLLM
 from chatter.core.pause import is_attributed, is_muted
+from chatter.core.prefix_budget import check_client_prefixes
 from chatter.notify.base import Card, CardHandle, Notifier
 from chatter.storage.db import Store, usage_sink_for
 from chatter.transport.base import Transport
@@ -1045,6 +1046,16 @@ def main(argv: list[str] | None = None) -> int:
     cfg = load_config(Path(args.clients_dir), args.client)  # raises ConfigError loudly at startup
     store = Store(args.db)
     llm = _build_llm(cfg, args.llm, usage_sink=usage_sink_for(store))
+    # Сторож дрейфа префикса brain (спека 2026-08-19 §9). Тот же критерий, что
+    # у раннера: только на РЕАЛЬНОМ клиенте — в fake-режиме нет ни сети, ни
+    # денег. Печатаем в stdout и НЕ роняем прогон (§9.2 «не отказ»): дрил и
+    # ручной прогон обязаны состояться, а вот молчать о выросшей цене нельзя.
+    # Правится ВМЕСТЕ с telethon_run.load_personas: правка одной из двух точек
+    # сборки означает, что дрил меряет не то, что стоит в проде.
+    if isinstance(llm, AnthropicLLM):
+        for v in check_client_prefixes(cfg):
+            if v.loud:
+                print(f"[chatter] ⚠️ {v.message}")
     deps = Deps(
         cfg=cfg, store=store, brain=Brain(llm, cfg),
         rng=random.Random(), clock=time.time, sleep=time.sleep,

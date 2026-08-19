@@ -72,7 +72,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_PATH = REPO_ROOT / "chatter" / "onboard" / "form_schema.yaml"
 PROD_CLIENTS = REPO_ROOT / "chatter" / "clients"
 
-ALL_CHECK_IDS = tuple(f"C{i}" for i in range(1, 16))
+ALL_CHECK_IDS = tuple(f"C{i}" for i in range(1, 17))
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -256,7 +256,10 @@ def patch_run_checks(monkeypatch, results):
     `from ... import run_checks`). Одна точка из двух дала бы сторожа, зелёного
     от того, что подмена не сработала.
     """
-    def fake(client_dir, report_document, *, slug):  # noqa: ARG001
+    # `token_counter` (C16, спека Хайку §9) принимаем и игнорируем: подмена
+    # обязана повторять СИГНАТУРУ настоящей run_checks, иначе она перестаёт
+    # срабатывать молча — и сторож зеленеет от того, что подмены не было.
+    def fake(client_dir, report_document, *, slug, token_counter=None):  # noqa: ARG001
         return list(results)
 
     monkeypatch.setattr(checks, "run_checks", fake, raising=True)

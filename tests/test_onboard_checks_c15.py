@@ -481,7 +481,8 @@ def test_the_golden_fixture_really_carries_all_five_source_fields():
 # ═════════════════════════════════════════════════════════════════════════════
 # 1. C15 СУЩЕСТВУЕТ И НЕ ИСЧЕЗАЕТ
 #
-# Спека §6.4: счётчик становится 15, иначе `verdict` отдаст RC_NOT_RUN. Проверка,
+# Спека §6.4: счётчик становится 15 (а с C16 из спеки Хайку — 16), иначе
+# `verdict` отдаст RC_NOT_RUN. Проверка,
 # молча выпавшая из списка, неотличима от пройденной — глазами видно «красных
 # нет».
 # ═════════════════════════════════════════════════════════════════════════════
@@ -490,11 +491,12 @@ def test_c15_is_the_fifteenth_check(golden):
     """Ловит: проверку, написанную, но не подключённую к списку."""
     assert "C15" in {str(i).strip().upper() for i in checks.CHECK_IDS}, (
         f"C15 нет в CHECK_IDS: {list(checks.CHECK_IDS)}")
-    assert len(checks.CHECK_IDS) == 15, (
-        f"проверок в списке {len(checks.CHECK_IDS)}, а спека §6.4 требует 15")
+    assert len(checks.CHECK_IDS) == 16, (
+        f"проверок в списке {len(checks.CHECK_IDS)}, а их должно быть 16: "
+        f"пятнадцать по §6.4 плюс C16 (префикс brain, спека Хайку §9)")
     client_dir, doc = golden
     res = run(client_dir, doc)
-    assert len(res) == 15, f"вернулось {len(res)} результатов: {[r.id for r in res]}"
+    assert len(res) == 16, f"вернулось {len(res)} результатов: {[r.id for r in res]}"
     c15_of(res)
 
 
@@ -507,7 +509,7 @@ def test_c15_survives_a_client_dir_that_does_not_exist(tmp_path):
     """
     ghost = tmp_path / "build" / "onboard" / SLUG
     res = run(ghost)
-    assert len(res) == 15, f"на отсутствующем каталоге вернулось {len(res)}"
+    assert len(res) == 16, f"на отсутствующем каталоге вернулось {len(res)}"
     assert not c15_of(res).ok, "каталога нет, а C15 зелёная"
 
 
@@ -515,7 +517,7 @@ def test_c15_survives_a_broken_report_document(golden):
     """Ловит: битый отчёт, уносящий C15 из списка вместе с собой."""
     client_dir, _ = golden
     res = run(client_dir, {"это": "не отчёт"})
-    assert len(res) == 15, f"на битом отчёте вернулось {len(res)}"
+    assert len(res) == 16, f"на битом отчёте вернулось {len(res)}"
     c15_of(res)
 
 

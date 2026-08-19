@@ -74,9 +74,11 @@ from __future__ import annotations
 import argparse
 import difflib
 import json
+import os
 import sys
 from pathlib import Path
 
+from chatter.core.prefix_budget import DEFAULT_BASELINES_PATH, count_tokens
 from chatter.onboard.brief import SchemaMismatch, load_schema, parse_brief
 from chatter.onboard.checks import (
     CHECK_IDS, REVIEWED_FILENAME, is_reviewed, run_checks, verdict)
@@ -188,8 +190,26 @@ def _load_report_document(client_dir: Path):
     return document, None
 
 
+def _prefix_token_counter():
+    """Счётчик токенов для C16 — ЕСЛИ в окружении есть ключ (спека Хайку §9.5).
+
+    Единственная дверь наружу во всей приёмке, и открывается она только ключом:
+    без него `--check` остаётся полностью офлайновым, как и был. Отсутствие
+    ключа НЕ молчит — иначе флаг «замер не выполнен» прочитали бы как «префикс
+    в порядке», а это ровно тот способ ослепнуть, из-за которого §9 и написан.
+    Сам замер стоит $0, но это сеть, и решать за прогон её нельзя.
+    """
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return count_tokens
+    _say(f"{PREFIX} ВНИМАНИЕ: замер префикса НЕ ВЫПОЛНЕН — нет ANTHROPIC_API_KEY "
+         f"в окружении. C16 сверяет размер системного промпта brain с эталоном "
+         f"в {DEFAULT_BASELINES_PATH} и без ключа останется флагом-отметкой о "
+         f"пропуске, а не замером")
+    return None
+
+
 def _print_checks(results) -> None:
-    _say("АВТОПРИЁМКА C1–C15")
+    _say("АВТОПРИЁМКА C1–C16")
     for r in results:
         if r.blocked:
             mark = "??"
@@ -321,7 +341,8 @@ def cmd_build(slug: str, brief_path: Path, out_dir: Path) -> int:
             _say(f"{PREFIX} дрил-сценарий НЕ собран: {exc}")
 
     # ── автоприёмка по готовому каталогу ───────────────────────────────────
-    results = run_checks(out_dir, first.document, slug=slug)
+    results = run_checks(out_dir, first.document, slug=slug,
+                         token_counter=_prefix_token_counter())
 
     # ── отчёт, заход 2: с флагами C12/C13 ──────────────────────────────────
     flags = _flag_rows(results)
@@ -373,7 +394,7 @@ def cmd_check(slug: str, client_dir: Path) -> int:
     if not client_dir.is_dir():
         raise _Refused(
             f"{PREFIX} каталога {client_dir} нет — проверять нечего. Это не "
-            f"«пятнадцать красных»: красное утверждает, что проверка "
+            f"«шестнадцать красных»: красное утверждает, что проверка "
             f"отработала и нашла дефект.")
 
     document, why = _load_report_document(client_dir)
@@ -391,7 +412,8 @@ def cmd_check(slug: str, client_dir: Path) -> int:
              f"ожидаемо на ручном эталоне: его собирали не пайплайном)")
 
     _say(f"{PREFIX} автоприёмка каталога {client_dir} (только чтение), slug={slug}")
-    results = run_checks(client_dir, document, slug=slug)
+    results = run_checks(client_dir, document, slug=slug,
+                         token_counter=_prefix_token_counter())
     _print_checks(results)
 
     reviewed = is_reviewed(client_dir)
@@ -551,7 +573,7 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--brief", metavar="ФАЙЛ.XLSX",
                       help="собрать каталог и отчёт из брифа")
     mode.add_argument("--check", nargs="?", const="", metavar="КАТАЛОГ",
-                      help="только автоприёмка C1–C15 по готовому каталогу "
+                      help="только автоприёмка C1–C16 по готовому каталогу "
                            "(по умолчанию build/onboard/<slug>)")
     mode.add_argument("--diff", metavar="КАТАЛОГ",
                       help="пофайловое сравнение с ручным эталоном (приёмка арки, §6)")
