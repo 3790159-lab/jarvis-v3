@@ -180,6 +180,39 @@ def _optional_mapping(raw: dict, key: str) -> dict:
     return val
 
 
+# ── ИЗВЕСТНЫЕ КЛЮЧИ: перечислены, а не выведены из кода ──────────────────────
+#
+# Дыру закрывает то же правило, что уже стоит на work_hours/timings/limits, но
+# на трёх уровнях, где его не было: верхний, `telegram`, `control`. Повод —
+# живой случай: `classifier_model: claude-sonnet-5` (поле из §1 спеки Хайку,
+# арка которой остановлена) загрузчик ПРИНИМАЛ и молча игнорировал. Владелец
+# дописал бы строку, перезапустил клиента и получил ровно прежнее поведение,
+# без единого слова о том, что настройка не применилась. Это тот же класс, что
+# у всех наших врущих сторожей: настройка, которая выглядит применённой и не
+# применена, хуже отсутствующей — отсутствующую видно.
+#
+# Списки ЛИТЕРАЛЬНЫЕ, а не собранные интроспекцией по коду. Выведенный список
+# по определению согласен с реализацией: он примет ровно то, что реализация
+# читает, и промолчит ровно там, где она забыла прочитать. Сторож, который
+# нельзя рассогласовать с проверяемым, ничего не сторожит.
+#
+# Добавил поле в Settings — впиши его сюда ЖЕ коммитом. Забыл — клиент с этим
+# полем не поднимется и скажет, чего именно не знает.
+_SETTINGS_KEYS = (
+    "model", "language", "owner_id", "persona_name", "persona_age", "owner_ref",
+    "currency", "forbidden_terms", "safe_payment_reply", "strict_knowledge",
+    "honesty_mode", "work_hours", "timings", "limits", "telegram", "control",
+    "payments",
+)
+_TELEGRAM_KEYS = ("allowlist", "denylist", "funnel_gate")
+_CONTROL_KEYS = (
+    "auto_resume_hours", "takeover_grace_seconds", "status_window_hours",
+    "control_bot_token_env", "owner_chat_id", "pairing_code",
+    "classifier_enabled", "classifier_error_threshold", "profile_stale_threshold",
+    "snooze_seconds", "auto_reload",
+)
+
+
 def _reject_unknown(block: dict, allowed, where: str) -> None:
     unknown = sorted(set(block) - set(allowed))
     if unknown:
@@ -249,6 +282,11 @@ def load_config(clients_dir: Path, slug: str) -> Config:
     if not isinstance(raw, dict):
         raise ConfigError("settings.yaml: top-level must be a mapping")
 
+    # ПЕРВЫМ делом, до чтения любого поля: неизвестный ключ = отказ. Раньше
+    # остальных проверок намеренно — опечатка в имени должна называться
+    # опечаткой, а не всплывать через три экрана как «missing required key».
+    _reject_unknown(raw, _SETTINGS_KEYS, "settings.yaml")
+
     model = _require(raw, "model", "settings.yaml")
     language = _require(raw, "language", "settings.yaml")
     if language not in LANGUAGES:
@@ -311,6 +349,9 @@ def load_config(clients_dir: Path, slug: str) -> Config:
     telegram: TelegramConfig | None = None
     tg_raw = raw.get("telegram")
     if tg_raw is not None:
+        if not isinstance(tg_raw, dict):
+            raise ConfigError("settings.yaml: 'telegram' must be a mapping")
+        _reject_unknown(tg_raw, _TELEGRAM_KEYS, "settings.yaml.telegram")
         allowlist_raw = _require(tg_raw, "allowlist", "settings.yaml.telegram")
         if not isinstance(allowlist_raw, list):
             raise ConfigError("settings.yaml.telegram: 'allowlist' must be a list")
@@ -332,6 +373,7 @@ def load_config(clients_dir: Path, slug: str) -> Config:
     if c_raw is not None:
         if not isinstance(c_raw, dict):
             raise ConfigError("settings.yaml: 'control' must be a mapping")
+        _reject_unknown(c_raw, _CONTROL_KEYS, "settings.yaml.control")
         owner_chat_raw = c_raw.get("owner_chat_id", default_control.owner_chat_id)
         token_env_raw = c_raw.get("control_bot_token_env", default_control.control_bot_token_env)
         pairing_raw = c_raw.get("pairing_code", default_control.pairing_code)
