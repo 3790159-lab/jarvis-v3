@@ -29,6 +29,95 @@ HONESTY_MODES = (HONESTY_HONEST, HONESTY_FREE)
 class ConfigError(Exception):
     pass
 
+
+# ── keep-alive кэша: три числа, и НИ ОДНО не константа в коде ────────────────
+#
+# Требование владельца 19.08 (спека 2026-08-09 §10): клиентов будет шесть и они
+# РАЗНОГО объёма, поэтому ни одно число про объём и время не имеет права быть
+# литералом в горячем пути. Стоимость режима линейна по клиентам, а экономия —
+# по диалогам: глобальный тумблер здесь способ терять деньги на тихих клиентах
+# (§6 п.1).
+#
+# ── Умолчание окна = 13 ч/сут, и это ОЦЕНКА, а не замер ─────────────────────
+#
+# Замер по живой истории обеих клиенток дал трафик в 13:00–03:00 и НОЛЬ
+# входящих с 04:00 до 12:00. Пользоваться этим распределением напрямую нельзя:
+# корпус целиком НАШ — владелец, тестировщик и дрил-чат, — живых лидов в нём
+# нет ни одного. Часы в нём говорят, когда МЫ гоняли прогоны, а не когда пишут
+# лиды. Поэтому дефолт взят шире замера и с запасом по вечернему хвосту, и он
+# помечен как ОЦЕНКА ДО ПЕРВОГО ЖИВОГО КЛИЕНТА: первый настоящий клиент даст
+# настоящее распределение — тогда это число уточняется.
+#
+# Цена лишнего часа посчитана и мала: $0.177/мес на клиента, то есть +1.10
+# диалога к безубытку. 13 ч против 12 ч поднимают безубыток с 13.2 до 14.3
+# диал/мес — при пороге включения 25 диал/мес это внутри запаса.
+KEEPALIVE_DEFAULT_WINDOW = "09:00-22:00"   # 13 ч/сут, ОЦЕНКА (см. выше)
+MINUTES_PER_DAY = 24 * 60
+
+
+def parse_keepalive_window(text: str) -> tuple[int, int]:
+    """`"HH:MM-HH:MM"` → (минут от полуночи начала, минут от полуночи конца).
+
+    ОДИН парсер на весь продукт: его же зовёт `KeepaliveConfig.window_minutes`,
+    и он же валидирует значение на загрузке. Второй парсер рядом стал бы вторым
+    числом на одну вещь и разошёлся бы молча.
+
+    Кривое значение — ГРОМКИЙ ConfigError, а не молчаливый дефолт: тихий откат
+    к 09:00–21:00 скрыл бы от владельца, что его окно не применилось, и клиент
+    с ночными лидами платил бы за прогрев в те часы, когда лидов нет (DEV-18,
+    тот же довод, что у honesty_mode ниже).
+
+    Конец `24:00` разрешён и означает конец суток — это единственный способ
+    записать режим 24/7 (§4), не сталкиваясь с двусмысленностью `00:00-00:00`.
+    Окно с началом позже конца — НЕ ошибка, а ночная смена: `22:00-06:00`
+    читается через полночь, ровно для клиента, у которого лиды ночью.
+    """
+    s = str(text).strip()
+    m = re.fullmatch(r"(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})", s)
+    if not m:
+        raise ConfigError(
+            f"settings.yaml.keepalive: 'window' must look like 'HH:MM-HH:MM' "
+            f"(got {text!r}); 24/7 пишется как '00:00-24:00'")
+    h1, m1, h2, m2 = (int(g) for g in m.groups())
+    start, end = h1 * 60 + m1, h2 * 60 + m2
+    if not (0 <= start < MINUTES_PER_DAY and 0 < end <= MINUTES_PER_DAY
+            and m1 < 60 and m2 < 60):
+        raise ConfigError(
+            f"settings.yaml.keepalive: 'window' out of range in {text!r} "
+            f"(начало 00:00–23:59, конец 00:01–24:00)")
+    if start == end:
+        raise ConfigError(
+            f"settings.yaml.keepalive: 'window' {text!r} — начало и конец "
+            f"совпадают: пустое это окно или круглосуточное, по строке не "
+            f"сказать. Круглые сутки пишутся как '00:00-24:00'")
+    return start, end
+
+
+@dataclass(frozen=True)
+class KeepaliveConfig:
+    """Пер-клиентный keep-alive prompt-кэша (спека 2026-08-09 §10).
+
+    Умолчание — ВЫКЛЮЧЕНО, и это подтверждено владельцем отдельно: режим стоит
+    денег на каждом клиенте отдельно (~$2.13/мес при окне 12ч, ~$2.31 при 13ч)
+    и окупается только с объёма (безубыток 14.3 диал/мес при дефолтном окне,
+    §4). У обеих наших клиенток объёма нет; keep-alive включается клиенту при
+    подключении, когда объём есть. Клиент, про которого никто не считал,
+    платить не должен.
+    """
+    enabled: bool = False
+    window: str = KEEPALIVE_DEFAULT_WINDOW
+    # Порог по объёму. 25 — запас к безубытку 14.3 диал/мес (§10 п.2; сам
+    # безубыток пересчитан под окно 13 ч, см. KEEPALIVE_DEFAULT_WINDOW).
+    min_dialogs_per_month: int = 25
+
+    @property
+    def window_minutes(self) -> tuple[int, int]:
+        """Окно в минутах от полуночи. СВОЙСТВО, а не второе поле: хранимая
+        копия разъехалась бы со строкой у любого, кто соберёт конфиг в обход
+        загрузчика, — и разъехалась бы молча, в пользу более старого значения
+        («два числа на одну вещь»)."""
+        return parse_keepalive_window(self.window)
+
 @dataclass(frozen=True)
 class Timings:
     read_delay_min: float
@@ -135,6 +224,9 @@ class Settings:
     # Секция payments (§5.1). Блока нет → выключено с рабочими дефолтами:
     # клиент, не писавший про оплату, обязан стартовать как раньше.
     payments: PaymentsConfig = field(default_factory=PaymentsConfig)
+    # Keep-alive кэша (спека 2026-08-09 §10). Блока нет → выключено: поведение
+    # клиента, который про арку не знает, обязано остаться байт-в-байт прежним.
+    keepalive: KeepaliveConfig = field(default_factory=KeepaliveConfig)
 
 @dataclass(frozen=True)
 class Config:
@@ -202,9 +294,13 @@ _SETTINGS_KEYS = (
     "model", "language", "owner_id", "persona_name", "persona_age", "owner_ref",
     "currency", "forbidden_terms", "safe_payment_reply", "strict_knowledge",
     "honesty_mode", "work_hours", "timings", "limits", "telegram", "control",
-    "payments",
+    "payments", "keepalive",
 )
 _TELEGRAM_KEYS = ("allowlist", "denylist", "funnel_gate")
+# Три поля keep-alive попадают сюда ТЕМ ЖЕ коммитом, что и сами поля: строгая
+# проверка ключей (19.08) иначе отвергнет клиента с тумблером, и он не
+# поднимется вовсе. Это первый случай, когда та правка кусается.
+_KEEPALIVE_KEYS = ("enabled", "window", "min_dialogs_per_month")
 _CONTROL_KEYS = (
     "auto_resume_hours", "takeover_grace_seconds", "status_window_hours",
     "control_bot_token_env", "owner_chat_id", "pairing_code",
@@ -399,6 +495,30 @@ def load_config(clients_dir: Path, slug: str) -> Config:
             auto_reload=bool(c_raw.get("auto_reload", default_control.auto_reload)),
         )
 
+    # Keep-alive кэша (§10). Блок необязателен, как work_hours/timings: у всех
+    # трёх полей есть рабочий дефолт, и клиент, ничего про арку не писавший,
+    # получает ВЫКЛЮЧЕННЫЙ режим. Окно валидируется ЗДЕСЬ, на загрузке, а не в
+    # фоновом цикле: разбор строки в цикле означал бы, что об опечатке владелец
+    # узнаёт через час тишины, а не в момент старта.
+    default_keepalive = KeepaliveConfig()
+    k_raw = _optional_mapping(raw, "keepalive")
+    _reject_unknown(k_raw, _KEEPALIVE_KEYS, "settings.yaml.keepalive")
+    keepalive_window = str(k_raw.get("window", default_keepalive.window)).strip()
+    parse_keepalive_window(keepalive_window)      # громкий ConfigError на кривом
+    try:
+        min_dialogs = int(k_raw.get("min_dialogs_per_month",
+                                    default_keepalive.min_dialogs_per_month))
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(
+            f"settings.yaml.keepalive: 'min_dialogs_per_month' must be an "
+            f"integer (got {k_raw.get('min_dialogs_per_month')!r})") from exc
+    if min_dialogs < 0:
+        raise ConfigError(
+            "settings.yaml.keepalive: 'min_dialogs_per_month' must be >= 0")
+    keepalive = KeepaliveConfig(
+        enabled=bool(k_raw.get("enabled", default_keepalive.enabled)),
+        window=keepalive_window, min_dialogs_per_month=min_dialogs)
+
     # Оплата (§5.1). Книга реквизитов — ОТДЕЛЬНЫЙ файл: реквизиты клиента живут
     # не в общем settings.yaml, который правят командой пульта, а рядом, чтобы
     # правка тумблера и правка платёжных данных не смешивались в одном файле.
@@ -437,5 +557,6 @@ def load_config(clients_dir: Path, slug: str) -> Config:
                           safe_payment_reply=(str(raw["safe_payment_reply"]) if raw.get("safe_payment_reply") is not None else None),
                           strict_knowledge=strict_knowledge, honesty_mode=honesty_mode,
                           work_hours=work_hours, timings=timings, limits=limits,
-                          telegram=telegram, control=control, payments=payments),
+                          telegram=telegram, control=control, payments=payments,
+                          keepalive=keepalive),
     )

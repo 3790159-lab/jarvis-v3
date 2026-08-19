@@ -42,6 +42,26 @@ def cache_min_prompt_tokens(model: str) -> int | None:
 
 
 
+def cached_system_blocks(system: str,
+                         uncached_suffix: str | None = None) -> list[dict]:
+    """Системные блоки запроса: стабильный префикс с breakpoint'ом + хвост.
+
+    Вынесено из `complete` в отдельную функцию РАДИ ПИНГА keep-alive (спека
+    2026-08-09 §2): пинг обязан слать `system[0]` БАЙТ-В-БАЙТ тот же, что и
+    боевой вызов, иначе он греет другую кэш-запись — деньги тратятся, кэш
+    остаётся холодным (§6 риск 1). Собранный вторым местом словарь совпадал бы
+    ровно до первой правки формы блока и разошёлся бы молча.
+
+    `uncached_suffix` пинг НЕ передаёт: изменчивый хвост лежит ПОСЛЕ
+    breakpoint'а и в кэшируемый префикс не входит.
+    """
+    blocks = [{"type": "text", "text": system,
+               "cache_control": {"type": "ephemeral", "ttl": "1h"}}]
+    if uncached_suffix:
+        blocks.append({"type": "text", "text": uncached_suffix})
+    return blocks
+
+
 class LLMClient(ABC):
     # no_thinking: явно заглушить расширенное мышление модели. Нужен служебным
     # вызовам с маленьким max_tokens (классификатор): у sonnet-5 thinking включён
@@ -74,6 +94,13 @@ class FakeLLM(LLMClient):
         # из ответа API.
         self.scripted_stop_reasons: list[str] = []
         self.last_stop_reason: str | None = None
+        # Пинги keep-alive (см. send_raw) — ОТДЕЛЬНЫЙ список, не `calls`:
+        # смешав их, тест «сколько раз ходили в модель за лида» начал бы
+        # считать фоновый прогрев, а это ровно та порча замера, ради которой
+        # у пингов свой тег в llm_usage (§5 п.3).
+        self.pings: list[dict] = []
+        # cache_read, который «вернёт API» на очередной пинг: 0 = промах.
+        self.scripted_ping_cache_read: list[int] = []
 
     def complete(self, system: str, messages: list[dict], *,
                  max_tokens: int, no_thinking: bool = False,
@@ -95,6 +122,20 @@ class FakeLLM(LLMClient):
             return out
         last_user = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
         return f"Поняла вас про «{last_user}». Расскажите чуть подробнее, что именно ищете?"
+
+    def send_raw(self, payload: dict, *, tag: str) -> dict:
+        """Офлайн-двойник `AnthropicLLM.send_raw`: тот же вход, та же форма
+        строки usage, нулевая цена. Нужен, чтобы пинг keep-alive был проверяем
+        без сети и ключа — как и весь остальной ядро-путь."""
+        self.pings.append({"payload": payload, "tag": tag})
+        i = len(self.pings) - 1
+        cache_read = (self.scripted_ping_cache_read[i]
+                      if i < len(self.scripted_ping_cache_read) else 0)
+        return {"tag": tag, "model": payload.get("model", ""),
+                "input_tokens": 0, "output_tokens": 0,
+                "cache_read_input_tokens": int(cache_read),
+                "cache_creation_input_tokens": 0,
+                "cache_creation_5m": 0, "cache_creation_1h": 0}
 
 
 class AnthropicLLM(LLMClient):
@@ -135,10 +176,7 @@ class AnthropicLLM(LLMClient):
             # Кэшу системы это не мешает: thinking-инвалидация бьёт только
             # messages-tier, system-tier живёт.
             kwargs["thinking"] = {"type": "disabled"}
-        system_blocks = [{"type": "text", "text": system,
-                          "cache_control": {"type": "ephemeral", "ttl": "1h"}}]
-        if uncached_suffix:
-            system_blocks.append({"type": "text", "text": uncached_suffix})
+        system_blocks = cached_system_blocks(system, uncached_suffix)
         resp = self._client.messages.create(
             model=self._model, max_tokens=max_tokens, system=system_blocks,
             messages=messages, **kwargs,
@@ -163,23 +201,56 @@ class AnthropicLLM(LLMClient):
         return (int(getattr(cc, "ephemeral_5m_input_tokens", 0) or 0),
                 int(getattr(cc, "ephemeral_1h_input_tokens", 0) or 0))
 
+    def _usage_record(self, resp, tag: str) -> dict:
+        """Поля `llm_usage` из ответа. ОДНО место на весь клиент: этой же
+        формой пишется пинг keep-alive, а вторая сборка тех же ключей
+        разъехалась бы с первой ровно тогда, когда в схему добавят колонку."""
+        u = resp.usage
+        m5, h1 = self._cache_creation_split(u)
+        return {
+            "tag": tag, "model": self._model,
+            "input_tokens": int(getattr(u, "input_tokens", 0) or 0),
+            "output_tokens": int(getattr(u, "output_tokens", 0) or 0),
+            "cache_read_input_tokens":
+                int(getattr(u, "cache_read_input_tokens", 0) or 0),
+            "cache_creation_input_tokens":
+                int(getattr(u, "cache_creation_input_tokens", 0) or 0),
+            "cache_creation_5m": m5,
+            "cache_creation_1h": h1,
+        }
+
+    def send_raw(self, payload: dict, *, tag: str) -> dict:
+        """Отправить ГОТОВЫЙ запрос (kwargs `messages.create`) и вернуть его
+        строку usage. Шов для keep-alive-пинга (спека 2026-08-09 §2).
+
+        Отдельный вход, а не `complete`, по двум причинам, и обе про деньги:
+        пингу нужен `cache_read` ИЗ ОТВЕТА (нулевой = пинг греет не ту запись,
+        §6 риск 1), а `complete` возвращает текст; и пинг обязан писаться в
+        `llm_usage` под СВОИМ тегом руками вызывающего (§5 п.3), поэтому sink
+        здесь намеренно НЕ дёргается — иначе строка ушла бы дважды.
+
+        Сеть/5xx поднимаются наружу: решение «что делать со сбоем пинга»
+        принимает keep-alive (ретрай, пропуск), а не транспорт (DEV-18 —
+        глотать здесь нечего).
+
+        `last_stop_reason` здесь НЕ трогается СПЕЦИАЛЬНО. Ответ на пинг всегда
+        приходит с `stop_reason=max_tokens` (в этом весь механизм §2), а
+        классификатор читает ЭТОТ ЖЕ атрибут сразу после своего `complete` и
+        считает `max_tokens` обрезкой ответа. Фоновый пинг, попавший между
+        вызовом и проверкой, объявил бы исправный разбор лида деградацией —
+        то есть УСПЕШНЫЙ пинг испортил бы ход клиента. Ровно этого запрещает
+        §5 п.1: keep-alive не имеет права трогать лида.
+        """
+        resp = self._client.messages.create(**payload)
+        rec = self._usage_record(resp, tag)
+        log_usage_shape(rec)
+        return rec
+
     def _record_usage(self, resp, tag: str) -> None:
         if self._usage_sink is None:
             return
         try:
-            u = resp.usage
-            m5, h1 = self._cache_creation_split(u)
-            rec = {
-                "tag": tag, "model": self._model,
-                "input_tokens": int(getattr(u, "input_tokens", 0) or 0),
-                "output_tokens": int(getattr(u, "output_tokens", 0) or 0),
-                "cache_read_input_tokens":
-                    int(getattr(u, "cache_read_input_tokens", 0) or 0),
-                "cache_creation_input_tokens":
-                    int(getattr(u, "cache_creation_input_tokens", 0) or 0),
-                "cache_creation_5m": m5,
-                "cache_creation_1h": h1,
-            }
+            rec = self._usage_record(resp, tag)
             # Строка в лог ДО записи в БД: наблюдаемость не должна зависеть от
             # того, доехал ли sink (спека 2026-07-25 §6 — регрессия 23.07 жила
             # ровно в слепой зоне «что доехало в кэш»).

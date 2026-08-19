@@ -1006,6 +1006,46 @@ class Store:
                             "cache_creation_input_tokens")}
                 for r in rows}
 
+    def last_llm_usage_ts(self, tags) -> dict[str, float | None]:
+        """Момент ПОСЛЕДНЕГО вызова по каждому из `tags`; None — вызовов не было.
+
+        Единственный источник истины о том, когда кэш-запись трогали последний
+        раз (спека 2026-08-09 §3: «Дешёвый источник истины уже есть —
+        `llm_usage.ts` по тегу»). Держать этот счёт в памяти процесса было бы
+        вторым числом на одну вещь: рестарт раннера обнулил бы его, и первый же
+        цикл после рестарта отправил бы пинг в живую запись — то есть заплатил
+        бы за то, что и так работает.
+
+        Схема НЕ меняется: это чтение существующей таблицы.
+        """
+        want = tuple(dict.fromkeys(tags))
+        out: dict[str, float | None] = {t: None for t in want}
+        if not want:
+            return out
+        qs = ",".join("?" * len(want))
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT tag, MAX(ts) AS ts FROM llm_usage WHERE tag IN ({qs}) "
+                f"GROUP BY tag", want).fetchall()
+        for r in rows:
+            out[r["tag"]] = float(r["ts"])
+        return out
+
+    def count_dialogs_since(self, since_ts: float) -> int:
+        """Сколько РАЗНЫХ контактов писали нам с момента `since_ts`.
+
+        Порог включения keep-alive меряется в «диалогах в месяц» (§10 п.2), и
+        единицей взят контакт, а не сообщение: цена арки зависит от того,
+        сколько РАЗ в месяц кэш-запись успевает остыть между разговорами, а не
+        от длины разговоров. Считаем входящие: исходящие бывают и без лида
+        (рассылка карточек, служебные ответы), и они бы завысили объём ровно у
+        тихого клиента — того самого, которому режим не окупается.
+        """
+        with self._lock:
+            return self._conn.execute(
+                "SELECT COUNT(DISTINCT contact_id) FROM messages "
+                "WHERE role='user' AND ts >= ?", (since_ts,)).fetchone()[0]
+
     def count_events(self, kind: str, *, since_ts: float) -> int:
         with self._lock:
             return self._conn.execute(

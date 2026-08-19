@@ -264,6 +264,13 @@ CONSOLE_STRINGS: dict[str, dict[str, str]] = {
         "unbind_ack": "🔓 Пульт отвязан. Следующий /start привяжет заново.",
         "inline_cmd_notice": "✅ Выполнил {cmd} из диалога. Совет: команды набирайте здесь, в пульте — в самом диалоге их видит лид.",
         "known_contact_notice": "👤 Знакомый {name} написал: «{snippet}». Аня знакомым не отвечает — ответь сам. (чтобы вести его как лида, добавь id {id} в allowlist настроек)",
+        "keepalive_prefix_broken": (
+            "🧊 Кэш сломан у клиента {slug}: прогрев префикса «{tag}» "
+            "не попал в запись, хотя её трогали {gap_min} мин назад — то есть "
+            "внутри часа жизни кэша. Значит, в кэшируемый блок въехало изменчивое: "
+            "каждый ход лида теперь платит запись вместо чтения (в 20 раз дороже). "
+            "Надо смотреть, что попало в системный промпт, а не ждать."
+        ),
         "degraded_alert": (
             "⚠️ Классификатор сбоит: {count} раз за {hours}ч (в т.ч. спасённые "
             "повтором). Эскалации могут идти только по ключевым словам, "
@@ -351,6 +358,13 @@ CONSOLE_STRINGS: dict[str, dict[str, str]] = {
         "unbind_ack": "🔓 Console unbound. The next /start will bind it again.",
         "inline_cmd_notice": "✅ Ran {cmd} from the chat. Tip: type commands here in the console — the lead sees them in the chat itself.",
         "known_contact_notice": "👤 A known contact {name} wrote: «{snippet}». Anya does not answer contacts — reply yourself. (to treat them as a lead, add id {id} to the settings allowlist)",
+        "keepalive_prefix_broken": (
+            "🧊 Cache is broken for client {slug}: the keep-alive ping of the "
+            "«{tag}» prefix missed the cached entry although it was touched "
+            "{gap_min} min ago — i.e. within the cache lifetime. Something volatile "
+            "got into the cacheable block: every lead turn now pays a cache WRITE "
+            "instead of a read (20x more). Check what went into the system prompt."
+        ),
         "degraded_alert": (
             "⚠️ Classifier is failing: {count} times in {hours}h (including "
             "turns saved by a retry). Escalations may fire on keywords only, "
@@ -437,6 +451,13 @@ CONSOLE_STRINGS: dict[str, dict[str, str]] = {
         "unbind_ack": "🔓 Пульт відв'язано. Наступний /start прив'яже знову.",
         "inline_cmd_notice": "✅ Виконав {cmd} з діалогу. Порада: команди набирайте тут, у пульті — у самому діалозі їх бачить лід.",
         "known_contact_notice": "👤 Знайомий {name} написав: «{snippet}». Аня знайомим не відповідає — відповідай сам. (щоб вести його як ліда, додай id {id} у allowlist налаштувань)",
+        "keepalive_prefix_broken": (
+            "🧊 Кеш зламано у клієнта {slug}: прогрів префікса «{tag}» "
+            "не влучив у запис, хоча її торкалися {gap_min} хв тому — тобто "
+            "всередині години життя кешу. Отже, у кешований блок в'їхало мінливе: "
+            "кожен хід ліда тепер платить запис замість читання (у 20 разів дорожче). "
+            "Треба дивитися, що потрапило в системний промпт, а не чекати."
+        ),
         "degraded_alert": (
             "⚠️ Класифікатор збоїть: {count} раз(ів) за {hours}год (разом із "
             "врятованими повтором). Ескалації можуть іти лише за ключовими "

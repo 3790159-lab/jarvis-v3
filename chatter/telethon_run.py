@@ -37,6 +37,7 @@ from chatter.core.console import (
 # которые владелец мог набрать в диалоге лида ДО Fix 3 (см. _on_connected).
 _COMMAND_PREFIXES = sorted("/" + c for c in (GLOBAL_COMMANDS | TARGETED_COMMANDS))
 from chatter.core.escalation import parse_escalation_keywords
+from chatter.core.keepalive import run_keepalive_cycle
 from chatter.core.pause import is_muted
 from chatter.core.prefix_budget import (
     PrefixGuardRefusal, check_client_prefixes)
@@ -247,6 +248,14 @@ AUTORESUME_INTERVAL_SECONDS = 60.0
 
 # config-арка §5: как часто опрашивать mtime конфига при auto_reload.
 CONFIG_WATCH_INTERVAL_SECONDS = 5.0
+
+# Keep-alive кэша (спека 2026-08-09): как часто СПРАШИВАТЬ, не пора ли пинговать.
+# Это не период пинга — период 50 минут и живёт в `keepalive.PING_PERIOD_SEC`.
+# Тик мелкий по двум причинам, и обе названы в §3: он же служит ретраем
+# несостоявшегося пинга (спека отводит на «сетевой ретрай» часть общего запаса
+# в 10 минут — 5 минут укладываются с зазором), и он же ограничивает опоздание
+# пинга сверху: худший случай 3000 + 300 = 3300 с, то есть на 300 с раньше TTL.
+KEEPALIVE_TICK_SECONDS = 300.0
 
 
 # --- 0. catch-up: pick up messages that arrived while OFFLINE ---------------
@@ -491,6 +500,12 @@ class PersonaBundle:
     # значит «сторож отработал и промолчал» ЛИБО «клиент на fake-LLM» — эти два
     # случая различает сам факт реального клиента, см. load_personas.
     prefix_findings: tuple[str, ...] = ()
+    # Клиент LLM ЭТОЙ персоны. Поле, хотя тот же объект уже спрятан внутри
+    # Brain: keep-alive греет кэш-записи персоны и обязан ходить ТЕМ ЖЕ
+    # клиентом (та же модель, тот же ключ) — а лезть за ним в приватное поле
+    # чужого объекта значит завязаться на его внутренности. None = персона на
+    # FakeLLM: греть нечего, кэша нет.
+    llm: LLMClient | None = None
 
 
 def _switch_ack(cfg: Config) -> str:
@@ -1813,6 +1828,109 @@ async def heartbeat_loop(
         await asyncio.sleep(interval)
 
 
+# --- keep-alive prompt-кэша (спека 2026-08-09) ------------------------------
+async def keepalive_tick(runner: "TelethonRunner", *, now: float | None = None
+                         ) -> dict[str, list]:
+    """Один проход по ВСЕМ персонам процесса. Возвращает исходы по слагам.
+
+    ОДИН цикл на процесс со списком префиксов внутри, а не 2N задач
+    планировщика (§6 п.3): префиксов у нас 2 на клиента, и заводить под каждый
+    объект инфраструктуры значит добавить 2N привязок к машине там, где хватает
+    списка в памяти.
+
+    Персоны берутся ЗАНОВО на каждом тике, а не запоминаются при старте. Это и
+    есть реакция на `/reload`: смена плейбука меняет префикс, старая кэш-запись
+    умирает, и греть её дальше — платные холостые пинги. `reload_configs`
+    свопает словарь целиком, поэтому свежий снимок автоматически греет НОВЫЙ
+    префикс (§6 п.2).
+
+    Клиенты идут ПАРАЛЛЕЛЬНО и каждый в своей обёртке: отказ пингов клиента A
+    не имеет права прервать цикл клиента B (§6 п.4). `return_exceptions=True`
+    здесь вторая линия обороны, а не глушитель — всё, что она вернёт, уходит в
+    лог (DEV-18).
+
+    ⚠️ Двух персон в ОДНОМ процессе арка не обслуживает и отказывается громко
+    (§6.1) — см. проверку первым делом ниже. Пока `llm_usage` не знает клиента,
+    «частично работающий» keep-alive на двух персонах хуже выключенного:
+    выключенный виден в конфиге, а частичный — только в счёте.
+    """
+    personas = dict(runner.personas)
+    store = runner.primary_store()
+    if len(personas) > 1 and any(b.cfg.settings.keepalive.enabled
+                                 for b in personas.values()):
+        # §6.1: ОТКАЗ, а не работа «как получится». Две причины, обе
+        # структурные и обе названы в логе, потому что порознь каждая выглядит
+        # безобидно: (1) в `llm_usage` нет колонки клиента — у строки есть тег,
+        # но нет слага; (2) `primary_store()` отдаёт ОДИН store всем персонам
+        # процесса (это сказано в его собственном докстринге).
+        #
+        # Вместе они дают тихую поломку: боевой вызов клиента B пишет строку с
+        # тегом `brain`, свежесть тега становится общей, пинг клиента A
+        # подавляется как «трафик и так частый» — и запись A остывает МОЛЧА,
+        # ровно у того клиента, ради которого арку включали. Увидели бы мы это
+        # по счёту за холодные ходы через месяц, а не по ошибке.
+        #
+        # Отказ повторяется КАЖДЫЙ тик намеренно: это не событие, а состояние
+        # конфигурации, и оно обязано быть видно в любом куске лога, а не
+        # только в том, где процесс стартовал.
+        log.error(
+            "keep-alive ОТКАЗАН для всего процесса: персон %d (%s), а тумблер "
+            "включён — пингов не будет НИ У КОГО. Причина двойная: в llm_usage "
+            "нет колонки клиента (свежесть тега общая на процесс) и store один "
+            "на все персоны (primary_store). Держите клиента с keep-alive в "
+            "ОТДЕЛЬНОМ процессе (--personas <один слаг>), пока колонка клиента "
+            "не появится (§6.1)",
+            len(personas), ", ".join(sorted(personas)))
+        return {}
+    live = [(slug, b) for slug, b in personas.items()
+            # Только РЕАЛЬНЫЙ клиент — тот же критерий, по которому
+            # load_personas включает классификатор: у FakeLLM нет ни сети, ни
+            # кэша на стороне API, и греть там нечего.
+            if isinstance(b.llm, AnthropicLLM)]
+    if not live:
+        return {}
+    outcomes = await asyncio.gather(
+        # notifier — тот же, что у боевых карточек этой персоны: алерт «кэш
+        # сломан» (§5) обязан ДОХОДИТЬ до владельца, а не оседать в логе.
+        # Персоны процесса делят один Notifier, но флаг дебаунса у каждого
+        # клиента свой (см. keepalive.alert_flag_key).
+        *(run_keepalive_cycle(b.cfg, store, b.llm, now=now,
+                              notifier=b.deps.notifier) for _, b in live),
+        return_exceptions=True)
+    out: dict[str, list] = {}
+    for (slug, _), res in zip(live, outcomes):
+        if isinstance(res, BaseException):
+            log.error("keep-alive [%s]: проход упал, остальные клиенты не "
+                      "затронуты", slug, exc_info=res)
+            out[slug] = []
+            continue
+        out[slug] = res
+    return out
+
+
+async def keepalive_loop(
+    runner: "TelethonRunner", *, interval: float = KEEPALIVE_TICK_SECONDS,
+    async_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+) -> None:
+    """Вечный фон: раз в тик спрашивает у каждой персоны, не пора ли греть кэш.
+
+    Задача создаётся ВСЕГДА, а решение принимает тумблер КЛИЕНТА внутри
+    `run_keepalive_cycle`. Так `/reload`, включивший режим, начинает работать
+    без рестарта раннера — и так же, наоборот, выключивший его перестаёт
+    тратить деньги на следующем тике. При выключенном тумблере проход не делает
+    ни одного запроса ни в БД, ни в API.
+
+    Сбой не убивает цикл: keep-alive — фоновая оптимизация, и его отказ не
+    имеет права ни уронить процесс, отвечающий лидам, ни замолчать (§5 п.1).
+    """
+    while True:
+        try:
+            await keepalive_tick(runner)
+        except Exception:
+            log.exception("keep-alive: сбой тика, продолжаю цикл")
+        await async_sleep(interval)
+
+
 # --- periodic auto-resume + its OWN heartbeat (arc 3A, spec §8) -------------
 def autoresume_sweep(store: Store, *, now: float, auto_resume_hours: float) -> int:
     """Один прогон авто-возврата. Возвращает число размороженных диалогов.
@@ -1927,7 +2045,8 @@ def load_personas(
             if fatal:
                 raise PrefixGuardRefusal(chr(10).join(v.message for v in fatal))
             findings = tuple(v.message for v in verdicts if v.loud)
-        personas[slug] = PersonaBundle(cfg=cfg, deps=deps, prefix_findings=findings)
+        personas[slug] = PersonaBundle(cfg=cfg, deps=deps, prefix_findings=findings,
+                                       llm=llm)
     return personas
 
 
@@ -2320,6 +2439,15 @@ def main(argv: list[str] | None = None) -> int:
         # весь срок процесса, а не один раз при старте.
         loop.create_task(autoresume_loop(
             runner.primary_store(), auto_resume_hours=runner.control.auto_resume_hours))
+        # Keep-alive кэша (спека 2026-08-09) — рядом и по той же причине:
+        # вечный фон на весь срок процесса. Задача создаётся всегда, пингует
+        # только тех клиентов, у кого тумблер включён И объём выше порога;
+        # у остальных тик не делает ни одного запроса.
+        warm = sorted(slug for slug, b in runner.personas.items()
+                      if b.cfg.settings.keepalive.enabled)
+        if warm:
+            log.info("keep-alive: прогрев кэша включён для %s", ", ".join(warm))
+        loop.create_task(keepalive_loop(runner))
         # Арка 3B: изолированный long-poll контрол-бота (свой токен → без 409
         # с основным Jarvis-ботом). Только если контрол-бот настроен.
         if runner.poller is not None:
