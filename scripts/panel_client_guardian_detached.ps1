@@ -558,7 +558,17 @@ function Get-RefusalReason {
     param([int]$MaxLines = 20)
     try {
         if (-not (Test-Path $pOut)) { return '(stdout панели пуст)' }
-        $lines = @(Get-Content -LiteralPath $pOut -Tail $MaxLines -ErrorAction Stop |
+        # -Encoding UTF8 ЯВНО, парно к `-Encoding utf8` у Add-Content в
+        # Write-Journal. Панель пишет stdout в UTF-8 (PYTHONUTF8=1 выставлен
+        # здесь же, при старте гардиана), а Get-Content БЕЗ -Encoding в PS 5.1
+        # читает СИСТЕМНОЙ кодовой страницей, то есть cp1251. Умолчания
+        # читателя и писателя разные, и на ASCII это незаметно: причина
+        # приехала в журнал абракадаброй ровно тогда, когда оказалась
+        # кириллической — «JARVIS_PANELS_KEY не задан...» стало
+        # «РЅРµ Р·Р°РґР°РЅ...» на живой приёмке 20.08 16:33. Строка заведена
+        # ради «через час видно, одна это ошибка или разные»; нечитаемая
+        # строка этого не даёт, хотя от разной причины и отличается.
+        $lines = @(Get-Content -LiteralPath $pOut -Tail $MaxLines -Encoding UTF8 -ErrorAction Stop |
                    ForEach-Object { ($_ + '').Trim() } |
                    Where-Object { $_ })
         if (-not $lines) { return '(stdout панели пуст)' }
