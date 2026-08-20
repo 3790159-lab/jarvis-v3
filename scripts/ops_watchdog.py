@@ -27,6 +27,11 @@ Each cycle probes:
                          владелец) — сторож лишь напоминает, что копия
                          отстала; без бандла смерть диска = потеря сессий
                          всех клиентов
+  * panel клиента      — :8011 /health на АДРЕСЕ БИНДА панели (тайнет, не
+                         петля). Гардиан поднимает упавшую панель, проба ловит
+                         случай «гардиана нет / гардиан сам умер / панель жива
+                         процессом, но молчит» — без неё о смерти гардиана мы
+                         узнаём от клиента или никак
   * live tree state    — C:/jarvis на транке и чисто по tracked-файлам. Дерево
                          это деплой-путь гардиана: `git checkout` в нём = тихий
                          деплой. 2026-08-10 оно дважды осталось не в том
@@ -113,7 +118,21 @@ LABELS = {
     "chatter_guardian": "CHATTER гардиан (независимый сторож)",
     "worktree": "ЖИВОЕ ДЕРЕВО C:/jarvis (не транк или грязное)",
     "secrets_bundle": "КОПИЯ СЕКРЕТОВ (.jrvbak отстал или его нет)",
+    # Порт в ярлыке ОБЯЗАТЕЛЕН: панелей две, и «панель не отвечает» без числа
+    # отправило бы владельца чинить :8010, у которой свой гардиан и своя проба.
+    "panel_client": "ПАНЕЛЬ КЛИЕНТА (:8011 /health)",
 }
+
+# ── десятая проба: клиентская панель (:8011) ───────────────────────────────
+# Порт и слаг здесь — ДЕФОЛТЫ, а не источник правды об адресе. Адрес бинда
+# берётся ровно тем же кодом, каким его вычисляет сама панель (см.
+# `panel_client_bind_host` ниже): два независимых вычисления адреса разойдутся
+# ровно тогда, когда адрес тайнета сменится, и проба будет красной на здоровой
+# панели — то есть станет фоном.
+PANEL_CLIENT_PORT = 8011
+PANEL_CLIENT_SLUG = "yarina"
+PANEL_CLIENT_HEALTH_PATH = "/health"
+PANEL_CLIENT_RUNNER = ROOT / "scripts" / "run_panel_client.py"
 
 # Порог тот же, что у гардиана (HeartbeatMaxAgeSec=180). Разные пороги = два
 # сторожа, спорящих о том, кто DOWN — инцидент 13:06, когда chatter_watch_check
@@ -1262,10 +1281,47 @@ def probe_secrets_bundle(snapshot: dict, *,
         bundle.get("name"), lag_days, max_lag_days)}
 
 
+def probe_panel_client(status=None, *, host=None, port: int = PANEL_CLIENT_PORT,
+                       problem: str | None = None) -> dict:
+    """Десятая проверка: клиентская панель отвечает на своём порту.
+
+    Три исхода различаются ПРИЧИНОЙ, потому что чинятся они по-разному:
+
+    * `no_bind_address` — адрес бинда не вычислился вовсе. Зелёное здесь было
+      бы худшим из возможных: «не смогли спросить» выдавалось бы за «панель
+      жива». Мерить в этом случае нечего, и говорить об этом надо вслух;
+    * `no_response`     — на адресе никто не слушает: процесс мёртв, порт
+      свободен. Это работа гардиана, и если она не сделана — гардиана нет;
+    * `http:<код>`      — процесс жив и отвечает, но не 200: плохо ВНУТРИ
+      живого процесса, гардиан тут не поможет.
+
+    В `reason` не попадает ни адрес, ни секунды: `reason` — это ключ дедупа
+    алертов, а адрес тайнета меняется сам по себе, и алерт на его смену был бы
+    шумом. Адрес называется в `detail`, где ему и место: без него разбор снова
+    начинается с догадки, КУДА ходила проба.
+    """
+    host = (host or "").strip() if isinstance(host, str) else host
+    if not host:
+        # Причина от резолвера дословно — она объясняет, ПОЧЕМУ адреса нет
+        # (сегодня единственный такой случай: `0.0.0.0` в PANEL_CLIENT_HOST,
+        # который резолвер отвергает намеренно).
+        detail = problem or "адрес бинда панели не вычислился"
+        return {"ok": False, "reason": "no_bind_address", "detail": detail}
+
+    where = "%s:%s%s" % (host, port, PANEL_CLIENT_HEALTH_PATH)
+    if status is None:
+        return {"ok": False, "reason": "no_response",
+                "detail": "%s: нет ответа (refused/timeout)" % where}
+    return {"ok": status == 200,
+            "detail": "%s: HTTP %s" % (where, status),
+            "reason": "http:%s" % status}
+
+
 def probe_all(http_get, disk_usage, min_disk_gb: float = MIN_DISK_GB,
               chatter_snapshot: dict | None = None,
               worktree_snapshot: dict | None = None,
-              secrets_snapshot: dict | None = None) -> dict:
+              secrets_snapshot: dict | None = None,
+              panel_client_snapshot: dict | None = None) -> dict:
     """Compose the cycle's probes. ``http_get(path) -> int|None`` (HTTP status,
     or None on connection refused/timeout); ``disk_usage(path) -> (total, used,
     free)`` (shutil.disk_usage-shaped)."""
@@ -1314,6 +1370,11 @@ def probe_all(http_get, disk_usage, min_disk_gb: float = MIN_DISK_GB,
         probes["worktree"] = probe_worktree(worktree_snapshot)
     if secrets_snapshot:
         probes["secrets_bundle"] = probe_secrets_bundle(secrets_snapshot)
+    if panel_client_snapshot:
+        ps = panel_client_snapshot
+        probes["panel_client"] = probe_panel_client(
+            ps.get("status"), host=ps.get("host"),
+            port=ps.get("port", PANEL_CLIENT_PORT), problem=ps.get("problem"))
     return probes
 
 
@@ -1326,6 +1387,93 @@ def _http_get(path: str):
         return e.code                       # 503 etc. are meaningful, not errors
     except Exception:
         return None                         # refused / timeout / DNS -> down
+
+
+def _load_run_panel_client():
+    """Модуль запуска клиентской панели, загруженный ПО ПУТИ.
+
+    Не `import run_panel_client`: этот скрипт живёт в `scripts/` и запускается
+    задачей как файл, а сторожа грузят его через `spec_from_file_location` —
+    в обоих случаях каталог `scripts` в `sys.path` может отсутствовать, и
+    обычный импорт работал бы через раз.
+
+    Модуль тянет только stdlib и `chatter.runtime_paths` (тоже stdlib, без
+    импортов из `chatter`), поэтому stdlib-only обещание watchdog'а остаётся в
+    силе: он по-прежнему может сообщить о смерти бэкенда, когда всё, что
+    делит с ним окружение, мертво.
+    """
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "run_panel_client", str(PANEL_CLIENT_RUNNER))
+    if spec is None or spec.loader is None:
+        raise ImportError("не удалось загрузить %s" % PANEL_CLIENT_RUNNER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def panel_client_bind_host(module=None):
+    """(host, problem) — адрес, на котором клиентская панель ДЕЙСТВИТЕЛЬНО
+    слушает.
+
+    🔴 ЕДИНСТВЕННОЕ место, где этот адрес вычисляется для пробы, и вычисляет
+    его НЕ watchdog: зовётся `resolve_client_host` вместе с `tailnet_ip` из
+    `scripts/run_panel_client.py` — ровно те функции, которыми панель выбирает
+    адрес бинда. Своя копия логики (или зашитый `127.0.0.1`) была бы вторым
+    числом на одну вещь: панель биндится на адрес тайнета, на петле её НЕТ, и
+    проба по петле была бы красной на здоровой панели — то есть фоном.
+
+    Аргументы передаются те же, что и при запуске гардианом: без `--host` и
+    без `--allow-any-interface`.
+
+    ⚠️ НАЗВАННАЯ ГРАНИЦА: `PANEL_CLIENT_HOST` читается из окружения ЭТОГО
+    процесса. Если панель подняли с этой переменной, а задача watchdog'а её не
+    видит, адреса разойдутся — сегодня переменная не задана ни там, ни там.
+    """
+    module = _load_run_panel_client() if module is None else module
+    return module.resolve_client_host(None, ip=module.tailnet_ip())
+
+
+def _panel_http_get(host: str, port: int, path: str):
+    """HTTP-статус ручки панели, или None. Отдельно от `_http_get`: у той
+    базовый адрес зашит на :8010, а панель клиента живёт на другом адресе И
+    другом порту."""
+    url = "http://%s:%d%s" % (host, port, path)
+    try:
+        with urllib.request.urlopen(url, timeout=HTTP_TIMEOUT_S) as r:
+            return r.getcode()
+    except urllib.error.HTTPError as e:
+        return e.code                       # 500/503 — это ответ, а не отказ
+    except Exception:
+        return None                         # refused / timeout -> порт молчит
+
+
+def _panel_client_snapshot(port: int = PANEL_CLIENT_PORT) -> dict | None:
+    """Снимок для десятой пробы: адрес бинда + статус `/health` на нём.
+
+    `None` возвращается ТОЛЬКО когда спросить адрес нечем (нет
+    `run_panel_client.py` — значит watchdog не на деплой-хосте): тогда проба
+    просто не выполняется в этом цикле. Обратная совместимость тут не
+    вежливость — watchdog не имеет права слать DOWN о том, чего он не мерил.
+
+    Вычисленный, но НЕГОДНЫЙ адрес — совсем другое дело: он уезжает в снимок
+    как `problem`, и проба станет КРАСНОЙ. Эти два случая нельзя выдавать один
+    за другой.
+    """
+    if not PANEL_CLIENT_RUNNER.exists():
+        return None
+    try:
+        host, problem = panel_client_bind_host()
+    except Exception as exc:
+        # DEV-18: не глотаем. Сбой самого резолвера — это «не знаем», а не
+        # «панель мертва», поэтому в лог и пропуск пробы, а не ложный DOWN.
+        print("[ops_watchdog] panel_client host resolve failed: %s" % exc,
+              file=sys.stderr)
+        return None
+    if not host:
+        return {"host": None, "port": port, "status": None, "problem": problem}
+    return {"host": host, "port": port, "problem": None,
+            "status": _panel_http_get(host, port, PANEL_CLIENT_HEALTH_PATH)}
 
 
 def _disk_usage(path):
@@ -1532,7 +1680,8 @@ def main() -> int:
     probes = probe_all(_http_get, _disk_usage,
                        chatter_snapshot=_chatter_snapshot(),
                        worktree_snapshot=_worktree_snapshot(),
-                       secrets_snapshot=_secrets_bundle_snapshot())
+                       secrets_snapshot=_secrets_bundle_snapshot(),
+                       panel_client_snapshot=_panel_client_snapshot())
     # Ядро зовётся НАПРЯМУЮ, а не через `transitions()` + `evaluate()`: второе
     # свернуло бы пробы в состояние ДВАЖДЫ, и владелец получил бы по два 🚨 на
     # падение. Тексты берутся из `to_owner`, а не из журнала: единственный
