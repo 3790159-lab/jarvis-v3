@@ -88,9 +88,22 @@ param(
     [int]$LongRetrySeconds = 1800,
     # Параметризовано ради тестов (временный корень) — прод флаг не передаёт.
     [string]$Root = 'C:\jarvis',
-    # Тестовый хук: только определить функции, не брать лок и не входить в
-    # бесконечный цикл. Задача этот флаг не передаёт — поведение не меняется.
-    [switch]$NoLoop
+    # ДВА РАЗНЫХ ХУКА, И ПУТАТЬ ИХ НЕЛЬЗЯ.
+    #
+    # -NoLoop     — «НЕ ВХОДИТЬ в цикл вовсе, я только дот-сорщу функции».
+    #               Лок не берётся, проводка не исполняется ни разу.
+    # -MaxCycles  — «ВОЙТИ в цикл по-настоящему и выйти через N проходов».
+    #               Лок берётся, измерители зовутся, журнал пишется — всё как
+    #               в проде, отличается только момент выхода.
+    #
+    # Второй заведён потому, что первый доказывает не то. Дот-сорс проверяет,
+    # что ШАГ правильный, но не проверяет, что `while` его зовёт, — то есть
+    # наследует ровно ту слепоту, которую мы чиним, просто этажом выше. А
+    # настоящий проход при вечном цикле невозможен в принципе: тест его не
+    # дождётся.
+    [switch]$NoLoop,
+    # 0 — бесконечно, ровно как раньше. Это умолчание, и прод не меняется.
+    [int]$MaxCycles = 0
 )
 
 $ErrorActionPreference = 'Continue'
@@ -610,6 +623,163 @@ function Start-Panel {
     return 'timeout'
 }
 
+# ── ОДНА ИТЕРАЦИЯ ЦИКЛА, ВЫЗЫВАЕМАЯ СНАРУЖИ ─────────────────────────────────
+function Invoke-PanelGuardianCycle {
+    <#
+      Один проход присмотра: измерить, решить, сделать, записать.
+
+      🔴 ЗАЧЕМ ЭТО ОТДЕЛЬНАЯ ФУНКЦИЯ, А НЕ ТЕЛО `while`. Пока рассуждение
+      жило внутри вечного цикла, позвать его снаружи было нельзя, и «функция
+      правильная» с «её правильно зовут» оставались ДВУМЯ РАЗНЫМИ
+      утверждениями, из которых проверялось только первое. Мутационный гейт
+      назвал четыре правки, которые в том зазоре проходят при ИДЕАЛЬНО
+      зелёных чистых функциях:
+
+        * позвать Step-RefusalState с 'refused' вместо 'unmeasurable' в ветке
+          §2.3 — пропавший тайнет сам копит отказы и доводит гардиана до
+          состояния исчерпанных;
+        * не прочитать `$st.Alert` — вход в состояние не объявляется НИКОГДА;
+        * не позвать Format-RefusalLine — строки на каждой попытке нет,
+          §2.2 не выполнен;
+        * не запомнить момент отказа — пауза не наступает, и «долбёжка раз в
+          15 секунд», ради устранения которой всё это писалось, возвращается.
+
+      Каждая из четырёх — рабочая правка, которую кто-то однажды сделает.
+
+      СОСТОЯНИЕ ПРИХОДИТ ПАРАМЕТРАМИ И УХОДИТ В ВОЗВРАТЕ, а не живёт в
+      переменных цикла: живущее в переменных снаружи не увидеть, и мы бы
+      просто передвинули слепую зону.
+
+      ШАГ НЕ СПИТ. Сон принадлежит `while`, который только зовёт шаг и спит:
+      спящий шаг нельзя прогнать быстро, а значит нельзя и прогнать.
+
+      Измерители зовутся ПО ИМЕНИ (Get-PanelBind, Get-PanelReason,
+      Start-Panel, Get-RefusalReason, Write-G) — PowerShell разрешает имя в
+      момент вызова, поэтому проверка подменяет их и наблюдает решения, не
+      трогая ни сети, ни процессов.
+
+      `Started` — звали ли в этом шаге подъём. Именно «звали», а не «удался»:
+      предмет проверки — РЕШЕНИЕ гардиана, а исход подъёма от него не зависит.
+
+      `SinceRefusalSec` на выходе — это ЧАСЫ, а не измерение:
+        0                 — отказ только что случился, часы пошли заново;
+        [int]::MaxValue   — отказов больше нет (успешный подъём);
+        пришедшее значение — ничего не изменилось, время идёт у зовущего.
+    #>
+    param(
+        [int]$Refusals = 0,
+        [bool]$Alerted = $false,
+        [string]$LastReason = '',
+        [int]$SinceRefusalSec = [int]::MaxValue
+    )
+
+    # Объект собирается ОДИН раз и со всеми полями сразу: четыре точки выхода
+    # ниже, и поле, забытое в одной из них, было бы $null ровно в той ветке,
+    # которую реже всего смотрят.
+    $out = [pscustomobject]@{
+        Refusals        = $Refusals
+        Alerted         = $Alerted
+        LastReason      = $LastReason
+        SinceRefusalSec = $SinceRefusalSec
+        Started         = $false
+    }
+
+    $bind = Get-PanelBind
+    $reason = Get-PanelReason -TailnetIp $bind.TailnetIp -ExplicitHost $bind.ExplicitHost `
+        -BindHost $bind.BindHost -PanelPort $Port
+
+    # Писать ли про адрес — решает ОДНА чистая функция, и она же держит
+    # третий случай («было да, стало да» -> молчим), ради которого всё это
+    # и заведено. Направление перехода выбирается ниже: вход и выход
+    # обязаны быть оба, иначе «тайнет пропадал на ночь» неотличимо от
+    # «тайнета нет до сих пор».
+    $isUnmeasurable = ($reason -eq 'no_bind_address')
+    $wasUnmeasurable = ($LastReason -eq 'no_bind_address')
+    $sayAboutAddress = Test-ShouldLogUnmeasurable -WasUnmeasurable $wasUnmeasurable `
+        -IsUnmeasurable $isUnmeasurable
+
+    if ($sayAboutAddress -and -not $isUnmeasurable) {
+        Write-G "no_bind_address СНЯТ: адрес бинда снова известен ($($bind.BindHost)), возобновляю измерение"
+    }
+
+    if ($isUnmeasurable) {
+        # «НЕ МОГУ ИЗМЕРИТЬ», а не «мертва» (§2.3). Ничего не убиваем и
+        # ничего не поднимаем: панель, поднятая при живом тайнете, СЕЙЧАС
+        # слушает тайнетовый адрес, и снести владельца порта значило бы
+        # убить здоровое по собственной слепоте. Кричит об этом красная
+        # проба panel_client, а здесь — строка на ВХОД и на ВЫХОД, и
+        # только: ежецикловая запись раз в 15 с дала бы за ночь 2880 строк
+        # и похоронила бы всё остальное.
+        if ($sayAboutAddress) {
+            $why = if ($bind.Failed) { 'резолвер адреса не ответил' }
+                   elseif (-not $bind.BindHost) { 'резолвер отказал в адресе' }
+                   else { "тайнет недоступен, а $($bind.BindHost) — это фолбэк резолвера" }
+            Write-G "no_bind_address: $why. НИЧЕГО НЕ ТРОГАЮ (не могу измерить != мертва)"
+        }
+        # Счётчик отказов НЕ ТРОГАЕМ: попытки не было. Тратить отказ на то,
+        # чего мы не мерили, значит уводить панель в длинный интервал за
+        # чужую вину — за пропавший тайнет.
+        $st = Step-RefusalState -Outcome 'unmeasurable' -Refusals $Refusals -Alerted $Alerted -MaxRefusals $MaxRefusals
+        $out.Refusals = $st.Refusals
+        $out.Alerted = $st.Alerted
+        $out.LastReason = $reason
+        return $out
+    }
+
+    if ($reason -eq 'ok') {
+        if ($LastReason -ne 'ok') { Write-G "панель жива ($($bind.BindHost)`:$Port)" }
+        $st = Step-RefusalState -Outcome 'ok' -Refusals $Refusals -Alerted $Alerted -MaxRefusals $MaxRefusals
+        $out.Refusals = $st.Refusals
+        $out.Alerted = $st.Alerted
+        $out.LastReason = $reason
+        $out.SinceRefusalSec = [int]::MaxValue
+        return $out
+    }
+
+    if ($LastReason -ne $reason) { Write-G "вердикт: $reason ($($bind.BindHost)`:$Port)" }
+    $out.LastReason = $reason
+
+    $should = Test-ShouldStartPanel -Reason $reason -Refusals $Refusals -SinceRefusalSec $SinceRefusalSec `
+        -MaxRefusals $MaxRefusals -BackoffSeconds $BackoffSeconds -LongRetrySeconds $LongRetrySeconds
+    if (-not $should) { return $out }
+
+    $out.Started = $true
+    $outcome = Start-Panel -PanelHost $bind.BindHost -PanelPort $Port -PanelSlug $Slug
+
+    if ($outcome -eq 'refused') {
+        $st = Step-RefusalState -Outcome 'refused' -Refusals $Refusals -Alerted $Alerted -MaxRefusals $MaxRefusals
+        $out.Refusals = $st.Refusals
+        $out.Alerted = $st.Alerted
+        # ЧАСЫ ПОШЛИ. Без этого `$since` навсегда остаётся максимумом, пауза
+        # не наступает никогда, и Test-ShouldStartPanel честно разрешает
+        # попытку каждый цикл — функция при этом идеально правильная, она же
+        # получает то, что ей дали.
+        $out.SinceRefusalSec = 0
+        # СТРОКА НА КАЖДОЙ ПОПЫТКЕ, И С ПРИЧИНОЙ ИЗ ВЫВОДА ПАНЕЛИ.
+        Write-G (Format-RefusalLine -Refusal (Get-RefusalReason) -Refusals $st.Refusals)
+        if ($st.Alert) {
+            # РОВНО ОДИН раз на вход в состояние, и только в ЖУРНАЛ:
+            # телеграм — работа пробы §3 через существующий evaluate.
+            Write-G "ИСЧЕРПАНЫ ОТКАЗЫ: $($st.Refusals) подряд. Перехожу на длинный интервал ${LongRetrySeconds}с и ПРОДОЛЖАЮ пытаться. Починка окружения поднимет панель САМА, рестарт задачи не нужен. Эта строка больше не повторится — состояние видно по красной пробе panel_client."
+        }
+        return $out
+    }
+
+    if ($outcome -eq 'alive') {
+        $st = Step-RefusalState -Outcome 'ok' -Refusals $Refusals -Alerted $Alerted -MaxRefusals $MaxRefusals
+        $out.Refusals = $st.Refusals
+        $out.Alerted = $st.Alerted
+        $out.LastReason = 'ok'
+        $out.SinceRefusalSec = [int]::MaxValue
+        return $out
+    }
+
+    # 'busy' / 'timeout' / 'exited:<код>' / 'launch_failed': попытка была, но
+    # осознанным ОТКАЗОМ (rc 1) не является, поэтому счётчик её не считает —
+    # он про fail-closed, а не про «не получилось». Своё говорит Start-Panel.
+    return $out
+}
+
 # ── single-instance: PID-лок ────────────────────────────────────────────────
 # Пропускается под -NoLoop: сторожа дот-сорсят файл ради функций выше и не
 # имеют права взять лок настоящего гардиана.
@@ -637,100 +807,40 @@ if (-not $NoLoop) {
 }
 
 if (-not $NoLoop) {
-    $refusals = 0
-    $alerted = $false
+    # ВЕСЬ вечный цикл: позвать шаг, перевести часы, поспать. Ни одного
+    # решения здесь нет и быть не должно — иначе слепая зона, ради закрытия
+    # которой шаг и вынесен, вернётся сюда же завтра.
+    $state = [pscustomobject]@{
+        Refusals = 0; Alerted = $false; LastReason = ''
+        SinceRefusalSec = [int]::MaxValue; Started = $false
+    }
     $lastRefusalAt = $null
-    $lastReason = ''
+    $cycle = 0
 
     while ($true) {
-        $bind = Get-PanelBind
-        $reason = Get-PanelReason -TailnetIp $bind.TailnetIp -ExplicitHost $bind.ExplicitHost `
-            -BindHost $bind.BindHost -PanelPort $Port
+        $cycle++
 
-        # Писать ли про адрес — решает ОДНА чистая функция, и она же держит
-        # третий случай («было да, стало да» -> молчим), ради которого всё это
-        # и заведено. Направление перехода выбирается ниже: вход и выход
-        # обязаны быть оба, иначе «тайнет пропадал на ночь» неотличимо от
-        # «тайнета нет до сих пор».
-        $isUnmeasurable = ($reason -eq 'no_bind_address')
-        $wasUnmeasurable = ($lastReason -eq 'no_bind_address')
-        $sayAboutAddress = Test-ShouldLogUnmeasurable -WasUnmeasurable $wasUnmeasurable `
-            -IsUnmeasurable $isUnmeasurable
-
-        if ($sayAboutAddress -and -not $isUnmeasurable) {
-            Write-G "no_bind_address СНЯТ: адрес бинда снова известен ($($bind.BindHost)), возобновляю измерение"
-        }
-
-        if ($isUnmeasurable) {
-            # «НЕ МОГУ ИЗМЕРИТЬ», а не «мертва» (§2.3). Ничего не убиваем и
-            # ничего не поднимаем: панель, поднятая при живом тайнете, СЕЙЧАС
-            # слушает тайнетовый адрес, и снести владельца порта значило бы
-            # убить здоровое по собственной слепоте. Кричит об этом красная
-            # проба panel_client, а здесь — строка на ВХОД и на ВЫХОД, и
-            # только: ежецикловая запись раз в 15 с дала бы за ночь 2880 строк
-            # и похоронила бы всё остальное.
-            if ($sayAboutAddress) {
-                $why = if ($bind.Failed) { 'резолвер адреса не ответил' }
-                       elseif (-not $bind.BindHost) { 'резолвер отказал в адресе' }
-                       else { "тайнет недоступен, а $($bind.BindHost) — это фолбэк резолвера" }
-                Write-G "no_bind_address: $why. НИЧЕГО НЕ ТРОГАЮ (не могу измерить != мертва)"
-            }
-            # Счётчик отказов не трогаем: попытки не было.
-            $st = Step-RefusalState -Outcome 'unmeasurable' -Refusals $refusals -Alerted $alerted -MaxRefusals $MaxRefusals
-            $refusals = $st.Refusals
-            $alerted = $st.Alerted
-            $lastReason = $reason
-            Start-Sleep -Seconds $IntervalSeconds
-            continue
-        }
-
-        if ($reason -eq 'ok') {
-            if ($lastReason -ne 'ok') { Write-G "панель жива ($($bind.BindHost)`:$Port)" }
-            $st = Step-RefusalState -Outcome 'ok' -Refusals $refusals -Alerted $alerted -MaxRefusals $MaxRefusals
-            $refusals = $st.Refusals
-            $alerted = $st.Alerted
-            $lastRefusalAt = $null
-            $lastReason = $reason
-            Start-Sleep -Seconds $IntervalSeconds
-            continue
-        }
-
-        if ($lastReason -ne $reason) { Write-G "вердикт: $reason ($($bind.BindHost)`:$Port)" }
-        $lastReason = $reason
-
+        # Часы отказа — ПО СТЕННЫМ ЧАСАМ, а не прибавлением интервала к
+        # счётчику: подъём занимает до 45 секунд, и прибавление интервала
+        # растягивало бы паузу тем сильнее, чем хуже дела.
         $since = [int]::MaxValue
         if ($lastRefusalAt) {
             $elapsed = ((Get-Date) - $lastRefusalAt).TotalSeconds
             $since = if ($elapsed -ge [int]::MaxValue) { [int]::MaxValue } else { [int]$elapsed }
         }
 
-        $should = Test-ShouldStartPanel -Reason $reason -Refusals $refusals -SinceRefusalSec $since `
-            -MaxRefusals $MaxRefusals -BackoffSeconds $BackoffSeconds -LongRetrySeconds $LongRetrySeconds
-        if (-not $should) {
-            Start-Sleep -Seconds $IntervalSeconds
-            continue
-        }
+        $state = Invoke-PanelGuardianCycle -Refusals $state.Refusals -Alerted $state.Alerted `
+            -LastReason $state.LastReason -SinceRefusalSec $since
 
-        $outcome = Start-Panel -PanelHost $bind.BindHost -PanelPort $Port -PanelSlug $Slug
+        if ($state.SinceRefusalSec -le 0) { $lastRefusalAt = Get-Date }
+        elseif ($state.SinceRefusalSec -ge [int]::MaxValue) { $lastRefusalAt = $null }
 
-        if ($outcome -eq 'refused') {
-            $lastRefusalAt = Get-Date
-            $st = Step-RefusalState -Outcome 'refused' -Refusals $refusals -Alerted $alerted -MaxRefusals $MaxRefusals
-            $refusals = $st.Refusals
-            $alerted = $st.Alerted
-            # СТРОКА НА КАЖДОЙ ПОПЫТКЕ, И С ПРИЧИНОЙ ИЗ ВЫВОДА ПАНЕЛИ.
-            Write-G (Format-RefusalLine -Refusal (Get-RefusalReason) -Refusals $st.Refusals)
-            if ($st.Alert) {
-                # РОВНО ОДИН раз на вход в состояние, и только в ЖУРНАЛ:
-                # телеграм — работа пробы §3 через существующий evaluate.
-                Write-G "ИСЧЕРПАНЫ ОТКАЗЫ: $($st.Refusals) подряд. Перехожу на длинный интервал ${LongRetrySeconds}с и ПРОДОЛЖАЮ пытаться. Починка окружения поднимет панель САМА, рестарт задачи не нужен. Эта строка больше не повторится — состояние видно по красной пробе panel_client."
-            }
-        } elseif ($outcome -eq 'alive') {
-            $st = Step-RefusalState -Outcome 'ok' -Refusals $refusals -Alerted $alerted -MaxRefusals $MaxRefusals
-            $refusals = $st.Refusals
-            $alerted = $st.Alerted
-            $lastRefusalAt = $null
-            $lastReason = 'ok'
+        # Выход ДО сна, а не после: при -MaxCycles 1 сон после последнего
+        # прохода добавил бы к прогону целый интервал ни за что, и настоящая
+        # проверка проводки стала бы «медленной, давайте потом».
+        if ($MaxCycles -gt 0 -and $cycle -ge $MaxCycles) {
+            Write-G "-MaxCycles $MaxCycles исчерпан — выхожу штатно (это не авария)"
+            break
         }
 
         Start-Sleep -Seconds $IntervalSeconds
