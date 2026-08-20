@@ -29,6 +29,7 @@ TD = "app/routers/tamapi_dashboard.py"
 JP = "app/routers/jarvis_panel.py"
 TW = "tests/chatter/test_panels_web.py"
 TG = "tests/test_panel_routes_owner_guarded.py"
+TF = "tests/test_panel_client_no_farm_link.py"
 
 MUTATIONS = [
     ("отказ снова голый 401 — из него нет выхода", PA,
@@ -60,12 +61,37 @@ MUTATIONS = [
      [("        install_panel_auth_redirect(app)\n", "")],
      f"{TG}::test_main_wires_the_panel_login_redirect"),
 
-    ("ссылка «Ферма» пропала с клиентской панели", TD,
-     [("\n <a href='/panel/jarvis'>Ферма →</a>", "")],
-     f"{TW}::test_client_panel_links_to_the_farm"),
+    # Имя теста тут переехало вместе со смыслом: ссылку держит ВЛАДЕЛЬЧЕСКОЕ
+    # приложение, а на клиентском её быть не должно. Мутация в тест со старым
+    # именем не покраснела бы «по делу» — pytest просто не собрал бы его, и
+    # ненулевой код возврата гейт зачёл бы как пойманную мутацию.
+    # Мишень переехала вместе с кодом: раньше ссылка лежала переносом строки
+    # ВНУТРИ f-строки экрана, теперь — литералом с `\n` внутри `_farm_link_html`.
+    # Мишень, найденная в прежнем виде, молча не применилась бы.
+    ("ссылка «Ферма» пропала с панели ВЛАДЕЛЬЦА", TD,
+     [('return "\\n <a href=\'/panel/jarvis\'>Ферма →</a>" if mounted else ""',
+       'return ""')],
+     f"{TW}::test_owner_panel_links_to_the_farm"),
 
+    ("ссылка на ферму рисуется ВСЕГДА — клиент снова упирается в 404", TD,
+     [('    mounted = any(getattr(r, "path", "").startswith("/panel/jarvis")\n'
+       "                  for r in request.app.routes)",
+       "    mounted = True")],
+     f"{TF}::test_d1_client_screen_has_no_link_to_the_farm"),
+
+    # Мутация не в «Ферму», а в СОСЕДА: Д2 обязан ловить любую тупиковую
+    # ссылку, иначе он сторож одного случая, а не класса.
+    ("опечатка в соседней ссылке — новый тупик, про который никто не знает", TD,
+     [("<a href='/panel/tamapi/dynamics'>Динаміка →</a>",
+       "<a href='/panel/tamapi/dynamic'>Динаміка →</a>")],
+     f"{TF}::test_d2_no_internal_link_of_the_client_app_leads_to_a_dead_end"),
+
+    # ПРЕЖНЯЯ мишень была «← Клієнти», а панель Джарвиса ПО-РУССКИ: текст стал
+    # «← Клиенты», и мутация перестала применяться — гейт печатал «МУТАЦИЯ НЕ
+    # ПРИМЕНИЛАСЬ» и ничего не проверял. Найдено 20.08 статической сверкой
+    # мишеней, дефект пре-существующий, не от правки про «Ферму».
     ("обратная ссылка пропала с фермы", JP,
-     [("\n<div style='margin-top:16px'><a href='/panel/tamapi'>← Клієнти</a></div>", "")],
+     [("\n<div style='margin-top:16px'><a href='/panel/tamapi'>← Клиенты</a></div>", "")],
      f"{TW}::test_farm_links_back_to_the_client_panel"),
 ]
 
