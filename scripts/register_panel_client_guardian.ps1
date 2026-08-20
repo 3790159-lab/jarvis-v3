@@ -16,6 +16,12 @@
 $ErrorActionPreference = 'Stop'
 $TaskName = 'JarvisPanelClientGuardian'
 $Slug     = 'yarina'
+# Port 8011 is named in FOUR places, and python cannot share a constant with
+# PowerShell. Naming them here so editing one forces you to find the rest:
+#   1. scripts/run_panel_client.py DEFAULT_PORT          -- what the panel binds
+#   2. scripts/panel_client_guardian_detached.ps1 -Port  -- what the guardian watches
+#   3. scripts/ops_watchdog.py PANEL_CLIENT_PORT         -- where the probe knocks
+#   4. $Port here                                        -- what goes into the task
 $Port     = 8011
 $Root     = 'C:\jarvis'
 $Script   = Join-Path (Join-Path $Root 'scripts') 'panel_client_guardian_detached.ps1'

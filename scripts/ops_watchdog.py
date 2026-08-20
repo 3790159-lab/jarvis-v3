@@ -129,6 +129,16 @@ LABELS = {
 # `panel_client_bind_host` ниже): два независимых вычисления адреса разойдутся
 # ровно тогда, когда адрес тайнета сменится, и проба будет красной на здоровой
 # панели — то есть станет фоном.
+#
+# 🔢 ПОРТ 8011 НАЗВАН В ЧЕТЫРЁХ МЕСТАХ, и общей константы у python с
+# PowerShell быть не может. Поэтому места перечислены поимённо, чтобы правка
+# одного заставляла найти остальные:
+#   1. `scripts/run_panel_client.py:DEFAULT_PORT`      — на чём поднимается панель
+#   2. `scripts/panel_client_guardian_detached.ps1` -Port — на что смотрит гардиан
+#   3. `PANEL_CLIENT_PORT` здесь                      — куда ходит проба
+#   4. `scripts/register_panel_client_guardian.ps1` $Port — что уезжает в задачу
+# Меньшее из двух чисел гасит большее МОЛЧА, поэтому равенство этих четырёх —
+# предмет отдельного статического сторожа, а не внимательности.
 PANEL_CLIENT_PORT = 8011
 PANEL_CLIENT_SLUG = "yarina"
 PANEL_CLIENT_HEALTH_PATH = "/health"
@@ -1412,7 +1422,7 @@ def _load_run_panel_client():
     return module
 
 
-def panel_client_bind_host(module=None):
+def panel_client_bind_host(module=None, environ=None):
     """(host, problem) — адрес, на котором клиентская панель ДЕЙСТВИТЕЛЬНО
     слушает.
 
@@ -1426,12 +1436,36 @@ def panel_client_bind_host(module=None):
     Аргументы передаются те же, что и при запуске гардианом: без `--host` и
     без `--allow-any-interface`.
 
+    🔴 ПРОПАЛ ТАЙНЕТ ≠ ПАНЕЛЬ УМЕРЛА (спека §2.3). `resolve_client_host` при
+    недоступном tailscale НЕ отказывает, а молча падает на петлю — и это
+    правильно для ЗАПУСКА (панель без тайнета должна подняться хоть куда-то),
+    но для ИЗМЕРЕНИЯ это ловушка: живая панель, поднятая когда тайнет был,
+    слушает тайнетовый адрес, на петле её нет, и проба сказала бы
+    `no_response` о совершенно здоровой панели. Дальше гардиан снёс бы
+    владельца порта и перезапустил живое — ровно тот класс, что стоил 13 ч 42
+    мин простоя 16.08.
+
+    Поэтому: петля годится как адрес ТОЛЬКО когда её выбрали осознанно
+    (`PANEL_CLIENT_HOST` задан). Если переменной нет и тайнета нет — адреса у
+    нас НЕТ, и это `no_bind_address`, то есть «не могу измерить», а не
+    «мертва». Резолвер при этом не тронут: разведено здесь, на стороне
+    наблюдателя.
+
     ⚠️ НАЗВАННАЯ ГРАНИЦА: `PANEL_CLIENT_HOST` читается из окружения ЭТОГО
     процесса. Если панель подняли с этой переменной, а задача watchdog'а её не
     видит, адреса разойдутся — сегодня переменная не задана ни там, ни там.
     """
     module = _load_run_panel_client() if module is None else module
-    return module.resolve_client_host(None, ip=module.tailnet_ip())
+    environ = os.environ if environ is None else environ
+    ip = (module.tailnet_ip() or "").strip()
+    explicit = (environ.get(module.HOST_VAR) or "").strip()
+    host, problem = module.resolve_client_host(None, environ=environ, ip=ip)
+    if host and not explicit and not ip:
+        return None, (
+            "тайнет недоступен (tailnet_ip пуст), а адрес бинда ожидался "
+            "тайнетовым: %s — это ФОЛБЭК резолвера, а не адрес, на котором "
+            "живёт панель. Измерять нечем" % host)
+    return host, problem
 
 
 def _panel_http_get(host: str, port: int, path: str):
