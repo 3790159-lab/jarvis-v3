@@ -14,6 +14,7 @@ from telethon import events
 from telethon.errors import AuthKeyError, UnauthorizedError
 
 from chatter.config.active import ActiveClientsError, resolve_personas
+from chatter.runtime_paths import chatter_beat_path
 from chatter.config.loader import Config, ConfigError, ControlConfig, load_config
 from chatter.config.yaml_edit import (
     YamlEditError, set_funnel_gate, set_honesty_mode, set_payments_enabled)
@@ -223,7 +224,7 @@ CATCHUP_MAX_AGE_SECONDS = 24 * 3600
 # Own liveness stamp for the guardian (mirrors the main bot's bot_heartbeat.txt):
 # the runner rewrites this every HEARTBEAT_INTERVAL_SECONDS so a HUNG runner
 # (process alive but event loop wedged) is detected, not just a dead PID.
-HEARTBEAT_PATH = Path("state") / "chatter_heartbeat.txt"
+HEARTBEAT_PATH = chatter_beat_path(None)
 HEARTBEAT_INTERVAL_SECONDS = 30
 
 
@@ -232,10 +233,13 @@ def heartbeat_path_for(client: str | None) -> Path:
 
     Общий файл на N раннеров сделал бы супервизор слепым: свежая отметка
     ОДНОГО клиента читалась бы как признак жизни ВСЕХ, и упавший клиент
-    выглядел бы здоровым, пока жив хоть один сосед."""
-    if not client:
-        return HEARTBEAT_PATH
-    return Path("state") / f"chatter_heartbeat_{client}.txt"
+    выглядел бы здоровым, пока жив хоть один сосед.
+
+    Имя собирает `chatter.runtime_paths` — ОДНО определение на всех читателей.
+    Здесь оно жило первым, и отсюда его переписывали по памяти в пять других
+    мест; цена расхождения измерена 16.08 (проба знала одну форму из двух).
+    """
+    return chatter_beat_path(client)
 
 # Период авто-возврата (спека §8). Объявлена ЗДЕСЬ, на уровне модуля, ДО
 # любых def -- её использует и render_status() (Task 12, ниже) как дефолт

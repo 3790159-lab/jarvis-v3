@@ -23,6 +23,8 @@ from pathlib import Path
 # Скрипт лежит в scripts/, а импортирует app/ и chatter/ из корня репозитория.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from chatter.runtime_paths import chatter_beat_path  # noqa: E402
+
 DAY = 86400.0
 
 NAMES = ["Марина К.", "Олег В.", "Ірина П.", "Тарас М.", "Ганна Л.", "Дмитро С.",
@@ -169,7 +171,8 @@ def main() -> int:
         seed(a.db)
     os.environ.setdefault("TAMAPI_DB", a.db)
     os.environ.setdefault("JARVIS_PANELS_KEY", "demo-local-key")
-    os.environ.setdefault("TAMAPI_HEARTBEAT", "state/chatter_heartbeat.txt")
+    os.environ.setdefault("TAMAPI_HEARTBEAT",
+                          chatter_beat_path(None).as_posix())
 
     # Стенд сам держит heartbeat свежим. Иначе через 90 с после запуска экран
     # честно скажет «немає зв'язку» — и на скриншотах вместо разбираемой

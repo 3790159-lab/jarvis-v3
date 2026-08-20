@@ -1,117 +1,177 @@
-"""Онбординг-дырка №4: session/db выводятся из slug клиента.
+# -*- coding: utf-8 -*-
+"""Имя отметки живости раннера собирается В ОДНОМ месте.
 
-Общий дефолт (.secrets/chatter_telethon.{session,db}) означал, что ВТОРОЙ
-клиент, запущенный без флагов, молча садится на сессию и БД первого. Это
-взрывается не на первом клиенте, а ровно в момент масштабирования.
+Повод. Имя `chatter_heartbeat[_<slug>].txt` жило ШЕСТЬЮ независимыми
+литералами, и каждое новое место наследовало догадку предыдущего. Цена
+догадки измерена: 16.08 проба `ops_watchdog` знала только легаси-форму, а
+раннер писал клиентскую — «heartbeat 49398с тому» при ЖИВОМ процессе, `fail`
+дорос до 1625 и не восстановился бы никогда.
+
+Главный сторож здесь — НЕ «имена совпадают», а `test_no_seventh_place`:
+он краснеет, когда КТО-ТО ЗАВОДИТ СЕДЬМОЕ МЕСТО со своим литералом. Сверка
+шести известных мест защищает от дрейфа известного; список файлов —
+от появления неизвестного.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
 
-from chatter.telethon_run import (
-    LEGACY_DB_NAME,
-    LEGACY_SESSION_NAME,
-    derive_db_path,
-    derive_session_path,
-    migrate_legacy_runtime_files,
-    resolve_runtime_paths,
-)
+from chatter.runtime_paths import (
+    CHATTER_BEAT_CLIENT_GLOB, CHATTER_BEAT_LEGACY_NAME, CHATTER_BEAT_PREFIX,
+    CHATTER_BEAT_SUFFIX, chatter_beat_name, chatter_beat_path,
+    chatter_beat_slug)
+
+ROOT = Path(__file__).resolve().parents[2]
+
+# Значения ЛИТЕРАЛЬНЫЕ. Выведи я их из модуля — сторож согласился бы с любой
+# опечаткой по определению и промолчал ровно там, где имя поехало.
+LEGACY = "chatter_heartbeat.txt"
+PREFIX = "chatter_heartbeat_"
+SUFFIX = ".txt"
+GLOB = "chatter_heartbeat_*.txt"
 
 
-def test_paths_derived_from_slug():
-    assert Path(derive_session_path("acme")).name == "acme.session"
-    assert Path(derive_db_path("acme")).name == "acme.db"
+def test_canonical_values_are_what_prod_writes():
+    assert CHATTER_BEAT_LEGACY_NAME == LEGACY
+    assert CHATTER_BEAT_PREFIX == PREFIX
+    assert CHATTER_BEAT_SUFFIX == SUFFIX
+    assert CHATTER_BEAT_CLIENT_GLOB == GLOB
 
 
-def test_two_clients_never_share_files():
-    """Гвоздь дырки №4: без единого флага два клиента обязаны разъехаться
-    по РАЗНЫМ файлам — и по сессии, и по БД."""
-    a_session, a_db = resolve_runtime_paths(primary_slug="acme", env={})
-    b_session, b_db = resolve_runtime_paths(primary_slug="beta", env={})
-    assert a_session != b_session
-    assert a_db != b_db
-    # и ни один из них не садится на общий legacy-дефолт
-    for p in (a_session, b_session, a_db, b_db):
-        assert LEGACY_SESSION_NAME not in p and LEGACY_DB_NAME not in p
+@pytest.mark.parametrize("slug,expected", [
+    (None, LEGACY),
+    ("", LEGACY),
+    ("volska", "chatter_heartbeat_volska.txt"),
+    ("yarina", "chatter_heartbeat_yarina.txt"),
+    ("demo2", "chatter_heartbeat_demo2.txt"),
+])
+def test_name_for_slug(slug, expected):
+    assert chatter_beat_name(slug) == expected
 
 
-def test_explicit_flags_still_win():
-    s, d = resolve_runtime_paths(
-        primary_slug="acme", session_arg="/tmp/x.session", db_arg="/tmp/x.db", env={})
-    assert s == "/tmp/x.session"
-    assert d == "/tmp/x.db"
+@pytest.mark.parametrize("slug", ["volska", "yarina", "demo", "demo2"])
+def test_slug_round_trip(slug):
+    """Разбор обратно обязан давать ТОТ ЖЕ слаг: читатели, перечисляющие
+    файлы маской, узнают клиента именно так."""
+    assert chatter_beat_slug(chatter_beat_name(slug)) == slug
 
 
-def test_env_override_still_wins_for_session():
-    s, _ = resolve_runtime_paths(
-        primary_slug="acme", env={"TELETHON_SESSION": "/tmp/env.session"})
-    assert s == "/tmp/env.session"
+def test_legacy_name_has_no_slug():
+    assert chatter_beat_slug(LEGACY) is None
 
 
-def test_env_override_for_db():
-    _, d = resolve_runtime_paths(primary_slug="acme", env={"CHATTER_DB": "/tmp/env.db"})
-    assert d == "/tmp/env.db"
+@pytest.mark.parametrize("alien", [
+    "bot_heartbeat.txt", "chatter_watch_alert_volska.json",
+    "chatter_heartbeat_volska.json", "heartbeat_volska.txt",
+    "chatter_heartbeat_.txt",
+])
+def test_alien_names_do_not_produce_a_slug(alien):
+    """Обратная половина: чужое имя НЕ обязано притворяться клиентским.
+    `chatter_heartbeat_.txt` — пустой слаг, и он тоже не клиент."""
+    assert chatter_beat_slug(alien) is None
 
 
-# --- миграция боевого клиента (демо-деплой уже живёт на общем дефолте) -----
-
-def test_legacy_files_are_migrated_once(tmp_path):
-    """Прод крутится на .secrets/chatter_telethon.session. Смена дефолта без
-    переноса = разлогин живой Ани. Переносим один раз, автоматически."""
-    legacy_s = tmp_path / LEGACY_SESSION_NAME
-    legacy_d = tmp_path / LEGACY_DB_NAME
-    legacy_s.write_text("session", encoding="utf-8")
-    legacy_d.write_text("db", encoding="utf-8")
-    new_s, new_d = tmp_path / "demo.session", tmp_path / "demo.db"
-
-    moved = migrate_legacy_runtime_files(
-        session_path=str(new_s), db_path=str(new_d), secrets_dir=tmp_path)
-
-    assert new_s.read_text(encoding="utf-8") == "session"
-    assert new_d.read_text(encoding="utf-8") == "db"
-    assert not legacy_s.exists() and not legacy_d.exists()
-    assert len(moved) == 2
+def test_path_is_relative_by_default_and_absolute_with_root(tmp_path):
+    """Раннер пишет относительно cwd (он живёт в корне), панель — по
+    абсолютному корню. Обе формы обязаны давать ОДНО имя файла."""
+    rel = chatter_beat_path("volska")
+    absolute = chatter_beat_path("volska", root=tmp_path)
+    assert not rel.is_absolute()
+    assert absolute.is_absolute()
+    assert rel.name == absolute.name == "chatter_heartbeat_volska.txt"
+    assert absolute.parent == tmp_path / "state"
 
 
-def test_migration_never_clobbers_existing_target(tmp_path):
-    """Если у клиента уже есть своя сессия — legacy НЕ должен её затереть."""
-    legacy_s = tmp_path / LEGACY_SESSION_NAME
-    legacy_s.write_text("legacy", encoding="utf-8")
-    new_s = tmp_path / "demo.session"
-    new_s.write_text("mine", encoding="utf-8")
+def test_runner_resolver_agrees_with_the_canonical_one():
+    """Раннер ПИШЕТ отметку — если он разойдётся с читателями, слепыми
+    станут все сразу."""
+    from chatter import telethon_run
 
-    migrate_legacy_runtime_files(
-        session_path=str(new_s), db_path=str(tmp_path / "demo.db"), secrets_dir=tmp_path)
-
-    assert new_s.read_text(encoding="utf-8") == "mine"
-    assert legacy_s.exists()          # legacy оставлен нетронутым, не удалён
+    for slug in (None, "volska", "yarina"):
+        assert telethon_run.heartbeat_path_for(slug) == chatter_beat_path(slug)
+    assert telethon_run.HEARTBEAT_PATH == chatter_beat_path(None)
 
 
-def test_migration_is_noop_without_legacy(tmp_path):
-    moved = migrate_legacy_runtime_files(
-        session_path=str(tmp_path / "acme.session"),
-        db_path=str(tmp_path / "acme.db"), secrets_dir=tmp_path)
-    assert moved == []
+# ── Места, которые НЕ импортируют резолвер, и почему ────────────────────────
+# `ops_watchdog` исполняется планировщиком каждые 30 с и держит импорт-граф
+# из одного stdlib; `chatter_watch_check` объявлен standalone и обязан
+# работать при сломанном пакете `chatter` (это записано в нём самом);
+# два `.ps1` — другой язык. Импорт им не навяжешь, поэтому их пришпиливает
+# ЭТОТ сторож: разойдутся — покраснеет.
+PINNED = {
+    "scripts/ops_watchdog.py": (LEGACY, GLOB),
+    "scripts/chatter_watch_check.py": (LEGACY, PREFIX),
+    "scripts/chatter_guardian_detached.ps1": (PREFIX,),
+    "scripts/healthchecks_ping.ps1": (LEGACY, GLOB),
+}
 
 
-def test_migration_skipped_for_non_legacy_target(tmp_path):
-    """Второй клиент (acme) НЕ должен подхватить legacy-сессию первого:
-    миграция допустима только в целевой путь ПЕРВИЧНОГО legacy-деплоя."""
-    legacy_s = tmp_path / LEGACY_SESSION_NAME
-    legacy_s.write_text("demo-session", encoding="utf-8")
-    acme_s = tmp_path / "acme.session"
-
-    migrate_legacy_runtime_files(
-        session_path=str(acme_s), db_path=str(tmp_path / "acme.db"),
-        secrets_dir=tmp_path, legacy_owner_slug="demo")
-
-    assert not acme_s.exists()        # чужую сессию не забрал
-    assert legacy_s.exists()
+@pytest.mark.parametrize("rel,needles", sorted(PINNED.items()))
+def test_pinned_places_still_agree(rel, needles):
+    text = (ROOT / rel).read_text(encoding="utf-8", errors="replace")
+    for needle in needles:
+        assert needle in text, (
+            f"{rel}: имя отметки разошлось с каноном — не найдено {needle!r}. "
+            f"Либо верни имя, либо перенеси место на chatter.runtime_paths.")
 
 
-@pytest.mark.parametrize("slug", ["demo", "acme", "клиент-1"])
-def test_derived_paths_live_under_secrets(slug):
-    assert Path(derive_session_path(slug)).parent.name == ".secrets"
-    assert Path(derive_db_path(slug)).parent.name == ".secrets"
+# Файлы, которым ПОЗВОЛЕНО упоминать имя отметки. Список ЛИТЕРАЛЬНЫЙ и
+# закрытый: седьмое место должно требовать осознанного решения, а не
+# появляться молча.
+# ⚠️ `chatter/telethon_run.py` и `scripts/panels_demo.py` в списке НЕТ, и это
+# не забывчивость: после переезда на резолвер литерала в них не осталось
+# вовсе. Их исчезновение из списка — и есть доказательство, что место
+# действительно рассоединено, а не «зовёт канон и на всякий случай держит
+# своё имя рядом».
+ALLOWED = {
+    "chatter/runtime_paths.py",          # сам канон
+    "scripts/run_panel_client.py",       # имя осталось только в докстринге
+    "scripts/ops_watchdog.py",           # пришпилен выше
+    "scripts/chatter_watch_check.py",    # пришпилен выше
+    "scripts/chatter_guardian_detached.ps1",
+    "scripts/healthchecks_ping.ps1",
+    "scripts/ask_owner.py",              # только в тексте комментария
+}
+
+_SCAN_DIRS = ("chatter", "scripts", "tools", "panels")
+_NEEDLE = re.compile(r"chatter_heartbeat")
+
+
+def test_no_seventh_place():
+    """ГЛАВНЫЙ сторож раздела: новое место со своим литералом = красный.
+
+    Сверка известных мест ловит дрейф известного. А эта проверка ловит то, из
+    чего дефект 16.08 и вырос: кто-то дописал ЕЩЁ ОДНО место и угадал имя по
+    памяти. Список файлов литеральный — выведенный согласился бы с любым
+    новичком по определению.
+    """
+    found = set()
+    for d in _SCAN_DIRS:
+        base = ROOT / d
+        if not base.exists():
+            continue
+        for path in base.rglob("*"):
+            if path.suffix.lower() not in (".py", ".ps1"):
+                continue
+            if "__pycache__" in path.parts:
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace")
+            if _NEEDLE.search(text):
+                found.add(path.relative_to(ROOT).as_posix())
+
+    unexpected = sorted(found - ALLOWED)
+    assert not unexpected, (
+        "имя отметки живости появилось в НОВОМ месте: " + ", ".join(unexpected)
+        + ". Зови chatter.runtime_paths.chatter_beat_path вместо своего "
+        "литерала — шесть независимых догадок уже стоили слепой пробы 16.08.")
+
+    # Обратная половина: список не должен разрастаться мёртвыми записями —
+    # запись, которой больше нет в коде, скрывает, что место исчезло.
+    stale = sorted(ALLOWED - found)
+    assert not stale, (
+        "в списке разрешённых есть места, где имени БОЛЬШЕ НЕТ: "
+        + ", ".join(stale) + ". Убери их из ALLOWED — иначе список перестаёт "
+        "описывать код и однажды разрешит чужое.")

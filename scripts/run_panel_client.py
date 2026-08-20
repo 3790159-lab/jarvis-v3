@@ -29,6 +29,8 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT))
 
+from chatter.runtime_paths import chatter_beat_path  # noqa: E402
+
 OWNER_KEY_VAR = "JARVIS_PANELS_KEY"
 DEFAULT_PORT = 8011
 ANY_INTERFACE = "0.0.0.0"
@@ -127,7 +129,7 @@ def build_instance_env(slug: str, environ=None, root: Path = _ROOT) -> dict:
         "JARVIS_PANELS_KEY": key,
         "TAMAPI_DB": str(root / ".secrets" / ("%s.db" % slug)),
         "TAMAPI_SLUG": slug,
-        "TAMAPI_HEARTBEAT": str(root / "state" / ("chatter_heartbeat_%s.txt" % slug)),
+        "TAMAPI_HEARTBEAT": str(chatter_beat_path(slug, root=root)),
     }
 
 
