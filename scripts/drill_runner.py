@@ -415,9 +415,27 @@ def _mark(o, running: str) -> str:
     return "✅" if o.failed == 0 else "🔴"
 
 
-def format_report(name: str, outcomes, *, money: Money, running: str = "") -> str:
+def _owner_line(client: str, contact: str) -> str:
+    """Чей это прогон. Отдельной строкой, НЕ дописью к `# Дрил: <name>`:
+    заголовок читает `chatter.connect.probes._DRILL_TITLE_RE` по первой строке
+    файла, и всё дописанное туда уехало бы в имя сценария.
+
+    Имя файла отчёта — `<unix_ts>.md` и только оно, каталог можно перепутать
+    копированием; на машине уже лежат прогоны нескольких клиентов, и «дрил
+    прогнан, бот отвечает» решают по такому файлу. Пустое поле называем пустым:
+    подставить сюда имя сценария или контакт вместо клиента значит сделать
+    чужой отчёт своим на вид — а это ложный зелёный на единственном шаге,
+    который доказывает, что бот вообще отвечает.
+    """
+    c, k = (client or "").strip(), (contact or "").strip()
+    return (f"**Клиент:** {f'`{c}`' if c else 'не указан'} · "
+            f"**дрил-контакт:** {f'`{k}`' if k else 'не указан'}")
+
+
+def format_report(name: str, outcomes, *, money: Money, running: str = "",
+                  client: str = "", contact: str = "") -> str:
     v = run_verdict(outcomes)
-    lines = [f"# Дрил: {name}", ""]
+    lines = [f"# Дрил: {name}", _owner_line(client, contact), ""]
     lines.append(running or f"{v.headline} — {v.detail}")
     lines.append("")
     lines.append("## План (все реплики)")
@@ -577,6 +595,10 @@ def main(argv=None, *, lead_factory=None) -> int:
         буферизован, и прошлый прогон 45 минут выглядел как молчание."""
         out_file.write_text(
             format_report(sc.name, outcomes,
+                          client=sc.client,
+                          # Не `sc.contact`: судили тот контакт, что в `contact`
+                          # (ночная задача ВСЕГДА передаёт `--contact` явно).
+                          contact=contact,
                           money=Money(estimate=est,
                                       drill=measure_spend(a.db, windows=windows),
                                       window=measure_spend(
@@ -771,7 +793,8 @@ def main(argv=None, *, lead_factory=None) -> int:
     money = Money(estimate=est,
                   drill=measure_spend(a.db, windows=windows),
                   window=measure_spend(a.db, windows=[(run_start, time.time())]))
-    report = format_report(sc.name, outcomes, money=money)
+    report = format_report(sc.name, outcomes, money=money,
+                           client=sc.client, contact=contact)
     out_file.write_text(report, encoding="utf-8")
     say(f"\n{report}\n\nотчёт: {out_file}")
     # Код выхода — это ВЕРДИКТ, а не «сколько красного увидели»: прогон, где
