@@ -912,7 +912,7 @@ MUTATIONS = [
      '    if data == "stop_all":\n'
      "        return JSONResponse({\n"
      '            "confirm": True,\n'
-     '            "feedback": "Зупинити Ольгу ВСІМ лідам? Підтвердіть ще раз.",\n'
+     '            "feedback": "Зупинити бота ВСІМ лідам? Підтвердіть ще раз.",\n'
      "        })\n"
      '    if data == "stop_all confirm":',
      '    if data == "stop_all":',

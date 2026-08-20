@@ -105,6 +105,36 @@ def _cfg():
         return None
 
 
+# Что показать вместо имени, когда конфиг клиента не прочитан. Формулировка
+# называет НАСТОЯЩУЮ причину — тот же приём, что у `cap_txt` ниже: пустое место
+# в шапке читается клиентом как «так и задумано», а подстановка любого имени по
+# умолчанию — это чужая персона на его экране.
+NAME_UNREADABLE = "конфіг клієнта не прочитано"
+
+
+def _persona_name() -> str:
+    """Имя бота для ШАПКИ — единственное место экрана, где имя вообще звучит.
+
+    Остальной копирайт написан без имени («бот»), и это не стилистика, а
+    конструкция (спека 2026-08-20 §3, вариант Б). Украинский склоняет имя, а
+    вывести форму по правилу нельзя: она зависит от рода и окончания и на живых
+    именах ошибается. Подстановка одной формы во все места дала бы «Немає
+    зв'язку з Ярина» — клиент прочтёт это как поломку интерфейса.
+
+    Альтернатива (три формы рядом с `persona_name` в конфиге) отвергнута
+    осознанно: она держится на том, что человек не забудет заполнить два
+    необязательных поля при подключении КАЖДОГО клиента, а последствие пропуска
+    увидит клиент, а не мы. Здесь неправильного состояния просто нет.
+
+    Источник один — `persona_name` конфига. Отдельная env-переменная стала бы
+    вторым числом на ту же вещь и разошлась бы ровно тогда, когда имя поменяют
+    в конфиге.
+    """
+    cfg = _cfg()
+    name = getattr(getattr(cfg, "settings", None), "persona_name", None)
+    return (name or "").strip() or NAME_UNREADABLE
+
+
 def _status() -> dict:
     """Три состояния, не два (спека §2.1): «зелёный» при взведённом kill_switch
     был бы прямой ложью — бот жив, но молчит всем."""
@@ -139,11 +169,11 @@ def _answer(st: dict, att: list[dict]) -> tuple[str, str]:
     """
     fresh = [i for i in att if not i.get("stale")]
     if st["code"] == "down":
-        return "Немає зв'язку з Ольгою", "broken"
+        return "Немає зв'язку з ботом", "broken"
     if fresh:
         return leads_waiting(len(fresh)), "wait"
     if st["code"] == "paused":
-        return "Ольга на паузі — не відповідає нікому", "wait"
+        return "Бот на паузі — не відповідає нікому", "wait"
     return "Все спокійно", "calm"
 
 
@@ -472,7 +502,7 @@ async def main_screen(request: Request):
 
     body = f"""
 <h1 class='ans {tone}'>{esc(ans)}</h1>
-<div class='sub'>Ольга · TAMAPI · клієнт {esc(_slug())}
+<div class='sub'>{esc(_persona_name())} · TAMAPI · клієнт {esc(_slug())}
  · оновлено {esc(ago(now - 1, now))}</div>
 
 {over_note}
@@ -512,8 +542,8 @@ async def main_screen(request: Request):
 <div class='modal' id='pausebox' role='dialog' aria-modal='true'
      aria-labelledby='pausebox-title' tabindex='-1'
      onclick="closeOnBackdrop(event,'pausebox')"><div class='box'>
-  <h3 id='pausebox-title'>Зупинити Ольгу?</h3>
-  <p>Вона перестане відповідати <b>ВСІМ</b> лідам, доки ви не увімкнете її назад.
+  <h3 id='pausebox-title'>Зупинити бота?</h3>
+  <p>Бот перестане відповідати <b>ВСІМ</b> лідам, доки ви не увімкнете його назад.
      Діалоги не зникнуть, історія збережеться.</p>
   <p>Хто напише під час паузи, відповіді не отримає.</p>
   <p>{stop_cost}</p>
@@ -652,18 +682,18 @@ async def action(request: Request, data: str = Form(...),
     if data == "stop_all":
         return JSONResponse({
             "confirm": True,
-            "feedback": "Зупинити Ольгу ВСІМ лідам? Підтвердіть ще раз.",
+            "feedback": "Зупинити бота ВСІМ лідам? Підтвердіть ще раз.",
         })
     if data == "stop_all confirm":
         store.set_runtime_flag("kill_switch", "1", ts=now)
         store.add_event("kill_on", ts=now)
-        return JSONResponse({"feedback": "Ольгу зупинено"})
+        return JSONResponse({"feedback": "Бота зупинено"})
     if data == "resume_all":
         # Симметрия: снятие паузы обязано работать из веба без Telegram —
         # иначе владелец заперт в TG (инцидент P15: kill_off только /start).
         store.set_runtime_flag("kill_switch", "0", ts=now)
         store.add_event("kill_off", ts=now)
-        return JSONResponse({"feedback": "Ольгу увімкнено"})
+        return JSONResponse({"feedback": "Бота увімкнено"})
 
     # event_token — личность события, сгенерированная браузером в момент клика.
     # Без неё оплата будет отвергнута: панель не имеет права писать деньги,

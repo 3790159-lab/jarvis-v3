@@ -87,8 +87,8 @@ MUTATIONS = [
      f"{T}::test_the_answer_counts_what_waits_for_you"),
 
     ("обрыв связи перестал перебивать очередь", TD,
-     [('    if st["code"] == "down":\n        return "Немає зв\'язку з Ольгою", "broken"',
-       '    if False:\n        return "Немає зв\'язку з Ольгою", "broken"')],
+     [('    if st["code"] == "down":\n        return "Немає зв\'язку з ботом", "broken"',
+       '    if False:\n        return "Немає зв\'язку з ботом", "broken"')],
      f"{T}::test_a_dead_heartbeat_outranks_everything_in_the_answer"),
 
     ("панель Джарвиса снова начинается со списка", JP,

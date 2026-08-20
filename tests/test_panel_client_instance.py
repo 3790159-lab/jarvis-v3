@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -197,6 +198,21 @@ def test_paths_are_derived_from_the_slug_not_from_dashboard_defaults(tmp_path):
     assert "demo.db" not in env["TAMAPI_DB"]
     assert env["TAMAPI_HEARTBEAT"].endswith("chatter_heartbeat_yarina.txt")
     assert env["JARVIS_PANELS_KEY"] == KEY
+
+
+def test_the_clients_dir_is_absolute_like_its_neighbours(tmp_path):
+    """Каталог конфигов задаётся ЯВНО и абсолютно.
+
+    Дефолт в дашборде относительный (`chatter/clients`), то есть зависит от
+    того, из какого каталога подняли процесс. Пока оттуда читался только
+    `daily_cap`, промах был почти невидим; с 20.08 оттуда же берётся имя
+    клиента в шапке, и запуск не из корня репо дал бы клиенту экран без имени
+    при ВЕРНО заполненном конфиге."""
+    rpc = _launcher(tmp_path)
+    env = rpc.build_instance_env("yarina", {}, root=tmp_path)
+    got = Path(env["CHATTER_CLIENTS_DIR"])
+    assert got.is_absolute(), "каталог клиентов относительный: %s" % (got,)
+    assert got == tmp_path / "chatter" / "clients", got
 
 
 def test_the_per_slug_key_variable_is_what_is_read(tmp_path):

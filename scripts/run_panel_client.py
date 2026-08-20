@@ -130,6 +130,12 @@ def build_instance_env(slug: str, environ=None, root: Path = _ROOT) -> dict:
         "TAMAPI_DB": str(root / ".secrets" / ("%s.db" % slug)),
         "TAMAPI_SLUG": slug,
         "TAMAPI_HEARTBEAT": str(chatter_beat_path(slug, root=root)),
+        # Каталог конфигов — АБСОЛЮТНЫЙ, как и соседи. Дефолт в панели
+        # относительный (`chatter/clients`), и до имени клиента это было
+        # незаметно: из другого каталога инстанс просто не читал daily_cap.
+        # Теперь оттуда же берётся имя в шапке, и «поднят не из корня репо»
+        # означало бы экран без имени клиента — при верном конфиге.
+        "CHATTER_CLIENTS_DIR": str(root / "chatter" / "clients"),
     }
 
 
