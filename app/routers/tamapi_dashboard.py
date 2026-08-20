@@ -424,6 +424,30 @@ document.addEventListener('keydown',function(e){
 """
 
 
+def _farm_link_html(request: Request) -> str:
+    """Ссылка на ферму — только если ферма есть В ЭТОМ приложении.
+
+    Спека `docs/superpowers/specs/2026-08-20-farm-link-off-client-instance.md`,
+    вариант Б. Инстанс клиента (`app.panel_client.build_app`) монтирует ровно
+    два роутера, и `/panel/jarvis` в нём нет ПО ЗАМЫСЛУ: тот же ключ иначе
+    открыл бы клиенту PID'ы, ветки и сроки ключей фермы. Ссылка при этом
+    рисовалась всегда — и вела в 404. В `logs/panel_yarina.stdout.log` за 20.08
+    две записи `GET /panel/jarvis ... 404`: клиент ткнул дважды.
+
+    Слово «Ферма» уезжает вместе со ссылкой, и это не побочный эффект, а второй
+    дефект той же строки: 404 читается как поломка, а слово читается ВЕРНО —
+    оно рассказывает клиенту, что за его ботом стоит ферма других клиентов.
+
+    Признак берётся у приложения, которое отдаёт страницу, а НЕ из переменной
+    окружения: тупиком ссылку делает состав приложения, значит и спрашивать
+    надо состав. Env был бы вторым числом на ту же вещь — забытая переменная
+    однажды показала бы ссылку клиенту, ровно то, что чиним.
+    """
+    mounted = any(getattr(r, "path", "").startswith("/panel/jarvis")
+                  for r in request.app.routes)
+    return "\n <a href='/panel/jarvis'>Ферма →</a>" if mounted else ""
+
+
 @router.get("", response_class=HTMLResponse)
 @router.get("/", response_class=HTMLResponse)
 async def main_screen(request: Request):
@@ -499,6 +523,7 @@ async def main_screen(request: Request):
     # как экран в этот момент не знает о нём вообще ничего.
     cap_txt = (f"добовий ліміт: {esc(pkg['daily_cap'])}"
                if pkg["daily_cap"] is not None else "конфіг клієнта не прочитано")
+    farm_link = _farm_link_html(request)
 
     body = f"""
 <h1 class='ans {tone}'>{esc(ans)}</h1>
@@ -536,8 +561,7 @@ async def main_screen(request: Request):
 <div class='card'>{_feed_html(feed)}</div>
 
 <div style='margin-top:18px' class='row'>
- <a href='/panel/tamapi/dynamics'>Динаміка →</a>
- <a href='/panel/jarvis'>Ферма →</a></div>
+ <a href='/panel/tamapi/dynamics'>Динаміка →</a>{farm_link}</div>
 
 <div class='modal' id='pausebox' role='dialog' aria-modal='true'
      aria-labelledby='pausebox-title' tabindex='-1'
