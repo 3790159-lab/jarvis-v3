@@ -652,11 +652,21 @@ def test_the_return_target_stays_inside_the_whitelist(client):
 # руками, а руками его набирают в том браузере, который под рукой, — то есть
 # в чужой банке cookie. Связка убирает сам повод набирать адрес.
 
-def test_client_panel_links_to_the_farm(client):
+def test_owner_panel_links_to_the_farm(client):
+    """Приложение ЗДЕСЬ — владельческое: фикстура монтирует и `tamapi`, и
+    `jarvis`. Имя теста это говорит вслух, потому что прежнее («client panel»)
+    обещало то, чего тест не проверял: на инстансе клиента фермы нет, ссылка
+    вела в 404, и покраснеть здесь было нечему — ссылка проверялась на
+    приложении, где маршрут есть. Тупик держит
+    `tests/test_panel_client_no_farm_link.py`, собирающий НАСТОЯЩЕЕ клиентское
+    приложение; этот тест — парный ему, в обратную сторону.
+    """
     c, _ = client
     r = c.get("/panel/tamapi", headers={"X-Panels-Key": KEY})
     assert r.status_code == 200
     assert "href='/panel/jarvis'" in r.text
+    assert c.get("/panel/jarvis",
+                 headers={"X-Panels-Key": KEY}).status_code == 200
 
 
 def test_farm_links_back_to_the_client_panel(client):
