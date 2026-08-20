@@ -39,7 +39,7 @@
 не дублирование: `act_s13` — там, где деньги списываются; `walk()` — дословное
 воспроизведение §12.3 (с поправками §12.7 п.1 и §12.10 п.1) поверх `STEPS`, где
 проверяется ПОРЯДОК; `main()` из §12.7 п.3 — дверь, которой пользуется человек.
-Шов `main(argv, *, run=..., root=...)` контракт объявил ровно ради сторожей: без
+Шов `main(argv, *, runner=..., root=...)` контракт объявил ровно ради сторожей: без
 него проверка денег через живую дверь означала бы живые подпроцессы, живой
 телеграм и живой реестр, то есть не существовала бы.
 
@@ -108,9 +108,14 @@ from tests.test_onboard_checks import report_document, write_client
 from chatter.onboard.checks import REVIEWED_FILENAME
 from chatter.onboard.drill_scenario import SCENARIO_FILE_NAME
 
-# Ставки и формат сметы — из САМОГО харнесса (§12.9 п.5): наша копия ставок
-# разошлась бы с ним молча.
-from scripts.drill_runner import COST_TURN_COLD, COST_TURN_WARM
+# Ставки, смета и ФОРМАТ ОТЧЁТА — из САМОГО харнесса (§12.9 п.5): наша копия
+# ставок разошлась бы с ним молча. `format_report` берётся по той же причине:
+# отчёт прогона — артефакт, который производит харнесс, и переписанный в тесте
+# «примерно такой» отчёт был бы вторым определением одного формата. Разошлись
+# бы они тихо и ровно там, где проба читает вердикт: код возврата харнесса на
+# диск не пишется вовсе, и эта строка — единственный его след.
+from scripts.drill_runner import (COST_TURN_COLD, COST_TURN_WARM, Money,
+                                  estimate_cost, format_report)
 
 from chatter.connect import actions, probes, steps
 from chatter.connect.__main__ import main as connect_main
@@ -269,6 +274,23 @@ def plan_stdout(cold: int = 1, warm: int = 4) -> str:
 PLAN_ESTIMATE_USD = 1 * COST_TURN_COLD + 4 * COST_TURN_WARM
 
 
+def enc_reply(state: str) -> CommandResult:
+    """Ответ `reencrypt_env.ps1 -Check` — в форме САМОГО инструмента.
+
+    Голое слово `in_sync` на stdout — мир, которого не бывает:
+    `scripts/reencrypt_env.py::main` печатает `[reencrypt] статус до: <state>`
+    (обёртка `.ps1` вывод не трогает), и по этой строке состояние читают ВСЕ,
+    включая человека. Сторож, кормящий пробу голым словом, проверял бы разбор
+    формата, который никто не производит.
+
+    Код возврата — оттуда же: у `--check` он `0` РОВНО у `in_sync`, у всех
+    прочих состояний `1`. `stale` — рабочее состояние машины, и `1` здесь не
+    авария, а «из этого бандл не снимают».
+    """
+    return CommandResult(0 if state == "in_sync" else 1,
+                         f"[reencrypt] статус до: {state}\n", "")
+
+
 def default_replies() -> dict[str, CommandResult]:
     """Ответы, при которых внешние команды «отработали штатно».
 
@@ -276,7 +298,7 @@ def default_replies() -> dict[str, CommandResult]:
     отказ тратить, а не «до дрила и так не дошли».
     """
     return {
-        "reencrypt_env": CommandResult(0, "in_sync", ""),
+        "reencrypt_env": enc_reply("in_sync"),
         "registry_cli": CommandResult(0, json.dumps(
             {"runnable": True, "error": None, "clients": {}}, ensure_ascii=False), ""),
         "chatter_client": CommandResult(0, "catch-up radius: 0 messages\nstarted", ""),
@@ -309,6 +331,39 @@ def registry_entry(slug: str, *, enabled: bool = False) -> dict:
             "session": f".secrets/{slug}.session", "db": f".secrets/{slug}.db"}
 
 
+def telegram_block(allowlist: list[int]) -> str:
+    """`telegram:` в той форме, в какой он живёт у клиентов на диске.
+
+    Форма — предмет, а не украшение. Ни один живой `settings.yaml`
+    (`chatter/clients/*/settings.yaml`) не выглядит как машинный дамп: список
+    там ПОТОЧНЫЙ, в одну строку, а вокруг него десятки строк предупреждений
+    про `funnel_gate` и порядок допуска. Половина документации продукта живёт
+    именно здесь, поэтому конфиг правят ТЕКСТОМ — и на блочном списке (`- 1`
+    строкой) правка честно отказывается: угаданная форма записи портит текст,
+    который писал человек.
+
+    Мир, собранный `yaml.safe_dump`, проверял бы этот отказ вместо записи.
+    """
+    ids = "[" + ", ".join(str(int(i)) for i in allowlist) + "]"
+    return (
+        "telegram:\n"
+        "  # allowlist = override «отвечать ВСЕГДА», и он бьёт проверку на\n"
+        "  # контакт (admission.py: denylist > allowlist > contact > stranger).\n"
+        "  # При funnel_gate: false это ЕДИНСТВЕННЫЙ источник допуска: без\n"
+        "  # записи бот молча игнорирует стенд, а выглядит это как «бот не\n"
+        "  # отвечает».\n"
+        f"  allowlist: {ids}\n"
+        "  # denylist: [123456]      # id, которым НИКОГДА не отвечать\n"
+        "  # Арка 3C — перевёрнутый гейт допуска. ВЫКЛЮЧЕН, и значение здесь —\n"
+        "  # ФАКТ, а не цель: гардиан деплоит из рабочего дерева, и вписанный\n"
+        "  # наперёд true поднял бы раннер с открытым гейтом БЕЗ слова\n"
+        "  # владельца, а catch-up на старте веером ответил бы незнакомцам.\n"
+        "  funnel_gate: false\n"
+        "# Открывает трафик владелец командой пульта: /funnel_gate on confirm —\n"
+        "# без рестарта и без правки файла.\n"
+    )
+
+
 def install_live_client(root: Path, slug: str = SLUG, *,
                         token_env: str | None = PER_CLIENT_ENV,
                         owner_chat_id: int | None = OWNER_CHAT_ID,
@@ -325,10 +380,10 @@ def install_live_client(root: Path, slug: str = SLUG, *,
     shutil.copytree(build, live, dirs_exist_ok=True)
 
     data = yaml.safe_load((live / "settings.yaml").read_text(encoding="utf-8"))
-    tg = dict(data.get("telegram") or {})
-    tg["allowlist"] = [] if allowlist is None else list(allowlist)
-    tg["funnel_gate"] = False          # §2.1: гейт закрыт на всём протяжении
-    data["telegram"] = tg
+    # `telegram:` пишется ТЕКСТОМ, а не через дамп всего документа: см.
+    # `telegram_block`. `funnel_gate: false` там прибит — §2.1 держит гейт
+    # закрытым на всём протяжении подключения.
+    data.pop("telegram", None)
 
     control = dict(data.get("control") or {})
     if token_env is None:
@@ -342,7 +397,9 @@ def install_live_client(root: Path, slug: str = SLUG, *,
     data["control"] = control
 
     (live / "settings.yaml").write_text(
-        yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+        yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
+        + telegram_block([] if allowlist is None else list(allowlist)),
+        encoding="utf-8")
 
     # §12.11 п.3: сценарий дрила живёт в каталоге клиента — `act_s13` без него
     # отказывается платить (иначе деньги списаны, а шаг открыт).
@@ -435,19 +492,37 @@ def drills_dir(root: Path, slug: str = SLUG) -> Path:
     return root / "state" / "drills" / slug
 
 
-def write_drill_result(root: Path, ts: str = "20260819-101500",
+def write_drill_result(root: Path, ts: str = str(int(NOW) - 86_400),
                        slug: str = SLUG, *, names_client: str | None = None) -> Path:
-    """Отчёт прогона. Каталог отделяет, ТЕЛО доказывает (§12.7 п.2)."""
+    """Отчёт прогона — САМИМ `scripts.drill_runner.format_report` (§12.7 п.2).
+
+    Отчёт производит харнесс, вердикт в него кладёт
+    `chatter.core.drill.run_verdict`, и проба читает РОВНО эти маркеры: кода
+    возврата харнесса на диске нет вовсе, единственный его след — строка
+    вердикта. Свой «итог: rc=0» — второе определение одной вещи: оно
+    разошлось бы с харнессом молча, и сторож про повторную трату зеленел бы на
+    отчёте, которого в жизни не бывает.
+
+    Имя файла — `<unix_ts>.md` и только оно (`_owner_line` харнесса про это же):
+    слага в пути нет, и принадлежность доказывает ТЕЛО, а не каталог. Поэтому
+    `names_client` подменяет клиента ЦЕЛИКОМ — и имя, и контакт: отчёт, в
+    котором клиент чужой, а дрил-контакт наш, был бы нашим на вид.
+    """
     named = slug if names_client is None else names_client
+    scenario = drill.parse_scenario(drill_scenario_yaml(named))
+    outcomes = tuple(
+        drill.StepOutcome(say=st.say, checks=tuple(
+            drill.CheckResult(key=key, ok=True, detail="стенд: проверка зелёная")
+            for key in sorted(st.expect)))
+        for st in scenario.steps)
+    est = estimate_cost(scenario.steps)
     path = drills_dir(root, slug) / f"{ts}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        f"# Дрил: сценарий {named}\n"
-        f"клиент: {named}\n"
-        f"контакт: {client_drill_contact(slug)}\n"
-        "шаг 1: приветствие — ok\n"
-        "шаг 2: цена — ok\n"
-        "итог: rc=0, EXPECT_KEYS закрыт\n", encoding="utf-8")
+        format_report(scenario.name, outcomes,
+                      money=Money(estimate=est, drill=est, window=est),
+                      client=named, contact=scenario.contact) + "\n",
+        encoding="utf-8")
     return path
 
 
@@ -456,11 +531,38 @@ def drill_results(root: Path, slug: str = SLUG) -> list[Path]:
 
 
 def write_lead_session(root: Path) -> Path:
-    """§12.11 п.1: без сессии лида автономного прогона нет, и S13 становится
-    человеческим шагом с точной командой — тихого прогона не бывает."""
+    """§12.11 п.1, предпосылка ПЕРВАЯ: сессия тестового лида.
+
+    Без неё автономного прогона нет, и S13 становится человеческим шагом с
+    точной командой — тихого прогона не бывает.
+    """
     path = root / ".secrets" / "drill_lead.session"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b"SQLite format 3\x00synthetic-lead-session")
+    return path
+
+
+def write_lead_peers(root: Path, peer: int | None = None) -> Path:
+    """§12.11 п.1, предпосылка ВТОРАЯ: кому тестовый лид шлёт реплики.
+
+    Предпосылок у автономного прогона две, и мир с одной из них — не «почти
+    готовый», а ДРУГОЙ: автомату разрешён только `--auto-lead` (харнесс —
+    суфлёр, и запущенный из-под захваченного вывода он оставил бы человека у
+    телефона без единой подсказки), поэтому без файла получателей шаг честно
+    становится человеческим и не тратит ни цента. Сторож, который ждёт
+    АВТОНОМНОГО платного прогона, в таком мире проверял бы отказ платить —
+    то есть не проверял бы ничего.
+
+    Получатель ровно ОДИН и это дрил-контакт клиента: два id в файле — это
+    «неизвестно кому», а угадать нельзя, реплика уходит живому аккаунту
+    необратимо. Тот же id лежит в allowlist мира: два числа на одну вещь
+    разъехались бы молча.
+    """
+    peer = int(client_drill_contact().split(":", 1)[0]) if peer is None else peer
+    path = root / ".secrets" / "drill_lead_peers.txt"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"# дрил-контакт стенда, единственный разрешённый получатель\n"
+                    f"{peer}\n", encoding="utf-8")
     return path
 
 
@@ -643,15 +745,181 @@ def step_by_id(step_id: str):
 # Разбор StepResult
 # ─────────────────────────────────────────────────────────────────────────────
 
-_ADDRESS = re.compile(r"(--[a-zA-Z]|\.ps1\b|\.py\b|python -m|[/\\]|@\w)")
+# ─────────────────────────────────────────────────────────────────────────────
+# АДРЕСНОСТЬ «ЧТО СДЕЛАТЬ»: закрытый список признаков А1–А5 (§12.13 п.2)
+#
+# Список ЛИТЕРАЛЬНЫЙ: он переписан руками из таблицы §12.13, а не выведен из
+# `chatter/connect/*` ([[jarvis-literal-lists-not-introspection]]). Выведенный
+# согласился бы с реализацией по определению и промолчал бы ровно там, где она
+# забыла. Поэтому каждый признак — отдельная функция со своим куском проверки и
+# ссылкой на строку спеки: по коду сторожа видно, КАКОЙ пункт он держит.
+#
+# Одна регулярка на все пять была ДВУМЯ ЧИСЛАМИ НА ОДНУ ВЕЩЬ и уже разошлась с
+# таблицей в обе стороны ([[jarvis-two-numbers-for-one-thing]]): пропускала
+# `@BotFather` (такого признака в А1–А5 нет вовсе), не знала расширений кроме
+# `.ps1`/`.py`, засчитывала голое имя скрипта без ключей вопреки А2 и не
+# проверяла А5 ничем. Расширение списка — правка спеки И этого блока, а не
+# решение автора текста на месте.
+#
+# Проверяется АДРЕСНОСТЬ, а не формулировка (§12.2, §12.13 п.4): сторож на
+# буквы сообщения превратил бы правку текста в красное и был бы обойдён
+# копипастой первой же строки.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── А1 ── «путь к файлу или каталогу (разделитель `/`/`\` или расширение)»
+#          образцы §12.13: chatter/clients/volska/settings.yaml, .secrets/,
+#          state/drills/
+#
+# ОДНОГО СЛЕША НЕДОСТАТОЧНО, и это найдено состязательным замером (21.08):
+# `allowlist/denylist`, `on/off`, `start/stop`, `500/503` — ASCII-токены со
+# слешем, путями не являющиеся. Правило «разделитель внутри ASCII-токена»
+# объявляло их адресом, то есть у сторожа был КАНАЛ ЛОЖНОГО ЗЕЛЁНОГО: автору
+# текста хватило бы написать «выключи в allowlist/denylist», и остановка прошла
+# бы, не назвав человеку ничего. Поэтому от токена требуется признак ИМЕНИ
+# ФАЙЛА ИЛИ КАТАЛОГА — пять условий ниже, каждое отдельно и по имени.
+
+# (1) РАСШИРЕНИЕ из литерального перечня. Он выписан из образцов §12.13 и из
+# того, чем в этой арке вообще называют файлы; старая регулярка знала только
+# `.ps1` и `.py`, и `settings.yaml` признаком не считала.
+_A1_EXTENSIONS = (
+    "yaml", "yml", "json", "jsonl", "py", "ps1", "log", "md", "txt",
+    "enc", "env", "db", "session", "jrvbak", "xlsx", "toml", "ini",
+    "csv", "exe",
+)
+_A1_EXTENSION = re.compile(r"\.(?:" + "|".join(_A1_EXTENSIONS) + r")\b")
+
+# (2) БУКВА ДИСКА: `C:\jarvis\...`, `C:/jarvis/...`. В прозе не встречается.
+_A1_DRIVE = re.compile(r"\b[A-Za-z]:[/\\]")
+
+# (3) ОБРАТНЫЙ СЛЕШ между сегментами: `.\scripts\add_secret.ps1`. Русский текст
+# обратным слешем «либо» не заменяет — в отличие от прямого.
+_A1_BACKSLASH = re.compile(r"[A-Za-z0-9_.\-]\\[A-Za-z0-9_.\-]")
+
+# (4) НАЧАЛО ОТ ИЗВЕСТНОГО КОРНЯ репозитория. Перечень литеральный: `chatter/`
+# это путь, `allowlist/` — нет, и различить их может только список, а не форма.
+_A1_ROOTS = ("chatter/", "scripts/", "state/", "logs/", "build/", "docs/",
+             "tests/", ".secrets/", ".venv/")
+
+# ПУНКТА «ТРИ И БОЛЕЕ СЕГМЕНТА» ЗДЕСЬ НЕТ НАМЕРЕННО. Он был и снят тем же
+# замером: `on/off/auto`, `yes/no/maybe`, `start/stop/restart` — проза, а не
+# пути, и правило по одной лишь ФОРМЕ токена их не отличит. Ни один путь
+# планового кода на этот пункт не опирался: все начинаются от известного
+# корня, несут расширение, букву диска или обратный слеш (замер: 30 из 30).
+
+
+def a1_path(todo: str, slug: str = SLUG) -> bool:
+    """А1: назван путь к файлу или каталогу.
+
+    Четыре условия читаются подряд и по отдельности намеренно: одна длинная
+    регулярка на всё — ровно та вещь, которую следующий автор не разберёт и
+    поправит наугад.
+    """
+    return (bool(_A1_EXTENSION.search(todo))
+            or bool(_A1_DRIVE.search(todo))
+            or bool(_A1_BACKSLASH.search(todo))
+            or any(root in todo for root in _A1_ROOTS))
+
+
+# ── А2 ── «имя скрипта или команды ВМЕСТЕ хотя бы с одним ключом/аргументом»
+#          образцы §12.13: chatter_client.ps1 -Action start -Slug volska,
+#          Start-ScheduledTask -TaskName JarvisChatterGuardian,
+#          registry_cli disable --slug volska
+#
+# ГОЛОЕ ИМЯ ПРИЗНАКОМ НЕ ЯВЛЯЕТСЯ. §12.13 п.3 бракует ровно такой текст: «имя
+# это существительное, а не команда», человеку остаётся вспомнить, чем таск
+# поднимают. Поэтому А2 требует ключа; форма самого имени — закрытый перечень
+# из образцов спеки.
+_A2_NAME = (
+    r"(?:"
+    r"[A-Z][a-z]+-[A-Z][A-Za-z]+"            # Verb-Noun: Start-ScheduledTask
+    r"|[A-Za-z0-9_.\-]+\.(?:ps1|py)"         # скрипт: chatter_client.ps1
+    r"|[a-z][a-z0-9]*(?:_[a-z0-9]+)+"        # snake_case CLI: registry_cli
+    r"|python|pwsh|powershell(?:\.exe)?|pytest|git"   # известные раннеры
+    r")"
+)
+_A2_COMMAND_WITH_KEY = re.compile(
+    _A2_NAME
+    + r"(?:\s+[A-Za-z0-9_.\-]+)*"            # подкоманды/позиционные: `disable`
+    + r"\s+-{1,2}[A-Za-z]"                   # ...И ХОТЯ БЫ ОДИН КЛЮЧ
+)
+
+
+def a2_command_with_key(todo: str, slug: str = SLUG) -> bool:
+    """А2: названа команда/скрипт И хотя бы один её ключ."""
+    return bool(_A2_COMMAND_WITH_KEY.search(todo))
+
+
+# ── А3 ── «флаг самой команды подключения»
+#          образцы §12.13: --drill-yes, --drill-again, --root
+#
+# Список литеральный, а не собранный из argparse: собранный согласился бы с
+# `__main__.py` по определению и промолчал бы, если флаг там переименуют.
+_A3_CONNECT_FLAGS = ("--plan", "--drill-yes", "--drill-again", "--root")
+
+
+def a3_connect_flag(todo: str, slug: str = SLUG) -> bool:
+    """А3: назван флаг самой команды подключения."""
+    return any(flag in todo for flag in _A3_CONNECT_FLAGS)
+
+
+# ── А4 ── «слаг клиента — конкретный, из `ctx.slug` или реестра»
+#          образцы §12.13: volska, yarina
+#
+# Регистр не важен: `CHATTER_CONTROL_BOT_TOKEN_YARINA` называет клиента ничуть
+# не хуже, чем `yarina`.
+def a4_client_slug(todo: str, slug: str = SLUG) -> bool:
+    """А4: назван конкретный слаг клиента."""
+    return bool(slug) and slug.lower() in todo.lower()
+
+
+# ── А5 ── «слеш-команда пульта»
+#          образцы §12.13: /funnel_gate on confirm, /clients
+#
+# Слеш-команда НЕ МОЖЕТ СТОЯТЬ ВНУТРИ ПУТИ, и это второе, что нашёл замер
+# 21.08: на строке `впиши руками в C:/jarvis/chatter/clients/yarina/
+# settings.yaml` зажигался А5 — лукбихайнд не знал двоеточия и принимал
+# `/jarvis` за команду пульта. Вердикт от этого не менялся (горели А1 и А4), но
+# признак, который врёт, попадает в покрытие, и по нему потом решают, что А5
+# проверен. Поэтому: слеш обязан ОТКРЫВАТЬ токен (начало строки, пробел,
+# скобка, кавычка), а за именем не должно идти ни ещё одного слеша, ни точки,
+# ни буквы — иначе это путь, а не команда.
+_A5_PULT_COMMAND = re.compile(
+    r"(?:^|(?<=[\s(\[«\"']))"        # слеш ОТКРЫВАЕТ токен
+    r"/[a-z][a-z0-9_]*"              # /funnel_gate, /clients, /allow
+    r"(?![\w/\\.])"                  # ...и это не первый сегмент пути
+)
+
+
+def a5_pult_command(todo: str, slug: str = SLUG) -> bool:
+    """А5: названа слеш-команда пульта."""
+    return bool(_A5_PULT_COMMAND.search(todo))
+
+
+# Таблица §12.13 п.2 целиком, в её порядке. Ровно пять пунктов.
+ADDRESS_FEATURES: tuple[tuple[str, str, object], ...] = (
+    ("А1", "путь к файлу или каталогу (разделитель или расширение)", a1_path),
+    ("А2", "имя скрипта/команды вместе хотя бы с одним ключом", a2_command_with_key),
+    ("А3", "флаг самой команды подключения", a3_connect_flag),
+    ("А4", "слаг клиента", a4_client_slug),
+    ("А5", "слеш-команда пульта", a5_pult_command),
+)
+
+
+def address_features(todo: str, slug: str = SLUG) -> tuple[str, ...]:
+    """Какие именно пункты А1–А5 нашлись в тексте. Пусто — текст неадресен."""
+    return tuple(fid for fid, _title, check in ADDRESS_FEATURES
+                 if check(todo, slug))
 
 
 def is_addressed(todo: str, slug: str = SLUG) -> bool:
-    """«Адресность»: в тексте назван путь, скрипт, флаг, бот или сам клиент.
+    """«Адресность» по §12.4: назван хотя бы один токен из закрытого списка
+    §12.13 — путь, команда с ключом, флаг подключения, слаг или пульт-команда.
 
     Это НЕ проверка формулировки (§12.2 её запрещает) — это проверка, что
-    человеку названо КУДА идти, а не «исправьте конфигурацию»."""
-    return bool(_ADDRESS.search(todo)) or slug in todo
+    человеку названо КУДА идти, а не «исправьте конфигурацию». Непустоты
+    недостаточно: «убедись, что таск живёт, и подожди цикл» грамматически
+    «что сделать», а фактически совет, отправляющий человека в мануал."""
+    return bool(address_features(todo, slug))
 
 
 def text_blob(r: StepResult) -> str:
@@ -723,6 +991,7 @@ def world_ready(tmp_path: Path) -> Path:
     write_consent(root, consent_text())
     write_session(root)
     write_lead_session(root)
+    write_lead_peers(root)
     write_bundle_marker(root, bundle_line(SLUG, NEIGHBOUR_SLUG))
     write_registry(root, {SLUG: registry_entry(SLUG, enabled=True),
                           NEIGHBOUR_SLUG: registry_entry(NEIGHBOUR_SLUG, enabled=True)})
@@ -1191,11 +1460,6 @@ def test_token_evidence_is_a_sign_not_the_value(tmp_path):
     assert FAKE_TOKEN.split(":", 1)[1] not in blob
 
 
-def enc_reply(state: str) -> CommandResult:
-    """Ответ `reencrypt_env -Check`: rc 0 только у `in_sync` (см. сам скрипт)."""
-    return CommandResult(0 if state == "in_sync" else 1, state, "")
-
-
 @pytest.mark.parametrize("state", ["no_env", "no_enc", "unreadable", "stale"])
 def test_only_in_sync_closes_the_token_step(tmp_path, state):
     """§12.7 п.6: алфавит закрыт пятью значениями, закрывает шаг одно.
@@ -1356,10 +1620,16 @@ def test_a_foreign_id_already_in_the_allowlist_survives_and_is_named(tmp_path):
     """
     root = _allowlist_world(tmp_path)
     live = root / "chatter" / "clients" / SLUG / "settings.yaml"
-    data = yaml.safe_load(live.read_text(encoding="utf-8"))
-    data["telegram"] = {"allowlist": [DECOY_IN_REPORT], "funnel_gate": False}
-    live.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False),
-                    encoding="utf-8")
+    # Чужой id вписан ТУДА И ТАК, как его вписывает человек: в поточный список
+    # одной строкой, с пометкой рядом. Перезаписать документ `safe_dump`
+    # значило бы построить конфиг, которого не бывает: комментарии исчезли бы,
+    # а список стал бы блочным — и правка честно отказалась бы его трогать.
+    text = live.read_text(encoding="utf-8")
+    assert "  allowlist: []\n" in text, "стенд: поточного allowlist в конфиге нет"
+    text = text.replace(
+        "  allowlist: []\n",
+        f"  allowlist: [{DECOY_IN_REPORT}]   # менеджер клиента, /allow 12.08\n")
+    live.write_text(text, encoding="utf-8")
 
     ctx = make_ctx(root, env=env_material())
     actions.act_s9(ctx)
@@ -1547,7 +1817,7 @@ def test_plan_mode_pays_nothing_and_touches_nothing(tmp_path):
     runner = FakeRunner(default_replies())
     before = snapshot(root)
 
-    rc = connect_main([SLUG, "--plan"], run=runner, root=root)
+    rc = connect_main([SLUG, "--plan"], runner=runner, root=root)
 
     assert rc == 0, f"карта построена, а код выхода {rc}"
     assert runner.paying_calls == [], f"`--plan` заплатил:\n{runner.argv_log()}"
@@ -1558,7 +1828,7 @@ def test_the_cli_pays_nothing_without_the_flag(tmp_path):
     """Тот же Д17, но через дверь, которой пользуется человек."""
     root = _drill_world(tmp_path)
     runner = FakeRunner(default_replies())
-    rc = connect_main([SLUG], run=runner, root=root)
+    rc = connect_main([SLUG], runner=runner, root=root)
     assert runner.paying_calls == [], (
         f"CLI заплатил без --drill-yes (rc={rc}):\n{runner.argv_log()}")
 
@@ -1648,3 +1918,221 @@ def test_the_drill_result_is_read_from_disk_not_from_the_journal(tmp_path):
     runner = FakeRunner(default_replies())
     r = probes.probe_s13(make_ctx(root, runner=runner, drill_yes=False))
     assert r.verdict != Verdict.CLOSED, "шаг закрыт по записи в журнале"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# МЕТА-СТОРОЖ НА САМ СПИСОК А1–А5 (§12.13 п.2 и п.4)
+#
+# Сверка идёт В ОБЕ СТОРОНЫ: текст С признаком обязан считаться адресным, текст
+# БЕЗ единого признака — неадресным. Односторонняя сверка пропускает ровно тот
+# класс дефекта, который тут уже случился: правило, которое зеленеет на всём.
+#
+# Образцы взяты из таблицы §12.13 (там они выписаны) плюс ловушки: голое имя
+# скрипта без ключей, голое имя таска, «исправьте конфигурацию» и отсылка к
+# «названным клиентам». Все они — тексты, а не результаты прогона: сторож на
+# СПИСОК не имеет права зависеть от того, что сегодня возвращает плановый код,
+# иначе он снова согласится с реализацией по определению.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# (признак, текст-С-признаком, текст-БЕЗ-этого-признака, слаг)
+ADDRESS_FEATURE_PAIRS = (
+    # А1 — путь: разделитель…
+    ("А1", "почини chatter/clients/volska/settings.yaml и повтори",
+           "почини настройки клиента и повтори", "volska"),
+    ("А1", "положи бандл в .secrets/ на ЭТОЙ машине",
+           "положи бандл в защищённый каталог", "volska"),
+    ("А1", "смотри отчёты прогонов в state/drills/",
+           "смотри отчёты прогонов там, где их пишет харнесс", "volska"),
+    ("А1", "разбери причину по logs/chatter_guardian.log",
+           "разбери причину по логу супервизора", "volska"),
+    # …ИЛИ расширение (без единого разделителя рядом)
+    ("А1", "перезапиши REPORT.md в UTF-8",
+           "перезапиши отчёт в UTF-8", "volska"),
+    ("А1", "впиши control.owner_chat_id в settings.yaml",
+           "впиши control.owner_chat_id в настройки", "volska"),
+    # …ИЛИ буква диска и обратный слеш
+    ("А1", "смотри C:\\jarvis\\logs на этой машине",
+           "смотри логи на этой машине", "volska"),
+    # …ИЛИ начало от известного корня репозитория
+    ("А1", "положи заготовку в build/onboard/volska/",
+           "положи заготовку рядом со сборкой", "volska"),
+    # Прямой замер ложного зелёного: пара `allowlist/denylist` путём НЕ является.
+    ("А1", "почини chatter/clients/volska/settings.yaml",
+           "перечитай раздел про allowlist/denylist и реши сам", "volska"),
+
+    # А2 — имя команды ВМЕСТЕ с ключом
+    ("А2", "подними клиента: chatter_client.ps1 -Action start -Slug volska",
+           "подними клиента через chatter_client", "volska"),
+    ("А2", "подними таск: Start-ScheduledTask -TaskName JarvisChatterGuardian",
+           "убедись, что таск JarvisChatterGuardian живёт", "volska"),
+    ("А2", "выключи запись: registry_cli disable --slug volska",
+           "выключи запись клиента в реестре", "volska"),
+    ("А2", "собери конфиг: python -m chatter.onboard volska --brief файла",
+           "собери конфиг онбордингом", "volska"),
+    # Голое имя скрипта — НЕ А2, даже когда у имени есть расширение: расширение
+    # это А1 (путь), а А2 требует ключа. Ловушка старой регулярки.
+    ("А2", ".\\scripts\\reencrypt_env.ps1 -Check",
+           "прогони reencrypt_env.ps1", "volska"),
+
+    # А3 — флаг самой команды подключения
+    ("А3", "разреши ОДИН платный прогон флагом --drill-yes",
+           "разреши ОДИН платный прогон", "volska"),
+    ("А3", "перезапусти прогон явно, с --drill-again",
+           "перезапусти прогон явно", "volska"),
+    ("А3", "укажи корень репозитория через --root",
+           "укажи корень репозитория", "volska"),
+    ("А3", "посмотри план: --plan",
+           "посмотри план", "volska"),
+
+    # А4 — слаг клиента
+    ("А4", "перезапусти раннер volska: отметку живости пишет он сам",
+           "перезапусти раннер этого клиента: отметку живости пишет он сам",
+           "volska"),
+    ("А4", "перезапусти раннер yarina: отметку живости пишет он сам",
+           "перезапусти раннер названного клиента", "yarina"),
+
+    # А5 — слеш-команда пульта
+    ("А5", "открой трафик сам, командой пульта: /funnel_gate on confirm",
+           "открой трафик сам, командой пульта", "volska"),
+    ("А5", "посмотри список клиентов пультом: /clients",
+           "посмотри список клиентов пультом", "volska"),
+    # Слеш внутри пути — это А1, а не команда пульта.
+    ("А5", "правь его точечно (пульт: /allow, /funnel_gate off)",
+           "почини chatter/clients/registry.yaml", "volska"),
+    # Замер 21.08: на пути с буквой диска А5 зажигался на `/jarvis`. Вердикт не
+    # менялся (горят А1 и А4), но совравший признак уезжал в покрытие.
+    ("А5", "открой трафик: /funnel_gate on confirm",
+           "впиши руками в C:/jarvis/chatter/clients/yarina/settings.yaml: "
+           "telegram.allowlist: [1]", "yarina"),
+)
+
+# Оба «должно быть» из §12.13 п.3 целиком: адресные варианты реальных текстов.
+ADDRESS_SPEC_REWRITES = (
+    ("S12", ("подними таск: Start-ScheduledTask -TaskName JarvisChatterGuardian, "
+             "через 30 с повтори ту же команду; если таск падает — его лог в "
+             "logs/chatter_guardian.log"), ("А1", "А2"), "volska"),
+    ("S7", ("почини chatter/clients/volska/settings.yaml (полный список — "
+            "facts.broken_slugs) либо выключи запись: registry_cli disable "
+            "--slug volska"), ("А1", "А2", "А4"), "volska"),
+)
+
+# Ни одного признака А1–А5. Первые два — дословные тексты планового кода,
+# забракованные в §12.13 п.3; остальные — ловушки того же класса.
+ADDRESS_TRAPS = (
+    # Тексты планового кода, забракованные §12.13 п.3.
+    "убедись, что таск JarvisChatterGuardian живёт, и подожди один его цикл (~30 с)",
+    "почини конфиги названных клиентов либо выключи их, затем повтори",
+    # Ловушки того же класса, но русскоязычные и без слешей.
+    "исправьте конфигурацию",
+    "перезапусти chatter_client, затем посмотри ещё раз",
+    "запусти таск JarvisChatterGuardian",
+    "разберись с названными клиентами и повтори",
+    "подожди немного и повтори ту же команду",
+    "поправь настройки клиента и попробуй ещё раз",
+    "убедись, что супервизор поднят, и подожди цикл",
+    # ── ЗАМЕР 21.08, ДОСЛОВНО. Все шесть строк — тексты БЕЗ единого адреса, и
+    # на двух из них прежнее правило А1 («разделитель внутри ASCII-токена»)
+    # давало ЛОЖНОЕ ЗЕЛЁНОЕ. Прежние ловушки его не ловили, потому что все были
+    # русскоязычными и без слешей: сторож зеленел на всём этом классе.
+    "почини и/или выключи названных клиентов",
+    "разберись с ошибкой 500/503 и повтори",
+    "смотри вывод выше: rc 2/3 означает отказ",
+    "перечитай раздел про allowlist/denylist и реши сам",
+    "сделай это в 12/24 часа",
+    "уточни у владельца, on/off ли воронка",
+    # Тот же класс: латиница со слешем в прозе.
+    "переведи клиента в start/stop и посмотри ещё раз",
+    "выстави enabled/disabled по ситуации",
+    "реши по схеме yes/no и повтори",
+    # Три сегмента формой от пути не отличаются — поэтому пункта «три и
+    # более сегмента» в А1 нет вовсе.
+    "поставь режим on/off/auto по ситуации",
+    "ответь yes/no/maybe и повтори",
+    "выбери start/stop/restart и посмотри ещё раз",
+    # Тот же класс: путь-обманка, но сегменты русскими буквами.
+    "смотри раздел настройки/доступы — там всё написано",
+    "проверь каталог клиента/настройки и реши сам",
+)
+
+
+def test_address_feature_list_is_exactly_five_named_items():
+    """§12.13 п.2: «Списка ровно пять пунктов».
+
+    Утверждение литеральное, а не `len(ADDRESS_FEATURES) > 0`: список закрыт
+    затем, чтобы шестой признак нельзя было дописать «на месте», не тронув
+    спеку. Сверяются и порядок, и имена.
+    """
+    assert tuple(fid for fid, _t, _c in ADDRESS_FEATURES) == (
+        "А1", "А2", "А3", "А4", "А5")
+    assert len({fid for fid, _t, _c in ADDRESS_FEATURES}) == 5
+
+
+def test_every_feature_of_the_list_is_covered_by_samples():
+    """Каждый из пяти признаков обязан быть проверен образцами в обе стороны.
+
+    Без этого утверждения признак можно было бы завести и не проверить ни разу:
+    список рос бы, а сторож молчал.
+    """
+    named = {fid for fid, _t, _c in ADDRESS_FEATURES}
+    positive = {fid for fid, _p, _n, _s in ADDRESS_FEATURE_PAIRS}
+    assert positive == named, f"без образцов остались: {sorted(named - positive)}"
+
+
+@pytest.mark.parametrize(
+    "feature,addressed_text,plain_text,slug", ADDRESS_FEATURE_PAIRS,
+    ids=[f"{f}-{i}" for i, (f, _p, _n, _s) in enumerate(ADDRESS_FEATURE_PAIRS)])
+def test_each_address_feature_reads_both_ways(feature, addressed_text,
+                                              plain_text, slug):
+    """Признак обязан ЗАЖИГАТЬСЯ на своём образце и МОЛЧАТЬ на тексте без него.
+
+    Одна сторона ловит правило, которое перестало срабатывать; вторая — правило,
+    которое зеленеет на всём подряд. Проверять надо обе: обе уже ломались.
+    """
+    lit = address_features(addressed_text, slug)
+    assert feature in lit, (
+        f"{feature} не зажёгся на своём же образце §12.13: {addressed_text!r} "
+        f"(нашлось: {lit})")
+    assert is_addressed(addressed_text, slug)
+    assert feature not in address_features(plain_text, slug), (
+        f"{feature} зажёгся на тексте БЕЗ этого признака: {plain_text!r}")
+
+
+@pytest.mark.parametrize("step_id,text,expected,slug", ADDRESS_SPEC_REWRITES,
+                         ids=[r[0] for r in ADDRESS_SPEC_REWRITES])
+def test_spec_rewrites_light_up_exactly_the_named_features(step_id, text,
+                                                           expected, slug):
+    """§12.13 п.3: у обоих «должно быть» названы признаки, которые они несут.
+
+    Спека сама подписала их как «(А2 + А1)» и «(А1 + А4 + А2)» — сверяем с
+    подписью, а не «лишь бы адресно».
+    """
+    assert set(address_features(text, slug)) >= set(expected), (
+        f"{step_id}: ожидались {expected}, нашлось "
+        f"{address_features(text, slug)}")
+
+
+@pytest.mark.parametrize("trap", ADDRESS_TRAPS)
+def test_text_without_any_feature_is_not_addressed(trap):
+    """Текст без единого признака А1–А5 обязан краснеть.
+
+    Здесь и живёт цена арки: «убедись, что таск живёт, и подожди цикл» непусто,
+    грамматически «что сделать», — и отправляет человека в три ночи в мануал,
+    ровно туда, куда §9 п.2 обещал не отправлять.
+    """
+    assert address_features(trap) == (), (
+        f"неадресный текст признан адресным: {trap!r} → "
+        f"{address_features(trap)}")
+    assert not is_addressed(trap)
+
+
+def test_dropped_marker_at_botfather_is_not_an_address_by_itself():
+    """`@BotFather` признаком НЕ является: в таблице §12.13 такого пункта нет.
+
+    Старая регулярка его засчитывала — это и было расхождение списка и кода в
+    сторону послабления. Плановый код от этого не страдает: во всех трёх местах,
+    где он зовёт @BotFather, рядом стоит путь или слаг.
+    """
+    assert address_features("заведи отдельного бота у @BotFather") == ()
+    assert is_addressed(
+        "заведи отдельного бота у @BotFather и укажи имя переменной в "
+        "chatter/clients/volska/settings.yaml", "volska")
