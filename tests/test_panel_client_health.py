@@ -136,12 +136,72 @@ def test_health_leaks_nothing_about_the_client(instance, secret):
         "`/health` отдал наружу «%s»: %r" % (secret, body[:400]))
 
 
+def _strings(node):
+    """Все строки разобранного JSON — и ключи, и значения, на любой глубине.
+
+    Разобранный, а не сырой текст: JSON УДВАИВАЕТ обратную косую, и путь
+    `C:\\Users\\...\\yarina.db` лежит в теле как `C:\\\\Users\\\\...`. Сравнение
+    сырого пути с сырым телом промахивается по построению."""
+    if isinstance(node, str):
+        yield node
+    elif isinstance(node, dict):
+        for k, v in node.items():
+            yield from _strings(k)
+            yield from _strings(v)
+    elif isinstance(node, (list, tuple)):
+        for v in node:
+            yield from _strings(v)
+
+
 def test_health_does_not_leak_the_database_path(instance):
-    """Отдельно от параметризованного: путь целиком, как он есть в env."""
+    r"""Путь к базе — целиком и во ВСЕХ написаниях, в каких он может утечь.
+
+    \U0001F534 ЭТОТ СТОРОЖ БЫЛ ЗЕЛЁН ПО ПОСТРОЕНИЮ И НЕ ОХРАНЯЛ НИЧЕГО.
+    Он сравнивал сырой путь с сырым текстом ответа и путь со слэшами вперёд —
+    с ним же. Тело ответа это JSON, а JSON удваивает обратную косую:
+
+        db   = C:\Users\...\yarina.db
+        body = {"ok": true, "db": "C:\\Users\\...\\yarina.db"}
+
+    Ни одно из двух утверждений не могло совпасть НИКОГДА: первое — потому
+    что написания разные, второе — потому что слэшей вперёд в `TAMAPI_DB` на
+    Windows не бывает вовсе. Замерено фактом: мутация «`/health` отдаёт
+    `os.environ["TAMAPI_DB"]`» оставила сторож зелёным, утечку поймали только
+    соседи.
+
+    Починка: сравнивать по РАЗОБРАННОМУ JSON (там путь лежит в исходном
+    написании) И по сырому тексту (там — в экранированном), и перебирать
+    написания явным списком, включая имя файла базы: `.../yarina.db` можно
+    отдать и одним хвостом.
+    """
     api, db = instance
-    body = TestClient(api).get("/health").text
-    assert db not in body, body[:400]
-    assert db.replace("\\", "/") not in body, body[:400]
+
+    assert chr(92) in db, (
+        "стенд поднят с путём без обратных косых — сторож охранял бы форму, "
+        "которой в TAMAPI_DB на Windows не бывает: %r" % (db,))
+
+    r = TestClient(api).get("/health")
+    raw = r.text
+    try:
+        parsed = r.json()
+    except ValueError:
+        parsed = None
+
+    spellings = {
+        "сырой путь": db,
+        "с экранированными косыми (как в JSON)": db.replace(chr(92), chr(92) * 2),
+        "со слэшами вперёд": db.replace(chr(92), "/"),
+        "имя файла базы": Path(db).name,
+    }
+
+    values = list(_strings(parsed)) if parsed is not None else []
+    for what, needle in spellings.items():
+        for value in values:
+            assert needle.lower() not in value.lower(), (
+                "`/health` отдал путь к базе (%s) в поле ответа: %r"
+                % (what, value[:200]))
+        assert needle.lower() not in raw.lower(), (
+            "`/health` отдал путь к базе (%s) в теле: %r" % (what, raw[:400]))
 
 
 def test_the_dashboard_is_still_closed_without_the_key(instance):
