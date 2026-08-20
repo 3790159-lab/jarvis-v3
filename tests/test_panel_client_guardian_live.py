@@ -58,6 +58,14 @@ SLUG = "yarina"
 # каждой попытке с причиной». Константа в коде гардиана его не содержит.
 REFUSAL_MARK = "TAMAPI_DB-nezadan-unikalnaya-prichina-etogo-progona"
 
+# ВТОРАЯ причина, и она КИРИЛЛИЧЕСКАЯ — дословно та, что приехала абракадаброй
+# на живой приёмке 20.08 16:33. ASCII-сентинел выше проходит через любую
+# кодировку невредимым, поэтому на нём сторож зелен при ЛЮБОЙ поломке
+# перекодировки. Читаемость проверяется только текстом, который перекодировку
+# переживает по-разному.
+CYRILLIC_MARK = ("JARVIS_PANELS_KEY не задан: панель закрыта по умолчанию "
+                 "и без ключа не поднимается")
+
 
 # ──────────────────────── стенд ────────────────────────
 
@@ -140,6 +148,7 @@ def resolve_client_host(explicit=None, environ=None, ip="", allow_any=False):
 if __name__ == "__main__":
     print("[panel_client] ОТКАЗ, инстанс не поднят:")
     print("  * %(mark)s")
+    print("  * %(cyr)s")
     sys.exit(1)
 '''
 
@@ -150,7 +159,8 @@ def _stand(root: Path, *, tailnet: str, bind: str, port: int,
     (root / "scripts").mkdir(parents=True, exist_ok=True)
     (root / "scripts" / "run_panel_client.py").write_text(
         FAKE_RUNNER % {"tailnet": tailnet, "bind": bind, "port": port,
-                       "mark": REFUSAL_MARK, "flip": flip},
+                       "mark": REFUSAL_MARK, "cyr": CYRILLIC_MARK,
+                       "flip": flip},
         encoding="utf-8")
     _fake_python(root)
 
@@ -176,6 +186,10 @@ def _run_guardian(root: Path, port: int, *, cycles: int = 1,
          "-MaxRefusals", str(max_refusals)],
         capture_output=True, text=True, timeout=timeout,
         encoding="utf-8", errors="replace")
+
+
+def _journal_path(root: Path) -> Path:
+    return root / "state" / "logs" / "panel_client_guardian.stdout.log"
 
 
 def _journal(root: Path) -> list[str]:
@@ -569,3 +583,101 @@ def test_an_unmeasurable_stretch_does_not_poison_the_refusal_counter(tmp_path):
         "счётчик отказов потрачен циклами, в которых не было ни одной "
         "попытки старта: вход в состояние объявлен %d раз вместо одного"
         % extra)
+
+
+# ══════ ЧИТАЕМОСТЬ ПРИЧИНЫ: найдено ЖИВОЙ ПРИЁМКОЙ, не сторожами ══════
+#
+# 🔴 ЧЕТВЁРТЫЙ РАЗ ЗА ДЕНЬ ОДИН И ТОТ ЖЕ КЛАСС. Транк 3c94ea93 задеплоен,
+# гардиан живёт, и в его журнале:
+#
+#   16:33:29 | accept | ОТКАЗ СТАРТА (rc 1), попытка 1: JARVIS_PANELS_KEY
+#   РЅРµ Р·Р°РґР°РЅ: РїР°РЅРµР»СЊ Р·Р°РєСЂС‹С‚Р° РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ...
+#
+# Панель напечатала «JARVIS_PANELS_KEY не задан: панель закрыта по умолчанию
+# и без ключа не поднимается». В журнал приехали байты, прочитанные не той
+# кодировкой: `Get-Content` без `-Encoding` в PS 5.1 читает СИСТЕМНОЙ кодовой
+# страницей (cp1251), а панель пишет UTF-8 (PYTHONUTF8=1).
+#
+# ПОЧЕМУ ЭТО ПРОПУСТИЛИ 131 СТОРОЖ И 52 МУТАЦИИ. Сторож на журнал проверял,
+# что ДВЕ РАЗНЫЕ причины дают ДВЕ РАЗНЫЕ строки. Две разные абракадабры —
+# тоже разные. Проверялось РАЗЛИЧИЕ, а не ЧИТАЕМОСТЬ, и на этом дефекте
+# сторож зелен ПО ПОСТРОЕНИЮ. Требование владельца («чтобы через час было
+# видно, одна и та же это ошибка или разные») по букве выполнено, по смыслу
+# нет: в три ночи по такой строке не понять, ЧТО сломалось, а строка заведена
+# ровно за этим.
+#
+# Тот же класс, что S4U в комментарии, путь к базе в несуществующей форме и
+# mtime в долях секунды: сторож охранял ФОРМУ признака, а не то, ради чего
+# признак заведён.
+#
+# Утверждаем РАВЕНСТВО с тем, что панель напечатала, а не отсутствие
+# вопросительных знаков: перечислять плохие символы значит засторожить один
+# симптом из многих, а перекодировок много.
+
+def test_the_reason_reaches_the_journal_readable(tmp_path):
+    """Причина обязана доехать в журнал ТЕМИ ЖЕ СИМВОЛАМИ, что напечатала
+    панель. Не «похожими», не «различимыми» — теми же."""
+    root = tmp_path / "root"
+    port = _free_port()
+    _stand(root, tailnet="127.0.0.1", bind="127.0.0.1", port=port)
+
+    run = _run_guardian(root, port, cycles=1)
+    assert run.returncode == 0, (run.stdout, run.stderr)
+
+    panel_out = (root / "logs" / ("panel_%s.stdout.log" % SLUG)).read_text(
+        encoding="utf-8")
+    assert CYRILLIC_MARK in panel_out, (
+        "предпосылка сломана: подставная панель не напечатала кириллическую "
+        "причину, сторожить нечего:\n%s" % panel_out[:400])
+
+    raw = _journal_path(root).read_bytes()
+    text = raw.decode("utf-8")
+
+    if CYRILLIC_MARK not in text:
+        mojibake = CYRILLIC_MARK.encode("utf-8").decode("cp1251", "replace")
+        hint = ("похоже на чтение UTF-8 кодовой страницей cp1251 "
+                "(Get-Content без -Encoding)" if mojibake[:20] in text
+                else "текст пришёл в неизвестной перекодировке")
+        raise AssertionError(
+            "причина отказа доехала до журнала НЕЧИТАЕМОЙ — %s.\n"
+            "панель напечатала: %r\nв журнале: %r"
+            % (hint, CYRILLIC_MARK[:60],
+               [ln for ln in text.splitlines() if REFUSAL_MARK in ln][:1]))
+
+
+def test_the_journal_is_one_consistent_encoding_end_to_end(tmp_path):
+    """Пункт 2: сторож не имеет права быть зелёным оттого, что читает файл
+    тем же кривым способом, каким его пишут. Две ошибки, гасящие друг друга,
+    дают зелёное на сломанном.
+
+    Поэтому три независимых утверждения:
+      * ВЕСЬ файл декодируется как UTF-8 СТРОГО, без `errors=`. Собственная
+        кириллица гардиана пишется `Add-Content -Encoding utf8`; уберут
+        `-Encoding` — байты станут cp1251, и строгий декодер упрётся в них;
+      * в UTF-8-прочтении причина ЕСТЬ;
+      * в cp1251-прочтении того же файла причины НЕТ. Если бы файл на самом
+        деле был cp1251, всё было бы наоборот — и первое утверждение уже
+        упало бы. Пара разводит «файл верный» и «читатель повторяет ошибку
+        писателя»."""
+    root = tmp_path / "root"
+    port = _free_port()
+    _stand(root, tailnet="127.0.0.1", bind="127.0.0.1", port=port)
+
+    run = _run_guardian(root, port, cycles=1)
+    assert run.returncode == 0, (run.stdout, run.stderr)
+
+    raw = _journal_path(root).read_bytes()
+    try:
+        as_utf8 = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise AssertionError(
+            "журнал гардиана — НЕ UTF-8: строгое чтение упало на байте %d "
+            "(%s). Собственные строки пишутся не той кодировкой, и разбирать "
+            "аварию придётся по абракадабре" % (exc.start, exc.reason))
+
+    assert CYRILLIC_MARK in as_utf8, (
+        "в UTF-8-прочтении журнала причины нет — см. соседний сторож")
+    as_cp1251 = raw.decode("cp1251", "replace")
+    assert CYRILLIC_MARK not in as_cp1251, (
+        "причина читается как cp1251 — значит файл записан не в UTF-8, и "
+        "совпадение с ожидаемым текстом выше было бы случайным")
