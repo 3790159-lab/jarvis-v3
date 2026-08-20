@@ -313,6 +313,34 @@ def _load_live_config(ctx: Ctx, slug: str | None = None):
     return load_config(_clients_dir(ctx), slug or ctx.slug)
 
 
+def _client_dir_absent(ctx: Ctx, step_id: str, tail: str,
+                       facts: dict) -> StepResult | None:
+    """«Каталога клиента нет» — это НЕ «каталог битый». Тройка S4 (§12.8 п.2).
+
+    Три шага после S4 читают живой конфиг, и все три звали `load_config` не
+    глядя: до переноса он отказывает, и `ПРОТИВОРЕЧИЕ` печаталось там, где
+    подключение просто ещё не дошло до S4. Стоит это дорого не на исполнении
+    (цикл до S7 не доходит), а в `--plan`: карта — ПЕРВЫЙ взгляд человека на
+    инструмент, и четыре красных в ней учат не смотреть на красное — ровно то,
+    против чего решался q2.
+
+    Возвращает готовый вердикт «не закрыт», если каталога нет, и `None`, если
+    он есть: тогда решает сам `load_config`, и его отказ — по-прежнему
+    ПРОТИВОРЕЧИЕ (полукопии от нашей руки не бывает, значит это правка
+    человека).
+    """
+    client_dir = _client_dir(ctx)
+    if client_dir.is_dir():
+        return None
+    return _open(
+        step_id,
+        f"каталога живого клиента {client_dir} нет — конфиг ещё не перенесён "
+        f"из сборки (шаг S4), {tail}",
+        f"руками ничего: каталог переносит сам шаг S4, "
+        f"{_build_dir(ctx)} -> {client_dir}",
+        facts)
+
+
 def _mentions(text: str, token: str) -> bool:
     """Назван ли идентификатор ОТДЕЛЬНЫМ словом (C1 не считается за C12)."""
     return re.search(r"(?<![A-Za-z0-9])" + re.escape(token) + r"(?![0-9])",
@@ -1232,6 +1260,10 @@ def probe_s7(ctx: Ctx) -> StepResult:
     # обязан жить в ЗАКРЫТОМ алфавите `reencrypt_env` — шестого значения у него
     # нет (§12.12 п.2 и п.3).
     facts: dict = {"env_name": None, "token_len": None, "env_enc_state": None}
+    absent = _client_dir_absent(
+        ctx, "S7", "имя env-переменной токена брать неоткуда", facts)
+    if absent is not None:
+        return absent
     try:
         cfg = _load_live_config(ctx)
     except ConfigError as exc:
@@ -1491,6 +1523,10 @@ def probe_s9(ctx: Ctx) -> StepResult:
     """
     facts: dict = {"allowlist": None, "owner_present": None,
                    "drill_present": None}
+    absent = _client_dir_absent(
+        ctx, "S9", "allowlist читать неоткуда", facts)
+    if absent is not None:
+        return absent
     try:
         cfg = _load_live_config(ctx)
     except ConfigError as exc:
@@ -1673,19 +1709,35 @@ def probe_s11(ctx: Ctx) -> StepResult:
     entries, fatal, absent = _registry(ctx)
     if fatal:
         facts["registry_fatal"] = fatal
+        if absent:
+            # Файла нет вовсе — это не спор фактов, а непройденный S10:
+            # реестр заводится вместе с первой записью. Так же разведено у
+            # S0 и S10, и S11 был единственным, кто их слепил.
+            return _open(
+                "S11",
+                f"реестра {_registry_path(ctx)} нет — поднимать неоткуда: "
+                f"запись клиента заводит шаг S10",
+                "создай chatter/clients/registry.yaml с ключом 'clients'",
+                facts)
         return _conflict(
             "S11",
-            f"реестр не читается ({fatal}) — состояние подъёма неизвестно",
+            f"реестр есть, но не разбирается ({fatal}) — состояние подъёма "
+            f"неизвестно, а гардиан читает этот файл каждые ~30 с",
             "почини chatter/clients/registry.yaml и повтори",
             facts)
     entry = _entry_of(entries, ctx.slug)
     if entry is None:
+        # Та же тройка, что у S4 (§12.8 п.2), только факт другой: запись
+        # реестра заводит S10, и до него её отсутствие — след непройденного
+        # шага, а не спор фактов. Спор начинается там, где запись ЕСТЬ и
+        # включена, а подняться клиент не может (ниже).
         facts["entry_present"] = False
-        return _conflict(
+        return _open(
             "S11",
-            f"записи «{ctx.slug}» в реестре нет, хотя шаг S10 её требует — "
-            f"поднимать нечего",
-            f"добавь запись {ctx.slug} в {_registry_path(ctx)} и повтори",
+            f"записи «{ctx.slug}» в реестре ещё нет — её заводит шаг S10, "
+            f"поднимать пока нечего",
+            f"руками ничего: запись в {_registry_path(ctx)} создаёт сам "
+            f"шаг S10",
             facts)
 
     facts["entry_present"] = True
@@ -2089,6 +2141,10 @@ def probe_s15(ctx: Ctx) -> StepResult:
     # `funnel_gate: False` на ветке «конфиг не грузится» читалось бы как
     # «проверили, трафик закрыт» — а мы файла не открывали.
     facts: dict = {"funnel_gate": None, "closable_by_probe": False}
+    absent = _client_dir_absent(
+        ctx, "S15", "состояние funnel_gate читать неоткуда", facts)
+    if absent is not None:
+        return absent
     try:
         cfg = _load_live_config(ctx)
     except ConfigError as exc:

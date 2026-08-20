@@ -1164,6 +1164,121 @@ def test_a_human_stop_is_reported_as_waiting_not_as_broken(tmp_path):
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+# «ФАКТА НЕТ» — ЭТО НЕ «ФАКТЫ СПОРЯТ»: тройка S4 (§12.8 п.2) на ВСЕХ шагах
+#
+# Разбор владельца 21.08 (не переобсуждается): `--plan` — ПЕРВЫЙ взгляд
+# человека на инструмент, и четыре красных в первом же запуске учат не
+# смотреть на красное. Это ровно то, против чего решался q2: «жду тебя» и
+# «сломано» слипшись приучают не смотреть на красное — а слипание в обратную
+# сторону («жду тебя», напечатанное как «сломано») стоит того же.
+#
+# Тройка S4 из §12.8 п.2 — «каталога нет → НЕ ЗАКРЫТ · есть и грузится →
+# ЗАКРЫТ · есть и НЕ грузится → ПРОТИВОРЕЧИЕ» — не свойство S4, а общее
+# правило: ПРОТИВОРЕЧИЕ означает «факты спорят ИЛИ факт нечитаем», и ни одно
+# из двух не описывает факт, которого просто ещё нет.
+#
+# Сверка идёт в ОБЕ стороны, иначе починка выродится в «всё объявить не
+# закрытым»: мир «ничего не делали» не имеет права дать ни одного CONFLICT, а
+# мир «факты спорят» обязан дать их ровно там, где давал.
+# ═════════════════════════════════════════════════════════════════════════════
+
+#: Миры, в которых НИЧЕГО ещё не делали: голая машина и репозиторий до
+#: подключения. Литерально, а не «все, кроме...»: список миров ещё вырастет.
+VIRGIN_WORLDS = (world_empty, world_skeleton)
+
+#: Шаги, читающие ЖИВОЙ КОНФИГ клиента, которого до S4 не существует.
+#: Литеральный список: выведенный из кода согласился бы с ним по определению
+#: ([[jarvis-literal-lists-not-introspection]]).
+CONFIG_READING_STEPS = ("S4", "S7", "S9", "S15")
+
+
+@pytest.mark.parametrize("build_world", VIRGIN_WORLDS,
+                         ids=[w.__name__ for w in VIRGIN_WORLDS])
+def test_nothing_done_yet_is_never_a_contradiction(tmp_path, build_world):
+    """До первого шага спорить нечему: все вердикты — «не закрыт».
+
+    Проверяется ПЕРЕБОРОМ всех шагов, а не на четырёх известных: забывают
+    ровно ту ветку, о которой не подумали.
+    """
+    root = build_world(tmp_path)
+    guilty = [(r.step_id, r.why)
+              for r in probe_all(steps.STEPS, make_ctx(root))
+              if r.verdict == Verdict.CONFLICT]
+    assert not guilty, (
+        "в мире, где ещё ничего не делали, «факты спорят» невозможно — "
+        "напечатано «сломано» там, где ждут человека:\n"
+        + "\n".join(f"  {sid}: {why}" for sid, why in guilty))
+
+
+def test_facts_that_really_do_contradict_stay_contradictions(tmp_path):
+    """Обратная сторона той же тройки, без которой первый сторож зеленеет от
+    «объявим всё не закрытым».
+
+    `world_contradictory`: каталог клиента ЕСТЬ и не грузится, реестр включает
+    клиента, которого не поднять. Это не «шаг предстоит» — это правка чужой
+    руки, и разбирать её человеку.
+    """
+    root = world_contradictory(tmp_path)
+    verdicts = {r.step_id: r for r in probe_all(steps.STEPS, make_ctx(root))}
+    for sid in CONFIG_READING_STEPS + ("S11",):
+        assert verdicts[sid].verdict == Verdict.CONFLICT, (
+            f"{sid}: факты спорят, а вердикт «{verdicts[sid].verdict.value}» — "
+            f"починка ложных красных погасила настоящие: {verdicts[sid].why}")
+
+
+@pytest.mark.parametrize("step_id", CONFIG_READING_STEPS)
+def test_a_missing_client_dir_is_open_and_an_unloadable_one_is_a_conflict(
+        tmp_path, step_id):
+    """Два мира, различающиеся РОВНО одним: каталог клиента есть или нет.
+
+    Это и есть предмет: «каталога нет» — след того, что S4 ещё не исполнялся,
+    и он у КАЖДОГО шага, который этот каталог читает; «каталог есть и не
+    грузится» — след человеческой правки, и он у них же.
+    """
+    absent = world_skeleton(tmp_path / "absent")
+    broken = world_skeleton(tmp_path / "broken")
+    (broken / "chatter" / "clients" / SLUG).mkdir(parents=True, exist_ok=True)
+
+    r_absent = step_by_id(step_id).probe(make_ctx(absent))
+    r_broken = step_by_id(step_id).probe(make_ctx(broken))
+
+    assert r_absent.verdict == Verdict.OPEN, (
+        f"{step_id}: каталога клиента нет вовсе — это «шаг предстоит», а не "
+        f"«факты спорят»: {r_absent.why}")
+    assert r_absent.todo.strip() and is_addressed(r_absent.todo), (
+        f"{step_id}: неадресное ЧТО СДЕЛАТЬ: {r_absent.todo!r}")
+    assert r_broken.verdict == Verdict.CONFLICT, (
+        f"{step_id}: каталог есть и не грузится — это правка человека, "
+        f"перезаписывать её нельзя: {r_broken.why}")
+
+
+def test_a_missing_registry_entry_is_open_and_a_broken_enabled_one_is_a_conflict(
+        tmp_path):
+    """S11 читает не конфиг, а реестр, и тройка у него та же.
+
+    Записи нет — её заводит S10, автоматический шаг: человеку сообщать не о
+    чем, кроме того, где она появится. Запись есть, клиент включён и подняться
+    не может — гардиан крутит «поднял — упал» каждые ~30 с, и это ПРОТИВОРЕЧИЕ.
+    """
+    absent = world_skeleton(tmp_path / "absent")
+    broken = world_skeleton(tmp_path / "broken")
+    write_registry(broken, {SLUG: registry_entry(SLUG, enabled=True)})
+
+    r_absent = probes.probe_s11(make_ctx(absent))
+    r_broken = probes.probe_s11(make_ctx(broken))
+
+    assert r_absent.verdict == Verdict.OPEN, (
+        f"записи в реестре ещё нет — её создаёт S10, спорить нечему: "
+        f"{r_absent.why}")
+    assert r_absent.facts.get("entry_present") is False, (
+        f"улика не говорит, что записи нет: {r_absent.facts!r}")
+    assert r_absent.todo.strip() and is_addressed(r_absent.todo), (
+        f"неадресное ЧТО СДЕЛАТЬ: {r_absent.todo!r}")
+    assert r_broken.verdict == Verdict.CONFLICT, (
+        f"включён и не поднимается — это спор фактов: {r_broken.why}")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
 # Д15 — согласие клиента (S5, §5.7, решение владельца q6)
 # ═════════════════════════════════════════════════════════════════════════════
 
@@ -1382,17 +1497,45 @@ def test_a_shared_token_env_name_is_a_stop(tmp_path):
     assert FAKE_TOKEN not in text_blob(r)
 
 
-def test_a_token_env_name_shared_with_an_enabled_client_is_a_stop(tmp_path):
-    """Имя выглядит пер-клиентским, но его уже читает ВКЛЮЧЁННЫЙ сосед.
+def test_a_foreign_per_client_token_env_name_is_a_stop(tmp_path):
+    """ЧУЖОЕ пер-клиентское имя: суффикс есть, но он соседский.
 
-    Это тот же 409, только замаскированный: суффикс есть, уникальности нет.
+    Останов обязателен, и он наступает РАНЬШЕ проверки уникальности — на
+    «в имени нет нашего слага». Тест назван по тому, что проверяет: под
+    прежним именем («совпадение с включённым») он был зелёным по другой
+    причине и не увидел бы снятую проверку совпадения вовсе.
     """
     root = _token_world(tmp_path, token_env=NEIGHBOUR_ENV,
                         neighbour_env=NEIGHBOUR_ENV, neighbour_enabled=True)
     env = env_material(token_env=NEIGHBOUR_ENV)
     r = probes.probe_s7(make_ctx(root, env=env))
+    assert r.verdict != Verdict.CLOSED, f"чужое имя принято: {r.why!r}"
+    assert r.todo.strip() and is_addressed(r.todo)
+    assert SLUG.upper() not in (r.facts.get("env_name") or "").upper(), (
+        f"мир построен не про то: имя {r.facts.get('env_name')!r} наше")
+
+
+def test_a_token_env_name_shared_with_an_enabled_client_is_a_stop(tmp_path):
+    """Имя НАШЕ и пер-клиентское — и его уже читает ВКЛЮЧЁННЫЙ сосед.
+
+    Так дефект выглядит в жизни: конфиг скопировали вместе с именем
+    переменной. Это тот же 409, только замаскированный — суффикс на месте,
+    уникальности нет, и в логе тишина.
+
+    Остановка обязана НАЗЫВАТЬ соседа: без имени человек в три ночи не найдёт,
+    кто держит ту же переменную, а `--drill-yes` он уже набрал.
+    """
+    root = _token_world(tmp_path, token_env=PER_CLIENT_ENV,
+                        neighbour_env=PER_CLIENT_ENV, neighbour_enabled=True)
+    env = env_material(token_env=PER_CLIENT_ENV)
+    r = probes.probe_s7(make_ctx(root, env=env))
+    assert r.facts.get("env_name") == PER_CLIENT_ENV, (
+        f"мир построен не про то: имя {r.facts.get('env_name')!r} не наше — "
+        f"проба остановится раньше, на «имя не пер-клиентское»")
     assert r.verdict != Verdict.CLOSED, f"совпадение с включённым принято: {r.why!r}"
-    assert r.todo.strip()
+    assert r.todo.strip() and is_addressed(r.todo)
+    assert NEIGHBOUR_SLUG in f"{r.why}\n{r.todo}", (
+        f"сосед, держащий ту же переменную, не назван: {r.why!r} / {r.todo!r}")
 
 
 def test_an_empty_token_value_is_a_stop(tmp_path):
