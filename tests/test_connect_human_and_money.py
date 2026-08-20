@@ -85,6 +85,7 @@ import json
 import os
 import re
 import shutil
+import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -119,7 +120,7 @@ from scripts.drill_runner import (COST_TURN_COLD, COST_TURN_WARM, Money,
 
 from chatter.connect import actions, probes, steps
 from chatter.connect.__main__ import main as connect_main
-from chatter.connect.model import Ctx, Owner, StepResult, Verdict
+from chatter.connect.model import Ctx, Owner, StepResult, Verdict, repo_tree
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Константы стенда
@@ -1276,6 +1277,132 @@ def test_a_missing_registry_entry_is_open_and_a_broken_enabled_one_is_a_conflict
         f"неадресное ЧТО СДЕЛАТЬ: {r_absent.todo!r}")
     assert r_broken.verdict == Verdict.CONFLICT, (
         f"включён и не поднимается — это спор фактов: {r_broken.why}")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# ВНЕШНИЙ ВЫЗОВ ИДЁТ ИЗ ДЕРЕВА КОДА, А НЕ ИЗ КОРНЯ ДАННЫХ
+#
+# Найдено РЕПЕТИЦИЕЙ §9.1 (21.08, вариант A), а не чтением: в песочнице S2 не
+# закрывался никогда. `--check` запускается как `python -m chatter.onboard`, а
+# cwd внешнего вызова был `ctx.root` — корень ДАННЫХ, где пакета `chatter` нет
+# вовсе. Дочерний процесс падал на импорте и отдавал rc 1, а человеку
+# печаталось «метка стоит, а автоприёмка красная»: его посылали чинить
+# содержимое, которое зелёное (та же команда из дерева кода даёт rc 0).
+#
+# Правило уже записано в `model.script_path` и просто не доехало до cwd:
+# ДАННЫЕ читаем откуда сказали (`--root`, `-Root`, путь аргументом), КОД
+# исполняем только свой. Сторож структурный: перебором всех вызовов, а не на
+# примере `--check`, — иначе следующий вызов заведут снова из `ctx.root`.
+# ═════════════════════════════════════════════════════════════════════════════
+
+def test_no_external_call_runs_from_the_data_root(tmp_path):
+    """Каждый внешний вызов — из дерева МОДУЛЯ; корень данных едет аргументом."""
+    root = world_ready(tmp_path)
+    runner = FakeRunner(default_replies())
+    ctx = make_ctx(root, runner=runner, env=env_material())
+
+    probe_all(steps.STEPS, ctx)
+    actions.act_s11(ctx)
+
+    assert runner.calls, "ни одного внешнего вызова — сторож проверил бы пустоту"
+    wrong = [(call.argv[0], str(call.cwd)) for call in runner.calls
+             if Path(call.cwd or ".").resolve() != repo_tree().resolve()]
+    assert not wrong, (
+        "внешний вызов идёт из корня ДАННЫХ, а не из дерева кода — при "
+        f"--root в песочнице дочерний процесс не найдёт пакет chatter: {wrong}")
+
+
+def test_the_check_of_s2_is_run_from_the_tree_where_chatter_lives(tmp_path):
+    """Прицельно про S2: именно он падал в репетиции.
+
+    Отдельно от структурного сторожа выше, потому что цена у него своя: S2 —
+    единственный шаг, который зовёт ПАКЕТ (`-m chatter.onboard`), а не файл по
+    пути, и импорт у него разрешается из cwd.
+    """
+    root = world_ready(tmp_path)
+    runner = FakeRunner(default_replies())
+    probes.probe_s2(make_ctx(root, runner=runner))
+
+    checks = [c for c in runner.calls if "chatter.onboard" in " ".join(c.argv)]
+    assert checks, "автоприёмка не звалась вовсе"
+    for call in checks:
+        assert Path(call.cwd).resolve() == repo_tree().resolve(), (
+            f"--check зовётся из {call.cwd}, а пакет chatter лежит в "
+            f"{repo_tree()}: дочерний процесс упадёт на импорте и отдаст rc 1")
+        assert str(root) in " ".join(call.argv), (
+            "каталог сборки обязан ехать АРГУМЕНТОМ, раз cwd больше не он")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# КОД БЕРЁТСЯ ОТ ДЕРЕВА МОДУЛЯ ДАЖЕ ЧЕРЕЗ ЧУЖОЙ СКРИПТ
+#
+# Вторая находка репетиции §9.1 (21.08). `scripts/reencrypt_env.ps1` — тонкая
+# обёртка, и её `-Root` означает КОРЕНЬ РЕПОЗИТОРИЯ: оттуда она берёт и
+# интерпретатор (`<Root>\.venv`), и сам код (`<Root>\scripts\reencrypt_env.py`).
+# Проба S7 передавала туда `ctx.root` — корень ДАННЫХ. В песочнице обёртка
+# падала на «venv не на месте» ДО того, как посмотреть на `.env`, отдавала rc 1
+# без строки статуса, и S7 печатал ПРОТИВОРЕЧИЕ «ответ инструмента не понят»
+# там, где правда — «заведи .env» (прямой прогон .py той же командой:
+# «статус до: no_env»).
+#
+# Это тот же разбор, что уже записан в `model.script_path`, доведённый до
+# конца: ключ «где лежат данные» не имеет права решать, «какой код исполнить».
+# Поэтому машина зовёт `scripts/reencrypt_env.py` НАПРЯМУЮ — код от дерева
+# модуля, данные аргументом `--root`; человеку в «что сделать» по-прежнему
+# называется обёртка, он стоит в репозитории.
+# ═════════════════════════════════════════════════════════════════════════════
+
+def test_s7_runs_the_reencrypt_code_from_the_module_tree(tmp_path):
+    """Код — от дерева модуля, корень данных — аргументом.
+
+    Мир берётся `_token_world`, а не `world_ready`: во втором включённый сосед
+    стоит в реестре БЕЗ конфига, и проба честно останавливается раньше — на
+    «конфиги включённых соседей не читаются». Сторож на нём был бы зелёным по
+    другой причине, ровно как тот, что мутационный гейт поймал слепым 21.08.
+    """
+    root = _token_world(tmp_path, token_env=PER_CLIENT_ENV,
+                        neighbour_env=NEIGHBOUR_ENV, neighbour_enabled=True)
+    runner = FakeRunner(default_replies())
+    probes.probe_s7(make_ctx(root, runner=runner, env=env_material()))
+
+    calls = [c for c in runner.calls if "reencrypt_env" in " ".join(c.argv)]
+    assert calls, "проверка .env.enc не звалась вовсе"
+    for call in calls:
+        argv = list(call.argv)
+        named = [a for a in argv if "reencrypt_env" in a]
+        assert named, argv
+        for a in named:
+            assert Path(a).resolve() == (repo_tree() / "scripts" /
+                                         Path(a).name).resolve(), (
+                f"код взят не от дерева модуля: {a}")
+        assert str(root) not in " ".join(
+            a for a in argv if "reencrypt_env" in a or a.endswith("python.exe")), (
+            "корень ДАННЫХ уехал в путь к КОДУ или к интерпретатору")
+        assert str(root) in argv, (
+            "корень данных обязан ехать аргументом --root, иначе проверялся бы "
+            "чужой .env")
+
+
+def test_the_live_runner_forces_utf8_on_children(tmp_path):
+    """Дочерний процесс обязан писать UTF-8, иначе разбор его вывода — лотерея.
+
+    Проба S7 достаёт «статус до: …» регуляркой из stdout, а `probe_s2` читает
+    вывод автоприёмки. Кириллица, написанная в cp1251 и прочитанная как UTF-8,
+    превращается в мусор — и вердикт становится «ответ не понят» на исправном
+    инструменте. Раньше `PYTHONUTF8=1` ставила PowerShell-обёртка; прямой вызов
+    её не наследует, значит его ставит тот, кто рождает процесс.
+    """
+    from chatter.connect.__main__ import SubprocessRunner
+
+    probe = tmp_path / "probe.py"
+    probe.write_text(
+        "import os\nprint(os.environ.get('PYTHONUTF8', 'НЕТ'))\n",
+        encoding="utf-8")
+    res = SubprocessRunner().run([sys.executable, str(probe)],
+                                 cwd=tmp_path, timeout=60.0)
+    assert res.rc == 0, res.stderr
+    assert res.stdout.strip() == "1", (
+        f"дочерний процесс не получил PYTHONUTF8=1: {res.stdout!r}")
 
 
 # ═════════════════════════════════════════════════════════════════════════════

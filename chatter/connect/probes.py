@@ -56,7 +56,8 @@ from typing import Iterable
 
 from chatter.config.loader import ConfigError, load_config
 from chatter.connect.model import (
-    DRILL_COST_CEILING_USD, Ctx, StepResult, Verdict, script_path)
+    DRILL_COST_CEILING_USD, Ctx, StepResult, Verdict, repo_tree,
+    script_path)
 from chatter.core.client_registry import (
     ClientEntry,
     RegistryError,
@@ -204,11 +205,14 @@ def _state_dir(ctx: Ctx) -> Path:
 def _python(ctx: Ctx) -> str:
     """Интерпретатор для внешних вызовов.
 
-    Венв корня — первым: `python` из PATH это чужое окружение, из которого
-    `chatter.*` не импортируется (грабля jarvis-wrong-python-on-path). Венва
-    нет (песочница §9) — берём тот, которым запущены сами.
+    Венв — от дерева КОДА, а не от `ctx.root`. Первое: `python` из PATH это
+    чужое окружение, из которого `chatter.*` не импортируется (грабля
+    jarvis-wrong-python-on-path). Второе, важнее: `ctx.root` приходит ключом
+    командной строки, и интерпретатор, взятый оттуда, превращает «где лежат
+    данные» в «какой код исполнить» — ровно то, что уже разобрано у
+    `script_path`. Венва в дереве кода нет — берём тот, которым запущены сами.
     """
-    venv = Path(ctx.root) / ".venv" / "Scripts" / "python.exe"
+    venv = repo_tree() / ".venv" / "Scripts" / "python.exe"
     return str(venv) if venv.is_file() else sys.executable
 
 
@@ -244,7 +248,13 @@ def _run(ctx: Ctx, argv: list[str], *, timeout: float):
     отличала «инструмент сказал нет» от «инструмент не отработал».
     """
     try:
-        return ctx.runner.run(argv, cwd=Path(ctx.root), timeout=timeout)
+        # cwd — дерево КОДА, а не корень данных. `-m chatter.onboard` ищет
+        # пакет от текущего каталога, и в песочнице §9.1 (`--root` в чужом
+        # дереве) дочерний процесс падал на импорте, отдавал rc 1, а человеку
+        # печаталось «автоприёмка красная» — его посылали чинить содержимое,
+        # которое зелёное. Найдено репетицией 21.08. Корень ДАННЫХ едет
+        # аргументом (`--check <путь>`, `-Root`), как и требует `script_path`.
+        return ctx.runner.run(argv, cwd=repo_tree(), timeout=timeout)
     except Exception as exc:                      # noqa: BLE001 — DEV-18: не глотаем
         raise _Unreadable(
             f"команда {argv[0]} не отработала: {type(exc).__name__}: {exc}"
@@ -1352,9 +1362,17 @@ def probe_s7(ctx: Ctx) -> StepResult:
             f".\\scripts\\reencrypt_env.ps1",
             facts)
 
-    argv = ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
-            "-File", str(script_path("reencrypt_env.ps1")),
-            "-Root", str(ctx.root), "-Check"]
+    # Зовём .py НАПРЯМУЮ, а не обёртку .ps1, и это не косметика. У обёртки
+    # `-Root` означает КОРЕНЬ РЕПОЗИТОРИЯ: оттуда она берёт и интерпретатор
+    # (`<Root>\.venv`), и сам код (`<Root>\scripts\reencrypt_env.py`). Мы же
+    # передавали туда `ctx.root` — корень ДАННЫХ, который приезжает ключом
+    # `--root`. В песочнице §9.1 обёртка падала на «venv не на месте» ДО того,
+    # как посмотреть на `.env`, и S7 печатал ПРОТИВОРЕЧИЕ «ответ инструмента не
+    # понят» там, где правда — «заведи .env» (найдено репетицией 21.08).
+    # Человеку в «что сделать» по-прежнему называется обёртка: он стоит в
+    # репозитории, и для него оба корня совпадают.
+    argv = [_python(ctx), str(script_path("reencrypt_env.py")),
+            "--root", str(ctx.root), "--check"]
     facts["argv"] = argv
     try:
         res = _run(ctx, argv, timeout=_TIMEOUT_ENC)

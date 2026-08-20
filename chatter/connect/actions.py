@@ -62,7 +62,7 @@ import yaml
 from chatter.config.loader import ConfigError, load_config
 from chatter.connect.model import (
     DRILL_COST_CEILING_USD, ConnectContractError, Ctx, StepResult, Verdict,
-    script_path)
+    repo_tree, script_path)
 from chatter.core.client_registry import (
     RegistryError, normalize_path, parse_registry)
 from chatter.payments.drill_gate import DRILL_CONTACTS
@@ -330,7 +330,10 @@ def _run(ctx: Ctx, argv: list[str], *, timeout: float):
     `isinstance` против конкретного класса не спрашивается (§12.7 п.7):
     подставной раннер сторожа обязан работать по ФОРМЕ, а не по родству.
     """
-    return ctx.runner.run(list(argv), cwd=Path(ctx.root), timeout=timeout)
+    # cwd — дерево КОДА (`model.repo_tree`), а не `ctx.root`: см. тот же
+    # разбор у `probes._run`. Корень данных уезжает аргументом, потому что
+    # «где лежат данные» не имеет права решать, «какой код исполнить».
+    return ctx.runner.run(list(argv), cwd=repo_tree(), timeout=timeout)
 
 
 def _tail(text: str, limit: int = 400) -> str:

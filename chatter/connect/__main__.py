@@ -113,13 +113,22 @@ class SubprocessRunner:
     клавиатуры (секреты вводит владелец отдельными командами, §5.4), а
     подпроцесс, тихо ждущий ввода, — это подключение, повисшее без строки в
     выводе. `errors="replace"` — потому что вывод у скриптов русский и
-    украинский, а консольная кодовая страница под Windows своя.
+    украинский, а консольная кодовая страница под Windows своя; по той же
+    причине детям ставится `PYTHONUTF8=1` (см. `run`).
     """
 
     def run(self, argv: list[str], *, cwd: Path, timeout: float) -> CommandResult:
+        # `PYTHONUTF8=1` детям — обязательное, а не «на всякий случай». Вывод
+        # разбирается регулярками («статус до: …» у S7, вердикт автоприёмки у
+        # S2), и кириллица, написанная ребёнком в cp1251, после чтения как
+        # UTF-8 превращается в мусор: вердикт становится «ответ не понят» на
+        # исправном инструменте. Раньше переменную ставила PowerShell-обёртка;
+        # прямой вызов её не наследует, значит ставит тот, кто рождает процесс.
+        child_env = dict(os.environ)
+        child_env["PYTHONUTF8"] = "1"
         try:
             proc = subprocess.run(
-                list(argv), cwd=str(cwd), timeout=timeout,
+                list(argv), cwd=str(cwd), timeout=timeout, env=child_env,
                 stdin=subprocess.DEVNULL, capture_output=True,
                 text=True, encoding="utf-8", errors="replace")
         except subprocess.TimeoutExpired as exc:
