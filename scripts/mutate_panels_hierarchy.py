@@ -46,7 +46,7 @@ STATUS_BLOCK = """<h2>Стан</h2>
   <div class='row'><span><span class='dot {st['dot']}'></span>
     <b>{esc(st['title'])}</b> <span class='sub'>· {esc(st['sub'])}
     · heartbeat {esc(hb_txt)}</span></span>{pause_btn}</div>
-</div>
+</div>{beat_src_html}
 
 """
 
