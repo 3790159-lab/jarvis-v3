@@ -55,7 +55,8 @@ from pathlib import Path
 from typing import Iterable
 
 from chatter.config.loader import ConfigError, load_config
-from chatter.connect.model import Ctx, StepResult, Verdict
+from chatter.connect.model import (
+    DRILL_COST_CEILING_USD, Ctx, StepResult, Verdict, script_path)
 from chatter.core.client_registry import (
     ClientEntry,
     RegistryError,
@@ -1319,7 +1320,7 @@ def probe_s7(ctx: Ctx) -> StepResult:
             facts)
 
     argv = ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
-            "-File", str(Path(ctx.root) / "scripts" / "reencrypt_env.ps1"),
+            "-File", str(script_path("reencrypt_env.ps1")),
             "-Root", str(ctx.root), "-Check"]
     facts["argv"] = argv
     try:
@@ -1507,8 +1508,16 @@ def probe_s9(ctx: Ctx) -> StepResult:
     owner = cfg.settings.control.owner_chat_id
     facts["owner_id"] = owner
     if owner is None:
-        # Кого искать в allowlist — неизвестно, значит `owner_present` не
-        # проверен; и `drill_present` тоже: до него мы не дошли.
+        # `owner_present` — ФАЛЬШ, а не `None`, и это не спор с §12.12 п.2.
+        # Правило «не проверяли — None» отвечает на вопрос «смотрели ли мы»;
+        # здесь вопрос другой и ответ на него полный: владельца в allowlist
+        # нет — его нет вовсе, вписывать в конфиг некого. §12.6 п.2 типизирует
+        # ключ `bool`, а не `bool | None`, и разница предметная: `None` тут
+        # читался бы как «может, и есть», а именно этого случая — пульта, до
+        # которого владельцу не достучаться, — Д6 и не допускает.
+        #
+        # `drill_present` остаётся `None` честно: до него проба не дошла.
+        facts["owner_present"] = False
         return _open(
             "S9",
             "в settings.yaml не задан control.owner_chat_id — кого считать "
@@ -1910,17 +1919,27 @@ def probe_s13(ctx: Ctx) -> StepResult:
     БД (§2.3, Д3). Прерванный прогон опознаётся по файлу прогресса: харнесс
     пишет отчёт ПОСЛЕ КАЖДОГО ШАГА именно на этот случай (§6).
 
-    Смету проба НЕ считает. Ставки и правило холодного хода живут в харнессе, и
-    вторая их копия разошлась бы молча ровно там, где цена печатается человеку.
-    `act_s13` зовёт харнесс в режиме плана (без `--yes`) и берёт смету из его
-    вывода (§12.9 п.5) — остановка всё равно называет цену ДО списания, как
-    требует решение владельца q4.
+    Смету проба НЕ СЧИТАЕТ и считать не может: ставки и правило холодного хода
+    живут в харнессе, и вторая их копия разошлась бы молча ровно в строке про
+    деньги. Но `estimate_usd` в `facts` она обязана положить — по §12.6 п.2 это
+    `float`, а не `float | None`, в отличие от соседних `run_path` и `rc`.
+    Разница не формальная: «сколько это будет стоить» — вопрос, у которого ответ
+    есть ВСЕГДА, даже когда спросить харнесс не у кого.
+
+    Поэтому проба кладёт ПОТОЛОК §2.3 и честно помечает `estimate_read: False`:
+    это не замер, а верхняя граница. Замер делает `act_s13` — зовёт харнесс в
+    режиме плана (без `--yes`) и берёт цифру из его вывода (§12.9 п.5),
+    переписывая оба ключа. Два значения тут не спорят: у них разные `estimate_read`,
+    и остановка называет цену ДО списания в обоих случаях (решение владельца q4).
 
     Вердикт НЕ смотрит на `ctx.drill_yes`/`ctx.drill_again`: флаг — разрешение
     действовать, а не факт на диске.
     """
     facts: dict = {"run_path": None, "rc": None, "runs_found": None,
-                   "rejected_in_own_dir": None, "drill_ids": None}
+                   "rejected_in_own_dir": None, "drill_ids": None,
+                   # Потолок, а не замер, и это сказано ключом рядом: соврать
+                   # точностью в строке про деньги нельзя (§12.9 п.5).
+                   "estimate_usd": DRILL_COST_CEILING_USD, "estimate_read": False}
     try:
         scenario_path, scenario = _scenario(ctx)
     except _Unreadable as exc:

@@ -55,7 +55,7 @@ from typing import Any, Callable, Mapping
 
 from chatter.connect.model import (
     CommandResult, CommandRunner, ConnectContractError, Ctx, Owner, Step,
-    StepResult, Verdict)
+    StepResult, Verdict, repo_tree)
 # Имя файла отметки живости — ОДНО определение на всех (`runtime_paths`):
 # шесть мест собирали его догадкой, и цена догадки измерена 16.08 («heartbeat
 # 49398с тому» при живом процессе).
@@ -419,8 +419,9 @@ def _run_plan(steps: tuple[Step, ...], make_ctx: Callable[[], Ctx]) -> int:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _default_root() -> Path:
-    """Корень дерева: `chatter/connect/__main__.py` → на два уровня вверх."""
-    return Path(__file__).resolve().parents[2]
+    """Корень ДАННЫХ по умолчанию — дерево модуля (§12.7 п.3: «root=None —
+    корень репозитория»). Считается в одном месте, `model.repo_tree()`."""
+    return repo_tree()
 
 
 def _build_parser() -> argparse.ArgumentParser:

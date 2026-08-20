@@ -61,7 +61,8 @@ import yaml
 
 from chatter.config.loader import ConfigError, load_config
 from chatter.connect.model import (
-    ConnectContractError, Ctx, StepResult, Verdict)
+    DRILL_COST_CEILING_USD, ConnectContractError, Ctx, StepResult, Verdict,
+    script_path)
 from chatter.core.client_registry import (
     RegistryError, normalize_path, parse_registry)
 from chatter.payments.drill_gate import DRILL_CONTACTS
@@ -128,11 +129,6 @@ S13_RUN_TIMEOUT_S = 3 * 3600.0
 #: третьего имени у его файлов быть не должно.
 LEAD_SESSION_REL = ".secrets/drill_lead.session"
 LEAD_PEERS_REL = ".secrets/drill_lead_peers.txt"
-
-#: Потолок §2.3 («~$0.20–0.30 за прогон»). Берётся ТОЛЬКО когда смету от
-#: харнесса прочитать не удалось: человек обязан увидеть порядок суммы до
-#: списания, и в этом случае он видит верхнюю границу, а не выдуманную точность.
-DRILL_COST_CEILING_USD = 0.30
 
 _ESTIMATE_RE = re.compile(r"≈\s*\$\s*([0-9]+(?:\.[0-9]+)?)")
 
@@ -783,7 +779,9 @@ def act_s11(ctx: Ctx) -> StepResult:
     `-Root` передаётся явно: у скрипта дефолт `C:\\jarvis`, и репетиция §9.1 в
     отдельном корне без этого ключа правила бы ЖИВОЙ реестр.
     """
-    script = Path(ctx.root) / "scripts" / "chatter_client.ps1"
+    # Скрипт — КОД, и берётся он от дерева модуля, а не от `ctx.root`
+    # (см. `model.script_path`). Слаг и корень данных уезжают аргументами.
+    script = script_path("chatter_client.ps1")
     # `radius_ok=False` — стартовое значение ВСЕХ ветвей отказа, и это не
     # экономия на `None`: с диска «замер сказал нет» и «замер не состоялся»
     # выглядят одинаково (клиент так и не включён), а причину знает только
@@ -1116,7 +1114,10 @@ def act_s13(ctx: Ctx) -> StepResult:
             "если прогон нужен повторно — добавь --drill-again вместе с --drill-yes",
             facts, awaits_human=True)
 
-    runner = Path(ctx.root) / "scripts" / "drill_runner.py"
+    # Харнесс — КОД (см. `model.script_path`): в репетиционном корне §9.1
+    # его нет вовсе, а взятый из `--root` он превратил бы ключ «где данные»
+    # в «какой код исполнить». БД, лог, отчёты и сценарий — из `ctx.root`.
+    runner = script_path("drill_runner.py")
     if not runner.is_file():
         return _conflict(
             "S13", f"нет харнесса {runner}: ни смету посчитать, ни прогон судить",
