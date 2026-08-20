@@ -551,7 +551,7 @@ def read_source(rel: str) -> tuple[str, bool]:
     return text.replace("\r\n", "\n"), bom
 
 
-def _newline(rel: str) -> str:
+def _newline(path) -> str:
     """Перевод строки, которым файл ЖИВЁТ на диске.
 
     Замерено, а не предположено: `.py` этого репозитория лежат в LF
@@ -560,23 +560,58 @@ def _newline(rel: str) -> str:
     оригинала не только мутацией, но и КАЖДОЙ строкой. Гейт обязан менять
     ровно то, что назвал: иначе «что именно проверяла эта мутация» перестаёт
     быть ответимым вопросом.
+
+    Файла может не быть вовсе — мета-сторож DEV-26 пишет во ВРЕМЕННЫЙ каталог,
+    а не в репозиторий. Тогда переводом считается LF: ничего не переводим и
+    размер записи не трогаем (а размер здесь несущий — на нём стоит вся
+    проверка байткода).
     """
-    raw = (ROOT / rel).read_bytes()
-    return "\r\n" if raw.count(b"\r\n") else "\n"
+    p = Path(path)
+    if not p.is_file():
+        return "\n"
+    return "\r\n" if p.read_bytes().count(b"\r\n") else "\n"
 
 
-def write_mutant(rel: str, text: str, bom: bool) -> None:
+def write_mutant(path, text: str, bom: bool = False) -> None:
     """Записать мутанта, вернуть BOM на место и выдать файлу СВОЙ mtime.
+
+    ⚠️ ПОДПИСЬ — ОБЩИЙ КОНТРАКТ, А НЕ ЛИЧНОЕ ДЕЛО ЭТОГО ГЕЙТА.
+    `tests/test_mutation_gate_bytecode.py` находит ВСЕ `scripts/mutate_*.py`,
+    берёт у каждого `write_mutant` и проверяет ПОВЕДЕНИЕ: две записи одного
+    размера обязаны получить разные mtime. Гейт, поменявший подпись, эту
+    проверку не проваливает — он из-под неё ВЫХОДИТ: мета-сторож падает на
+    `TypeError`, а гейт продолжает рапортовать «все мутации пойманы» с
+    НИКЕМ НЕ ПРОВЕРЕННОЙ защитой от чужого байткода. Ровно тот класс, который
+    эта арка и выкапывает, — вещь, выглядящая покрытием. Замерено 20.08:
+    подпись была `(rel, text, bom)`, и мета-сторож не смог позвать её вовсе.
+
+    Отсюда три обязательства, и все три — не стиль:
+      * первый аргумент — НАСТОЯЩИЙ путь: мета-сторож пишет во временный
+        каталог и в репозиторий не лезет;
+      * `bom` — с умолчанием, чтобы вызов двумя аргументами работал;
+      * подпись mtime ставится ВСЕГДА, в обеих ветках. Она защищает от
+        байткода и к кодировке отношения не имеет.
+
+    Относительные пути — забота `write_mutant_rel`, отдельным именем.
 
     Без подписи два мутанта одинакового размера в одну секунду делят один
     байткод, и второй прогон проверяет ПЕРВЫЙ код (DEV-26). Для `.ps1`
     подпись безвредна, для `.py` — обязательна.
     """
-    path = ROOT / rel
-    data = text.replace("\n", _newline(rel)).encode("utf-8")
-    path.write_bytes((codecs.BOM_UTF8 + data) if bom else data)
+    p = Path(path)
+    data = text.replace("\n", _newline(p)).encode("utf-8")
+    p.write_bytes((codecs.BOM_UTF8 + data) if bom else data)
     stamp = _MTIME_BASE + next(_mtime_seq)
-    os.utime(path, (stamp, stamp))
+    os.utime(p, (stamp, stamp))
+
+
+def write_mutant_rel(rel: str, text: str, bom: bool) -> None:
+    """То же, но путь ОТНОСИТЕЛЬНО корня репозитория — этим живёт весь гейт.
+
+    Отдельным именем намеренно: удобство зовущего не имеет права менять
+    подпись, по которой гейт проверяют снаружи.
+    """
+    write_mutant(ROOT / rel, text, bom)
 
 
 # ── статическая сверка мишеней (способ №4) ──────────────────────────────────
@@ -713,7 +748,7 @@ def main(argv: list[str]) -> int:
         mutated = text
         for o, n in zip(olds, news):
             mutated = mutated.replace(o, n, 1)
-        write_mutant(rel, mutated, bom)
+        write_mutant_rel(rel, mutated, bom)
         try:
             caught, answer = run(test)
         finally:
