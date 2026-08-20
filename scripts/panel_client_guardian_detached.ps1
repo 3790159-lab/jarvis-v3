@@ -342,6 +342,20 @@ if (-not $NoLoop) {
         }
 
         $alive = Test-Panel -PanelHost $panelHost -PanelPort $Port
+        if (-not $alive) {
+            # ПЕРЕСПРОСИТЬ АДРЕС ПЕРЕД ПРИГОВОРОМ. Кэш живёт между циклами, а
+            # адрес тайнета может смениться под живой панелью: тогда «не
+            # отвечает» означало бы, что мы стучимся по старому адресу, а
+            # платой был бы taskkill владельца порта и перезапуск здоровой
+            # панели. Переспрос стоит одного вызова tailscale и только на
+            # красном.
+            $fresh = Resolve-PanelHost -Refresh
+            if ($fresh -and $fresh -ne $panelHost) {
+                Write-G "адрес бинда сменился: $panelHost -> $fresh; перепроверяю"
+                $panelHost = $fresh
+                $alive = Test-Panel -PanelHost $panelHost -PanelPort $Port
+            }
+        }
         if ($alive) {
             if ($lastState -ne 'alive') { Write-G "панель жива ($panelHost`:$Port)"; $lastState = 'alive' }
             # Живая панель обнуляет счётчик отказов: окружение починили, и
