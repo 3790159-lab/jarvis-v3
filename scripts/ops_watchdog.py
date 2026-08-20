@@ -126,7 +126,7 @@ LABELS = {
 # ── десятая проба: клиентская панель (:8011) ───────────────────────────────
 # Порт и слаг здесь — ДЕФОЛТЫ, а не источник правды об адресе. Адрес бинда
 # берётся ровно тем же кодом, каким его вычисляет сама панель (см.
-# `panel_client_bind_host` ниже): два независимых вычисления адреса разойдутся
+# `_panel_client_snapshot` ниже): два независимых вычисления адреса разойдутся
 # ровно тогда, когда адрес тайнета сменится, и проба будет красной на здоровой
 # панели — то есть станет фоном.
 #
@@ -1292,9 +1292,21 @@ def probe_secrets_bundle(snapshot: dict, *,
         bundle.get("name"), lag_days, max_lag_days)}
 
 
-def probe_panel_client(status=None, *, host=None, port: int = PANEL_CLIENT_PORT,
-                       problem: str | None = None) -> dict:
+def probe_panel_client(snapshot: dict) -> dict:
     """Десятая проверка: клиентская панель отвечает на своём порту.
+
+    Аргумент — СНИМОК, одним позиционным словарём, как у `probe_worktree` и
+    `probe_secrets_bundle`. Форма:
+
+        {"host": <str|None>, "port": <int>, "status": <int|None>,
+         "problem": <str|None>}
+
+    `problem` может отсутствовать вовсе — читаем через `.get()`, отсутствие
+    ключа не ошибка. Единая форма у всех снимочных проб не косметика: пока
+    подпись была россыпью именованных аргументов, снимок уезжал в первый
+    позиционный (`status`), `host` оставался пустым, и здоровая панель
+    получала вердикт `no_bind_address`. Это худший из возможных отказов —
+    «не смогли спросить» под видом измерения.
 
     Три исхода различаются ПРИЧИНОЙ, потому что чинятся они по-разному:
 
@@ -1311,6 +1323,12 @@ def probe_panel_client(status=None, *, host=None, port: int = PANEL_CLIENT_PORT,
     шумом. Адрес называется в `detail`, где ему и место: без него разбор снова
     начинается с догадки, КУДА ходила проба.
     """
+    snapshot = snapshot or {}
+    host = snapshot.get("host")
+    port = snapshot.get("port", PANEL_CLIENT_PORT)
+    status = snapshot.get("status")
+    problem = snapshot.get("problem")
+
     host = (host or "").strip() if isinstance(host, str) else host
     if not host:
         # Причина от резолвера дословно — она объясняет, ПОЧЕМУ адреса нет
@@ -1382,10 +1400,7 @@ def probe_all(http_get, disk_usage, min_disk_gb: float = MIN_DISK_GB,
     if secrets_snapshot:
         probes["secrets_bundle"] = probe_secrets_bundle(secrets_snapshot)
     if panel_client_snapshot:
-        ps = panel_client_snapshot
-        probes["panel_client"] = probe_panel_client(
-            ps.get("status"), host=ps.get("host"),
-            port=ps.get("port", PANEL_CLIENT_PORT), problem=ps.get("problem"))
+        probes["panel_client"] = probe_panel_client(panel_client_snapshot)
     return probes
 
 
@@ -1413,60 +1428,32 @@ def _load_run_panel_client():
     силе: он по-прежнему может сообщить о смерти бэкенда, когда всё, что
     делит с ним окружение, мертво.
     """
+    # 🔴 ОДИН ОБЪЕКТ МОДУЛЯ НА ВСЕХ, А НЕ СВЕЖАЯ КОПИЯ НА КАЖДЫЙ ВЫЗОВ.
+    # Свежая копия делала бы утверждение «адрес пробы и адрес бинда берутся
+    # одной функцией» НЕПРОВЕРЯЕМЫМ: подменить резолвер снаружи нельзя, а
+    # значит нельзя и отличить «берём общим резолвером» от «сегодня числа
+    # совпали». Плюс каждая копия — свой `resolve_client_host`, то есть ровно
+    # то раздвоение, которое мы и запрещаем.
+    cached = sys.modules.get("run_panel_client")
+    if cached is not None:
+        return cached
     import importlib.util
     spec = importlib.util.spec_from_file_location(
         "run_panel_client", str(PANEL_CLIENT_RUNNER))
     if spec is None or spec.loader is None:
         raise ImportError("не удалось загрузить %s" % PANEL_CLIENT_RUNNER)
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    # В `sys.modules` ДО исполнения — стандартный порядок импорта, и он же
+    # делает объект общим с обычным `import run_panel_client`.
+    sys.modules["run_panel_client"] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        # Недоисполненный модуль в кэше хуже отсутствующего: следующий импорт
+        # получил бы полупустой объект и молча решил, что всё на месте.
+        sys.modules.pop("run_panel_client", None)
+        raise
     return module
-
-
-def panel_client_bind_host(module=None, environ=None):
-    """(host, problem) — адрес, на котором клиентская панель ДЕЙСТВИТЕЛЬНО
-    слушает.
-
-    🔴 ЕДИНСТВЕННОЕ место, где этот адрес вычисляется для пробы, и вычисляет
-    его НЕ watchdog: зовётся `resolve_client_host` вместе с `tailnet_ip` из
-    `scripts/run_panel_client.py` — ровно те функции, которыми панель выбирает
-    адрес бинда. Своя копия логики (или зашитый `127.0.0.1`) была бы вторым
-    числом на одну вещь: панель биндится на адрес тайнета, на петле её НЕТ, и
-    проба по петле была бы красной на здоровой панели — то есть фоном.
-
-    Аргументы передаются те же, что и при запуске гардианом: без `--host` и
-    без `--allow-any-interface`.
-
-    🔴 ПРОПАЛ ТАЙНЕТ ≠ ПАНЕЛЬ УМЕРЛА (спека §2.3). `resolve_client_host` при
-    недоступном tailscale НЕ отказывает, а молча падает на петлю — и это
-    правильно для ЗАПУСКА (панель без тайнета должна подняться хоть куда-то),
-    но для ИЗМЕРЕНИЯ это ловушка: живая панель, поднятая когда тайнет был,
-    слушает тайнетовый адрес, на петле её нет, и проба сказала бы
-    `no_response` о совершенно здоровой панели. Дальше гардиан снёс бы
-    владельца порта и перезапустил живое — ровно тот класс, что стоил 13 ч 42
-    мин простоя 16.08.
-
-    Поэтому: петля годится как адрес ТОЛЬКО когда её выбрали осознанно
-    (`PANEL_CLIENT_HOST` задан). Если переменной нет и тайнета нет — адреса у
-    нас НЕТ, и это `no_bind_address`, то есть «не могу измерить», а не
-    «мертва». Резолвер при этом не тронут: разведено здесь, на стороне
-    наблюдателя.
-
-    ⚠️ НАЗВАННАЯ ГРАНИЦА: `PANEL_CLIENT_HOST` читается из окружения ЭТОГО
-    процесса. Если панель подняли с этой переменной, а задача watchdog'а её не
-    видит, адреса разойдутся — сегодня переменная не задана ни там, ни там.
-    """
-    module = _load_run_panel_client() if module is None else module
-    environ = os.environ if environ is None else environ
-    ip = (module.tailnet_ip() or "").strip()
-    explicit = (environ.get(module.HOST_VAR) or "").strip()
-    host, problem = module.resolve_client_host(None, environ=environ, ip=ip)
-    if host and not explicit and not ip:
-        return None, (
-            "тайнет недоступен (tailnet_ip пуст), а адрес бинда ожидался "
-            "тайнетовым: %s — это ФОЛБЭК резолвера, а не адрес, на котором "
-            "живёт панель. Измерять нечем" % host)
-    return host, problem
 
 
 def _panel_http_get(host: str, port: int, path: str):
@@ -1483,28 +1470,78 @@ def _panel_http_get(host: str, port: int, path: str):
         return None                         # refused / timeout -> порт молчит
 
 
-def _panel_client_snapshot(port: int = PANEL_CLIENT_PORT) -> dict | None:
+def _panel_client_snapshot(port: int = PANEL_CLIENT_PORT, module=None,
+                           environ=None) -> dict | None:
     """Снимок для десятой пробы: адрес бинда + статус `/health` на нём.
+
+    🔴 ЕДИНСТВЕННОЕ МЕСТО, ГДЕ АДРЕС ПРОБЫ ВООБЩЕ СОБИРАЕТСЯ, и собирает его
+    НЕ watchdog: зовутся `resolve_client_host` и `tailnet_ip` из
+    `scripts/run_panel_client.py` — ровно те функции, которыми панель выбирает
+    адрес БИНДА. Ни своей копии логики, ни запасного литерала-адреса здесь
+    нет и быть не должно: панель биндится на адрес тайнета, на петле её НЕТ, и
+    проба по петле была бы красной на здоровой панели — то есть фоном.
+    Промежуточная функция-обёртка тоже убрана: пока сбор адреса стоял этажом
+    ниже, «одна функция» оставалась утверждением, которое нечем проверить.
+
+    `module` инъектируем намеренно, и это не тестовый костыль: подменив
+    резолвер, можно ДОКАЗАТЬ, что проба поехала за ним, а не что сегодня
+    совпали числа. При `module=None` берётся общий объект модуля (см.
+    `_load_run_panel_client`) — тот же, что получает обычный импорт.
+
+    🔴 ПРОПАЛ ТАЙНЕТ ≠ ПАНЕЛЬ УМЕРЛА (спека §2.3). `resolve_client_host` при
+    недоступном tailscale НЕ отказывает, а молча падает на петлю — и это
+    правильно для ЗАПУСКА (панель без тайнета должна подняться хоть куда-то),
+    но для ИЗМЕРЕНИЯ это ловушка: живая панель, поднятая когда тайнет был,
+    слушает тайнетовый адрес, на петле её нет, и проба сказала бы
+    `no_response` о совершенно здоровой панели. Дальше гардиан снёс бы
+    владельца порта и перезапустил живое — ровно тот класс, что стоил 13 ч 42
+    мин простоя 16.08.
+
+    Поэтому петля годится как адрес ТОЛЬКО когда её выбрали осознанно
+    (`PANEL_CLIENT_HOST` задан). Если переменной нет и тайнета нет — адреса у
+    нас НЕТ, и это `no_bind_address`, то есть «не могу измерить», а не
+    «мертва». Сам резолвер при этом не тронут: разведено здесь, на стороне
+    наблюдателя.
 
     `None` возвращается ТОЛЬКО когда спросить адрес нечем (нет
     `run_panel_client.py` — значит watchdog не на деплой-хосте): тогда проба
     просто не выполняется в этом цикле. Обратная совместимость тут не
     вежливость — watchdog не имеет права слать DOWN о том, чего он не мерил.
+    Вычисленный, но НЕГОДНЫЙ адрес — совсем другое: он уезжает в снимок как
+    `problem`, и проба станет КРАСНОЙ. Эти два случая нельзя выдавать один за
+    другой.
 
-    Вычисленный, но НЕГОДНЫЙ адрес — совсем другое дело: он уезжает в снимок
-    как `problem`, и проба станет КРАСНОЙ. Эти два случая нельзя выдавать один
-    за другой.
+    ⚠️ НАЗВАННАЯ ГРАНИЦА: `PANEL_CLIENT_HOST` читается из окружения ЭТОГО
+    процесса. Если панель подняли с этой переменной, а задача watchdog'а её не
+    видит, адреса разойдутся — сегодня переменная не задана ни там, ни там.
     """
-    if not PANEL_CLIENT_RUNNER.exists():
-        return None
+    environ = os.environ if environ is None else environ
+    if module is None:
+        if not PANEL_CLIENT_RUNNER.exists():
+            return None
+        try:
+            module = _load_run_panel_client()
+        except Exception as exc:
+            # DEV-18: не глотаем. «Не смогли спросить» — это не «панель
+            # мертва», поэтому в лог и пропуск пробы, а не ложный DOWN.
+            print("[ops_watchdog] panel_client launcher unloadable: %s" % exc,
+                  file=sys.stderr)
+            return None
     try:
-        host, problem = panel_client_bind_host()
+        ip = (module.tailnet_ip() or "").strip()
+        explicit = (environ.get(module.HOST_VAR) or "").strip()
+        host, problem = module.resolve_client_host(None, ip=ip)
     except Exception as exc:
-        # DEV-18: не глотаем. Сбой самого резолвера — это «не знаем», а не
-        # «панель мертва», поэтому в лог и пропуск пробы, а не ложный DOWN.
         print("[ops_watchdog] panel_client host resolve failed: %s" % exc,
               file=sys.stderr)
         return None
+
+    if host and not explicit and not ip:
+        host, problem = None, (
+            "тайнет недоступен (tailnet_ip пуст), а адрес бинда ожидался "
+            "тайнетовым: %s — это ФОЛБЭК резолвера, а не адрес, на котором "
+            "живёт панель. Измерять нечем" % host)
+
     if not host:
         return {"host": None, "port": port, "status": None, "problem": problem}
     return {"host": host, "port": port, "problem": None,
