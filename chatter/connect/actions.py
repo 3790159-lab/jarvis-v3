@@ -512,7 +512,8 @@ def act_s9(ctx: Ctx) -> StepResult:
         return _open(
             "S9",
             f"нет {path}: allowlist писать некуда, конфиг клиента ещё не на месте",
-            "закрой S4 (перенос конфига) — он идёт раньше по карте §3",
+            f"закрой S4: перенеси собранный каталог в {_client_dir(ctx)} — "
+            f"он идёт раньше по карте §3",
             facts, awaits_human=True)
 
     text = path.read_text(encoding="utf-8")
@@ -537,8 +538,8 @@ def act_s9(ctx: Ctx) -> StepResult:
             "S9",
             "в settings.yaml нет `control.owner_chat_id` — владельца в allowlist "
             "внести неоткуда, а без него пульт и карточки клиента идут в никуда",
-            "впиши control.owner_chat_id (id владельца в контрол-боте клиента) "
-            "в settings.yaml",
+            f"впиши control.owner_chat_id (id владельца в контрол-боте "
+            f"клиента) в {path}",
             facts, awaits_human=True)
 
     drill = _drill_ids(ctx.slug)
@@ -575,7 +576,7 @@ def act_s9(ctx: Ctx) -> StepResult:
     except _EditError as exc:
         return _conflict(
             "S9", f"правка allowlist не удалась: {exc}",
-            f"впиши allowlist руками: telegram.allowlist: {ids}", facts)
+            f"впиши руками в {path}: telegram.allowlist: {ids}", facts)
 
     # Разбор ДО подмены: боевой конфиг не имеет права ни секунды пролежать в
     # виде, который `load_config` не читает.
@@ -588,12 +589,12 @@ def act_s9(ctx: Ctx) -> StepResult:
             "S9",
             f"после правки settings.yaml не разбирается ({exc}) — на диск такое "
             f"не кладём",
-            f"впиши allowlist руками: telegram.allowlist: {ids}", facts)
+            f"впиши руками в {path}: telegram.allowlist: {ids}", facts)
     if written != ids:
         return _conflict(
             "S9",
             f"после правки allowlist читается как {written}, ожидался {ids}",
-            f"впиши allowlist руками: telegram.allowlist: {ids}", facts)
+            f"впиши руками в {path}: telegram.allowlist: {ids}", facts)
     # Д14 структурно: шаг про allowlist не имеет права коснуться гейта воронки.
     # Проверка стоит здесь, а не в сторожах, потому что цена измеряется в
     # живых лидах: `funnel_gate: true` + catch-up = веер ответов незнакомцам
@@ -603,7 +604,7 @@ def act_s9(ctx: Ctx) -> StepResult:
             "S9",
             "правка allowlist задела funnel_gate — это запрещено (§5.5, Д14): "
             "трафик открывает владелец отдельной командой",
-            f"впиши allowlist руками: telegram.allowlist: {ids}", facts)
+            f"впиши руками в {path}: telegram.allowlist: {ids}", facts)
 
     _atomic_write_text(path, new_text)
     facts.update({
@@ -825,7 +826,8 @@ def act_s11(ctx: Ctx) -> StepResult:
             "S11",
             f"записи «{ctx.slug}» в реестре нет — включать нечего, а скрипт "
             f"подъёма правит именно её",
-            "закрой S10 (запись в реестр) — он идёт раньше по карте §3",
+            f"закрой S10: впиши запись «{ctx.slug}» с enabled: false в "
+            f"{_registry_path(ctx)} — он идёт раньше по карте §3",
             facts)
     facts["session"] = entry.session
     if not _loads(ctx):
@@ -871,8 +873,10 @@ def act_s11(ctx: Ctx) -> StepResult:
             "S11",
             f"{script.name} вернул {res.rc}: подъём остановлен (замер радиуса "
             f"отказал или реестр не принял правку). Вывод: {out}",
-            f"прочитай вывод скрипта глазами и разбери отказ; диалоги, "
-            f"помеченные 🔴, ведёт человек — ответь в них сам",
+            f"разбери отказ по выводу выше и по logs/chatter_{ctx.slug}.log; "
+            f"диалоги, помеченные 🔴, ведёт человек — ответь в них сам, "
+            f"затем повтори .\\scripts\\chatter_client.ps1 -Slug "
+            f"{ctx.slug} -Action start",
             facts)
 
     # Факт подъёма — `enabled: true` в реестре (§3). Читаем его тем же

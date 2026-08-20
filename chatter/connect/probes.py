@@ -1304,7 +1304,8 @@ def probe_s7(ctx: Ctx) -> StepResult:
             "S7",
             f"конфиги включённых соседей не читаются ({'; '.join(unreadable)}) "
             f"— уникальность имени переменной токена не доказана",
-            "почини конфиги названных клиентов либо выключи их, затем повтори",
+            f"почини конфиги: {'; '.join(unreadable)} — либо выключи этих "
+            f"клиентов в {_registry_path(ctx)} (enabled: false)",
             facts)
 
     value = (ctx.env.get(env_name) or "")
@@ -1358,8 +1359,8 @@ def probe_s7(ctx: Ctx) -> StepResult:
             "S7",
             ".env.enc не расшифровывается (unreadable): нет энтропии, чужая "
             "машина или порча файла. «Не смогли прочитать» не равно «пусто»",
-            "восстанови .env.enc из бандла секретов на этой машине, затем "
-            "повтори",
+            "восстанови .env.enc из бандла (.jrvbak) на ЭТОЙ машине, затем "
+            "проверь: .\\scripts\\reencrypt_env.ps1 -Check",
             facts)
     if state != ENV_ENC_IN_SYNC:
         # `stale` — рабочее состояние машины, но НЕ то, из которого токен
@@ -1761,8 +1762,9 @@ def probe_s12(ctx: Ctx) -> StepResult:
             "S12",
             f"наблюдаемого состояния {state_path} ещё нет — супервизор не "
             f"отработал ни одного цикла",
-            "убедись, что таск JarvisChatterGuardian живёт, и подожди один "
-            "его цикл (~30 с)",
+            f"проверь супервизор: Get-ScheduledTask -TaskName "
+            f"JarvisChatterGuardian, подожди один его цикл (~30 с) и смотри "
+            f"{state_path}",
             facts)
     try:
         document = _read_json(state_path)
@@ -1770,8 +1772,9 @@ def probe_s12(ctx: Ctx) -> StepResult:
         return _conflict(
             "S12",
             f"{exc} — состояние парка нечитаемо, живость подтвердить нечем",
-            "проверь супервизор JarvisChatterGuardian: он пишет этот файл "
-            "атомарно, битый файл означает сбой записи",
+            f"посмотри {state_path} глазами и проверь супервизор: "
+            f"Get-ScheduledTask -TaskName JarvisChatterGuardian. Файл он "
+            f"пишет атомарно, битый файл означает сбой записи",
             facts)
 
     facts["registry_fatal"] = document.get("fatal")
@@ -1830,7 +1833,8 @@ def probe_s12(ctx: Ctx) -> StepResult:
             f"супервизор держит «{ctx.slug}» в состоянии "
             f"«{state or 'без поля state'}» с ошибкой: "
             f"{entry.get('last_error')}",
-            "устрани названную супервизором причину и повтори",
+            f"разбери причину по {log_path} и по логу супервизора "
+            f"logs/chatter_guardian.log, затем повтори ту же команду",
             facts)
     if state != "alive":
         return _open(
