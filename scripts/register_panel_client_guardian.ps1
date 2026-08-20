@@ -6,27 +6,35 @@
 # -- the exact hole that killed it twice (20.08: the panel died with the
 # interactive session that started it, no traceback, port 8011 free).
 #
-# ONE TASK, ONE CLIENT. Slug and port are baked into the task arguments on
-# purpose: an unregistered task for a "future" client looks like supervision
-# without being any. A second client gets its own task, registered the same way.
+# ONE TASK, ONE CLIENT. The SLUG is baked into the task arguments on purpose:
+# an unregistered task for a "future" client looks like supervision without
+# being any. A second client gets its own task, registered the same way.
+#
+# THE PORT IS NOT REPEATED HERE. It used to be a fourth copy of 8011 (after
+# run_panel_client.DEFAULT_PORT, the guardian's -Port and ops_watchdog's
+# PANEL_CLIENT_PORT), and a fourth copy is a fourth chance to end up with
+# "started on 8011, judged on 8012" -- the smaller number silencing the larger
+# one without a word. The task calls the guardian WITHOUT -Port, so the value
+# is declared once, in the guardian's own parameter. Pass -Port to this script
+# only to override it deliberately for one registration.
 #
 # Registration does NOT start the task -- run
 # `schtasks /Run /TN JarvisPanelClientGuardian` (or reboot) to launch it.
 
+param(
+    [string]$Slug = 'yarina',
+    # 0 means "do not pass -Port at all" -- the guardian's own default rules.
+    # This is what keeps the port declared in exactly one place per side.
+    [int]$Port = 0
+)
+
 $ErrorActionPreference = 'Stop'
 $TaskName = 'JarvisPanelClientGuardian'
-$Slug     = 'yarina'
-# Port 8011 is named in FOUR places, and python cannot share a constant with
-# PowerShell. Naming them here so editing one forces you to find the rest:
-#   1. scripts/run_panel_client.py DEFAULT_PORT          -- what the panel binds
-#   2. scripts/panel_client_guardian_detached.ps1 -Port  -- what the guardian watches
-#   3. scripts/ops_watchdog.py PANEL_CLIENT_PORT         -- where the probe knocks
-#   4. $Port here                                        -- what goes into the task
-$Port     = 8011
 $Root     = 'C:\jarvis'
 $Script   = Join-Path (Join-Path $Root 'scripts') 'panel_client_guardian_detached.ps1'
 
-$psArgs = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -Slug {1} -Port {2}' -f $Script, $Slug, $Port
+$psArgs = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -Slug {1}' -f $Script, $Slug
+if ($Port -gt 0) { $psArgs = '{0} -Port {1}' -f $psArgs, $Port }
 $Action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $psArgs -WorkingDirectory $Root
 
 # Workgroup (non-domain) machine: qualify the local account with the computer
@@ -53,5 +61,6 @@ $Settings.StopIfGoingOnBatteries     = $false
 Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Triggers `
     -Principal $Principal -Settings $Settings -Force | Out-Null
 
-Write-Host "[OK] Registered scheduled task '$TaskName' (S4U / Highest, AtStartup + AtLogOn), slug=$Slug port=$Port"
+$portNote = if ($Port -gt 0) { "port=$Port (explicit override)" } else { 'port: guardian default' }
+Write-Host "[OK] Registered scheduled task '$TaskName' (S4U / Highest, AtStartup + AtLogOn), slug=$Slug, $portNote"
 Write-Host "     Not started. Launch with: schtasks /Run /TN $TaskName"

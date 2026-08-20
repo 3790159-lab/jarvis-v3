@@ -3,8 +3,8 @@
 # JarvisPanelClientGuardian (S4U / RunLevel Highest, AtStartup + AtLogOn) — так
 # же, как JarvisBackendGuardian / JarvisBotGuardian / JarvisChatterGuardian.
 #
-# Спека: docs/superpowers/specs/2026-08-20-client-panel-supervisor.md (вариант B,
-# с §2.2 «исчерпанные отказы» и §2.3 «пропал тайнет != панель умерла»).
+# Спека: docs/superpowers/specs/2026-08-20-client-panel-supervisor.md
+# (вариант B, §2.2 «исчерпанные отказы», §2.3 «пропал тайнет != панель умерла»).
 #
 # ЗАМЕР, ИЗ КОТОРОГО ЭТО РОДИЛОСЬ. 20.08 панель Ярины подняли вручную; через
 # четыре минуты последняя запись в логе, через 27 минут порт 8011 не слушает
@@ -16,6 +16,15 @@
 # сбоем ненулевой код возврата. Панель, снятую taskkill'ом или вышедшую с rc 0,
 # он не перезапустит, а зависший процесс (жив, не отвечает) для него вообще
 # здоров. Именно эти два случая нас и убили.
+#
+# ВОКАБУЛЯР ВЕРДИКТА — ОБЩИЙ С ПРОБОЙ §3, И ЭТО ГЛАВНОЕ РЕШЕНИЕ ФАЙЛА.
+# Гардиан не заводит своих слов: он рассуждает теми же четырьмя, что и
+# `ops_watchdog.probe_panel_client`:
+#     ok | no_response | http:<код> | no_bind_address
+# Булево «жив/мёртв» здесь не годится ПО ПОСТРОЕНИЮ: §2.3 ввёл ТРЕТЬЕ
+# состояние — «не могу измерить», — а два значения трёх состояний не выражают.
+# На булеве слипание «не измерил» с «мертва» невозможно даже поймать, а именно
+# это слипание и убивает здоровую панель.
 #
 # ЧЕТЫРЕ ГРАБЛИ, ЗАКРЫТЫЕ ПО ПОСТРОЕНИЮ:
 #   1. Освобождение порта адресуется ВЛАДЕЛЬЦУ ПОРТА (Get-NetTCPConnection ->
@@ -33,24 +42,29 @@
 #      MaxRefusals подряд — длинный интервал LongRetrySeconds, и попытки НЕ
 #      ПРЕКРАЩАЮТСЯ НИКОГДА. Жёсткий стоп требует человека у машины, а мы это
 #      уже проходили: 16.08 гардиан вошёл в DOWN и не вышел 13 ч 42 мин.
-#      Алерт при этом РОВНО ОДИН — на вход в состояние: повторяющееся
-#      сообщение перестают читать (25 живых вопросов хука за 7 минут).
 #   4. Пропал тайнет != панель умерла (§2.3). resolve_client_host при
 #      недоступном tailscale молча падает на петлю, живая панель при этом
 #      слушает СТАРЫЙ тайнетовый адрес — и «не отвечает» означало бы убийство
 #      здоровой панели. Такой случай зовётся no_bind_address, и гардиан на нём
 #      НЕ ДЕЛАЕТ НИЧЕГО.
 #
+# АЛЕРТ В ТЕЛЕГРАМ ГАРДИАН НЕ ШЛЁТ (§2.2). Он пишет ОДНУ строку в свой журнал
+# на вход в состояние исчерпанных отказов; настоящий алерт уходит от пробы §3
+# через уже существующие `evaluate`/`alerted` в ops_watchdog, где дебаунс и
+# однократность сделаны давно. Второй читатель токена в PowerShell был бы
+# вторым числом на ту же вещь ровно там, где мы их вычищаем.
+#
 # PYTHONUTF8=1 — иначе cp1251-краш на эмодзи (jarvis-detached-bot-utf8).
 
 param(
     [string]$Slug = 'yarina',
-    # 🔢 ПОРТ 8011 НАЗВАН В ЧЕТЫРЁХ МЕСТАХ, общей константы у python с
-    # PowerShell быть не может. Правка одного обязана заставить найти остальные:
-    #   1. scripts/run_panel_client.py DEFAULT_PORT          — на чём поднимается панель
-    #   2. -Port здесь                                       — на что смотрит гардиан
-    #   3. scripts/ops_watchdog.py PANEL_CLIENT_PORT         — куда ходит проба
-    #   4. scripts/register_panel_client_guardian.ps1 $Port  — что уезжает в задачу
+    # ПОРТ 8011 НАЗВАН В ТРЁХ МЕСТАХ, общей константы у python с PowerShell
+    # быть не может. Правка одного обязана заставить найти остальные:
+    #   1. scripts/run_panel_client.py DEFAULT_PORT   — на чём поднимается панель
+    #   2. -Port здесь                                — на что смотрит гардиан
+    #   3. scripts/ops_watchdog.py PANEL_CLIENT_PORT  — куда ходит проба
+    # Четвёртое место (дефолт в регистраторе) убрано намеренно: задача зовёт
+    # этот скрипт без -Port, то есть значение объявлено здесь ОДИН раз.
     [int]$Port = 8011,
     [int]$IntervalSeconds = 15,
     # Пауза после осознанного отказа старта (rc 1). 300 с, ОК владельца 20.08.
@@ -88,17 +102,28 @@ $runner    = Join-Path $scripts 'run_panel_client.py'
 
 New-Item -ItemType Directory -Force -Path $stateLogs, $panelLogs, $lockDir | Out-Null
 
-# ДВА РАЗНЫХ ЖУРНАЛА, И ЭТО НАМЕРЕННО (§5 п.5).
+# ДВА РАЗНЫХ ЖУРНАЛА, И ЭТО НАМЕРЕННО (§2 п.2 и §5 п.5).
 #   * подопечный пишет в logs/panel_<slug>.*.log — ТОТ ЖЕ файл, по которому
 #     разбирали смерть 20.08 (§0), и туда же пишет живая панель сейчас. Разбор
 #     аварии не должен начинаться с поиска, куда переехал лог;
 #   * присматривающий пишет в state/logs/panel_client_guardian.stdout.log —
 #     рядом с соседями-гардианами. Смешать их значит потерять границу между
 #     «что сказала панель» и «что решил гардиан».
-$lockFile = Join-Path $lockDir  ('panel_client_guardian_{0}.pid' -f $Slug)
+$lockFile = Join-Path $lockDir   ('panel_client_guardian_{0}.pid' -f $Slug)
 $gOut     = Join-Path $stateLogs 'panel_client_guardian.stdout.log'
 $pOut     = Join-Path $panelLogs ('panel_{0}.stdout.log' -f $Slug)
 $pErr     = Join-Path $panelLogs ('panel_{0}.stderr.log' -f $Slug)
+
+# ВОКАБУЛЯР ВЕРДИКТА — ЛИТЕРАЛАМИ ПО МЕСТУ, А НЕ ПЕРЕМЕННОЙ. Так же, как в
+# `ops_watchdog.probe_panel_client`, где 'no_response' и 'http:%s' тоже стоят
+# литералами. Причина не в лени: три функции ниже (Test-ShouldStartPanel,
+# Step-RefusalState, Format-RefusalLine) объявлены ЧИСТЫМИ и зовутся из pytest
+# дот-сорсом. Опирайся они на переменную внешней области, любой вызов вне
+# полного дот-сорса молча сравнивал бы вердикт с $null — то есть 'ok' перестал
+# бы быть 'ok', и функция начала бы поднимать панель поверх ЖИВОЙ. Чистая
+# функция, зависящая от чужой области, чистой не является.
+#
+#     ok | no_response | http:<код> | no_bind_address
 
 function Write-G([string]$msg) {
     # Add-Content + Write-Host, а НЕ Tee-Object: Tee пропускает каждую строку
@@ -173,9 +198,9 @@ function Test-PanelAddressMeasurable {
     <#
       Есть ли у нас адрес, по которому вообще ЗАКОННО судить о панели.
 
-      Чистая функция — её и проверяют сторожа: «панель не ответила» на
-      неправильном адресе выглядит ровно как смерть, и цена ошибки здесь не
-      ложный алерт, а taskkill владельца порта и перезапуск ЖИВОЙ панели.
+      Чистая функция: «панель не ответила» на неправильном адресе выглядит
+      ровно как смерть, и цена ошибки здесь не ложный алерт, а taskkill
+      владельца порта и перезапуск ЖИВОЙ панели.
 
         * адреса нет вовсе          -> нет (резолвер отказал; сегодня это 0.0.0.0)
         * адрес задан явно          -> ДА (петлю выбрали осознанно, значит там и мерить)
@@ -195,7 +220,7 @@ function Test-PanelAddressMeasurable {
     return $true
 }
 
-# ── живость: порт И HTTP, оба обязательны ───────────────────────────────────
+# ── измерение: те же четыре слова, что у пробы ──────────────────────────────
 function Get-PanelPortOwner {
     # PID'ы тех, кто СЛУШАЕТ порт. Единственный законный способ узнать, кого
     # именно снимать: адресуемся владельцу порта, а не похожей строке запуска.
@@ -203,9 +228,19 @@ function Get-PanelPortOwner {
     try {
         $conns = @(Get-NetTCPConnection -LocalPort $PanelPort -State Listen -ErrorAction Stop)
     } catch {
-        # Пусто и «не смогли спросить» — разные вещи; вторую называем вслух,
-        # иначе решение о подъёме принимается на невидимой ошибке (DEV-18).
-        Write-G "не смог перечислить слушателей порта $PanelPort ($($_.Exception.GetType().Name))"
+        # 🔴 ЗАМЕРЕНО, А НЕ ПРЕДПОЛОЖЕНО. На СВОБОДНОМ порту этот командлет не
+        # возвращает пустой список — он БРОСАЕТ CimJobException с категорией
+        # ObjectNotFound (FQEID CmdletizationQuery_NotFound). То есть самый
+        # обычный случай «панель мертва, порт свободен» приходил сюда как
+        # ошибка, и общий catch писал бы в журнал строку «не смог перечислить
+        # слушателей» КАЖДЫЕ 15 СЕКУНД — на совершенно штатном пути. Вечно
+        # красная лампа перестаёт читаться, и настоящий сбой опроса утонул бы
+        # в ней же.
+        #
+        # Поэтому «никто не слушает» отделено от «не смогли спросить»:
+        # первое — тихий пустой список, второе — строка в журнале (DEV-18).
+        if ("$($_.CategoryInfo.Category)" -eq 'ObjectNotFound') { return @() }
+        Write-G "не смог перечислить слушателей порта $PanelPort ($($_.Exception.GetType().Name): $($_.FullyQualifiedErrorId))"
         return @()
     }
     return @($conns | ForEach-Object { [int]$_.OwningProcess } | Sort-Object -Unique)
@@ -216,26 +251,58 @@ function Test-PanelPort {
     return ((Get-PanelPortOwner -PanelPort $PanelPort).Count -gt 0)
 }
 
-function Test-PanelHealth {
-    # 200 на /health. Ручка неаутентифицированная и не говорит НИЧЕГО о
-    # клиенте — гардиану ключ не нужен и не должен быть нужен.
+function Get-PanelHealthStatus {
+    <#
+      HTTP-код ручки /health, или 0, если ответа не было вовсе.
+
+      Код, а не булево: «ответил 500» и «не ответил» — разные аварии (первая
+      про код внутри живого процесса, вторая про процесс), и слепить их значит
+      потерять ровно ту разницу, ради которой у пробы два разных reason.
+
+      Ручка неаутентифицированная и не говорит НИЧЕГО о клиенте — гардиану
+      ключ не нужен и не должен быть нужен.
+    #>
     param([string]$PanelHost, [int]$PanelPort, [int]$TimeoutSec = 5)
-    if (-not $PanelHost) { return $false }
+    if (-not $PanelHost) { return 0 }
     $url = 'http://{0}:{1}/health' -f $PanelHost, $PanelPort
     try {
         $r = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec $TimeoutSec
-        return ([int]$r.StatusCode -eq 200)
+        return [int]$r.StatusCode
     } catch {
-        return $false
+        # В PS 5.1 ответ 4xx/5xx прилетает ИСКЛЮЧЕНИЕМ, а не значением. Без
+        # этой ветки живая-но-больная панель была бы неотличима от мёртвой.
+        $resp = $null
+        try { $resp = $_.Exception.Response } catch { $resp = $null }
+        if ($resp) {
+            try { return [int]$resp.StatusCode } catch { return 0 }
+        }
+        return 0
     }
 }
 
-function Test-Panel {
-    # Порт И ответ. Только процесс — НЕДОСТАТОЧНО: зависший uvicorn держит порт
-    # и молчит, а для планировщика он при этом совершенно здоров.
-    param([string]$PanelHost, [int]$PanelPort)
-    if (-not (Test-PanelPort -PanelPort $PanelPort)) { return $false }
-    return (Test-PanelHealth -PanelHost $PanelHost -PanelPort $PanelPort)
+function Get-PanelReason {
+    <#
+      Вердикт о панели ОДНИМ ИЗ ЧЕТЫРЁХ СЛОВ вокабуляра пробы §3.
+
+      Порядок проверок не случаен: сначала «есть ли законный адрес» (§2.3),
+      и только потом порт и ответ. Обратный порядок дал бы `no_response` на
+      адресе, о котором мы уже знаем, что он не тот.
+
+      Порт слушают, а /health не ответил вовсе -> `no_response`: у пробы это
+      значит ровно то же самое, и расходиться словами с ней нельзя.
+    #>
+    param(
+        [string]$TailnetIp = '', [string]$ExplicitHost = '', [string]$BindHost = '',
+        [int]$PanelPort = 8011
+    )
+    if (-not (Test-PanelAddressMeasurable -TailnetIp $TailnetIp -ExplicitHost $ExplicitHost -BindHost $BindHost)) {
+        return 'no_bind_address'
+    }
+    if (-not (Test-PanelPort -PanelPort $PanelPort)) { return 'no_response' }
+    $code = Get-PanelHealthStatus -PanelHost $BindHost -PanelPort $PanelPort
+    if ($code -eq 200) { return 'ok' }
+    if ($code -le 0)   { return 'no_response' }
+    return ('http:{0}' -f $code)
 }
 
 # ── РЕШЕНИЕ: поднимать или нет ──────────────────────────────────────────────
@@ -245,60 +312,136 @@ function Test-ShouldStartPanel {
       её и проверяют сторожа — «процесс как-то поднялся» не является
       доказательством того, что решение принято верно.
 
-      Правила, и все они обязаны быть здесь, а не в теле цикла:
-        * жива                        -> НЕ поднимать (не поверх живого);
-        * мертва, отказов нет         -> поднимать немедленно;
-        * был отказ, отказов < предела-> ждать BackoffSeconds;
-        * отказов >= предела          -> ждать LongRetrySeconds.
+      Вход — ВЕРДИКТ ПРОБЫ, а не булево «жив/мёртв». Состояний три, и третье
+      («не могу измерить») на булеве неотличимо от смерти В ПРИНЦИПЕ:
 
-      🔴 «ПРЕКРАТИТЬ НАВСЕГДА» ЗДЕСЬ НЕТ И БЫТЬ НЕ ДОЛЖНО (§2.2). Жёсткий стоп
+        ok              -> НЕ поднимать НИКОГДА, какова бы ни была история
+                           отказов: поверх живого не поднимают;
+        no_bind_address -> НЕ поднимать и НИЧЕГО НЕ УБИВАТЬ (§2.3). Адрес не
+                           тот, панель может быть совершенно здорова;
+        http:<код>      -> панель отвечает, но не 200: внутри плохо, поднимать;
+        no_response     -> порт молчит: поднимать.
+
+      Ожидание после отказов, границы ВКЛЮЧИТЕЛЬНЫЕ:
+        отказов 0       -> немедленно;
+        отказов 1..2    -> ждать BackoffSeconds   (299 с — нет, 300 с — да);
+        отказов >= 3    -> ждать LongRetrySeconds (1799 с — нет, 1800 с — да).
+
+      Ожидание применяется ко ВСЕМ поднимающим вердиктам, а не только к
+      no_response: счётчик отказов говорит о прошлых ПОПЫТКАХ, а не о нынешнем
+      диагнозе, и «зависла» не является поводом долбить чаще, чем «молчит».
+
+      «ПРЕКРАТИТЬ НАВСЕГДА» ЗДЕСЬ НЕТ И БЫТЬ НЕ ДОЛЖНО (§2.2). Жёсткий стоп
       требует человека у машины; 16.08 гардиан вошёл в состояние DOWN и не
       вышел из него 13 часов 42 минуты. Длинный интервал даёт то же самое
       «перестать долбить», но оставляет автоматический выход: починили
       окружение — и в пределах получаса панель поднялась сама.
 
+      Неизвестное слово трактуется как `no_response` (поднимать по правилам
+      ожидания), а не как `ok`: молчаливое «всё хорошо» на непонятом вердикте
+      — это выключенный сторож.
+
       Функция НАМЕРЕННО не является advanced (ни CmdletBinding, ни атрибутов
-      Parameter): у advanced-функции появляются общие параметры, и имя вроде
-      -Refusals рискует столкнуться с сокращением чужого имени на привязке —
-      падение случается ДО тела функции, следов не оставляет и читается как
-      «функция промолчала».
+      Parameter/Validate): у advanced-функции появляются общие параметры, и имя
+      вроде -Refusals рискует столкнуться с сокращением чужого имени на
+      привязке — падение случается ДО тела функции, следов не оставляет и
+      читается как «функция промолчала».
     #>
     param(
-        [bool]$Alive = $false,
+        [string]$Reason = 'no_response',
         [int]$Refusals = 0,
-        [double]$SecondsSinceRefusal = 1e9,
+        [int]$SinceRefusalSec = [int]::MaxValue,
         [int]$MaxRefusals = 3,
-        [double]$BackoffSeconds = 300,
-        [double]$LongRetrySeconds = 1800
+        [int]$BackoffSeconds = 300,
+        [int]$LongRetrySeconds = 1800
     )
-    if ($Alive) { return $false }
+    if ($Reason -eq 'ok') { return $false }
+    if ($Reason -eq 'no_bind_address') { return $false }
     if ($Refusals -le 0) { return $true }
     $wait = if ($Refusals -ge $MaxRefusals) { $LongRetrySeconds } else { $BackoffSeconds }
-    return ($SecondsSinceRefusal -ge $wait)
+    return ($SinceRefusalSec -ge $wait)
 }
 
-function Test-ShouldAlertExhausted {
+function Step-RefusalState {
     <#
-      Алерт об исчерпанных отказах — РОВНО ОДИН, на ВХОД в состояние.
+      Единственный переход состояния отказов. Чистая функция: на входе старое
+      состояние и ИСХОД ПОПЫТКИ, на выходе новое состояние и признак «сказать
+      вслух».
 
-      Повторяющееся сообщение перестают читать: это уже измерено на 25 живых
-      вопросах хука за 7 минут — 22 подтверждения были нажаты не глядя. Пока
-      состояние держится, о нём говорит постоянно красная проба panel_client,
-      а не второй, третий и сотый одинаковый крик.
+      Исходы:
+        ok           — панель поднялась: счётчик обнуляется, флаг алерта
+                       СНИМАЕТСЯ. Снятие обязательно: иначе один давний отказ
+                       навсегда выключил бы сигнал — ровно так законная правка
+                       тумблера выключила сторожа worktree на 1669 циклов;
+        refused      — rc 1, осознанный fail-closed: счётчик +1;
+        unmeasurable — no_bind_address: попытки НЕ БЫЛО, поэтому не трогаем ни
+                       счётчик, ни флаг. Тратить отказ на то, чего мы не
+                       мерили, значит уводить панель в длинный интервал за
+                       чужую вину — за пропавший тайнет.
 
-      `AlreadyAlerted` — флаг СОСТОЯНИЯ, а не «алертили когда-то за всю жизнь
-      процесса»: успешный подъём его снимает, и следующий вход в состояние
-      обязан алертить снова. Иначе один давний отказ навсегда выключил бы
-      сигнал — ровно тем способом, каким законная правка тумблера выключила
-      сторожа worktree на 1669 циклов.
+      `Alert` истинно РОВНО НА ПЕРЕХОДЕ (счётчик достиг предела, а флаг ещё не
+      поднят) и больше никогда, пока не было успеха. Повторяющееся сообщение
+      перестают читать: измерено на 25 живых вопросах хука за 7 минут, из
+      которых 22 подтверждения нажали не глядя.
+
+      ⚠️ ЕДИНИЦА СЧЁТА — РЕАЛЬНАЯ ПОПЫТКА СТАРТА, А НЕ ЦИКЛ (§2.2). При паузе
+      300 с и цикле 15 с между двумя отказами проходит двадцать циклов;
+      счётчик, считающий циклы, вошёл бы в состояние за 45 секунд вместо 15
+      минут. Поэтому зовущий обязан звать эту функцию только по факту попытки.
     #>
     param(
+        [string]$Outcome = 'refused',
         [int]$Refusals = 0,
-        [int]$MaxRefusals = 3,
-        [bool]$AlreadyAlerted = $false
+        [bool]$Alerted = $false,
+        [int]$MaxRefusals = 3
     )
-    if ($AlreadyAlerted) { return $false }
-    return ($Refusals -ge $MaxRefusals)
+    $next = $Refusals
+    $nextAlerted = $Alerted
+    $alert = $false
+
+    switch ($Outcome) {
+        'ok' {
+            $next = 0
+            $nextAlerted = $false
+        }
+        'refused' {
+            $next = $Refusals + 1
+            if (($next -ge $MaxRefusals) -and (-not $Alerted)) {
+                $alert = $true
+                $nextAlerted = $true
+            }
+        }
+        'unmeasurable' {
+            # Намеренно ничего: попытки не было, судить не о чем.
+        }
+        default {
+            # DEV-18: не глотать. Незнакомый исход, тихо не изменивший
+            # состояние, — это гардиан, который «работает», но не считает.
+            throw "Step-RefusalState: неизвестный Outcome '$Outcome' (ожидались ok|refused|unmeasurable)"
+        }
+    }
+
+    return [pscustomobject]@{ Refusals = $next; Alerted = $nextAlerted; Alert = $alert }
+}
+
+function Format-RefusalLine {
+    <#
+      Строка журнала об отказе: номер попытки и причина ДОСЛОВНО.
+
+      Причина приходит из вывода run_panel_client.py, а не пишется константой:
+      через час по журналу должно быть видно, одна и та же это ошибка или
+      разные (§2.2). Константа «панель не поднялась» выглядела бы одинаково
+      для пропавшего ключа, для совпадения с ключом владельца и для
+      незаданного TAMAPI_DB — то есть ровно там, где разница и нужна, её бы не
+      было.
+
+      Причина НЕ обрезается: обрезка режет хвост, а в хвосте стоит имя
+      переменной, которую надо задать.
+    #>
+    param([string]$Reason = '', [int]$Refusals = 0)
+    $text = ($Reason + '').Trim()
+    if (-not $text) { $text = '(причина не прочиталась)' }
+    return ('ОТКАЗ СТАРТА (rc 1), попытка {0}: {1}' -f $Refusals, $text)
 }
 
 # ── освобождение порта: строго по владельцу ─────────────────────────────────
@@ -325,19 +468,13 @@ function Stop-PanelPortOwner {
 
 function Get-RefusalReason {
     <#
-      КОРОТКАЯ строка с причиной отказа, взятая ИЗ ВЫВОДА run_panel_client.py.
-
-      Не константа и не пересказ: через час по журналу должно быть видно, одна
-      и та же это ошибка или разные (§2.2). Константа «панель не поднялась»
-      выглядела бы одинаково для пропавшего ключа, для совпадения с ключом
-      владельца и для незаданного TAMAPI_DB — то есть ровно там, где разница и
-      нужна, её бы не было.
+      Причина отказа ИЗ ВЫВОДА run_panel_client.py, дословно.
 
       Берутся строки-пункты («  * ...»), которые печатает сам отказ. Если их
       нет (упало иначе), берём последнюю непустую строку — тоже наблюдение, а
       не догадка.
     #>
-    param([int]$MaxLines = 20, [int]$MaxChars = 300)
+    param([int]$MaxLines = 20)
     try {
         if (-not (Test-Path $pOut)) { return '(stdout панели пуст)' }
         $lines = @(Get-Content -LiteralPath $pOut -Tail $MaxLines -ErrorAction Stop |
@@ -345,13 +482,10 @@ function Get-RefusalReason {
                    Where-Object { $_ })
         if (-not $lines) { return '(stdout панели пуст)' }
         $bullets = @($lines | Where-Object { $_.StartsWith('*') })
-        $text = if ($bullets.Count -gt 0) {
-            ($bullets | ForEach-Object { $_.TrimStart('*').Trim() }) -join '; '
-        } else {
-            $lines[-1]
+        if ($bullets.Count -gt 0) {
+            return (($bullets | ForEach-Object { $_.TrimStart('*').Trim() }) -join '; ')
         }
-        if ($text.Length -gt $MaxChars) { $text = $text.Substring(0, $MaxChars) + '...' }
-        return $text
+        return $lines[-1]
     } catch {
         return "(не смог прочитать $pOut : $($_.Exception.GetType().Name))"
     }
@@ -363,6 +497,10 @@ function Start-Panel {
       'refused' (осознанный fail-closed, rc 1), 'exited:<код>' и 'timeout'
       требуют РАЗНОЙ реакции, и склеивать их в один $false значит снова
       перепутать отказ с падением.
+
+      ПОРТ ОДИН И ТОТ ЖЕ: в `--port` уезжает РОВНО $PanelPort — то самое
+      значение, по которому вынесен вердикт и по которому освобождался порт.
+      Иначе оставалось бы возможным «подняли на 8011, судим по 8012».
     #>
     param([string]$PanelHost, [int]$PanelPort, [string]$PanelSlug, [int]$ReadySec = 45)
 
@@ -394,7 +532,8 @@ function Start-Panel {
             Write-G "панель вышла с кодом $code через ~${i}с; stdout: $(Get-RefusalReason)"
             return ('exited:{0}' -f $code)
         }
-        if (Test-Panel -PanelHost $PanelHost -PanelPort $PanelPort) {
+        if ((Test-PanelPort -PanelPort $PanelPort) -and
+            ((Get-PanelHealthStatus -PanelHost $PanelHost -PanelPort $PanelPort) -eq 200)) {
             Write-G "панель отвечает 200 на /health через ~${i}с"
             return 'alive'
         }
@@ -431,85 +570,92 @@ if (-not $NoLoop) {
 
 if (-not $NoLoop) {
     $refusals = 0
+    $alerted = $false
     $lastRefusalAt = $null
-    $lastState = ''
-    $exhaustedAlerted = $false
+    $lastReason = ''
 
     while ($true) {
         $bind = Get-PanelBind
-        $measurable = Test-PanelAddressMeasurable -TailnetIp $bind.TailnetIp `
-            -ExplicitHost $bind.ExplicitHost -BindHost $bind.BindHost
+        $reason = Get-PanelReason -TailnetIp $bind.TailnetIp -ExplicitHost $bind.ExplicitHost `
+            -BindHost $bind.BindHost -PanelPort $Port
 
-        if (-not $measurable) {
-            # 🔴 no_bind_address = «НЕ МОГУ ИЗМЕРИТЬ», а не «мертва» (§2.3).
-            # Ничего не убиваем и ничего не поднимаем: панель, поднятая при
-            # живом тайнете, СЕЙЧАС слушает тайнетовый адрес, и снести
-            # владельца порта значило бы убить здоровое по собственной
-            # слепоте. Молчать тоже нельзя — об этом кричит красная проба
-            # panel_client, а здесь остаётся строка в журнале.
-            $why = if ($bind.Failed) { 'резолвер адреса не ответил' }
-                   elseif (-not $bind.BindHost) { 'резолвер отказал в адресе' }
-                   else { "тайнет недоступен, а $($bind.BindHost) — это фолбэк резолвера" }
-            if ($lastState -ne 'no_bind') {
+        # ВЫХОД из no_bind_address — отдельной строкой (§2.3). Без неё в
+        # журнале осталась бы только запись о входе, и «тайнет пропадал на
+        # ночь» было бы неотличимо от «тайнета нет до сих пор».
+        if ($lastReason -eq 'no_bind_address' -and $reason -ne 'no_bind_address') {
+            Write-G "no_bind_address СНЯТ: адрес бинда снова известен ($($bind.BindHost)), возобновляю измерение"
+        }
+
+        if ($reason -eq 'no_bind_address') {
+            # «НЕ МОГУ ИЗМЕРИТЬ», а не «мертва» (§2.3). Ничего не убиваем и
+            # ничего не поднимаем: панель, поднятая при живом тайнете, СЕЙЧАС
+            # слушает тайнетовый адрес, и снести владельца порта значило бы
+            # убить здоровое по собственной слепоте. Кричит об этом красная
+            # проба panel_client, а здесь — строка на ВХОД и на ВЫХОД, и
+            # только: ежецикловая запись раз в 15 с дала бы за ночь 2880 строк
+            # и похоронила бы всё остальное.
+            if ($lastReason -ne 'no_bind_address') {
+                $why = if ($bind.Failed) { 'резолвер адреса не ответил' }
+                       elseif (-not $bind.BindHost) { 'резолвер отказал в адресе' }
+                       else { "тайнет недоступен, а $($bind.BindHost) — это фолбэк резолвера" }
                 Write-G "no_bind_address: $why. НИЧЕГО НЕ ТРОГАЮ (не могу измерить != мертва)"
-                $lastState = 'no_bind'
             }
+            # Счётчик отказов не трогаем: попытки не было.
+            $st = Step-RefusalState -Outcome 'unmeasurable' -Refusals $refusals -Alerted $alerted -MaxRefusals $MaxRefusals
+            $refusals = $st.Refusals
+            $alerted = $st.Alerted
+            $lastReason = $reason
             Start-Sleep -Seconds $IntervalSeconds
             continue
         }
 
-        $panelHost = $bind.BindHost
-        $alive = Test-Panel -PanelHost $panelHost -PanelPort $Port
-
-        if ($alive) {
-            if ($lastState -ne 'alive') { Write-G "панель жива ($panelHost`:$Port)"; $lastState = 'alive' }
-            # Живая панель снимает состояние целиком: окружение починили, и
-            # держать её на прежнем приговоре значило бы наказывать за прошлое.
-            # Снятый флаг алерта важен отдельно — следующий вход в состояние
-            # обязан закричать снова.
-            $refusals = 0
+        if ($reason -eq 'ok') {
+            if ($lastReason -ne 'ok') { Write-G "панель жива ($($bind.BindHost)`:$Port)" }
+            $st = Step-RefusalState -Outcome 'ok' -Refusals $refusals -Alerted $alerted -MaxRefusals $MaxRefusals
+            $refusals = $st.Refusals
+            $alerted = $st.Alerted
             $lastRefusalAt = $null
-            $exhaustedAlerted = $false
+            $lastReason = $reason
             Start-Sleep -Seconds $IntervalSeconds
             continue
         }
 
-        if ($lastState -ne 'dead') { Write-G "панель НЕ отвечает ($panelHost`:$Port)"; $lastState = 'dead' }
+        if ($lastReason -ne $reason) { Write-G "вердикт: $reason ($($bind.BindHost)`:$Port)" }
+        $lastReason = $reason
 
-        $sinceRefusal = 1e9
-        if ($lastRefusalAt) { $sinceRefusal = ((Get-Date) - $lastRefusalAt).TotalSeconds }
+        $since = [int]::MaxValue
+        if ($lastRefusalAt) {
+            $elapsed = ((Get-Date) - $lastRefusalAt).TotalSeconds
+            $since = if ($elapsed -ge [int]::MaxValue) { [int]::MaxValue } else { [int]$elapsed }
+        }
 
-        $should = Test-ShouldStartPanel -Alive $alive -Refusals $refusals `
-            -SecondsSinceRefusal $sinceRefusal -MaxRefusals $MaxRefusals `
-            -BackoffSeconds $BackoffSeconds -LongRetrySeconds $LongRetrySeconds
-
+        $should = Test-ShouldStartPanel -Reason $reason -Refusals $refusals -SinceRefusalSec $since `
+            -MaxRefusals $MaxRefusals -BackoffSeconds $BackoffSeconds -LongRetrySeconds $LongRetrySeconds
         if (-not $should) {
             Start-Sleep -Seconds $IntervalSeconds
             continue
         }
 
-        $outcome = Start-Panel -PanelHost $panelHost -PanelPort $Port -PanelSlug $Slug
+        $outcome = Start-Panel -PanelHost $bind.BindHost -PanelPort $Port -PanelSlug $Slug
 
         if ($outcome -eq 'refused') {
-            $refusals++
             $lastRefusalAt = Get-Date
-            # СТРОКА НА КАЖДОЙ ПОПЫТКЕ, И С ПРИЧИНОЙ ИЗ ВЫВОДА ПАНЕЛИ: через
-            # час по журналу видно, одна и та же это ошибка или разные.
-            $wait = if ($refusals -ge $MaxRefusals) { $LongRetrySeconds } else { $BackoffSeconds }
-            Write-G "ОТКАЗ СТАРТА (rc 1), попытка ${refusals}: $(Get-RefusalReason) | следующая не раньше чем через ${wait}с"
-
-            if (Test-ShouldAlertExhausted -Refusals $refusals -MaxRefusals $MaxRefusals -AlreadyAlerted $exhaustedAlerted) {
-                # РОВНО ОДИН раз на вход в состояние. Дальше молчим: о том, что
-                # состояние держится, говорит постоянно красная проба
-                # panel_client, а не одинаковый крик каждые полчаса.
-                Write-G "🚨 ИСЧЕРПАНЫ ОТКАЗЫ: $refusals подряд. Перехожу на длинный интервал ${LongRetrySeconds}с и продолжаю пытаться. Причина выше дословно; починка окружения поднимет панель САМА, рестарт задачи не нужен. Это сообщение больше не повторится — следи за пробой panel_client."
-                $exhaustedAlerted = $true
+            $st = Step-RefusalState -Outcome 'refused' -Refusals $refusals -Alerted $alerted -MaxRefusals $MaxRefusals
+            $refusals = $st.Refusals
+            $alerted = $st.Alerted
+            # СТРОКА НА КАЖДОЙ ПОПЫТКЕ, И С ПРИЧИНОЙ ИЗ ВЫВОДА ПАНЕЛИ.
+            Write-G (Format-RefusalLine -Reason (Get-RefusalReason) -Refusals $st.Refusals)
+            if ($st.Alert) {
+                # РОВНО ОДИН раз на вход в состояние, и только в ЖУРНАЛ:
+                # телеграм — работа пробы §3 через существующий evaluate.
+                Write-G "ИСЧЕРПАНЫ ОТКАЗЫ: $($st.Refusals) подряд. Перехожу на длинный интервал ${LongRetrySeconds}с и ПРОДОЛЖАЮ пытаться. Починка окружения поднимет панель САМА, рестарт задачи не нужен. Эта строка больше не повторится — состояние видно по красной пробе panel_client."
             }
         } elseif ($outcome -eq 'alive') {
-            $lastState = 'alive'
-            $refusals = 0
+            $st = Step-RefusalState -Outcome 'ok' -Refusals $refusals -Alerted $alerted -MaxRefusals $MaxRefusals
+            $refusals = $st.Refusals
+            $alerted = $st.Alerted
             $lastRefusalAt = $null
-            $exhaustedAlerted = $false
+            $lastReason = 'ok'
         }
 
         Start-Sleep -Seconds $IntervalSeconds

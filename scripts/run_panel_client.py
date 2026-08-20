@@ -32,13 +32,13 @@ sys.path.insert(0, str(_ROOT))
 from chatter.runtime_paths import chatter_beat_path  # noqa: E402
 
 OWNER_KEY_VAR = "JARVIS_PANELS_KEY"
-# 🔢 ПОРТ 8011 НАЗВАН В ЧЕТЫРЁХ МЕСТАХ. Общей константы у python с
-# PowerShell быть не может, поэтому места перечислены поимённо — правка
-# одного обязана заставить найти остальные:
+# 🔢 ПОРТ 8011 НАЗВАН В ТРЁХ МЕСТАХ. Общей константы у python с PowerShell
+# быть не может, поэтому места перечислены поимённо — правка одного обязана
+# заставить найти остальные:
 #   1. DEFAULT_PORT здесь                                — на чём поднимается панель
 #   2. scripts/panel_client_guardian_detached.ps1 -Port  — на что смотрит гардиан
 #   3. scripts/ops_watchdog.py PANEL_CLIENT_PORT         — куда ходит проба
-#   4. scripts/register_panel_client_guardian.ps1 $Port  — что уезжает в задачу
+# Регистратор задачи четвёртой копии НЕ держит: он зовёт гардиан без `-Port`.
 DEFAULT_PORT = 8011
 ANY_INTERFACE = "0.0.0.0"
 LOOPBACK = "127.0.0.1"
