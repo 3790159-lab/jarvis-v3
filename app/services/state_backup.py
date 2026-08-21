@@ -8,7 +8,9 @@ uploads a fixed, explicit allowlist of critical files (never ``.env``, never
 a credential/token file such as ``ig_accounts.json``/``api_keys.json``/
 ``google_oauth_token.json``) to R2 under ``backups/state/<date>/<rel_path>``,
 writes a per-run manifest (sha256 per file, for integrity verification on
-restore), and rotates (deletes) backups older than ``KEEP_DAYS``.
+restore), and rotates (deletes) each declared prefix by ITS OWN retention
+(``RETENTION``: ``backups/state`` 14 days, ``backups/client`` 365 days) —
+one threshold over both would silently eat the year-long client set.
 
 Uses a SEPARATE, private R2 bucket (``R2_BACKUP_BUCKET``) from the public
 media bucket (``R2_BUCKET``) — backup keys are predictable
@@ -53,7 +55,13 @@ __all__ = [
     "run_backup",
     "verify_uploaded",
     "list_backup_dates",
+    "CLIENT_PREFIX",
+    "CLIENT_KEEP_DAYS",
+    "RETENTION",
+    "RetentionError",
+    "validate_retention",
     "rotate_old_backups",
+    "rotate_all_backups",
     "restore_file",
     "verify_restored_file",
     "format_backup_result",
@@ -89,6 +97,33 @@ CRITICAL_PATTERNS: tuple[str, ...] = (
 
 KEEP_DAYS = 14
 BACKUP_PREFIX = "backups/state"
+
+# Клиентский набор (DEV-46) едет под СВОИМ префиксом и хранится ГОД.
+CLIENT_PREFIX: str = "backups/client"
+CLIENT_KEEP_DAYS: int = 365
+
+# Литеральный список пар (префикс, срок хранения в сутках). Правит ЧЕЛОВЕК:
+# он НЕ выводится из других констант и не собирается циклом — выведенный
+# список согласен с реализацией по определению и молчит ровно там, где она
+# забыла ([[jarvis-literal-lists-not-introspection]]).
+#
+# Срок хранения — свойство ПРЕФИКСА, а не флаг внутри общего префикса: класса
+# объекта в ключе нет, и один порог на оба класса означал бы потерю годового
+# набора на пятнадцатые сутки, причём МОЛЧА — для ротации удаление не авария,
+# а работа (спека §9.3).
+RETENTION: tuple[tuple[str, int], ...] = (
+    (BACKUP_PREFIX, KEEP_DAYS),          # ("backups/state", 14)
+    (CLIENT_PREFIX, CLIENT_KEEP_DAYS),   # ("backups/client", 365)
+)
+
+
+class RetentionError(Exception):
+    """Список ретенции невалиден — ротация не начинается ВООБЩЕ.
+
+    Отдельный класс, а не ValueError: вызывающий обязан отличить «раскладка
+    сроков сломана, не удалено ничего» от сбоя самого хранилища.
+    """
+
 
 _REQUIRED_ENV = (
     "R2_ACCOUNT_ID",
@@ -303,8 +338,56 @@ def list_backup_dates(
     return sorted(dates)
 
 
+def validate_retention(retention: tuple[tuple[str, int], ...] = RETENTION) -> None:
+    """Красное (``RetentionError``) на любой раскладке, при которой ротация
+    может съесть чужой срок. Проверяется ДО первого листинга и ДО первого
+    удаления: это единственное место арки, где ошибка тихо УДАЛЯЕТ, а не
+    краснеет.
+
+    Красное на:
+
+    * повторе префикса (в том числе на двух РАЗНЫХ сроках у одного префикса —
+      у каждого префикса ровно один срок, у каждого класса ровно один префикс);
+    * ``keep_days <= 0`` и на нецелом сроке: «удалить всё» — не срок хранения;
+    * ВЛОЖЕННОСТИ: один объявленный префикс является путевым префиксом
+      другого. Их листинги перекрылись бы, и короткий срок съел бы длинный;
+    * пустом префиксе и префиксе с хвостовым ``/``: листинг строится как
+      ``prefix + "/"``, пустой дал бы листинг корня.
+    """
+    seen: dict[str, int] = {}
+    prefixes: list[str] = []
+    for pair in retention:
+        try:
+            prefix, keep_days = pair
+        except (TypeError, ValueError):
+            raise RetentionError(
+                f"пара ретенции должна быть (префикс, срок), получено {pair!r}") from None
+        if not isinstance(prefix, str) or not prefix or prefix.endswith("/"):
+            raise RetentionError(
+                f"префикс должен быть непустой строкой без хвостового '/', "
+                f"получено {prefix!r}")
+        if isinstance(keep_days, bool) or not isinstance(keep_days, int) or keep_days <= 0:
+            raise RetentionError(
+                f"срок хранения префикса {prefix!r} должен быть целым > 0, "
+                f"получено {keep_days!r}")
+        if prefix in seen:
+            raise RetentionError(
+                f"префикс {prefix!r} объявлен дважды (сроки {seen[prefix]} и "
+                f"{keep_days}): у каждого префикса ровно один срок")
+        seen[prefix] = keep_days
+        prefixes.append(prefix)
+
+    for i, first in enumerate(prefixes):
+        for second in prefixes[i + 1:]:
+            if second.startswith(first + "/") or first.startswith(second + "/"):
+                raise RetentionError(
+                    f"префиксы {first!r} и {second!r} вложены друг в друга: их "
+                    f"листинги перекрылись бы, и короткий срок съел бы длинный")
+
+
 def rotate_old_backups(
     *,
+    prefix: str = BACKUP_PREFIX,
     keep_days: int = KEEP_DAYS,
     today: datetime | None = None,
     list_objects: Callable[..., list[dict]] = r2_storage.list_objects,
@@ -312,19 +395,71 @@ def rotate_old_backups(
     client: Any | None = None,
     config: R2Config | None = None,
 ) -> list[str]:
-    """Delete every object under a backup date older than ``keep_days``.
-    Date strings compare lexically == chronologically (YYYY-MM-DD)."""
+    """Delete every object under a backup date older than ``keep_days`` in the
+    GIVEN prefix. Date strings compare lexically == chronologically (YYYY-MM-DD).
+
+    Листинг строго ``prefix + "/"``: ни листинга корня, ни листинга, который
+    захватил бы соседний объявленный префикс с ДРУГИМ сроком. Ключ, не лежащий
+    под этим префиксом, не удаляется ни при каком возрасте — это следует уже из
+    области листинга, но проверяется явно: чужой срок стоит удалённых данных, а
+    слой хранения тут не единственная гарантия.
+    """
     config = config or load_backup_config()
     today = today or datetime.now(timezone.utc)
     cutoff = (today - timedelta(days=keep_days)).strftime("%Y-%m-%d")
-    objs = list_objects(BACKUP_PREFIX + "/", client=client, config=config)
+    scope = prefix + "/"
+    objs = list_objects(scope, client=client, config=config)
     deleted: list[str] = []
     for o in objs:
-        rest = o["key"][len(BACKUP_PREFIX) + 1:]
-        date_part = rest.split("/", 1)[0]
+        key = o["key"]
+        if not key.startswith(scope):
+            logger.warning(
+                "state backup rotation: ключ вне префикса %s не удаляем: %s", scope, key)
+            continue
+        date_part = key[len(scope):].split("/", 1)[0]
         if date_part and date_part < cutoff:
-            delete_object(o["key"], client=client, config=config)
-            deleted.append(o["key"])
+            delete_object(key, client=client, config=config)
+            deleted.append(key)
+    return deleted
+
+
+def rotate_all_backups(
+    *,
+    retention: tuple[tuple[str, int], ...] = RETENTION,
+    today: datetime | None = None,
+    list_objects: Callable[..., list[dict]] = r2_storage.list_objects,
+    delete_object: Callable[..., None] = r2_storage.delete_object,
+    client: Any | None = None,
+    config: R2Config | None = None,
+) -> dict[str, list[str]]:
+    """Ротация КАЖДОГО объявленного префикса СВОИМ сроком.
+
+    Возвращает ``{префикс: [удалённые ключи]}``. Каждый пройденный префикс
+    присутствует в словаре, даже если удалять было нечего: иначе «ротация не
+    гонялась» и «нечего удалять» неотличимы.
+
+    FAIL-CLOSED: ``validate_retention`` зовётся ПЕРВЫМ делом. Список невалиден
+    → ``RetentionError`` наружу и НИ ОДНОГО вызова ``delete_object``; плохая
+    пара не «пропускается, чтобы продолжить остальные».
+
+    Не глотаем (DEV-18): сбой листинга или удаления на одном префиксе летит
+    наверх, а не превращает остальные префиксы в тихий пропуск, выглядящий
+    успехом. Ловит и рапортует вызывающий (``scripts/state_backup.py``).
+    """
+    validate_retention(retention)
+    config = config or load_backup_config()
+    today = today or datetime.now(timezone.utc)
+    deleted: dict[str, list[str]] = {}
+    for prefix, keep_days in retention:
+        deleted[prefix] = rotate_old_backups(
+            prefix=prefix,
+            keep_days=keep_days,
+            today=today,
+            list_objects=list_objects,
+            delete_object=delete_object,
+            client=client,
+            config=config,
+        )
     return deleted
 
 

@@ -81,7 +81,10 @@ def test_main_success_sends_summary_and_returns_zero(monkeypatch):
                               manifest_key="backups/state/2026-07-15/manifest.json",
                               total_bytes=100)
     monkeypatch.setattr(sb, "run_backup", lambda root: result)
-    monkeypatch.setattr(sb, "rotate_old_backups", lambda: ["backups/state/2026-06-01/users.json"])
+    monkeypatch.setattr(sb, "rotate_all_backups", lambda: {
+        "backups/state": ["backups/state/2026-06-01/users.json"],
+        "backups/client": [],
+    })
 
     captured = {}
 
@@ -128,7 +131,8 @@ def test_main_partial_failure_returns_one_but_still_notifies(monkeypatch):
     result = sb.BackupResult(date="2026-07-15", uploaded=["users.json"],
                               failed=[{"rel_path": "cost_tracking.json", "error": "boom"}])
     monkeypatch.setattr(sb, "run_backup", lambda root: result)
-    monkeypatch.setattr(sb, "rotate_old_backups", lambda: [])
+    monkeypatch.setattr(sb, "rotate_all_backups",
+                         lambda: {"backups/state": [], "backups/client": []})
 
     captured = {}
     monkeypatch.setattr(mod, "send_telegram", lambda text: captured.setdefault("text", text) or True)
@@ -149,7 +153,7 @@ def test_main_rotation_failure_is_non_fatal(monkeypatch):
     def _boom_rotate():
         raise RuntimeError("list_objects failed")
 
-    monkeypatch.setattr(sb, "rotate_old_backups", _boom_rotate)
+    monkeypatch.setattr(sb, "rotate_all_backups", _boom_rotate)
 
     captured = {}
     monkeypatch.setattr(mod, "send_telegram", lambda text: captured.setdefault("text", text) or True)

@@ -5,9 +5,12 @@ Uploads the DEV-16 critical-file allowlist (users.json, money-ledgers,
 brain-state, dev_tasks, verdicts, persona-centroids — see
 ``app.services.state_backup.CRITICAL_PATTERNS``; never .env or credential
 files) to a private R2 bucket, writes a per-run manifest (sha256 per file),
-rotates backups older than ``KEEP_DAYS`` (14), and Telegram-notifies the
-admin with a one-line summary. Standalone (as ``morning_digest.py``): does
-not depend on the live bot process, sends directly via the Bot API.
+rotates EVERY declared prefix by ITS OWN retention
+(``state_backup.RETENTION``: ``backups/state`` 14 days, ``backups/client``
+365 days — one threshold over both would silently delete the year-long client
+set on day fifteen), and Telegram-notifies the admin with a one-line summary
+naming what was deleted PER PREFIX. Standalone (as ``morning_digest.py``):
+does not depend on the live bot process, sends directly via the Bot API.
 
     python scripts/state_backup.py
 """
@@ -54,6 +57,28 @@ def send_telegram(text: str) -> bool:
         return False
 
 
+def format_rotation(deleted_by_prefix: dict, retention) -> str:
+    """«backups/state — удалено 3 (>14д); backups/client — удалено 0 (>365д)».
+
+    Удалённое называется ПО ПРЕФИКСАМ И СО СРОКОМ, а не одним числом: у
+    префиксов разные сроки, и общее число не говорит, чей набор поехал. Префикс,
+    у которого удалять было нечего, всё равно НАЗЫВАЕТСЯ — иначе «ротация не
+    гонялась» и «нечего удалять» неотличимы.
+    """
+    order = [prefix for prefix, _ in retention]
+    days = dict(retention)
+
+    def _rank(prefix: str) -> int:
+        return order.index(prefix) if prefix in order else len(order)
+
+    parts = []
+    for prefix in sorted(deleted_by_prefix, key=lambda x: (_rank(x), x)):
+        keep = days.get(prefix)
+        srok = f" (>{keep}д)" if keep is not None else ""
+        parts.append(f"{prefix} — удалено {len(deleted_by_prefix[prefix])}{srok}")
+    return "; ".join(parts)
+
+
 def main(argv=None) -> int:
     argv = argv if argv is not None else sys.argv[1:]
 
@@ -72,19 +97,27 @@ def main(argv=None) -> int:
         send_telegram(f"\U0001f6a8 Бэкап state/ упал: {exc}")
         return 1
 
+    rotation_error: Exception | None = None
+    deleted_by_prefix: dict = {}
     try:
-        deleted = sb.rotate_old_backups()
+        deleted_by_prefix = sb.rotate_all_backups()
     except Exception as exc:
         logger.warning("state_backup: rotation failed: %s", exc)
-        deleted = []
+        rotation_error = exc
 
     text = sb.format_backup_result(result)
-    if deleted:
-        text += f"\nРотация: удалено {len(deleted)} старых объектов (>{sb.KEEP_DAYS}д)."
+    if rotation_error is not None:
+        # Сбой ротации сам бэкап не проваливает, но и молчать о нём нельзя.
+        text += f"\n⚠️ Ротация НЕ выполнена: {rotation_error}"
+    elif deleted_by_prefix:
+        text += "\nРотация: " + format_rotation(deleted_by_prefix, sb.RETENTION)
     send_telegram(text)
+    deleted_total = sum(len(keys) for keys in deleted_by_prefix.values())
     logger.info(
-        "state_backup: run complete uploaded=%d failed=%d deleted=%d",
-        len(result.uploaded), len(result.failed), len(deleted),
+        "state_backup: run complete uploaded=%d failed=%d deleted=%d (%s)",
+        len(result.uploaded), len(result.failed), deleted_total,
+        ", ".join(f"{prefix}={len(keys)}" for prefix, keys in deleted_by_prefix.items())
+        or "ротация не гонялась",
     )
     return 0 if result.ok else 1
 
