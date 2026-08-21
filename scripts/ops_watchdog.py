@@ -32,6 +32,14 @@ Each cycle probes:
                          случай «гардиана нет / гардиан сам умер / панель жива
                          процессом, но молчит» — без неё о смерти гардиана мы
                          узнаём от клиента или никак
+  * дрил восстановления — вердикт недельного дрила клиентского бэкапа (DEV-46
+                         §9.4). Дрил гоняется НА НОУТБУКЕ (расшифровать умеет
+                         только машина с приватным ключом), сюда доезжает лишь
+                         файл-улика; проба различает ТРИ состояния — прошёл /
+                         провалился / не гонялся, — потому что у провала и
+                         пропуска действия противоположные. Регистрируется
+                         только когда клиентский набор вообще едет (есть
+                         JARVIS_BACKUP_PUBLIC_KEY)
   * live tree state    — C:/jarvis на транке и чисто по tracked-файлам. Дерево
                          это деплой-путь гардиана: `git checkout` в нём = тихий
                          деплой. 2026-08-10 оно дважды осталось не в том
@@ -97,6 +105,36 @@ BUNDLE_MAX_LAG_DAYS = 7.0
 # entropy.bin. Сравнивать только с `.env` было бы мало: логин НОВОГО клиента
 # без переэкспорта — незакрытый онбординг, и он остался бы невидимым.
 BUNDLE_MATERIAL_GLOBS = ("*.session.enc", "*.session", "entropy.bin")
+
+# Дрил восстановления клиентского набора (DEV-46 §4.3). Дрил живёт НЕ здесь: шаг
+# «расшифровать» требует приватного ключа, а хост его по построению не имеет
+# (§9.2). Поэтому проба ничего не запускает — она читает УЛИКУ, файл вердикта,
+# который дрил оставил на ноутбуке и который отдельным шагом доехал на хост.
+#
+# 🔢 ПУТЬ ВЕРДИКТА НАЗВАН В ДВУХ МЕСТАХ, и общей константы у них быть не может:
+# этот скрипт STANDALONE и stdlib-ONLY (см. модульную docstring) и не имеет
+# права импортировать `app/`. Места названы поимённо, чтобы правка одного
+# заставляла найти второе:
+#   1. `VERDICT_REL` в `app/services/restore_drill_verdict.py` — куда пишет дрил
+#   2. `RESTORE_DRILL_REL` здесь                               — откуда читает проба
+RESTORE_DRILL_REL = "state/backup/restore_drill.json"
+# Ритм дрила недельный; порог — 10 суток, то есть неделя плюс запас на ОДИН
+# пропуск. Граница строгая (`>`), как у BUNDLE_MAX_LAG_DAYS: сторож,
+# загорающийся ровно на границе ритма, приучает к тому, что он слегка врёт.
+DRILL_MAX_LAG_DAYS = 10.0
+# Допуск на отметку прогона В БУДУЩЕМ — это джиттер NTP, а не «немного
+# будущего». Сверх допуска возраст вердикта НЕДОКАЗУЕМ, и зажимать его в ноль
+# нельзя: ушедшие вперёд часы ноутбука держали бы `drill_ok` навсегда — дрил не
+# гоняется месяцами, а возраст всё равно 0.0 и всё равно под порогом. Зелёное
+# ПО ПОСТРОЕНИЮ — ровно то, против чего написан весь §9.4, и странность,
+# названная в detail, его не лечит: на зелёное никто не смотрит, в том и смысл
+# зелёного.
+DRILL_FUTURE_TOLERANCE_S = 300.0
+# Признак того, что клиентский набор вообще едет. Без публичного ключа бэкап не
+# шифруется и не отправляется ПО ПОСТРОЕНИЮ — дрилу нечего проверять, и красная
+# лампа была бы красной по построению, то есть фоном (ровно дефект DEV-47).
+# Появился ключ — проба регистрируется, и отсутствие вердикта уже красное.
+BACKUP_PUBLIC_KEY_VAR = "JARVIS_BACKUP_PUBLIC_KEY"
 GIT_TIMEOUT_S = 10
 DIRTY_SHOWN = 3              # сколько файлов называть в алерте
 MIN_DISK_GB = 10.0
@@ -121,6 +159,10 @@ LABELS = {
     # Порт в ярлыке ОБЯЗАТЕЛЕН: панелей две, и «панель не отвечает» без числа
     # отправило бы владельца чинить :8010, у которой свой гардиан и своя проба.
     "panel_client": "ПАНЕЛЬ КЛИЕНТА (:8011 /health)",
+    # Ярлык говорит про ДРИЛ, а не про бэкап: «бэкап не проверен» прочиталось
+    # бы как «бэкапа нет», и владелец пошёл бы чинить не то. Какое именно из
+    # трёх состояний — в detail и reason пробы.
+    "restore_drill": "ДРИЛ ВОССТАНОВЛЕНИЯ (клиентский бэкап не подтверждён)",
 }
 
 # ── десятая проба: клиентская панель (:8011) ───────────────────────────────
@@ -1292,6 +1334,120 @@ def probe_secrets_bundle(snapshot: dict, *,
         bundle.get("name"), lag_days, max_lag_days)}
 
 
+def _drill_numbers(values) -> str:
+    """Величины §4.3 одной строкой, в порядке ключей — для detail."""
+    if not isinstance(values, dict) or not values:
+        return "—"
+    return ", ".join("%s=%s" % (k, values[k]) for k in sorted(values))
+
+
+def probe_restore_drill(snapshot: dict, *,
+                        max_lag_days: float = DRILL_MAX_LAG_DAYS,
+                        future_tolerance_s: float = DRILL_FUTURE_TOLERANCE_S,
+                        now: float | None = None) -> dict:
+    """Одиннадцатая проверка: дрил восстановления подтвердил клиентский бэкап.
+
+    🔴 ТРИ СОСТОЯНИЯ, А НЕ ДВА (DEV-46 §9.4). Одна лампа «дрил не зелёный»
+    склеивает два положения дел с ПРОТИВОПОЛОЖНЫМИ действиями: «провалился» —
+    бэкап негоден, чинить срочно; «не гонялся» — не известно НИЧЕГО, и бэкап
+    при этом может быть в полном порядке. После §9.2 второе будет случаться
+    регулярно и по бытовой причине (ноутбук выключен, владелец в отъезде), а
+    склеенная лампа приучает читать красное как «опять ноутбук» — и настоящий
+    провал прочтут так же. Это ровно DEV-43, только в сторожевой пробе.
+
+    Поэтому `reason` присутствует ВСЕГДА, в том числе на зелёном: иначе три
+    состояния неразличимы машинно, а дедуп по причине (см. модульную
+    docstring) не увидит смены состояния красного на другое красное.
+
+      `drill_ok`     вердикт есть, ok: true, возраст в пределах порога
+      `drill_failed` вердикт есть, ok: false — дрил нашёл расхождение
+      `drill_stale`  вердикт есть, но прогон старше порога — пропуск запуска
+      `drill_never`  вердикта нет вовсе — задача не заведена или ни разу не шла
+      `unreadable`   вердикт есть, но возраст недоказуем: битая форма ЛИБО
+                     отметка прогона в будущем сверх допуска
+
+    `drill_never` и `drill_stale` РАЗНЫЕ, хотя оба «не гонялся»: первое
+    чинится заведением задачи, второе — разбором пропуска. Различие стоит одну
+    строку, а склейка стоит правильной реакции.
+
+    🔴 ВОЗРАСТ СЧИТАЕТСЯ ПО `ran_at` ВНУТРИ ВЕРДИКТА, А НЕ ПО MTIME ФАЙЛА.
+    Файл переезжает между машинами (§9.2 п. 2) — mtime переезда это время
+    копирования, а не время проверки, и по нему протухший дрил выглядел бы
+    свежим ровно тогда, когда улику перевезли заново.
+
+    Граница строгая (`>`), как у `probe_secrets_bundle`.
+
+    Ни одно состояние не зелёное по умолчанию: нет файла — красное, не
+    разобрались — красное. Отметка прогона в БУДУЩЕМ сверх
+    `future_tolerance_s` — тоже красное, и именно `unreadable`: см. комментарий
+    в теле, проверка стоит ПЕРЕД разбором `ok`."""
+    now = time.time() if now is None else now
+    snapshot = snapshot or {}
+
+    error = snapshot.get("error")
+    if error:
+        return {"ok": False, "reason": "unreadable",
+                "detail": "вердикт дрила не разбирается: %s" % error}
+
+    verdict = snapshot.get("verdict")
+    if not verdict:
+        where = snapshot.get("path") or RESTORE_DRILL_REL
+        return {"ok": False, "reason": "drill_never", "detail":
+                "вердикта дрила нет ни разу (%s): задача на ноутбуке не "
+                "заведена или ещё не отработала — о бэкапе не известно "
+                "НИЧЕГО" % where}
+
+    ran_at = verdict.get("ran_at") or 0.0
+    ahead_s = ran_at - now
+
+    # 🔴 ОТМЕТКА ИЗ БУДУЩЕГО СВЕРХ ДОПУСКА — ЭТО `unreadable`, И ПРОВЕРЯЕТСЯ
+    # ОНА ПЕРВОЙ, ДО РАЗБОРА `ok`. Мы не «нашли провал» и не «знаем, что дрил не
+    # гонялся»: мы НЕ МОЖЕМ ВЫЧИСЛИТЬ ВОЗРАСТ, а «возраст недоказуем» — это не
+    # «прошёл». Та же мысль, по которой `unreadable` уже стоит на битой форме:
+    # там нечитаема форма, здесь нечитаема отметка времени.
+    #
+    # Шестого состояния не заводим: пять значений `reason` перечислены
+    # исчерпывающе. И вердикт из будущего с `ok: false` обязан попасть сюда же —
+    # при разъехавшихся часах мы не знаем, о КАКОМ прогоне речь.
+    if ahead_s > max(float(future_tolerance_s), 0.0):
+        ahead_days = ahead_s / 86400.0
+        span = ("%.1f сут" % ahead_days if abs(ahead_days) >= 1.0
+                else "%.1f ч" % (ahead_s / 3600.0))
+        return {"ok": False, "reason": "unreadable", "detail":
+                "отметка прогона в БУДУЩЕМ на %s (допуск %.0f с): часы "
+                "разъехались, возраст вердикта вычислить нечем — это НЕ "
+                "«дрил прошёл»" % (span, future_tolerance_s)}
+
+    # В пределах допуска — обычный рассинхрон часов: возраст неотрицательный,
+    # как у `probe_secrets_bundle`, состояние дальше обычное.
+    age_days = max((now - ran_at) / 86400.0, 0.0)
+
+    numbers = "ждали {%s}, нашли {%s}" % (_drill_numbers(verdict.get("expected")),
+                                          _drill_numbers(verdict.get("actual")))
+    tail = (verdict.get("detail") or "").strip()
+
+    if not verdict.get("ok"):
+        # Провал важнее протухания и потому проверяется ПЕРВЫМ: «бэкап негоден»
+        # остаётся верным и через месяц, а возраст всё равно назван в тексте.
+        # Числа в detail обязательны — «restore failed» без них не говорит, что
+        # чинить (§7 п. 6).
+        return {"ok": False, "reason": "drill_failed", "detail":
+                "дрил ПРОВАЛИЛСЯ: %s; прогон %.1f сут назад%s" % (
+                    numbers, age_days, "; %s" % tail if tail else "")}
+
+    if age_days > max_lag_days:
+        # Причина без числа дней: отставание растёт само по себе, и дедуп по
+        # причине слал бы алерт каждый цикл.
+        return {"ok": False, "reason": "drill_stale", "detail":
+                "дрил не гонялся %.1f сут (порог %.0f): последний прогон был "
+                "зелёным, но он устарел — о СЕГОДНЯШНЕМ бэкапе не известно "
+                "ничего" % (age_days, max_lag_days)}
+
+    return {"ok": True, "reason": "drill_ok", "detail":
+            "дрил зелёный %.1f сут назад (порог %.0f): %s" % (
+                age_days, max_lag_days, numbers)}
+
+
 def probe_panel_client(snapshot: dict) -> dict:
     """Десятая проверка: клиентская панель отвечает на своём порту.
 
@@ -1350,7 +1506,8 @@ def probe_all(http_get, disk_usage, min_disk_gb: float = MIN_DISK_GB,
               chatter_snapshot: dict | None = None,
               worktree_snapshot: dict | None = None,
               secrets_snapshot: dict | None = None,
-              panel_client_snapshot: dict | None = None) -> dict:
+              panel_client_snapshot: dict | None = None,
+              restore_drill_snapshot: dict | None = None) -> dict:
     """Compose the cycle's probes. ``http_get(path) -> int|None`` (HTTP status,
     or None on connection refused/timeout); ``disk_usage(path) -> (total, used,
     free)`` (shutil.disk_usage-shaped)."""
@@ -1401,6 +1558,8 @@ def probe_all(http_get, disk_usage, min_disk_gb: float = MIN_DISK_GB,
         probes["secrets_bundle"] = probe_secrets_bundle(secrets_snapshot)
     if panel_client_snapshot:
         probes["panel_client"] = probe_panel_client(panel_client_snapshot)
+    if restore_drill_snapshot:
+        probes["restore_drill"] = probe_restore_drill(restore_drill_snapshot)
     return probes
 
 
@@ -1729,6 +1888,68 @@ def _secrets_bundle_snapshot(live_tree: Path = LIVE_TREE,
                 "error": "%s: %s" % (type(exc).__name__, exc)}
 
 
+def _restore_drill_snapshot(live_tree: Path = LIVE_TREE) -> dict | None:
+    """Снимок для одиннадцатой пробы: разобранный вердикт дрила.
+
+    ТОЛЬКО ЧТЕНИЕ. Улику пишет дрил на ноутбуке, сторож её не трогает.
+
+    🔴 `None` (проба НЕ регистрируется) РОВНО в одном содержательном случае:
+    в окружении нет `JARVIS_BACKUP_PUBLIC_KEY`. Без публичного ключа
+    клиентский набор не шифруется и не уезжает ПО ПОСТРОЕНИЮ (§3.3 B) —
+    дрилу нечего проверять, и красная лампа горела бы по построению, то есть
+    была бы фоном: ровно дефект DEV-47, который мы не повторяем. Как только
+    ключ появился, проба регистрируется, и отсутствие вердикта — уже красное.
+    Условие проверяемо в ОБЕ стороны: без ключа снимка нет; с ключом и без
+    файла вердикта проба обязана сказать `drill_never`.
+
+    Отсутствие файла вердикта — НЕ повод для `None`: это и есть повод для
+    алерта (`verdict=None` → `drill_never`). `error` — другое: файл ЕСТЬ, но не
+    разбирается, и тогда мы не знаем, а не знаем-что-нет.
+
+    Форма проверяется здесь, а не импортом `read_verdict`: этот скрипт
+    stdlib-ONLY и обязан работать, когда `app/` мёртв (см. модульную
+    docstring). Две проверки формы на один формат названы в docstring модуля
+    `app/services/restore_drill_verdict.py` — они обязаны краснеть на одном и
+    том же наборе поломок."""
+    if not os.environ.get(BACKUP_PUBLIC_KEY_VAR, "").strip():
+        return None
+    if not live_tree.exists():
+        return None
+
+    path = live_tree / RESTORE_DRILL_REL
+    base = {"path": str(path), "verdict": None, "error": None}
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return base
+    except Exception as exc:
+        return dict(base, error="%s: %s" % (type(exc).__name__, exc))
+
+    try:
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            raise ValueError("вердикт не JSON-объект: %s" % type(data).__name__)
+        missing = [f for f in ("ran_at", "ok", "expected", "actual", "detail")
+                   if f not in data]
+        if missing:
+            raise ValueError("в вердикте нет полей: %s" % ", ".join(missing))
+        ran_at = data["ran_at"]
+        # `bool` исключается явно: `isinstance(True, int)` истинно, и
+        # `ran_at: true` проехало бы как формально годная отметка времени.
+        if isinstance(ran_at, bool) or not isinstance(ran_at, (int, float)):
+            raise ValueError("ran_at не число: %r" % (ran_at,))
+        if not isinstance(data["ok"], bool):
+            # Строка "false" истинна в Python: провал прочитался бы зелёным.
+            raise ValueError("ok не bool: %r" % (data["ok"],))
+    except Exception as exc:
+        return dict(base, error="%s: %s" % (type(exc).__name__, exc))
+
+    return dict(base, verdict={"ran_at": float(ran_at), "ok": data["ok"],
+                               "expected": data["expected"],
+                               "actual": data["actual"],
+                               "detail": data["detail"]})
+
+
 def main() -> int:
     state = _read_state()
 
@@ -1753,7 +1974,8 @@ def main() -> int:
                        chatter_snapshot=_chatter_snapshot(),
                        worktree_snapshot=_worktree_snapshot(),
                        secrets_snapshot=_secrets_bundle_snapshot(),
-                       panel_client_snapshot=_panel_client_snapshot())
+                       panel_client_snapshot=_panel_client_snapshot(),
+                       restore_drill_snapshot=_restore_drill_snapshot())
     # Ядро зовётся НАПРЯМУЮ, а не через `transitions()` + `evaluate()`: второе
     # свернуло бы пробы в состояние ДВАЖДЫ, и владелец получил бы по два 🚨 на
     # падение. Тексты берутся из `to_owner`, а не из журнала: единственный
