@@ -22,12 +22,20 @@ a public URL. Reuses the same account-level credentials
 (``R2_ACCOUNT_ID``/``R2_ACCESS_KEY_ID``/``R2_SECRET_ACCESS_KEY``/``R2_ENDPOINT``)
 as the media bucket.
 
+DEV-46 (шаг 2): рядом с обходом ``state/`` живёт ОБНАРУЖЕНИЕ
+клиентского набора (``client_sets``, ``orphan_client_dbs`` — второй корень,
+корень репозитория) и ЯВНЫЙ запрет на вывоз секретов
+(``FORBIDDEN_PATTERNS``, ``assert_not_forbidden``). ЗАГРУЗКИ клиентского
+набора здесь НЕТ и до шифрования (шаг 4) быть не должно: наружу в
+открытом виде переписка и реквизиты не уезжают (спека §3).
+
 Entry points: ``scripts/state_backup.py`` (daily scheduled task, mirrors
 ``scripts/morning_digest.py``) and the ``/backup_now``/``/backup_status``
 Telegram admin commands (``tools/jarvis_smart_telegram_control.py``).
 """
 from __future__ import annotations
 
+import fnmatch
 import hashlib
 import json
 import logging
@@ -36,7 +44,7 @@ import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 from app.services import r2_storage
 from app.services.r2_storage import R2Config, R2ConfigError
@@ -50,6 +58,13 @@ __all__ = [
     "BackupResult",
     "load_backup_config",
     "discover_backup_files",
+    "ClientSet",
+    "client_sets",
+    "orphan_client_dbs",
+    "ForbiddenTravel",
+    "FORBIDDEN_PATTERNS",
+    "is_forbidden",
+    "assert_not_forbidden",
     "sha256_file",
     "build_manifest",
     "run_backup",
@@ -186,6 +201,284 @@ def discover_backup_files(
                 seen.add(p)
                 found.append(p)
     return found
+
+
+# ── Клиентский набор (DEV-46): ВТОРОЙ корень обхода ─────────────────────────
+# `discover_backup_files` устроен вокруг ОДНОГО корня `state/` и матчит глобы
+# относительно него. Обе пропажи лежат ВНЕ его: база клиента в `.secrets/`,
+# реквизиты в `chatter/clients/<slug>/`. Их не «исключали» — их НЕ МОГЛО БЫТЬ
+# ВИДНО по построению обхода (спека §1.3).
+#
+# Второй корень — корень РЕПОЗИТОРИЯ, и главный риск такой правки назван в
+# спеке прямо (§2.3): новый корень втянет соседей по каталогу МОЛЧА. Рядом с
+# `.secrets/<slug>.db` лежат `<slug>.session`, `*.session.enc`, `entropy.bin`
+# — то есть полный доступ к аккаунту клиента. Поэтому здесь пояс и подтяжки:
+# набор строится УЗКИМИ путями по слагам из реестра И проходит через финальное
+# сито `assert_not_forbidden`. Одного из двух мало.
+
+
+class ForbiddenTravel(Exception):
+    """Запрещённый к вывозу файл попал в отбор бэкапа.
+
+    Отдельный класс, а не ValueError: вызывающий обязан отличить «отбор
+    содержит секрет» от любой другой поломки — реакция на это одна и
+    немедленная, остановиться.
+    """
+
+
+# ЛИТЕРАЛЬНЫЙ список. Глобы — относительно КОРНЯ РЕПОЗИТОРИЯ, `*` НЕ
+# пересекает `/` (см. `is_forbidden`). Правит ЧЕЛОВЕК: список не выводится ни
+# из чего и не собирается циклом — выведенный список согласен с реализацией по
+# определению и молчит ровно там, где она забыла
+# ([[jarvis-literal-lists-not-introspection]]).
+FORBIDDEN_PATTERNS: tuple[str, ...] = (
+    ".secrets/*.session",
+    ".secrets/*.session.enc",
+    ".secrets/*.enc",
+    ".secrets/entropy.bin",
+    ".secrets/*.bak",
+    ".secrets/*.db-journal",
+    ".secrets/*.db-wal",
+    ".secrets/*.db-shm",
+    ".env",
+    ".env.enc",
+    ".env.runpod",
+    "state/connect/*.session",
+    "state/connect/secrets_bundle.zip",
+    "state/api_keys.json",
+    "state/ig_accounts.json",
+    "state/google_oauth_token.json",
+)
+
+
+def _forbidden_pattern_for(rel_posix: str) -> str | None:
+    """Шаблон, под который подпал путь, либо ``None``.
+
+    Отдельно от `is_forbidden`, чтобы исключение называло ПРИЧИНУ, а не только
+    факт: «файл запрещён» без шаблона не подсказывает, что чинить.
+
+    Сравнение РЕГИСТРОНЕЗАВИСИМО (и путь, и шаблон приводятся к нижнему
+    регистру): NTFS регистр не различает, поэтому `.SECRETS/demo.SESSION`
+    откроет ровно тот же session-файл. Сито, которое обходится сменой
+    регистра, — не сито. Это строго РАСШИРЯЕТ запрет и ничего не разрешает:
+    что совпадало раньше, совпадает и теперь. Заодно отношение к регистру
+    здесь совпадает с тем, что у дедупликации в `client_sets`
+    (`normalize_path` → `ntpath.normcase`), и в одном модуле не живут два
+    разных правила про одно и то же.
+    """
+    segments = [s.lower() for s in str(rel_posix).replace("\\", "/").split("/")
+                if s not in ("", ".")]
+    if not segments:
+        return None
+    for pattern in FORBIDDEN_PATTERNS:
+        pat_segments = [p.lower() for p in pattern.split("/")]
+        if len(pat_segments) != len(segments):
+            continue
+        if all(fnmatch.fnmatchcase(seg, pat)
+               for seg, pat in zip(segments, pat_segments)):
+            return pattern
+    return None
+
+
+def is_forbidden(rel_posix: str) -> bool:
+    """Путь относительно корня репозитория подпадает под `FORBIDDEN_PATTERNS`?
+
+    Сопоставление ПОСЕГМЕНТНОЕ: путь и шаблон бьются по `/`, число сегментов
+    обязано совпасть, каждый сегмент — `fnmatch.fnmatchcase` по приведённому к
+    нижнему регистру виду (см. `_forbidden_pattern_for`: на NTFS регистр не
+    различается, и сито, обходимое сменой регистра, ситом не является).
+
+    Через `fnmatch` целиком делать НЕЛЬЗЯ: там `*` съедает `/`, и
+    `.secrets/*.session` совпал бы с `.secrets/a/b.session` — то есть запрет,
+    написанный про ОДИН каталог, начал бы молча означать «и всё вложенное».
+    """
+    return _forbidden_pattern_for(rel_posix) is not None
+
+
+def _rel_to_repo(path: Path, repo_root: Path) -> str:
+    """Путь относительно `repo_root` posix-слэшами.
+
+    Относительный и posix — чтобы `missing` и тексты исключений не зависели от
+    машины. Файл ВНЕ дерева репозитория называется вслух в логе: под шаблоны,
+    которые все репо-относительные, он не подпадёт ни при каком имени, и молча
+    считать его безопасным нельзя.
+    """
+    path = Path(path)
+    repo_root = Path(repo_root)
+    try:
+        return path.resolve().relative_to(repo_root.resolve()).as_posix()
+    except (ValueError, OSError):
+        pass
+    try:
+        rel = Path(os.path.relpath(str(path), str(repo_root))).as_posix()
+    except ValueError:  # разные диски под Windows — относительного пути нет
+        rel = path.as_posix()
+    logger.warning(
+        "state backup: путь %s лежит ВНЕ дерева репозитория %s (взят как %s) — "
+        "репо-относительные запреты к нему неприменимы",
+        path, repo_root, rel)
+    return rel
+
+
+def assert_not_forbidden(paths: Iterable[Path], repo_root: Path) -> None:
+    """ФЕЙЛ-КЛОУЗ и ГРОМКО: `ForbiddenTravel` с именем файла и причиной.
+
+    Не «отфильтровать молча»: попадание запрещённого в отбор означает, что
+    сломан шаблон или чей-то `db:` в реестре указывает на сессию. Тихая
+    фильтрация спрятала бы поломку, а цена ошибки здесь — полный доступ к
+    аккаунту клиента.
+    """
+    repo_root = Path(repo_root)
+    for path in paths:
+        rel = _rel_to_repo(path, repo_root)
+        pattern = _forbidden_pattern_for(rel)
+        if pattern is not None:
+            raise ForbiddenTravel(
+                f"в отбор бэкапа попал запрещённый к вывозу файл {rel!r} "
+                f"(шаблон {pattern!r}). Это НЕ фильтруется молча: либо сломан "
+                f"шаблон, либо путь в реестре клиентов указывает на секрет. "
+                f"Цена ошибки здесь — полный доступ к аккаунту клиента."
+            )
+
+
+@dataclass(frozen=True)
+class ClientSet:
+    """Клиентские данные ОДНОГО слага: история воронки + платёжные реквизиты.
+
+    `db`/`requisites` — ``None``, если файла на диске нет (тогда путь назван в
+    `missing`) либо если этот же файл уже отдан ДРУГОМУ слагу дедупликацией
+    (см. `client_sets`).
+    """
+
+    slug: str
+    db: Path | None
+    requisites: Path | None
+    missing: tuple[str, ...]
+
+
+def client_sets(
+    repo_root: Path, *, registry_text: str | None = None
+) -> tuple[ClientSet, ...]:
+    """Клиентский набор строится ПО СЛАГАМ ИЗ РЕЕСТРА (§7 п. 1), а не глобом
+    по каталогу: без слага нельзя вычислить псевдоним объекта (§9.1), а глоб
+    не знает, чей файл нашёл.
+
+    Только `enabled: true`. Дедупликация по РЕАЛЬНОМУ пути файла
+    (`chatter.core.client_registry.normalize_path`): volska и demo делят
+    `.secrets/demo.db`, и файл обязан ехать ОДИН раз, а не дважды. Файл
+    остаётся у ПЕРВОГО слага в порядке реестра, у следующих поле — ``None``,
+    и в `missing` он НЕ попадает: он не пропал, он уже отобран.
+
+    Отсутствующий на диске файл — не молчаливый пропуск: путь попадает в
+    `missing`. «Файла нет» и «файл не искали» обязаны быть различимы.
+
+    `registry_text` по умолчанию читается из
+    ``<repo_root>/chatter/clients/registry.yaml``; нечитаемый или сломанный
+    реестр летит наверх (DEV-18), а не превращается в пустой набор — «клиентов
+    нет» и «реестр не прочитали» это разные вещи.
+
+    ПЕРЕД возвратом весь отбор проходит `assert_not_forbidden`: узкие пути из
+    реестра И финальное сито, одного из двух мало.
+    """
+    from chatter.core.client_registry import normalize_path, parse_registry
+
+    repo_root = Path(repo_root)
+    if registry_text is None:
+        registry_text = (repo_root / "chatter" / "clients"
+                         / "registry.yaml").read_text(encoding="utf-8")
+    entries = parse_registry(registry_text)
+
+    root = str(repo_root)
+    seen: set[str] = set()
+    selected: list[Path] = []
+    out: list[ClientSet] = []
+    for entry in entries:
+        if not entry.enabled:
+            continue
+        found: dict[str, Path | None] = {"db": None, "requisites": None}
+        missing: list[str] = []
+        candidates = (
+            ("db", str(entry.db)),
+            ("requisites", f"chatter/clients/{entry.slug}/requisites.yaml"),
+        )
+        for kind, raw in candidates:
+            raw = raw.replace("\\", "/")
+            path = Path(raw)
+            if not path.is_absolute():
+                path = repo_root / raw
+            rel = _rel_to_repo(path, repo_root)
+            if not path.is_file():
+                missing.append(rel)
+                continue
+            key = normalize_path(str(path), root=root)
+            if key in seen:
+                continue
+            seen.add(key)
+            found[kind] = path
+            selected.append(path)
+        out.append(ClientSet(
+            slug=entry.slug,
+            db=found["db"],
+            requisites=found["requisites"],
+            missing=tuple(missing),
+        ))
+
+    assert_not_forbidden(selected, repo_root)
+    return tuple(out)
+
+
+def orphan_client_dbs(
+    repo_root: Path, sets: tuple[ClientSet, ...]
+) -> tuple[Path, ...]:
+    """`.secrets/*.db`, не принадлежащие НИ ОДНОМУ слагу реестра.
+
+    Обратная сторона реестрового подхода: файл есть, хозяина нет. Молча
+    выбросить нельзя — это «шаблон не нашёл ничего» наизнанку (§7 п. 5).
+
+    Глоб `.secrets/*.db` здесь НЕ источник набора (источник — реестр), а
+    единственный способ увидеть базу, которую НИКТО не назвал: переименованный
+    слаг, забытый остаток, база удалённого из реестра клиента.
+
+    Хозяин — ЛЮБОЙ слаг реестра, включённый или нет. База выключенного
+    клиента сиротой не является: у неё есть известный хозяин, а то, что она не
+    едет, — следствие осознанного `enabled: false`, записанного человеком в
+    самом реестре. Назвать её ничьей значит сказать неправду и приучить
+    смотреть мимо настоящих сирот.
+
+    Поэтому реестр читается здесь заново (`enabled` тут не при чём, а `sets`
+    содержит только включённых). Если файла реестра на диске нет, хозяева
+    берутся из переданных `sets`, и это НАЗЫВАЕТСЯ в логе: ответ в таком
+    прогоне беднее, чем обещает докстрока, и знать об этом обязан читатель, а
+    не только автор.
+    """
+    from chatter.core.client_registry import (
+        SECRETS_DIRNAME, normalize_path, parse_registry)
+
+    repo_root = Path(repo_root)
+    root = str(repo_root)
+    owned = {normalize_path(str(s.db), root=root)
+             for s in sets if s.db is not None}
+    registry_path = repo_root / "chatter" / "clients" / "registry.yaml"
+    if registry_path.is_file():
+        for entry in parse_registry(registry_path.read_text(encoding="utf-8")):
+            raw = str(entry.db).replace("\\", "/")
+            path = Path(raw)
+            if not path.is_absolute():
+                path = repo_root / raw
+            owned.add(normalize_path(str(path), root=root))
+    else:
+        logger.warning(
+            "state backup: реестра клиентов нет (%s) — хозяева считаются только "
+            "по переданным наборам, база ВЫКЛЮЧЕННОГО клиента будет названа "
+            "сиротой", registry_path)
+    orphans: list[Path] = []
+    for path in sorted((repo_root / SECRETS_DIRNAME).glob("*.db")):
+        if not path.is_file():
+            continue
+        if normalize_path(str(path), root=root) in owned:
+            continue
+        orphans.append(path)
+    return tuple(orphans)
 
 
 def sha256_file(path: Path) -> str:

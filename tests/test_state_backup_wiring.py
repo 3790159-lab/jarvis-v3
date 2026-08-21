@@ -41,12 +41,16 @@ def test_backup_now_dispatch_runs_backup_and_rotation_and_sends_summary(monkeypa
         calls["root"] = root
         return result
 
-    def _fake_rotate():
+    def _fake_rotate(**kwargs):
         calls["rotated"] = True
-        return ["backups/state/2026-06-01/users.json"]
+        return {"backups/state": ["backups/state/2026-06-01/users.json"],
+                "backups/client": []}
 
     monkeypatch.setattr(sb, "run_backup", _fake_run_backup)
-    monkeypatch.setattr(sb, "rotate_old_backups", _fake_rotate)
+    # Ротация ОДНА и та же, что у ежедневного таска: КАЖДЫЙ префикс
+    # СВОИМ сроком (DEV-46). Два разных вызова на одну вещь означали бы,
+    # что годовой клиентский набор едет под порогом в 14 суток.
+    monkeypatch.setattr(sb, "rotate_all_backups", _fake_rotate)
     sent = []
     monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
 
@@ -82,10 +86,12 @@ def test_backup_now_dispatch_rotation_failure_is_non_fatal(monkeypatch):
     result = sb.BackupResult(date="2026-07-15", uploaded=["users.json"])
     monkeypatch.setattr(sb, "run_backup", lambda root: result)
 
-    def _boom_rotate():
+    def _boom_rotate(**kwargs):
         raise RuntimeError("list_objects failed")
 
-    monkeypatch.setattr(sb, "rotate_old_backups", _boom_rotate)
+    # Падать обязана ИМЕННО ротация, а не конфиг R2 по дороге: зелёный
+    # по случайной причине хуже красного — он проверяет не то, что обещает именем.
+    monkeypatch.setattr(sb, "rotate_all_backups", _boom_rotate)
     sent = []
     monkeypatch.setattr(mod, "send", lambda cid, t, *a, **k: sent.append(t))
 
@@ -93,6 +99,7 @@ def test_backup_now_dispatch_rotation_failure_is_non_fatal(monkeypatch):
 
     assert len(sent) == 1
     assert "2026-07-15" in sent[0]        # backup summary still sent
+    assert "list_objects failed" in sent[0]   # сбой НАЗВАН, а не проглочен
 
 
 # ── _backup_status_dispatch ───────────────────────────────────────────────

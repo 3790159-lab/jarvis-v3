@@ -7435,8 +7435,16 @@ def _garbage_cleanup_dispatch(chat_id) -> None:
 # intent_router.PAID, so no money-confirm gate.
 def _backup_now_dispatch(chat_id) -> None:
     """/backup_now — synchronous on-demand run of the same critical-file
-    allowlist + rotation the daily JarvisStateBackup scheduled task runs."""
+    allowlist + rotation the daily JarvisStateBackup scheduled task runs.
+
+    Ротация — ``rotate_all_backups``, то есть КАЖДЫЙ объявленный префикс
+    СВОИМ сроком (``state_backup.RETENTION``), ровно та же ротация, что у
+    ежедневного таска. Две РАЗНЫЕ ротации на одно и то же — это два
+    числа на одну вещь: меньшее погасило бы большее молча — а здесь цена
+    расхождения — годовой клиентский набор, снесённый порогом в 14 суток.
+    """
     from app.services import state_backup as sb
+    from scripts.state_backup import format_rotation
     state_root = _PROJECT_ROOT / "state"
     try:
         result = sb.run_backup(state_root)
@@ -7444,14 +7452,20 @@ def _backup_now_dispatch(chat_id) -> None:
         logger.exception("backup_now failed chat=%s", chat_id)
         send(chat_id, "🚫 Бэкап упал: %s" % (str(exc)[:200]))
         return
+    rotation_error = None
+    deleted_by_prefix = {}
     try:
-        deleted = sb.rotate_old_backups()
-    except Exception:
+        deleted_by_prefix = sb.rotate_all_backups()
+    except Exception as exc:
         logger.exception("backup_now: rotation failed chat=%s", chat_id)
-        deleted = []
+        rotation_error = exc
     text = sb.format_backup_result(result)
-    if deleted:
-        text += "\nРотация: удалено %d старых объектов (>%dд)." % (len(deleted), sb.KEEP_DAYS)
+    if rotation_error is not None:
+        # Сбой ротации сам бэкап не проваливает, но и молчать о нём нельзя:
+        # ответ без строки про ротацию читается как «удалять было нечего».
+        text += "\n⚠️ Ротация НЕ выполнена: %s" % (str(rotation_error)[:200])
+    elif deleted_by_prefix:
+        text += "\nРотация: " + format_rotation(deleted_by_prefix, sb.RETENTION)
     send(chat_id, text)
 
 
