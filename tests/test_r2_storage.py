@@ -14,6 +14,7 @@ from unittest.mock import MagicMock
 import pytest
 from botocore.exceptions import ClientError, EndpointConnectionError
 
+from app.services import r2_storage as r2
 from app.services.r2_storage import (
     R2Config,
     R2ConfigError,
@@ -367,6 +368,79 @@ def test_list_objects_raises_r2error_on_client_error():
 
     with pytest.raises(R2Error):
         list_objects("x/", client=client, config=_config())
+
+
+# ── потолок страниц (спека 2026-08-21-r2-paginator-page-cap) ──────────────────
+#
+# Тесты выше кормят пагинатор ПОСЛУШНЫМ ответом: рано или поздно `IsTruncated`
+# становится ложным, и цикл выходит. Слепое пятно — ответ НЕПРАВИЛЬНЫЙ, и
+# сторожа ниже стоят ровно на нём.
+#
+# Каждый из них самоограничен. Сторож, который при регрессе ВИСНЕТ, повесит и
+# гейт: вечная петля не краснеет, она молчит. Поэтому здесь либо потолок сбит
+# монкипатчем до единиц, либо у фейка есть свой аварийный выход.
+
+
+def test_list_objects_stops_when_bucket_never_stops_truncating():
+    """У пагинатора обязана быть СВОЯ граница, а не вера в поле ответа.
+
+    Бакет, который на каждой странице обещает следующую, не должен уметь
+    крутить нас вечно: непроверяемый листинг — это отказ, а не ожидание.
+    """
+    calls = {"n": 0}
+    hard_stop = r2.MAX_LIST_PAGES + 5
+
+    def _always_truncated(**kwargs):
+        calls["n"] += 1
+        if calls["n"] > hard_stop:
+            # Аварийный выход фейка: при регрессе тест ПАДАЕТ здесь, а не
+            # висит до конца времён.
+            raise AssertionError(
+                "пагинатор не остановился сам: %d страниц" % calls["n"])
+        return {"Contents": [{"Key": "k%d" % calls["n"], "Size": 1}],
+                "IsTruncated": True, "NextContinuationToken": "tok"}
+
+    client = MagicMock()
+    client.list_objects_v2 = MagicMock(side_effect=_always_truncated)
+
+    with pytest.raises(R2Error):
+        list_objects("backups/state/", client=client, config=_config())
+
+    assert calls["n"] <= r2.MAX_LIST_PAGES
+
+
+def test_bare_magicmock_client_cannot_spin_the_paginator(monkeypatch):
+    """РЕГРЕСС 21.08 — этот вызов дважды довёл машину до нехватки памяти.
+
+    `MagicMock().list_objects_v2(...).get("IsTruncated")` возвращает MagicMock,
+    а он ИСТИННЫЙ, поэтому `if not resp.get("IsTruncated"): break` не
+    срабатывает никогда. Петля при этом молчит — `Contents` итерируется
+    пустым, — и растёт на ~14.7 КБ за оборот: ~190 МБ/с, 21 ГБ за две минуты.
+
+    Ровно этот вызов сидит в `run_backup` через `verify_uploaded`, куда
+    `list_objects` приходит умолчанием. Голый mock-клиент в тестах —
+    нормальное явление, и он не должен уметь уронить хост.
+    """
+    monkeypatch.setattr(r2, "MAX_LIST_PAGES", 5)
+    client = MagicMock()
+
+    with pytest.raises(R2Error):
+        list_objects("backups/state/2026-07-15/", client=client, config=_config())
+
+    assert client.list_objects_v2.call_count == 5
+
+
+def test_page_cap_error_names_prefix_and_cap(monkeypatch):
+    """Чинить будут по тексту ошибки — значит в нём должно быть чем чинить."""
+    monkeypatch.setattr(r2, "MAX_LIST_PAGES", 3)
+    client = MagicMock()
+
+    with pytest.raises(R2Error) as excinfo:
+        list_objects("backups/state/", client=client, config=_config())
+
+    message = str(excinfo.value)
+    assert "backups/state/" in message
+    assert "3" in message
 
 
 def test_delete_object_calls_client():

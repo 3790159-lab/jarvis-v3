@@ -62,6 +62,12 @@ __all__ = [
 TMP_PREFIX = "tmp"
 _TMP_LIFECYCLE_DAYS = 7
 
+# Потолок страниц одного листинга. Страница `list_objects_v2` — до 1000 ключей,
+# то есть это миллион объектов под префиксом: для ротации бэкапов состояния и
+# `/backup_status` недостижимо на три порядка. Порог тут не SLA, а бампер —
+# он обязан быть недостижим для честного бакета и достижим для врущего.
+MAX_LIST_PAGES = 1000
+
 # Extension -> Content-Type. Serving R2 objects with a correct Content-Type is
 # what lets Telegram/browsers inline-preview them instead of forcing a download.
 _CONTENT_TYPES = {
@@ -255,7 +261,9 @@ def list_objects(
     client = client or _make_client(config)
     out: list[dict] = []
     continuation: str | None = None
-    while True:
+    # Граница СВОЯ, а не вера в `IsTruncated`: ответ, который обещает следующую
+    # страницу бесконечно, иначе крутит нас молча и без предела по памяти.
+    for _ in range(MAX_LIST_PAGES):
         kwargs: dict[str, Any] = {"Bucket": config.bucket}
         if prefix:
             kwargs["Prefix"] = prefix
@@ -274,6 +282,12 @@ def list_objects(
         if not resp.get("IsTruncated"):
             break
         continuation = resp.get("NextContinuationToken")
+    else:
+        # Обрезать молча нельзя: неполный листинг, выданный за полный, заставит
+        # `verify_uploaded` объявить доехавшие объекты пропавшими. DEV-18.
+        raise R2Error(
+            f"R2 list_objects for prefix {prefix!r} did not finish within "
+            f"{MAX_LIST_PAGES} pages — refusing to page forever")
     out.sort(key=lambda o: o["key"])
     return out
 

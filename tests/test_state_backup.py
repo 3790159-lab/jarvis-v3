@@ -52,6 +52,29 @@ def _state_tree(tmp_path: Path) -> Path:
     return root
 
 
+def _listing_from_puts(client):
+    """Листинг, отвечающий тем, что клиент реально принял на запись.
+
+    Тесты ниже — про ЗАЛИВКУ. Листинг в них чужая механика, и подменять её надо
+    ЯВНО: `run_backup` с коммита 19679bdf дозванивается до `verify_uploaded`, а
+    тому умолчанием приходит настоящий `r2_storage.list_objects`. Настоящий
+    пагинатор с mock-клиентом уходил в бесконечную петлю и съедал хост —
+    спека 2026-08-21-r2-paginator-page-cap, сторожа в tests/test_r2_storage.py.
+
+    Ключи берём из записанных вызовов `put_object`, а не из ожиданий теста:
+    так подмена отвечает на вопрос «что доехало» тем же, что «что отправили», и
+    не начинает молча соглашаться с проверкой, которую должна кормить.
+    """
+    recorded = client   # снаружи: у `_list` свой параметр `client` от вызова
+
+    def _list(prefix, client=None, config=None):
+        return [{"key": call.kwargs["Key"], "size": 1}
+                for call in recorded.put_object.call_args_list
+                if call.kwargs.get("Key", "").startswith(prefix)]
+
+    return _list
+
+
 def _backup_config():
     from app.services.r2_storage import R2Config
     return R2Config(
@@ -144,7 +167,8 @@ def test_run_backup_uploads_every_discovered_file_and_manifest(tmp_path):
     client.put_object = MagicMock(return_value={})
     now = datetime(2026, 7, 15, 3, 0, tzinfo=timezone.utc)
 
-    result = sb.run_backup(root, now=now, client=client, config=_backup_config())
+    result = sb.run_backup(root, now=now, client=client, config=_backup_config(),
+                           list_objects=_listing_from_puts(client))
 
     assert result.date == "2026-07-15"
     assert result.failed == []
@@ -173,7 +197,8 @@ def test_run_backup_per_file_failure_is_isolated(tmp_path):
     client.put_object = MagicMock(side_effect=_put)
     now = datetime(2026, 7, 15, tzinfo=timezone.utc)
 
-    result = sb.run_backup(root, now=now, client=client, config=_backup_config())
+    result = sb.run_backup(root, now=now, client=client, config=_backup_config(),
+                           list_objects=_listing_from_puts(client))
 
     assert result.ok is False
     assert len(result.failed) == 1
@@ -198,7 +223,8 @@ def test_run_backup_manifest_excludes_failed_files(tmp_path):
     client.put_object = MagicMock(side_effect=_put)
     now = datetime(2026, 7, 15, tzinfo=timezone.utc)
 
-    sb.run_backup(root, now=now, client=client, config=_backup_config())
+    sb.run_backup(root, now=now, client=client, config=_backup_config(),
+                  list_objects=_listing_from_puts(client))
 
     import json
     manifest = json.loads(captured_manifest_body["text"])
@@ -214,7 +240,8 @@ def test_run_backup_empty_state_dir_uploads_only_manifest(tmp_path):
     client.put_object = MagicMock(return_value={})
     now = datetime(2026, 7, 15, tzinfo=timezone.utc)
 
-    result = sb.run_backup(root, now=now, client=client, config=_backup_config())
+    result = sb.run_backup(root, now=now, client=client, config=_backup_config(),
+                           list_objects=_listing_from_puts(client))
 
     assert result.uploaded == []
     assert result.ok is True
