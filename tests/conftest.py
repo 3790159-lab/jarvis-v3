@@ -173,3 +173,39 @@ def _no_test_may_launch_the_real_starter(monkeypatch):
         return real_popen(*args, **kwargs)
 
     monkeypatch.setattr(subprocess, "Popen", guarded)
+
+
+# ── ремень по памяти (спека 2026-08-21-suite-ram-belt) ───────────────────────
+#
+# Живёт ВНУТРИ процесса pytest, а не в обёртке, по двум причинам. Первая:
+# снаружи не видно, КАКОЙ ТЕСТ виноват — 21.08 имя добывали час, считая точки
+# в файле прогресса. Вторая: обёртку можно забыть, а упал именно прогон,
+# запущенный руками обычной командой.
+#
+# Выключается только явным SUITE_RAM_BELT=0.
+
+from app.services import suite_ram_belt as _suite_ram_belt   # noqa: E402
+
+_RAM_BELT = _suite_ram_belt.install()
+
+
+def pytest_runtest_logstart(nodeid, location):
+    if _RAM_BELT is not None:
+        _RAM_BELT.tracker.set(nodeid)
+
+
+def pytest_runtest_logfinish(nodeid, location):
+    if _RAM_BELT is not None:
+        _RAM_BELT.tracker.clear()
+
+
+def pytest_keyboard_interrupt(excinfo):
+    """Напечатать отчёт СВОИМ каналом pytest.
+
+    Живой дрил 21.08 показал: запись в ``sys.stderr`` до экрана не доходит —
+    pytest перехватывает поток на уровне дескриптора, а при KeyboardInterrupt
+    перехваченное отбрасывается. Отчёт оставался только в файле, то есть
+    человек видел голый ``KeyboardInterrupt`` без причины.
+    """
+    if _RAM_BELT is not None and _RAM_BELT.sampler.last_report:
+        print(_RAM_BELT.sampler.last_report)
