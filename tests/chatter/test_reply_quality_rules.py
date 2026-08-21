@@ -6,9 +6,12 @@ quality-four-rules.md`), сторожа §5.
 и детерминированные проверки вокруг неё, и ровно это здесь и сторожится:
 
   * правило доехало до системного слоя КАЖДОГО клиента (S1);
-  * формулировка живёт в ОДНОМ месте, а не копией в промпте и копией в
-    playbook (S2) — иначе через месяц они разъедутся, и никто не заметит,
-    какая из двух настоящая ([[jarvis-two-numbers-for-one-thing]]);
+  * формулировка живёт в ОДНОМ месте (S2) — иначе через месяц копии
+    разъедутся, и никто не заметит, какая настоящая
+    ([[jarvis-two-numbers-for-one-thing]]). С 21.08 «одно место» понимается
+    буквально и для МОДЕЛИ тоже: правила 1 и 4 едут только системным слоем, а
+    playbook несёт ссылку — дословная копия стоила 299 токенов префикса каждый
+    ход, потому что playbook уезжает в модель целиком;
   * обороты претензии ловятся ДЕТЕРМИНИРОВАННО, как `forbidden_terms`, а не
     уговором в промпте (S3, S4), и нейтральная передача при этом проходит
     (S5) — сигнал, красный при законной работе, это фон, а не сторож;
@@ -135,32 +138,45 @@ def test_each_rule_text_lives_in_exactly_one_source_file(attr):
 
 
 @pytest.mark.parametrize("slug", ["volska", "yarina"])
-def test_every_live_clients_playbook_carries_the_rules(slug):
-    """Вторая половина §1: правило живёт и в playbook, не только в промпте.
+def test_every_live_clients_playbook_points_at_the_rules_without_copying_them(slug):
+    """Вторая половина §1 после правки 21.08: ссылка есть, копии НЕТ.
 
-    Playbook — это то, что читает ЧЕЛОВЕК, когда правит конфиг. Правило,
-    существующее только в коде сборки промпта, для него невидимо: он перепишет
-    playbook и не узнает, что нарушил договорённость. Оба живых каталога
-    правлены руками, поэтому сторож нужен именно на них.
+    Playbook читает ЧЕЛОВЕК, когда правит конфиг, и правило, существующее
+    только в коде сборки промпта, для него невидимо — поэтому ссылка
+    обязательна. Но playbook уезжает и в МОДЕЛЬ, целиком; дословная копия
+    правил 1 и 4 означала бы 299 токенов префикса каждый ход за текст, уже
+    сказанный системным слоем.
+
+    Сторож двусторонний намеренно: «ссылка есть» без «копии нет» зеленел бы на
+    playbook, куда следующая арка вернула бы текст «чтобы было под рукой».
     """
     path = CLIENTS / slug / "playbook.md"
     if not path.exists():                          # pragma: no cover — среда
         pytest.skip(f"каталога {slug} нет в этой среде")
     text = path.read_text(encoding="utf-8")
-    assert reply_rules.ASSUMPTION_BOUNDARY_UK in text, (
-        f"{slug}/playbook.md не несёт правила границы допущений")
-    assert reply_rules.HISTORY_IS_NOT_A_SOURCE_UK in text, (
-        f"{slug}/playbook.md не несёт правила про историю диалога")
+
+    assert reply_rules.PROMPT_LAYER_NOTE_UK in text, (
+        f"{slug}/playbook.md не несёт ссылки на системный слой — человек, "
+        f"правящий конфиг, не узнает, что правила вообще существуют")
     assert reply_rules.COMPLAINT_HANDOFF_UK in text, (
         f"{slug}/playbook.md не даёт РАЗРЕШЁННОЙ формулировки передачи по "
         f"претензии — остаётся один запрет, и автор придумает замену сам")
 
+    assert reply_rules.ASSUMPTION_BOUNDARY_UK not in text, (
+        f"{slug}/playbook.md снова несёт ДОСЛОВНЫЙ текст правила границы "
+        f"допущений — это второй экземпляр того же в префиксе модели")
+    assert reply_rules.HISTORY_IS_NOT_A_SOURCE_UK not in text, (
+        f"{slug}/playbook.md снова несёт ДОСЛОВНЫЙ текст правила про историю "
+        f"диалога — это второй экземпляр того же в префиксе модели")
 
-def test_a_generated_playbook_carries_the_rules_too():
-    """Тот же вопрос к пайплайну онбординга: новый клиент рождается с правилом.
 
-    Иначе правило есть у двоих сегодняшних и не будет у третьего, а разница
-    вскроется на живом лиде.
+def test_a_generated_playbook_points_at_the_rules_too():
+    """Тот же вопрос к пайплайну онбординга: новый клиент рождается со ссылкой.
+
+    Иначе у двоих сегодняшних ссылка есть, у третьего нет — и разница
+    вскроется на живом лиде. Проверяется и обратная сторона: генератор не
+    вернул дословную копию, иначе экономия держалась бы только на том, что
+    два живых плейбука правлены руками.
     """
     from tests.test_onboard_render import SLUG, make_brief
     from chatter.onboard import render
@@ -168,25 +184,45 @@ def test_a_generated_playbook_carries_the_rules_too():
     result = render.render_all(make_brief(), slug=SLUG)
     playbook = dict(result.files).get("playbook.md") or dict(result.files).get("playbook")
     assert playbook, "генератор не отдал playbook — сторож ослеп"
-    assert reply_rules.ASSUMPTION_BOUNDARY_UK in playbook, (
-        "сгенерированный playbook не несёт правила границы допущений")
-    assert reply_rules.HISTORY_IS_NOT_A_SOURCE_UK in playbook, (
-        "сгенерированный playbook не несёт правила про историю диалога")
+    assert reply_rules.PROMPT_LAYER_NOTE_UK in playbook, (
+        "сгенерированный playbook не несёт ссылки на системный слой")
+    assert reply_rules.ASSUMPTION_BOUNDARY_UK not in playbook, (
+        "генератор снова кладёт в playbook дословный текст правила 1")
+    assert reply_rules.HISTORY_IS_NOT_A_SOURCE_UK not in playbook, (
+        "генератор снова кладёт в playbook дословный текст правила 4")
 
 
-def test_the_playbook_rule_and_the_prompt_rule_are_the_same_string():
-    """Тот же S2 с другой стороны: в playbook едет ТА ЖЕ строка.
+def test_the_rules_ride_the_prefix_exactly_once():
+    """S2 после правки 21.08: правила 1 и 4 в префиксе РОВНО ОДИН раз.
 
-    Сравниваются не «похожие» тексты, а объекты одного источника: если
-    завтра кто-то положит в генератор playbook «уточнённую» редакцию,
-    сравнение перестанет быть тождеством.
+    Считается по обоим кускам, из которых собран префикс: системный слой
+    (`prompt_rules_block`) и блок playbook. Тест на «есть в промпте» и тест на
+    «нет в playbook» по отдельности зеленеют и на редакции, где текст уехал в
+    третье место; здесь считается СУММА вхождений.
     """
-    assert reply_rules.playbook_rules_block_uk().count(
-        reply_rules.ASSUMPTION_BOUNDARY_UK) == 1, (
-        "блок правил для playbook не содержит ровно ту же строку правила")
-    assert reply_rules.playbook_rules_block_uk().count(
-        reply_rules.HISTORY_IS_NOT_A_SOURCE_UK) == 1, (
-        "блок правил для playbook не содержит ровно ту же строку про историю")
+    prompt = reply_rules.prompt_rules_block()
+    playbook = reply_rules.playbook_rules_block_uk()
+
+    for name, rule in (("правило 1", reply_rules.ASSUMPTION_BOUNDARY_UK),
+                       ("правило 4", reply_rules.HISTORY_IS_NOT_A_SOURCE_UK)):
+        total = prompt.count(rule) + playbook.count(rule)
+        assert total == 1, (
+            f"{name} едет в префиксе {total} раз(а), а не один: "
+            f"промпт {prompt.count(rule)}, playbook {playbook.count(rule)}")
+        assert prompt.count(rule) == 1, (
+            f"{name} обязано остаться в системном слое — это оно и есть")
+
+
+def test_the_pointer_names_where_the_rules_actually_live():
+    """Ссылка обязана вести к источнику, а не быть вежливой фразой.
+
+    Ссылка, не называющая места, через месяц становится словами: человек
+    прочитает «діють завжди» и не найдёт, где их править.
+    """
+    note = reply_rules.PROMPT_LAYER_NOTE_UK
+    assert "reply_rules" in note, (
+        f"ссылка не называет модуль-источник: {note!r}")
+    assert reply_rules.playbook_rules_block_uk().count(note) == 1
 
 
 # ═════════════════════════════════════════════════════════════════════════════
