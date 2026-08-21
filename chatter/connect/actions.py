@@ -153,7 +153,7 @@ def _ok(step_id: str, why: str, facts: dict[str, Any]) -> StepResult:
 
 
 def _open(step_id: str, why: str, todo: str, facts: dict[str, Any],
-          *, awaits_human: bool = False) -> StepResult:
+          *, waits_for_human: bool = False) -> StepResult:
     """Действие не состоялось: факта нет, и его появление зависит от человека.
 
     `waits_for_human` (§12.7 п.1) — единственный признак, по которому порядок
@@ -164,7 +164,7 @@ def _open(step_id: str, why: str, todo: str, facts: dict[str, Any],
     """
     return StepResult(step_id=step_id, verdict=Verdict.OPEN, why=why,
                       todo=todo, facts=dict(facts),
-                      waits_for_human=awaits_human)
+                      waits_for_human=waits_for_human)
 
 
 def _conflict(step_id: str, why: str, todo: str,
@@ -392,7 +392,7 @@ def act_s4(ctx: Ctx) -> StepResult:
             f"каталога сборки {src} нет: переносить нечего, а сочинить конфиг "
             f"клиента подключение не имеет права",
             f"собери конфиг: python -m chatter.onboard {ctx.slug} --brief <файл.xlsx>",
-            facts, awaits_human=True)
+            facts, waits_for_human=True)
 
     missing = [name for name in CONFIG_REQUIRED if not (src / name).is_file()]
     if missing:
@@ -401,7 +401,7 @@ def act_s4(ctx: Ctx) -> StepResult:
             f"в {src} нет файлов {', '.join(missing)} — без них `load_config` не "
             f"поднимет клиента, а гардиан будет поднимать и ронять раннер по кругу",
             f"пересобери конфиг: python -m chatter.onboard {ctx.slug} --brief <файл.xlsx>",
-            facts, awaits_human=True)
+            facts, waits_for_human=True)
 
     names = list(CONFIG_REQUIRED) + [
         n for n in CONFIG_OPTIONAL if (src / n).is_file()]
@@ -517,7 +517,7 @@ def act_s9(ctx: Ctx) -> StepResult:
             f"нет {path}: allowlist писать некуда, конфиг клиента ещё не на месте",
             f"закрой S4: перенеси собранный каталог в {_client_dir(ctx)} — "
             f"он идёт раньше по карте §3",
-            facts, awaits_human=True)
+            facts, waits_for_human=True)
 
     text = path.read_text(encoding="utf-8")
     try:
@@ -543,7 +543,7 @@ def act_s9(ctx: Ctx) -> StepResult:
             "внести неоткуда, а без него пульт и карточки клиента идут в никуда",
             f"впиши control.owner_chat_id (id владельца в контрол-боте "
             f"клиента) в {path}",
-            facts, awaits_human=True)
+            facts, waits_for_human=True)
 
     drill = _drill_ids(ctx.slug)
     if not drill:
@@ -554,7 +554,7 @@ def act_s9(ctx: Ctx) -> StepResult:
             f"нельзя: реплики прогона ушли бы живому человеку",
             "внеси дрил-контакт в ОБЕ копии канона "
             "(chatter/payments/drill_gate.py и scripts/drill_reset.py)",
-            facts, awaits_human=True)
+            facts, waits_for_human=True)
 
     tg_before = raw.get("telegram") if isinstance(raw.get("telegram"), dict) else {}
     gate_before = tg_before.get("funnel_gate")
@@ -848,7 +848,7 @@ def act_s11(ctx: Ctx) -> StepResult:
             f"`enabled: true` без неё Telethon уйдёт в интерактивный запрос "
             f"кода и повиснет, а гардиан будет рестартовать раннер по кругу",
             "войди в аккаунт клиента (шаг S6): python -m chatter.telethon_login",
-            facts, awaits_human=True)
+            facts, waits_for_human=True)
 
     argv = [
         POWERSHELL, "-NoProfile", "-NonInteractive",
@@ -1107,7 +1107,7 @@ def act_s13(ctx: Ctx) -> StepResult:
             f"положи вычитанный сценарий в "
             f"{Path(ctx.root) / 'chatter' / 'clients' / ctx.slug} "
             f"(заготовку собирает python -m chatter.onboard {ctx.slug})",
-            facts, awaits_human=True)
+            facts, waits_for_human=True)
 
     runs_found = known.get("runs_found")
     already = bool(runs_found) if runs_found is not None else bool(
@@ -1119,7 +1119,7 @@ def act_s13(ctx: Ctx) -> StepResult:
             f"второй платный прогон «на всякий случай» — это деньги клиента и "
             f"посторонний трафик в его БД",
             "если прогон нужен повторно — добавь --drill-again вместе с --drill-yes",
-            facts, awaits_human=True)
+            facts, waits_for_human=True)
 
     # Харнесс — КОД (см. `model.script_path`): в репетиционном корне §9.1
     # его нет вовсе, а взятый из `--root` он превратил бы ключ «где данные»
@@ -1207,7 +1207,7 @@ def act_s13(ctx: Ctx) -> StepResult:
             f"суфлёр отсюда нельзя — его подсказки уходят в захваченный вывод, "
             f"и человек у телефона не увидит ни одной. Смета прогона {money}",
             f"прогони дрил САМ, в своей консоли, где суфлёр виден: {manual}",
-            facts, awaits_human=True)
+            facts, waits_for_human=True)
 
     if not ctx.drill_yes:
         # 🔴 ВОРОТА ДЕНЕГ. Причина конкретная и названа владельцем: позавчера
@@ -1218,7 +1218,7 @@ def act_s13(ctx: Ctx) -> StepResult:
             f"видеть это ДО списания, а не узнавать от бота",
             "разреши трату: повтори эту же команду с флагом --drill-yes "
             "(прогон идёт сам, человек у телефона не нужен)",
-            facts, awaits_human=True)
+            facts, waits_for_human=True)
 
     # ── платный прогон ───────────────────────────────────────────────────────
     # `--lead-peer` сверяется с allowlist'ом ВНУТРИ `drill_lead` — это его
