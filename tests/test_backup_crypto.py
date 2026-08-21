@@ -918,3 +918,119 @@ def test_data_larger_than_the_ceiling_is_refused(bc, monkeypatch):
         bc, "открытый текст ВЫШЕ потолка принят",
         bc.encrypt_for, pub, b"x" * 65, aad=aad,
     )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 13. ЭТАЛОННЫЕ ВЕКТОРА — межмашинный контракт, а не деталь реализации
+# ══════════════════════════════════════════════════════════════════════════════
+# Числа ниже ВПИСАНЫ РУКАМИ и не выводятся вызовом функции. Тот же приём, что
+# `PINNED_PATTERNS` в DEV-44: копия, выведенная из кода, согласна с ним по
+# определению и молчит ровно там, где он ошибся.
+#
+# ПОЧЕМУ ИХ НЕЛЬЗЯ МЕНЯТЬ БЕЗ МИГРАЦИИ. Псевдоним живёт не внутри процесса.
+# Владелец, увидев в бакете `backups/client/2026-08-22/a279ab4e03c0efeb/db`,
+# обязан суметь ОТВЕТИТЬ, чей это объект: пересчитать HMAC(соль, слаг) у себя и
+# сравнить. Дрил на ноутбуке ищет вчерашний объект тем же счётом. Смена формулы
+# (порядок аргументов HMAC, другая хеш-функция, усечение по байтам вместо
+# символов, отпечаток от base64 вместо сырых байт) делает УЖЕ ЛЕЖАЩИЕ объекты
+# неопознаваемыми — а лежат они год (§9.3, ответ 2), и понадобятся ровно тогда,
+# когда «клиент спросит про май».
+#
+# Правишь формулу осознанно — пройди мимо этого теста и напиши в спеке, что
+# делать с объектами, записанными по старой. Молча поправить константу здесь =
+# потерять адресацию годового архива.
+#
+# Векторы посчитаны ОТ КОНТРАКТА (`HMAC-SHA256(соль, слаг)[:16] hex`,
+# `sha256(сырые 32 байта)[:16] hex`), а не сняты с реализации: сторож пишет не
+# автор кода. Расхождение с реализацией — это находка, а не опечатка вектора.
+
+VECTOR_SALT_A = b"0123456789abcdef"          # ровно 16 байт, минимум §9.1
+VECTOR_SALT_B = b"fedcba9876543210"
+VECTOR_PUBLIC_KEY = bytes(range(32))          # 00 01 02 … 1f
+
+PSEUDONYM_VECTORS: tuple[tuple[str, bytes, str], ...] = (
+    ("volska", VECTOR_SALT_A, "a279ab4e03c0efeb"),
+    ("yarina", VECTOR_SALT_A, "c3a19419a9964c40"),
+    ("volska", VECTOR_SALT_B, "b8ffff6518ffca15"),
+)
+FINGERPRINT_VECTOR = "630dcd2966c43366"
+
+
+@pytest.mark.parametrize(
+    "slug,salt,expected", PSEUDONYM_VECTORS,
+    ids=[f"{s}/{'A' if salt == VECTOR_SALT_A else 'B'}" for s, salt, _e in PSEUDONYM_VECTORS],
+)
+def test_the_pseudonym_matches_the_pinned_vector(bc, slug, salt, expected):
+    """Без вектора смена формулы обнаружится через год — и уже необратимо.
+
+    Все остальные сторожа псевдонима проверяют СВОЙСТВА (стабилен, различает,
+    не выдаёт слаг). Свойствами обладает и другая формула: поменяй местами
+    аргументы HMAC или возьми blake2b — девять тестов останутся зелёными, а
+    владелец перестанет опознавать прошлогодние объекты в бакете.
+    """
+    got = bc.pseudonym(slug, salt)
+    assert got == expected, (
+        f"псевдоним `{slug}` на соли {salt!r} = `{got}`, а по контракту "
+        f"`{expected}` (HMAC-SHA256(соль, слаг).hexdigest()[:16], слаг в UTF-8).\n"
+        f"Это НЕ опечатка вектора: формула — межмашинный контракт. Объекты, уже "
+        f"лежащие в бакете под старыми именами, этой формулой больше не находятся "
+        f"ни ротацией, ни `verify_uploaded`, ни дрилом, а хранятся они год."
+    )
+
+
+def test_the_public_key_fingerprint_matches_the_pinned_vector(bc):
+    """Отпечаток от base64 вместо сырых байт проходит все прочие проверки.
+
+    Детерминирован — да; 16 hex — да; разные ключи различает — да. И при этом
+    отпечаток, записанный в журнал год назад, ни с чем не сходится.
+    """
+    got = bc.public_key_fingerprint(VECTOR_PUBLIC_KEY)
+    assert got == FINGERPRINT_VECTOR, (
+        f"отпечаток ключа 00..1f = `{got}`, а по контракту `{FINGERPRINT_VECTOR}` "
+        f"(sha256 от СЫРЫХ 32 байт, hexdigest()[:16]). Прежние записи в журнале "
+        f"с новым отпечатком не сравниваются."
+    )
+
+
+def test_the_pinned_vectors_actually_discriminate_a_changed_formula():
+    """Вектор, совпадающий с околопромахом, ничего не пришпиливает.
+
+    Этот тест не трогает модуль: он доказывает, что САМИ КОНСТАНТЫ различают
+    контракт и правдоподобные соседние формулы. Иначе «вектор совпал» означало
+    бы только, что реализация похожа на любую из них.
+    """
+    slug, salt, expected = PSEUDONYM_VECTORS[0]
+    raw = slug.encode("utf-8")
+    near_misses = {
+        "аргументы HMAC переставлены": hmac.new(raw, salt, hashlib.sha256).hexdigest()[:16],
+        "blake2b вместо sha256": hmac.new(salt, raw, hashlib.blake2b).hexdigest()[:16],
+        "sha1 вместо sha256": hmac.new(salt, raw, hashlib.sha1).hexdigest()[:16],
+        "соль как hex-строка": hmac.new(salt.hex().encode(), raw, hashlib.sha256).hexdigest()[:16],
+        "несолёный sha256": hashlib.sha256(raw).hexdigest()[:16],
+    }
+    for name, value in near_misses.items():
+        assert expected != value, (
+            f"вектор псевдонима совпал с формулой «{name}» — он не различает "
+            f"контракт и подмену, значит не пришпиливает ничего"
+        )
+
+    # Усечение по БАЙТАМ даёт 32 символа, и первые 16 совпадают с контрактом:
+    # различает их не значение, а длина — её сторожит
+    # `test_the_pseudonym_is_sixteen_lowercase_hex_characters`.
+    by_bytes = hmac.new(salt, raw, hashlib.sha256).digest()[:16].hex()
+    assert expected != by_bytes and by_bytes.startswith(expected), (
+        "усечение по байтам перестало быть надрезом того же дайджеста — проверь, "
+        "что длину псевдонима по-прежнему сторожит отдельный тест"
+    )
+
+    fp_near_misses = {
+        "sha256 от base64 ключа": hashlib.sha256(
+            base64.b64encode(VECTOR_PUBLIC_KEY)).hexdigest()[:16],
+        "sha512 вместо sha256": hashlib.sha512(VECTOR_PUBLIC_KEY).hexdigest()[:16],
+        "sha256 от hex-строки ключа": hashlib.sha256(
+            VECTOR_PUBLIC_KEY.hex().encode()).hexdigest()[:16],
+    }
+    for name, value in fp_near_misses.items():
+        assert FINGERPRINT_VECTOR != value, (
+            f"вектор отпечатка совпал с формулой «{name}» — он ничего не различает"
+        )
