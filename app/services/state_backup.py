@@ -25,9 +25,20 @@ as the media bucket.
 DEV-46 (шаг 2): рядом с обходом ``state/`` живёт ОБНАРУЖЕНИЕ
 клиентского набора (``client_sets``, ``orphan_client_dbs`` — второй корень,
 корень репозитория) и ЯВНЫЙ запрет на вывоз секретов
-(``FORBIDDEN_PATTERNS``, ``assert_not_forbidden``). ЗАГРУЗКИ клиентского
-набора здесь НЕТ и до шифрования (шаг 4) быть не должно: наружу в
-открытом виде переписка и реквизиты не уезжают (спека §3).
+(``FORBIDDEN_PATTERNS``, ``assert_not_forbidden``).
+
+DEV-46 (шаг 5): ЗАЛИВКА клиентского набора — ``run_client_backup``. Это
+единственное необратимое действие арки наружу, и оно устроено так, чтобы
+открытый текст не мог уехать НИ ОДНОЙ веткой: функция начинается с
+фейл-клоуза на ключе (нет ``JARVIS_BACKUP_PUBLIC_KEY`` или
+``JARVIS_BACKUP_KEY_SALT`` → ``ClientBackupRefused`` ДО первого
+``upload_file``), каждый объект шифруется ``backup_crypto.encrypt_for`` с
+AAD = ПОЛНЫЙ ключ объекта, база едет СНИМКОМ (``sqlite_snapshot``), а имя
+клиента в ключе заменено псевдонимом (§9.1). Манифест НЕ шифруется (§3.4) и
+считает sha256 по ШИФРОТЕКСТУ — тому, что реально лежит в бакете: так хост,
+не имеющий приватного ключа, доказывает «байты доехали», не умея прочитать
+содержимое. Что из этих байтов поднимется РАБОТАЮЩАЯ база, доказывают
+``counts`` в манифесте, и только на машине владельца (§9.2 п. 3).
 
 Entry points: ``scripts/state_backup.py`` (daily scheduled task, mirrors
 ``scripts/morning_digest.py``) and the ``/backup_now``/``/backup_status``
@@ -40,14 +51,16 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Mapping
 
-from app.services import r2_storage
+from app.services import backup_crypto, r2_storage
 from app.services.r2_storage import R2Config, R2ConfigError
+from app.services.sqlite_snapshot import snapshot_counts, snapshot_sqlite
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +81,10 @@ __all__ = [
     "sha256_file",
     "build_manifest",
     "run_backup",
+    "ClientBackupRefused",
+    "client_object_keys",
+    "run_client_backup",
+    "format_client_backup_result",
     "verify_uploaded",
     "list_backup_dates",
     "CLIENT_PREFIX",
@@ -512,6 +529,7 @@ def build_manifest(files: list[Path], state_root: Path, generated_at: str) -> di
 def verify_uploaded(
     result: BackupResult,
     *,
+    prefix: str = BACKUP_PREFIX,
     list_objects: Callable[..., list[dict]] = r2_storage.list_objects,
     client: Any | None = None,
     config: R2Config | None = None,
@@ -527,9 +545,14 @@ def verify_uploaded(
     ``result.verified``. Сбой самого листинга — тоже проблема: непроверяемый
     бэкап считается несостоявшимся (DEV-18, не глотать), иначе мы возвращаемся
     к молчаливому зелёному, ради которого всё это и делается.
+
+    `prefix` — ПРЕФИКС НАБОРА (``BACKUP_PREFIX`` по умолчанию, то есть
+    поведение прежнее до буквы). Параметр появился ради клиентского набора
+    (``CLIENT_PREFIX``): у наборов разные префиксы, и сверка листингом обязана
+    смотреть на СВОЙ — на чужом каждый ожидаемый ключ выглядел бы пропавшим.
     """
     config = config or load_backup_config()
-    prefix = f"{BACKUP_PREFIX}/{result.date}/"
+    prefix = f"{prefix}/{result.date}/"
 
     expected = list(result.uploaded)
     if result.manifest_key:
@@ -613,18 +636,276 @@ def run_backup(
     return result
 
 
+# ── Заливка клиентского набора (DEV-46, шаг 5) ──────────────────────────────
+# Единственное необратимое действие арки НАРУЖУ. Ночью его намеренно не
+# писали; всё, что ниже, устроено вокруг одного требования: открытый текст не
+# уезжает НИ ОДНОЙ веткой.
+
+
+class ClientBackupRefused(Exception):
+    """Клиентский набор НЕ отправлен, и наружу не ушло ни байта.
+
+    Отдельный класс, а не общий провал бэкапа: «ключа нет» — это осознанное
+    состояние НАСТРОЙКИ (владелец ещё не завёл пару, §3.3 B), а не авария
+    хранилища, и реакция на него другая. Ронять ночную задачу каждый раз,
+    пока ключа нет, значит приучить не смотреть на её алерты; МОЛЧАТЬ при
+    этом нельзя — вызывающий обязан назвать отказ вслух
+    (см. ``scripts/state_backup.py``).
+    """
+
+
+def client_object_keys(slug_pseudonym: str, date_str: str) -> dict:
+    """Полные ключи объектов ОДНОГО клиента за дату:
+    ``{'db': 'backups/client/<дата>/<псевдоним>/db', 'requisites': ...}``.
+
+    Слага здесь нет и быть не может (§9.1): в ключ едет псевдоним
+    (``backup_crypto.pseudonym``). Имена внутри — ``db`` и
+    ``requisites.yaml``; они ОДИНАКОВЫ у всех клиентов и потому не выдают
+    ничего. Прятать имя в манифесте и оставить его в имени объекта — значит
+    запечатать конверт и надписать адрес снаружи.
+
+    Одно место, где ключ собирается, — потому что этот же ключ едет в AAD
+    конверта: собранный во второй раз «почти так же» он расшифровку сломает.
+    """
+    if not isinstance(slug_pseudonym, str) or not slug_pseudonym.strip():
+        raise ValueError(
+            f"псевдоним слага должен быть непустой строкой, "
+            f"получено {slug_pseudonym!r}")
+    if not isinstance(date_str, str) or not date_str.strip():
+        raise ValueError(
+            f"дата должна быть непустой строкой YYYY-MM-DD, "
+            f"получено {date_str!r}")
+    if "/" in slug_pseudonym or "/" in date_str:
+        raise ValueError(
+            f"ни псевдоним, ни дата не содержат '/': ключ объекта собирается "
+            f"из сегментов, а не из готового пути "
+            f"({slug_pseudonym!r}, {date_str!r})")
+    base = f"{CLIENT_PREFIX}/{date_str}/{slug_pseudonym}"
+    return {"db": f"{base}/db", "requisites": f"{base}/requisites.yaml"}
+
+
+def _client_manifest_key(date_str: str) -> str:
+    return f"{CLIENT_PREFIX}/{date_str}/manifest.json"
+
+
+def run_client_backup(
+    repo_root: Path,
+    *,
+    now: datetime | None = None,
+    env: Mapping[str, str] | None = None,
+    upload_file: Callable[..., str] = r2_storage.upload_file,
+    list_objects: Callable[..., list[dict]] = r2_storage.list_objects,
+    client: Any | None = None,
+    config: R2Config | None = None,
+) -> BackupResult:
+    """Снимок -> счётчики -> шифрование -> заливка -> манифест -> сверка листингом.
+
+    Порядок именно такой и переставлять его нельзя:
+
+    * **ФЕЙЛ-КЛОУЗ НА КЛЮЧЕ идёт ПЕРВЫМ.** Нет ``JARVIS_BACKUP_PUBLIC_KEY``
+      или ``JARVIS_BACKUP_KEY_SALT`` — ``ClientBackupRefused`` ДО единого
+      вызова ``upload_file`` и до чтения хоть одного клиентского файла.
+      Ветки «ну тогда без шифрования» здесь нет и не появится: это главное
+      свойство функции, всё остальное — детали.
+    * **База едет СНИМКОМ** (``snapshot_sqlite``), а не файловой копией:
+      sha256 рваного снимка совпадает с рваным снимком, и проверка
+      целостности на нём ЗЕЛЁНАЯ (§4.1–4.2). Раннера при этом НЕ
+      останавливаем (§6 п. 4). Временный каталог со снимком — расшифрованные
+      клиентские данные на диске — сносится в ``finally``.
+    * **Счётчики берутся СО СНИМКА**, а не с живой базы: тогда «на момент
+      снимка» (§4.3 шаг 5) выполняется само собой, а не по договорённости.
+    * **Каждый объект шифруется своим ключом объекта в AAD** — конверт нельзя
+      молча переставить на другую дату или другому клиенту.
+    * **Манифест НЕ шифруется** (§3.4) и считает sha256 по ШИФРОТЕКСТУ: хост
+      без приватного ключа доказывает «байты доехали», не умея прочитать
+      содержимое. Что из этих байтов поднимется РАБОТАЮЩАЯ база, доказывают
+      ``counts`` — и только на машине владельца (§9.2 п. 3). Половина
+      проверки на хосте возможна и обязана называться своим именем.
+    * **Ни одного «уже загружено» без сверки**: в конце — ``verify_uploaded``
+      по КЛИЕНТСКОМУ префиксу.
+
+    Провал одного объекта не отменяет остальных, но НАЗЫВАЕТСЯ в
+    ``result.failed`` (DEV-18). Туда же попадают реквизиты, которых нет на
+    диске (``ClientSet.missing``): «файла нет» и «файл не искали» обязаны
+    быть различимы. Набор БЕЗ базы (дедупликация: volska и demo делят один
+    файл) ошибкой не является — файл уже отобран у первого слага, — но
+    реквизиты такого набора всё равно едут.
+
+    ``result.uploaded``/``verified`` содержат пути ОТНОСИТЕЛЬНО
+    ``backups/client/<дата>/`` (``<псевдоним>/db``), ``total_bytes`` —
+    размер ШИФРОТЕКСТА, то есть того, что реально занято в бакете.
+    """
+    # ── ФЕЙЛ-КЛОУЗ НА КЛЮЧЕ. Первое, что делает функция. ─────────────────
+    # Ни одной строки клиентских данных не прочитано, ни одного объекта не
+    # залито, конфиг R2 ещё даже не собран.
+    try:
+        public_key = backup_crypto.load_public_key(env)
+    except backup_crypto.BackupCryptoError as exc:
+        raise ClientBackupRefused(
+            f"нет JARVIS_BACKUP_PUBLIC_KEY: {exc}") from exc
+    try:
+        salt = backup_crypto.load_pseudonym_salt(env)
+    except backup_crypto.BackupCryptoError as exc:
+        raise ClientBackupRefused(
+            f"нет JARVIS_BACKUP_KEY_SALT: {exc}") from exc
+    fingerprint = backup_crypto.public_key_fingerprint(public_key)
+
+    repo_root = Path(repo_root)
+    now = now or datetime.now(timezone.utc)
+    date_str = now.strftime("%Y-%m-%d")
+    result = BackupResult(date=date_str)
+    sets = client_sets(repo_root)
+    config = config or load_backup_config()
+
+    entries: list[dict] = []
+    day_prefix = f"{CLIENT_PREFIX}/{date_str}/"
+    tmp_root = Path(tempfile.mkdtemp(prefix="jarvis-client-backup-"))
+    try:
+        for cset in sets:
+            pseudo = backup_crypto.pseudonym(cset.slug, salt)
+            keys = client_object_keys(pseudo, date_str)
+
+            # Пропажа НАЗЫВАЕТСЯ, а не пропускается молча. `rel_path` —
+            # псевдонимный (это тот объект, который НЕ доехал), слаг живёт
+            # только в тексте ошибки: сводку читает владелец на своей
+            # машине, где слаги и так лежат открытым текстом в дереве
+            # (§9.1, «граница, названная вслух»).
+            for miss in cset.missing:
+                kind = "requisites" if miss.endswith("requisites.yaml") else "db"
+                rel_missing = keys[kind][len(day_prefix):]
+                result.failed.append({
+                    "rel_path": rel_missing,
+                    "error": f"файла нет на диске: {miss} (клиент {cset.slug})",
+                })
+                logger.warning(
+                    "client backup: у клиента %s нет файла %s — объект %s не поедет",
+                    cset.slug, miss, keys[kind])
+
+            plan: list[tuple[str, Path | None]] = [
+                ("db", cset.db), ("requisites", cset.requisites)]
+            for kind, source in plan:
+                if source is None:
+                    # Либо файла нет (уже назван выше), либо он ОТДАН первому
+                    # слагу дедупликацией — второе не ошибка и не пропажа.
+                    continue
+                key = keys[kind]
+                rel = key[len(day_prefix):]
+                try:
+                    counts: dict | None = None
+                    if kind == "db":
+                        snap = tmp_root / f"{pseudo}.db"
+                        snapshot_sqlite(source, snap)
+                        counts = snapshot_counts(snap)
+                        payload = snap.read_bytes()
+                    else:
+                        payload = Path(source).read_bytes()
+
+                    # AAD = ПОЛНЫЙ ключ объекта. Не слаг, не псевдоним, не имя
+                    # файла: конверт привязан к своему месту целиком.
+                    blob = backup_crypto.encrypt_for(
+                        public_key, payload, aad=key.encode("utf-8"))
+                    del payload
+
+                    enc_path = tmp_root / f"{pseudo}.{kind}.enc"
+                    enc_path.write_bytes(blob)
+                    upload_file(enc_path, key=key, client=client, config=config)
+
+                    entry = {
+                        "rel_path": rel,
+                        "size": len(blob),
+                        # sha256 ШИФРОТЕКСТА — того, что лежит в бакете.
+                        "sha256": hashlib.sha256(blob).hexdigest(),
+                    }
+                    if counts is not None:
+                        entry["counts"] = counts
+                    entries.append(entry)
+                    result.uploaded.append(rel)
+                    result.total_bytes += len(blob)
+                except Exception as exc:  # noqa: BLE001 — честный провал объекта
+                    logger.warning(
+                        "client backup: объект %s (клиент %s) не поехал: %s",
+                        key, cset.slug, exc)
+                    result.failed.append({"rel_path": rel, "error": str(exc)})
+
+        manifest = {
+            "generated_at": now.isoformat(),
+            "key_fingerprint": fingerprint,
+            "count": len(entries),
+            "total_bytes": sum(e["size"] for e in entries),
+            "files": entries,
+        }
+        manifest_key = _client_manifest_key(date_str)
+        manifest_path = tmp_root / "manifest.json"
+        try:
+            manifest_path.write_text(
+                json.dumps(manifest, ensure_ascii=False, indent=2),
+                encoding="utf-8")
+            # Манифест едет ОТКРЫТЫМ (§3.4): он нужен, чтобы проверить
+            # целостность, не открывая содержимое. Слага в нём нет — только
+            # псевдонимные `rel_path`.
+            upload_file(manifest_path, key=manifest_key, client=client, config=config)
+            result.manifest_key = manifest_key
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("client backup: манифест не поехал: %s", exc)
+            result.failed.append({"rel_path": "manifest.json", "error": str(exc)})
+    finally:
+        # Во временном каталоге лежат РАСШИФРОВАННЫЕ клиентские данные
+        # (снимок базы). Он сносится всегда — и на успехе, и на любом провале.
+        shutil.rmtree(tmp_root, ignore_errors=True)
+        if tmp_root.exists():
+            # Не глотаем (DEV-18): расшифрованный снимок, оставшийся на диске,
+            # обязан быть назван вслух, а не исчезнуть в `ignore_errors`.
+            logger.error(
+                "client backup: временный каталог %s НЕ удалён — в нём лежит "
+                "расшифрованный снимок клиентской базы, уберите руками", tmp_root)
+
+    # Оба конца: заливка посчитана — теперь докажи листингом, что доехало.
+    result.failed.extend(verify_uploaded(
+        result, prefix=CLIENT_PREFIX, list_objects=list_objects,
+        client=client, config=config))
+    return result
+
+
+def format_client_backup_result(result: BackupResult) -> str:
+    """Строки сводки про клиентский набор.
+
+    Зелёное хоста называется СВОИМ именем: доехали БАЙТЫ. Что из них
+    поднимется работающая база, хост проверить не может — у него нет
+    приватного ключа, — и это доказывает недельный дрил у владельца
+    (§9.2 п. 3). Иначе «подтверждено листингом» прочтут как «восстановление
+    доказано».
+    """
+    kb = result.total_bytes / 1024.0
+    lines = [f"\U0001f512 Клиентский набор за {result.date}: "
+             f"{len(result.uploaded)} объектов ({kb:.1f} KB, шифротекст)"]
+    lines.append(
+        f"Подтверждено листингом: {len(result.verified)} "
+        f"— доехали БАЙТЫ; что база откроется, доказывает дрил у владельца")
+    if result.failed:
+        lines.append(f"⚠️ Клиентский набор, ошибки: {len(result.failed)}")
+        for f in result.failed[:5]:
+            lines.append(f"  - {f['rel_path']}: {str(f['error'])[:80]}")
+    return "\n".join(lines)
+
+
 def list_backup_dates(
     *,
+    prefix: str = BACKUP_PREFIX,
     list_objects: Callable[..., list[dict]] = r2_storage.list_objects,
     client: Any | None = None,
     config: R2Config | None = None,
 ) -> list[str]:
-    """Sorted unique ``YYYY-MM-DD`` dates present under ``BACKUP_PREFIX/``."""
+    """Sorted unique ``YYYY-MM-DD`` dates present under ``prefix/``.
+
+    ``prefix`` по умолчанию ``BACKUP_PREFIX`` — поведение прежнее. Параметр
+    нужен дрилу восстановления (§4.3 шаг 1: «скачать ВЧЕРАШНИЙ объект»), а
+    вчерашний объект клиентского набора лежит под ``CLIENT_PREFIX``.
+    """
     config = config or load_backup_config()
-    objs = list_objects(BACKUP_PREFIX + "/", client=client, config=config)
+    objs = list_objects(prefix + "/", client=client, config=config)
     dates: set[str] = set()
     for o in objs:
-        rest = o["key"][len(BACKUP_PREFIX) + 1:]
+        rest = o["key"][len(prefix) + 1:]
         date_part = rest.split("/", 1)[0]
         if date_part:
             dates.add(date_part)
@@ -761,14 +1042,20 @@ def restore_file(
     dest: str | Path,
     *,
     date: str,
+    prefix: str = BACKUP_PREFIX,
     download_file: Callable[..., Path] = r2_storage.download_file,
     client: Any | None = None,
     config: R2Config | None = None,
 ) -> Path:
     """Download one backed-up file to ``dest`` (acceptance-test helper: live
-    restore-and-verify of a single file)."""
+    restore-and-verify of a single file).
+
+    ``prefix`` по умолчанию ``BACKUP_PREFIX`` — поведение прежнее. Дрил
+    восстановления качает объект клиентского набора и передаёт
+    ``CLIENT_PREFIX``; ``rel_path`` там — ``<псевдоним>/db``.
+    """
     config = config or load_backup_config()
-    key = f"{BACKUP_PREFIX}/{date}/{rel_path}"
+    key = f"{prefix}/{date}/{rel_path}"
     return download_file(key, dest, client=client, config=config)
 
 

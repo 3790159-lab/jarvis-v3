@@ -12,6 +12,12 @@ set on day fifteen), and Telegram-notifies the admin with a one-line summary
 naming what was deleted PER PREFIX. Standalone (as ``morning_digest.py``):
 does not depend on the live bot process, sends directly via the Bot API.
 
+DEV-46: после набора ``state`` пробуется КЛИЕНТСКИЙ набор
+(``state_backup.run_client_backup``: снимок базы + реквизиты, зашифрованные
+публичным ключом владельца). Нет ключа — задача НЕ падает и rc не портит
+(это состояние настройки, а не авария), но отказ называется отдельной
+строкой сводки. Ключ есть, а заливка упала — это ошибка: и в сводку, и в rc.
+
     python scripts/state_backup.py
 """
 from __future__ import annotations
@@ -97,6 +103,25 @@ def main(argv=None) -> int:
         send_telegram(f"\U0001f6a8 Бэкап state/ упал: {exc}")
         return 1
 
+    # Клиентский набор (DEV-46). Два РАЗНЫХ исхода, и склеивать их нельзя:
+    #
+    # * ключа нет — это осознанное состояние НАСТРОЙКИ, а не авария. Задача
+    #   не падает и rc не портит: ронять её каждую ночь, пока владелец не
+    #   завёл пару, значит приучить не смотреть на её алерты. Но МОЛЧАТЬ
+    #   нельзя — отдельная строка в сводке;
+    # * ключ есть, а заливка упала — это уже ошибка: и в сводку, и в rc.
+    client_result = None
+    client_refused: str | None = None
+    client_error: Exception | None = None
+    try:
+        client_result = sb.run_client_backup(_ROOT)
+    except sb.ClientBackupRefused as exc:
+        client_refused = str(exc)
+        logger.warning("state_backup: клиентский набор НЕ отправлен: %s", exc)
+    except Exception as exc:
+        client_error = exc
+        logger.error("state_backup: клиентский набор упал: %s", exc)
+
     rotation_error: Exception | None = None
     deleted_by_prefix: dict = {}
     try:
@@ -106,6 +131,12 @@ def main(argv=None) -> int:
         rotation_error = exc
 
     text = sb.format_backup_result(result)
+    if client_refused is not None:
+        text += f"\n⚠️ клиентский набор НЕ отправлен: {client_refused}"
+    elif client_error is not None:
+        text += f"\n\U0001f6a8 Клиентский набор УПАЛ: {client_error}"
+    elif client_result is not None:
+        text += "\n" + sb.format_client_backup_result(client_result)
     if rotation_error is not None:
         # Сбой ротации сам бэкап не проваливает, но и молчать о нём нельзя.
         text += f"\n⚠️ Ротация НЕ выполнена: {rotation_error}"
@@ -114,12 +145,17 @@ def main(argv=None) -> int:
     send_telegram(text)
     deleted_total = sum(len(keys) for keys in deleted_by_prefix.values())
     logger.info(
-        "state_backup: run complete uploaded=%d failed=%d deleted=%d (%s)",
+        "state_backup: run complete uploaded=%d failed=%d deleted=%d client=%s (%s)",
         len(result.uploaded), len(result.failed), deleted_total,
+        "refused" if client_refused is not None
+        else "error" if client_error is not None
+        else f"uploaded={len(client_result.uploaded)} failed={len(client_result.failed)}"
+        if client_result is not None else "none",
         ", ".join(f"{prefix}={len(keys)}" for prefix, keys in deleted_by_prefix.items())
         or "ротация не гонялась",
     )
-    return 0 if result.ok else 1
+    client_ok = client_error is None and (client_result is None or client_result.ok)
+    return 0 if (result.ok and client_ok) else 1
 
 
 if __name__ == "__main__":
