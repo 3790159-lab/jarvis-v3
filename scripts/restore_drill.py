@@ -26,7 +26,9 @@
    `app/services/backup_crypto.py`), и появиться она не должна: она сделала бы
    возможным ровно то, ради чего выбран вариант B.
 2. **Открытый текст живёт ИСКЛЮЧИТЕЛЬНО в песочнице** — свой временный
-   каталог, и ничего кроме него. Каталог назначения внутри `.secrets/` или
+   каталог, и ничего кроме него. Корень песочницы имеет РОВНО ОДИН шов
+   наружу — `TMPDIR`/`TEMP`/`TMP`, читаемые в момент вызова
+   (`default_sandbox_root`); ключа CLI на него нет намеренно. Каталог назначения внутри `.secrets/` или
    внутри дерева репозитория отвергается, и проверка идёт по РАЗОБРАННОМУ пути
    (`resolve()`), а не по строке: `C:\\jarvis\\..\\jarvis\\.secrets` — это
    внутри дерева, и строковое сравнение этого не видит.
@@ -74,7 +76,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path, PurePosixPath
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 _ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT))
@@ -238,14 +240,57 @@ def forbidden_sandbox_reason(path: Path) -> str | None:
     return None
 
 
+#: Порядок ровно как у `tempfile._candidate_tempdir_list`. Список
+#: ЛИТЕРАЛЬНЫЙ, а не выведенный из tempfile: выведенный согласен с ним по
+#: определению и промолчит ровно там, где разойдётся с ожиданием человека
+#: ([[jarvis-literal-lists-not-introspection]]).
+TMP_ENV_VARS = ("TMPDIR", "TEMP", "TMP")
+
+
+def default_sandbox_root(env: Mapping[str, str] | None = None) -> Path:
+    """Корень песочницы, когда его не назвали явно, — ИЗ ОКРУЖЕНИЯ, В МОМЕНТ ВЫЗОВА.
+
+    Не `tempfile.gettempdir()`, и это не придирка. `gettempdir` кэширует
+    результат в `tempfile.tempdir` при ПЕРВОМ вызове в процессе: кто угодно,
+    тронувший tempfile раньше дрила, замораживает корень навсегда, и
+    `TMPDIR`/`TEMP`/`TMP` перестают действовать вовсе. Дрил при этом уходит
+    в настоящий временный каталог и отвечает ЗЕЛЁНЫМ там, где обязан был
+    отказать, — то есть кэш гасит проверку, а не сдвигает её.
+
+    Два довода, и ни один не про удобство теста:
+
+    1. **Сообщение об отказе обязано быть правдой.** `forbidden_sandbox_reason`
+       дословно советует «Укажите каталог вне дерева (переменные TEMP/TMP)».
+       Совет, которому код не следует, — это враньё в сообщении об ошибке:
+       человек выполнит указание и получит тот же отказ, не поняв почему.
+    2. **Без этого шва запретная зона недостижима ниоткуда, кроме питонного
+       аргумента.** Ключа CLI на песочницу нет и не будет (шов ровно один),
+       значит в бою `forbidden_sandbox_reason` — мёртвая ветка, всегда
+       зелёная по построению ([[jarvis-guard-caught-dead-branch]]).
+
+    Проверка запретной зоны применяется к тому, ЧТО ПОЛУЧИЛОСЬ: переменная
+    окружения — такой же непроверенный ввод, как и аргумент."""
+    env = os.environ if env is None else env
+    for name in TMP_ENV_VARS:
+        value = env.get(name)
+        if value and value.strip():
+            return Path(value)
+    # Ни одной переменной нет — тогда и кэшировать нечего: пусть tempfile
+    # называет свой умолчательный каталог сам.
+    return Path(tempfile.gettempdir())
+
+
 def make_sandbox(sandbox_root: str | Path | None = None) -> Path:
     """Свой временный каталог — и ничего кроме него.
+
+    Корень: явный `sandbox_root`, иначе `TMPDIR`/`TEMP`/`TMP` в момент
+    вызова (`default_sandbox_root` — там же, почему не `gettempdir`).
 
     Корень проверяется ДО `mkdtemp`: иначе отказ уже создал бы каталог там,
     куда мы отказываемся писать. Созданный каталог проверяется ЕЩЁ РАЗ —
     симлинк в корне временных файлов может увести куда угодно, а `resolve()`
     его разворачивает."""
-    root = Path(sandbox_root) if sandbox_root is not None else Path(tempfile.gettempdir())
+    root = Path(sandbox_root) if sandbox_root is not None else default_sandbox_root()
     reason = forbidden_sandbox_reason(root)
     if reason is not None:
         raise DrillNotRun(reason)
