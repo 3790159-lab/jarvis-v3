@@ -201,6 +201,15 @@ CHATTER_RUNNER_MARKER = "chatter.telethon_run"
 # Сторож, который всегда красный при нормальной работе, — это фон, а не сторож.
 CHATTER_BEAT_LEGACY_NAME = "chatter_heartbeat.txt"
 CHATTER_BEAT_CLIENT_GLOB = "chatter_heartbeat_*.txt"
+# Префикс ключа пер-клиентной пробы. СО СЛАГОМ намеренно: дебаунс, `alerted` и
+# дедуп по причине живут ВНУТРИ записи ключа (см. `_transitions`), и один ключ
+# на всю ферму означал бы, что авария одного клиента глушит алерт о другом.
+CLIENT_PROBE_PREFIX = "chatter_runner:"
+CHATTER_CLIENT_FLAG = "--client"
+# Ростер читается ОТСЮДА и только отсюда. `import chatter` запрещён: watchdog
+# stdlib-only, чтобы уметь сказать «бэкенд мёртв» тогда, когда мертво всё, что
+# делит с ним окружение. `import yaml` разрешён решением владельца 19.08.
+REGISTRY_REL = "chatter/clients/registry.yaml"
 
 # Ops sub-checks, probed only when the backend itself answers (they are served
 # BY the backend, so when it is down they are unreachable, not "recovered").
@@ -1151,6 +1160,144 @@ def chatter_beat_age(ages):
     return (known[source], source)
 
 
+def read_roster(text):
+    """Реестр клиентов -> `[{"slug": str, "enabled": bool}, ...]`.
+
+    Бросает на всём, что не разбирается: «реестр не прочитан» и «клиентов нет»
+    — РАЗНОЕ (§6 спеки). Пустой ростер вместо ошибки означал бы ферму, которая
+    ненаблюдаема и при этом зелена.
+
+    `enabled` по умолчанию **False** — тем же умолчанием, что у боевого
+    парсера `chatter/core/client_registry.py`. Обратное умолчание дало бы
+    алерт о клиенте, которого никто не поднимает.
+    """
+    import yaml                      # не stdlib; отсутствие ловится вызывающим
+
+    data = yaml.safe_load(text)
+    if not isinstance(data, dict):
+        raise ValueError("реестр не словарь: %s" % type(data).__name__)
+    clients = data.get("clients")
+    if not isinstance(clients, dict):
+        raise ValueError("clients не словарь: %s" % type(clients).__name__)
+    out = []
+    for slug, cfg in clients.items():
+        cfg = cfg if isinstance(cfg, dict) else {}
+        out.append({"slug": str(slug), "enabled": bool(cfg.get("enabled", False))})
+    return out
+
+
+def probe_roster(snapshot: dict) -> dict:
+    """Знаем ли мы вообще состав фермы.
+
+    Красное здесь — не «клиент умер», а «мы не знаем, за кем следить». Пока
+    проба красная, пер-клиентных проб НЕТ и состояние их ключей не трогается
+    (см. `prune_client_state`): секундный сбой чтения реестра не имеет права
+    вымывать `alerted` у всех.
+    """
+    error = (snapshot or {}).get("error")
+    if error:
+        return {"ok": False, "reason": "roster_unreadable",
+                "detail": "реестр клиентов не прочитан: %s" % error}
+    clients = list((snapshot or {}).get("clients") or [])
+    enabled = [c for c in clients if c.get("enabled")]
+    return {"ok": True, "detail": "включено %d из %d" % (len(enabled), len(clients))}
+
+
+def _names_client(cmdline, slug) -> bool:
+    """`--client <slug>` или `--client=<slug>` — ТОКЕНОМ, не подстрокой.
+
+    Подстрока сделала бы `volska` вечно живым за счёт соседа `volska2`.
+    """
+    toks = (cmdline or "").split()
+    want = str(slug).lower()
+    for i, tok in enumerate(toks):
+        low = tok.lower()
+        if low == CHATTER_CLIENT_FLAG and i + 1 < len(toks):
+            if toks[i + 1].lower() == want:
+                return True
+        if low.startswith(CHATTER_CLIENT_FLAG + "=") and low.split("=", 1)[1] == want:
+            return True
+    return False
+
+
+def probe_client_runner(processes, *, slug, beat_age, root):
+    """Жив ли раннер КОНКРЕТНОГО клиента: процесс И свежая отметка.
+
+    Та же пара условий, что у общей пробы, и те же две защиты: матч только по
+    python-процессу (иначе проба ловит того, кто её выполняет — разбор 29.07) и
+    только с корнем ЖИВОГО дерева со слешем на конце (иначе раннер из worktree
+    сходит за боевой). Третья защита новая: слаг сверяется ТОКЕНОМ аргумента.
+
+    Причины раздельные и без секунд: возраст растёт каждый цикл, а дедуп в
+    `_transitions` идёт по причине — секунды в ней дали бы алерт раз в 30 с.
+    """
+    root_n = _norm(str(root)).rstrip("/") + "/"
+    alive = [
+        p for p in (processes or [])
+        if (p.get("name") or "").lower().startswith("python")
+        and CHATTER_RUNNER_MARKER in _norm(p.get("cmdline"))
+        and root_n in _norm(p.get("cmdline"))
+        and _names_client(p.get("cmdline"), slug)
+    ]
+    if not alive:
+        return {"ok": False, "reason": "no_process",
+                "detail": "%s: процес раннера не знайдено" % slug}
+    if beat_age is None:
+        return {"ok": False, "reason": "no_heartbeat",
+                "detail": "%s: heartbeat відсутній" % slug}
+    if beat_age > CHATTER_BEAT_MAX_AGE_S:
+        return {"ok": False, "reason": "stale_heartbeat",
+                "detail": "%s: heartbeat %.0fс тому (поріг %ds)"
+                          % (slug, beat_age, CHATTER_BEAT_MAX_AGE_S)}
+    return {"ok": True, "detail": "%s: PID %s, heartbeat %.0fс тому"
+                                  % (slug, alive[0].get("pid"), beat_age)}
+
+
+def probe_beat_legacy(age, *, max_age=CHATTER_BEAT_MAX_AGE_S):
+    """Легаси-отметка `chatter_heartbeat.txt` — НЕ источник живости, а новость.
+
+    Три исхода, и красный ровно один — тот, который является новостью:
+
+    * файла нет — зелёное: состояние, к которому идём;
+    * файл есть и ПРОТУХ — зелёное: сегодняшняя норма, файл лежит сиротой с
+      16.08. Красная лампа на нём горела бы вечно, то есть стала бы фоном, а
+      сигнал, всегда красный при нормальной работе, — не сторож;
+    * файл есть и СВЕЖ — красное: кто-то ПИШЕТ отметку вне пер-клиентной
+      разметки, значит живёт раннер, которого ростер не видит.
+    """
+    if age is None:
+        return {"ok": True, "detail": "легаси-отметки нет"}
+    if age > max_age:
+        return {"ok": True, "detail": "сирота, возраст %.0fс" % age}
+    return {"ok": False, "reason": "legacy_beat_alive",
+            "detail": "легаси-отметка ОБНОВЛЯЕТСЯ (%.0fс тому): есть раннер вне "
+                      "пер-клиентной разметки" % age}
+
+
+def prune_client_state(state: dict, probes: dict) -> dict:
+    """Убрать записи слагов, которых больше нет в ростере, и легаси-ключ.
+
+    ТОЛЬКО при зелёном `chatter_roster`: красный означает «состава не знаем», и
+    чистка в этот момент вымыла бы `alerted` у всех — то есть проглотила бы
+    первый алерт после восстановления чтения.
+
+    Легаси-ключ `chatter_runner` уезжает той же миграцией: оставить его значит
+    держать вечно-зелёную запись, которую никто не считает.
+    """
+    roster = probes.get("chatter_roster")
+    if not roster or not roster.get("ok"):
+        return state
+    live = {k for k in probes if k.startswith(CLIENT_PROBE_PREFIX)}
+    out = {}
+    for key, value in state.items():
+        if key == "chatter_runner":
+            continue
+        if key.startswith(CLIENT_PROBE_PREFIX) and key not in live:
+            continue
+        out[key] = value
+    return out
+
+
 def probe_chatter_runner(processes, *, beat_age, root, semidemo_flag=False,
                          beat_source=None):
     """Раннер жив? Процесс И свежий heartbeat — оба условия обязательны:
@@ -1546,9 +1693,26 @@ def probe_all(http_get, disk_usage, min_disk_gb: float = MIN_DISK_GB,
     # чего он не мерил.
     if chatter_snapshot:
         cs = chatter_snapshot
-        probes["chatter_runner"] = probe_chatter_runner(
-            cs.get("processes"), beat_age=cs.get("runner_beat_age"),
-            root=cs.get("root", ROOT), beat_source=cs.get("runner_beat_source"))
+        roster_snap = cs.get("roster")
+        if roster_snap is None:
+            # Снимок БЕЗ ростера — старое окружение. Состав проб прежний:
+            # watchdog не имеет права слать DOWN о том, чего не мерил.
+            probes["chatter_runner"] = probe_chatter_runner(
+                cs.get("processes"), beat_age=cs.get("runner_beat_age"),
+                root=cs.get("root", ROOT), beat_source=cs.get("runner_beat_source"))
+        else:
+            probes["chatter_roster"] = probe_roster(roster_snap)
+            beats = cs.get("beats") or {}
+            for entry in (roster_snap.get("clients") or []):
+                # Выключенный клиент — законное состояние: пробы НЕТ вовсе, а
+                # не красная и не зелёная (§5.1).
+                if not entry.get("enabled"):
+                    continue
+                slug = entry.get("slug")
+                probes[CLIENT_PROBE_PREFIX + str(slug)] = probe_client_runner(
+                    cs.get("processes"), slug=slug, beat_age=beats.get(slug),
+                    root=cs.get("root", ROOT))
+            probes["chatter_beat_legacy"] = probe_beat_legacy(cs.get("legacy_beat_age"))
         probes["chatter_guardian"] = probe_chatter_guardian(
             cs.get("processes"), lock_pid=cs.get("guardian_lock_pid"),
             beat_age=cs.get("guardian_beat_age"))
@@ -1766,6 +1930,25 @@ def _read_lock_pid(path) -> int | None:
         return None
 
 
+def _roster_snapshot(root: Path = ROOT) -> dict:
+    """Снимок ростера: `{"clients": [...]}` либо `{"error": "..."}`.
+
+    Третьего состояния («пусто») тут нет намеренно: пустой список клиентов —
+    это законный ответ ВНУТРИ `clients`, а не способ сказать «не прочитали».
+    Отсутствие `yaml`, отсутствие файла и битый YAML попадают в `error` — и
+    дальше в красную пробу `chatter_roster`, а не в тишину.
+    """
+    path = Path(root) / REGISTRY_REL
+    try:
+        text = path.read_text(encoding="utf-8")
+    except Exception as exc:
+        return {"error": "%s: %s" % (type(exc).__name__, exc)}
+    try:
+        return {"clients": read_roster(text)}
+    except Exception as exc:
+        return {"error": "%s: %s" % (type(exc).__name__, exc)}
+
+
 def _chatter_snapshot() -> dict | None:
     """Снимок для двух chatter-проб. psutil, а не PowerShell из питона
     (ловушка 5 спеки): psutil здесь уже используется для boot_time.
@@ -1797,10 +1980,22 @@ def _chatter_snapshot() -> dict | None:
         except OSError:
             pass
         runner_beat_age, runner_beat_source = chatter_beat_age(beats)
+        # Пер-слаговые отметки ОТДЕЛЬНО от свёрнутой: свёрнутая берёт самую
+        # свежую и по построению прячет смерть соседа. Префикс и суффикс
+        # выводятся ИЗ ГЛОБА, а не пишутся вторым литералом: два места на одно
+        # имя однажды разъедутся.
+        _pre, _suf = CHATTER_BEAT_CLIENT_GLOB.split("*", 1)
+        beats_by_slug = {}
+        for name, age in beats.items():
+            if name.startswith(_pre) and name.endswith(_suf):
+                beats_by_slug[name[len(_pre):len(name) - len(_suf)]] = age
         return {
             "processes": procs,
             "runner_beat_age": runner_beat_age,
             "runner_beat_source": runner_beat_source,
+            "beats": beats_by_slug,
+            "legacy_beat_age": beats.get(CHATTER_BEAT_LEGACY_NAME),
+            "roster": _roster_snapshot(),
             "guardian_beat_age": _file_age(ROOT / "state" / "chatter_guardian_heartbeat.txt"),
             "guardian_lock_pid": _read_lock_pid(ROOT / "state" / "locks" / "chatter_guardian.pid"),
             "root": str(ROOT),
@@ -1983,6 +2178,11 @@ def main() -> int:
     # падения, и ✅ о том, о чём не было 🚨, читается как «чинили без меня».
     journal, to_owner, state = _transitions(
         state, probes, suppress_down=in_boot_grace)
+    # Ключи слагов, исчезнувших из ростера, и легаси-ключ уезжают ПОСЛЕ
+    # переходов и ДО записи: иначе файл состояния растёт слагами, а мёртвая
+    # запись однажды прочитается как чья-то. Чистка молчит, когда ростер
+    # неизвестен, — см. `prune_client_state`.
+    state = prune_client_state(state, probes)
     alerts = [build_alert(t["check"], t["kind"], t["detail"]) for t in to_owner]
 
     if reboot_text and boot_time is not None:
