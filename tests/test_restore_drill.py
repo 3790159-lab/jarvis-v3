@@ -1812,6 +1812,124 @@ def test_the_verdict_time_and_the_age_come_from_the_same_clock(
         "которым судился возраст")
 
 
+# ── 12. ВОЗРАСТ, КОТОРЫЙ НЕДОКАЗУЕМ (амендмент К) ──────────────────────────
+#
+# Возраст считается «сегодня минус дата набора». Дату в ключ пишет ХОСТ, судит
+# её НОУТБУК. Уйдут часы хоста вперёд — дата набора окажется в будущем,
+# возраст станет отрицательным, и порог `CLIENT_SET_MAX_AGE_DAYS` не сработает
+# НИКОГДА: весь суд о возрасте (амендмент Ж) гасится молча, лампа снова
+# зелёная по построению. Тот же класс, из-за которого вердикт «из будущего»
+# стал `unreadable` вместо зажатого в ноль возраста (§9.4).
+#
+# Допуск нужен и он ровно один: дату пишет хост по UTC, судит ноутбук, и около
+# полуночи UTC они законно расходятся на один календарный день. Всё, что
+# дальше, — это не разъезд поясов, а сломанные часы, и возраст по такому
+# набору НЕДОКАЗУЕМ.
+
+# Литеральные пины порогов. Значения написаны здесь ЧЕЛОВЕКОМ и не
+# импортируются: пин, выведенный из реализации, согласен с ней по определению
+# и молчит ровно там, где она забыла ([[jarvis-literal-lists-not-introspection]]).
+# Задранный допуск ловится и поведением, и этим пином — поведение обходится
+# сдвигом одного случая, пин не обходится ничем.
+FUTURE_TOLERANCE_DAYS = 1.0
+
+AGE_CONSTANTS: tuple[tuple[str, float, str], ...] = (
+    ("CLIENT_SET_MAX_AGE_DAYS", float(STALE_AFTER_DAYS),
+     "задранный порог гасит суд о возрасте: заливка встала, а дрил каждую "
+     "неделю честно доказывает восстановимость набора месячной давности"),
+    ("CLIENT_SET_FUTURE_TOLERANCE_DAYS", FUTURE_TOLERANCE_DAYS,
+     "задранный допуск на будущее гасит суд о возрасте ЦЕЛИКОМ: ушедшие "
+     "вперёд часы хоста делают возраст отрицательным, и порог не сработает "
+     "никогда"),
+)
+
+
+@pytest.mark.parametrize("name,expected,cost", AGE_CONSTANTS,
+                         ids=[c[0] for c in AGE_CONSTANTS])
+def test_the_age_thresholds_are_pinned_literally(name, expected, cost, drill):
+    """Без него порог правится одним числом и молча: поведение обходится сдвигом единственного случая, а число, названное в двух местах, обязано быть исправлено дважды и осознанно."""
+    actual = getattr(drill, name, None)
+    assert actual is not None, (
+        f"{_SCRIPT} не даёт константы `{name}`. Порог обязан быть ИМЕНОВАННОЙ "
+        f"константой модуля, а не числом внутри выражения: {cost}")
+    assert isinstance(actual, (int, float)) and not isinstance(actual, bool), (
+        f"`{name}` = {actual!r} типа {type(actual).__name__}: порог, который "
+        "нельзя сравнить арифметикой, порогом не является")
+    assert float(actual) == expected, (
+        f"`{name}` = {float(actual)}, а контракт называет {expected}.\n"
+        f"Чем это оборачивается: {cost}.\n"
+        "Число здесь ЛИТЕРАЛЬНОЕ и правится человеком: если порог меняется "
+        "осознанно, правок должно быть две — в коде и здесь")
+
+
+def test_a_set_dated_one_day_ahead_is_still_judged_fresh(
+        tmp_path, monkeypatch, drill, keypair, key_file, env):
+    """Без него дрил краснел бы на ЗАКОННОМ разъезде часовых поясов: дату в ключ пишет хост по UTC, судит её ноутбук, и около полуночи UTC они расходятся на календарный день — красная лампа при исправном бэкапе учит не читать лампы."""
+    _priv, pub = keypair
+    ahead = int(FUTURE_TOLERANCE_DAYS)          # ровно допуск, граница строгая
+    set_date = _dated(-ahead)
+    bucket, counts = _green_bucket(pub, tmp_path, date=set_date)
+    _install_bucket(monkeypatch, drill, bucket)
+    _install_now(monkeypatch, drill)
+    verdict_path = tmp_path / "out" / "verdict.json"
+
+    rc = _run(drill, key_file, date=None, verdict_out=verdict_path)
+
+    assert rc == 0, (
+        f"набор за {set_date} при сегодняшнем {TODAY.isoformat()} — это "
+        f"{ahead} сутки ВПЕРЁД, ровно допуск {FUTURE_TOLERANCE_DAYS}; rc={rc}, "
+        "ожидалось 0. Допуск существует именно ради этого случая: около "
+        "полуночи UTC хост и ноутбук законно называют разные календарные дни")
+    verdict = read_verdict(verdict_path)
+    assert verdict["ok"] is True, f"вердикт не зелёный на законном разъезде: {verdict}"
+    assert verdict["actual"].get("messages") == counts["messages"], (
+        f"величины разошлись: {verdict['actual']} против {counts}")
+
+
+# Чем может быть названа недоказуемость возраста. Список литеральный: слово
+# «недоказуем» названо контрактом, остальные — его же формы.
+_UNPROVABLE_WORDS = ("недоказ", "не доказ", "недостовер", "unprovable")
+
+
+def test_a_set_dated_further_ahead_is_a_found_defect_of_unprovable_age(
+        tmp_path, monkeypatch, drill, keypair, key_file, env):
+    """Без него ушедшие вперёд часы хоста гасили бы ВЕСЬ суд о возрасте: дата набора в будущем делает возраст отрицательным, порог не срабатывает никогда, и лампа снова зелёная по построению — при заливке, вставшей месяц назад."""
+    _priv, pub = keypair
+    ahead = int(FUTURE_TOLERANCE_DAYS) + 1      # на сутки за допуск
+    set_date = _dated(-ahead)
+    bucket, counts = _green_bucket(pub, tmp_path, date=set_date)
+    _install_bucket(monkeypatch, drill, bucket)
+    _install_now(monkeypatch, drill)
+    verdict_path = tmp_path / "out" / "verdict.json"
+
+    rc = _run(drill, key_file, date=None, verdict_out=verdict_path)
+
+    assert rc == 1, (
+        f"набор за {set_date} при сегодняшнем {TODAY.isoformat()} — это "
+        f"{ahead} суток ВПЕРЁД при допуске {FUTURE_TOLERANCE_DAYS}; rc={rc}, "
+        "ожидалось 1.\nrc=0 означает, что допуск задран (или суда о будущем "
+        "нет вовсе) — и тогда ушедшие вперёд часы хоста гасят порог "
+        "устаревания навсегда. rc=2 тоже неверно: проверка СОСТОЯЛАСЬ, "
+        "величины измерены, писать вердикт есть чем")
+    verdict = read_verdict(verdict_path)
+    assert verdict["ok"] is False, f"вердикт зелёный на наборе из будущего: {verdict}"
+    assert verdict["actual"].get("messages") == counts["messages"], (
+        f"actual.messages={verdict['actual'].get('messages')!r}, а в наборе "
+        f"{counts['messages']}. Недоказуемый возраст — НАЙДЕННЫЙ дефект, а не "
+        "отказ: величины обязаны быть измерены и записаны, иначе это вердикт "
+        "о невыполненном замере (DEV-43)")
+    detail = str(verdict["detail"])
+    assert set_date in detail, (
+        f"в detail не названа дата набора ({set_date}): {detail!r}. Без неё "
+        "непонятно, на сколько ушли часы — на сутки или на год")
+    low = detail.lower()
+    assert any(word in low for word in _UNPROVABLE_WORDS), (
+        f"в detail не сказано, что возраст НЕДОКАЗУЕМ: {detail!r}\n"
+        f"Искали любое из: {_UNPROVABLE_WORDS}.\n«Набор устарел» и «возраст "
+        "проверить невозможно» — разные вещи и разная починка: во втором "
+        "случае чинят ЧАСЫ ХОСТА, а не заливку")
+
+
 # ── 9. aad проверяется ─────────────────────────────────────────────────────
 
 def test_envelope_sealed_for_another_date_does_not_open(
