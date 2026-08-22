@@ -51,14 +51,13 @@ import hashlib
 import json
 import logging
 import os
-import shutil
 import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
-from app.services import backup_crypto, r2_storage
+from app.services import backup_crypto, backup_sandbox, r2_storage
 from app.services.r2_storage import R2Config, R2ConfigError
 from app.services.sqlite_snapshot import snapshot_counts, snapshot_sqlite
 
@@ -759,7 +758,17 @@ def run_client_backup(
 
     entries: list[dict] = []
     day_prefix = f"{CLIENT_PREFIX}/{date_str}/"
-    tmp_root = Path(tempfile.mkdtemp(prefix="jarvis-client-backup-"))
+    # Временный каталог проходит ТО ЖЕ сито, что песочница дрила: корень из
+    # TMPDIR/TEMP/TMP в момент вызова, отказ на дерево репозитория и на
+    # `.secrets` — ДО создания каталога. Пока сита здесь не было, заливка
+    # писала снимок ЖИВОЙ базы клиента в дерево без единого вопроса, а дрил в
+    # то же дерево отказывался распаковывать: два правила на одну вещь, и
+    # слабое молчало (амендмент Д).
+    try:
+        tmp_root = backup_sandbox.make_sandbox(prefix="jarvis-client-backup-")
+    except backup_sandbox.SandboxRefused as exc:
+        raise ClientBackupRefused(
+            f"некуда положить снимок: {exc}") from exc
     try:
         for cset in sets:
             pseudo = backup_crypto.pseudonym(cset.slug, salt)
@@ -850,14 +859,24 @@ def run_client_backup(
             result.failed.append({"rel_path": "manifest.json", "error": str(exc)})
     finally:
         # Во временном каталоге лежат РАСШИФРОВАННЫЕ клиентские данные
-        # (снимок базы). Он сносится всегда — и на успехе, и на любом провале.
-        shutil.rmtree(tmp_root, ignore_errors=True)
-        if tmp_root.exists():
-            # Не глотаем (DEV-18): расшифрованный снимок, оставшийся на диске,
-            # обязан быть назван вслух, а не исчезнуть в `ignore_errors`.
-            logger.error(
-                "client backup: временный каталог %s НЕ удалён — в нём лежит "
-                "расшифрованный снимок клиентской базы, уберите руками", tmp_root)
+        # (снимок базы). Он сносится на ЛЮБОМ пути выхода — на успехе, на
+        # провале объекта, на непредвиденном исключении.
+        #
+        # `ignore_errors=True` здесь стоял и был неправ (DEV-18): незакрытый
+        # хэндл SQLite (DEV-48) оставил бы снимок клиентской базы на диске, а
+        # ошибку проглотил бы — и никто бы не узнал. Гарантию даёт РЕЗУЛЬТАТ:
+        # `remove_sandbox` пересчитывает остаток и называет его поимённо.
+        # Говорит он в журнал, а не в stderr: задачу в 04:00 никто не смотрит
+        # живьём, и всё сказанное обязано пережить прогон.
+        leftovers = backup_sandbox.remove_sandbox(
+            tmp_root, lambda msg: logger.error("client backup: %s", msg))
+        if leftovers:
+            result.failed.append({
+                "rel_path": str(tmp_root),
+                "error": (f"временный каталог НЕ снесён, в нём остался "
+                          f"РАСШИФРОВАННЫЙ снимок клиентской базы "
+                          f"({len(leftovers)} файл(ов)) — уберите руками"),
+            })
 
     # Оба конца: заливка посчитана — теперь докажи листингом, что доехало.
     result.failed.extend(verify_uploaded(

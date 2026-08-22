@@ -28,7 +28,9 @@
 2. **Открытый текст живёт ИСКЛЮЧИТЕЛЬНО в песочнице** — свой временный
    каталог, и ничего кроме него. Корень песочницы имеет РОВНО ОДИН шов
    наружу — `TMPDIR`/`TEMP`/`TMP`, читаемые в момент вызова
-   (`default_sandbox_root`); ключа CLI на него нет намеренно. Каталог назначения внутри `.secrets/` или
+   (`default_sandbox_root`); ключа CLI на него нет намеренно. Само сито
+   (запретная зона, шов, снос) живёт в `app/services/backup_sandbox.py`
+   ОДНИМ экземпляром на всю арку: ежедневная заливка спрашивает его же. Каталог назначения внутри `.secrets/` или
    внутри дерева репозитория отвергается, и проверка идёт по РАЗОБРАННОМУ пути
    (`resolve()`), а не по строке: `C:\\jarvis\\..\\jarvis\\.secrets` — это
    внутри дерева, и строковое сравнение этого не видит.
@@ -65,28 +67,22 @@ from __future__ import annotations
 import argparse
 import base64
 import binascii
-import gc
 import json
-import os
 import re
-import shutil
 import sqlite3
-import stat
 import sys
-import tempfile
 import time
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Mapping
 
 _ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT))
-sys.path.insert(0, str(_ROOT / "scripts"))
 
 from cryptography.exceptions import UnsupportedAlgorithm  # noqa: E402
 from cryptography.hazmat.primitives import serialization  # noqa: E402
 from cryptography.hazmat.primitives.asymmetric import x25519  # noqa: E402
 
-from app.services import r2_storage, state_backup  # noqa: E402
+from app.services import backup_sandbox, r2_storage, state_backup  # noqa: E402
 from app.services.backup_crypto import (  # noqa: E402
     BackupCryptoError,
     decrypt_with,
@@ -96,11 +92,19 @@ from app.services.restore_drill_verdict import VERDICT_REL, write_verdict  # noq
 from app.services.sqlite_snapshot import snapshot_counts  # noqa: E402
 from chatter.storage.db import Store  # noqa: E402
 
-# Определение «дерева репозитория» обязано быть ОДНО. Второе, написанное
-# рядом, разойдётся с первым молча — и разойдётся в сторону слабее, потому что
-# слабое не краснеет. `scripts/backup_keygen.py` уже разбирает случай worktree
-# (`.git` — файл со ссылкой на главное дерево), и запретная зона у нас та же.
-from backup_keygen import repo_roots  # noqa: E402
+# Определение «дерева репозитория» и всё сито временных каталогов — ОДНО на
+# всю арку, в `app/services/backup_sandbox.py`. Второе, написанное рядом,
+# разошлось бы с первым молча и в сторону СЛАБЕЕ, потому что слабое не
+# краснеет: ровно так ежедневная заливка писала открытую базу в дерево, пока
+# дрил туда отказывался распаковывать (амендмент Д).
+from app.services.backup_sandbox import (  # noqa: E402,F401
+    TMP_ENV_VARS,
+    SandboxRefused,
+    default_sandbox_root,
+    forbidden_sandbox_reason,
+    remove_sandbox,
+    repo_roots,
+)
 
 RC_OK = 0
 RC_MISMATCH = 1
@@ -201,199 +205,20 @@ def fingerprint_of(key_material: bytes) -> str:
 # Песочница: открытый текст не имеет права оказаться нигде больше
 # --------------------------------------------------------------------------
 
-def _is_inside(path: Path, root: Path) -> bool:
-    try:
-        path.relative_to(root)
-    except ValueError:
-        return False
-    return True
-
-
-def forbidden_sandbox_reason(path: Path) -> str | None:
-    """Почему в этот каталог нельзя класть расшифрованные данные (или None).
-
-    Проверка по РАЗОБРАННОМУ пути: `resolve()` схлопывает `..`, и
-    `C:\\jarvis\\..\\jarvis\\state\\tmp` опознаётся как дерево репозитория,
-    хотя строкой на него не похоже. Запретны:
-
-    * любой каталог `.secrets` на пути — там живут боевые базы клиенток под
-      живыми раннерами, и класть рядом расшифрованный снимок нельзя даже
-      «на минуту»;
-    * дерево репозитория (и главное дерево, если мы в worktree) — гейты,
-      гардианы и автодеплой ходят по нему постоянно, а расшифрованная
-      переписка не должна пережить прогон ни секунды.
-    """
-    resolved = Path(path).expanduser().resolve()
-    for part in resolved.parts:
-        if part.lower() == _SECRETS_DIR:
-            return (f"каталог назначения {resolved} лежит внутри {_SECRETS_DIR}: "
-                    "там боевые базы клиенток под живыми раннерами. "
-                    "Расшифрованный снимок рядом с оригиналом — это лишняя "
-                    "копия чужой переписки в самом опасном месте дерева")
-    for root in repo_roots():
-        if _is_inside(resolved, root):
-            return (f"каталог назначения {resolved} лежит внутри дерева "
-                    f"репозитория {root}: по дереву ходят гейты, гардианы и "
-                    "автодеплой, а открытый текст переписки и реквизитов не "
-                    "должен пережить прогон ни секунды. Укажите каталог вне "
-                    "дерева (переменные TEMP/TMP)")
-    return None
-
-
-#: Порядок ровно как у `tempfile._candidate_tempdir_list`. Список
-#: ЛИТЕРАЛЬНЫЙ, а не выведенный из tempfile: выведенный согласен с ним по
-#: определению и промолчит ровно там, где разойдётся с ожиданием человека
-#: ([[jarvis-literal-lists-not-introspection]]).
-TMP_ENV_VARS = ("TMPDIR", "TEMP", "TMP")
-
-
-def default_sandbox_root(env: Mapping[str, str] | None = None) -> Path:
-    """Корень песочницы, когда его не назвали явно, — ИЗ ОКРУЖЕНИЯ, В МОМЕНТ ВЫЗОВА.
-
-    Не `tempfile.gettempdir()`, и это не придирка. `gettempdir` кэширует
-    результат в `tempfile.tempdir` при ПЕРВОМ вызове в процессе: кто угодно,
-    тронувший tempfile раньше дрила, замораживает корень навсегда, и
-    `TMPDIR`/`TEMP`/`TMP` перестают действовать вовсе. Дрил при этом уходит
-    в настоящий временный каталог и отвечает ЗЕЛЁНЫМ там, где обязан был
-    отказать, — то есть кэш гасит проверку, а не сдвигает её.
-
-    Два довода, и ни один не про удобство теста:
-
-    1. **Сообщение об отказе обязано быть правдой.** `forbidden_sandbox_reason`
-       дословно советует «Укажите каталог вне дерева (переменные TEMP/TMP)».
-       Совет, которому код не следует, — это враньё в сообщении об ошибке:
-       человек выполнит указание и получит тот же отказ, не поняв почему.
-    2. **Без этого шва запретная зона недостижима ниоткуда, кроме питонного
-       аргумента.** Ключа CLI на песочницу нет и не будет (шов ровно один),
-       значит в бою `forbidden_sandbox_reason` — мёртвая ветка, всегда
-       зелёная по построению ([[jarvis-guard-caught-dead-branch]]).
-
-    Проверка запретной зоны применяется к тому, ЧТО ПОЛУЧИЛОСЬ: переменная
-    окружения — такой же непроверенный ввод, как и аргумент."""
-    env = os.environ if env is None else env
-    for name in TMP_ENV_VARS:
-        value = env.get(name)
-        if value and value.strip():
-            return Path(value)
-    # Ни одной переменной нет — тогда и кэшировать нечего: пусть tempfile
-    # называет свой умолчательный каталог сам.
-    return Path(tempfile.gettempdir())
-
-
 def make_sandbox(sandbox_root: str | Path | None = None) -> Path:
-    """Свой временный каталог — и ничего кроме него.
+    """Песочница дрила. Решение принимает общее сито, СЛОВАРЬ здесь свой.
 
-    Корень: явный `sandbox_root`, иначе `TMPDIR`/`TEMP`/`TMP` в момент
-    вызова (`default_sandbox_root` — там же, почему не `gettempdir`).
-
-    Корень проверяется ДО `mkdtemp`: иначе отказ уже создал бы каталог там,
-    куда мы отказываемся писать. Созданный каталог проверяется ЕЩЁ РАЗ —
-    симлинк в корне временных файлов может увести куда угодно, а `resolve()`
-    его разворачивает."""
-    root = Path(sandbox_root) if sandbox_root is not None else default_sandbox_root()
-    reason = forbidden_sandbox_reason(root)
-    if reason is not None:
-        raise DrillNotRun(reason)
+    Обёртка, а не копия: `backup_sandbox.make_sandbox` решает, куда можно
+    писать открытый текст, одинаково для дрила и для ежедневной заливки.
+    Перевод отказа в `DrillNotRun` нужен потому, что рассказывают о нём эти
+    двое по-разному: у дрила отказ — это rc 2 и НИ ОДНОЙ строки вердикта
+    («мы не смотрели», не «бэкап негоден»), у заливки — «наружу не ушло ни
+    байта»."""
     try:
-        root.mkdir(parents=True, exist_ok=True)
-        path = Path(tempfile.mkdtemp(prefix="jarvis-restore-drill-", dir=str(root)))
-    except OSError as exc:
-        raise DrillNotRun(
-            f"песочница не создаётся в {root} ({type(exc).__name__}): {exc}") from exc
-
-    reason = forbidden_sandbox_reason(path)
-    if reason is not None:
-        remove_sandbox(path)
-        raise DrillNotRun(reason)
-    return path
-
-
-def _surviving_files(path: Path) -> list[Path]:
-    """Файлы, ПЕРЕЖИВШИЕ снос. Ответ на «что осталось», а не «упало ли rmtree».
-
-    Гарантию даёт состояние диска, а не то, что вызов не бросил исключение."""
-    if not path.exists():
-        return []
-    try:
-        return sorted(p for p in path.rglob("*") if p.is_file())
-    except OSError:
-        return [path]
-
-
-def _rmtree_forcing(path: Path) -> None:
-    """`rmtree`, который не бросает работу на первом же неподатливом файле.
-
-    Голый `shutil.rmtree` бросает на первой ошибке и оставляет всё, до чего
-    не дошёл: замер 22.08 — один запертый `plain/<псевдоним>/db` оставил на
-    диске ещё и `manifest.json`, и `requisites.yaml`, которые снеслись бы
-    свободно. Обработчик снимает read-only, пробует ещё раз и в любом случае
-    даёт обходу идти дальше, поэтому открытого текста на диске остаётся
-    МИНИМУМ возможного, а не всё подряд.
-
-    Ошибки здесь не глотаются, а откладываются: остаток называет поимённо
-    `remove_sandbox`, посмотрев на то, что реально осталось на диске."""
-    def _on_error(func, target, exc) -> None:  # noqa: ANN001
-        try:
-            os.chmod(target, stat.S_IWRITE)
-            func(target)
-        except OSError:
-            pass  # остаток назовёт _surviving_files — тишины не будет
-
-    try:
-        shutil.rmtree(path, onexc=_on_error)
-    except OSError:
-        pass
-
-
-def remove_sandbox(path: Path) -> list[Path]:
-    """Снести песочницу ЦЕЛИКОМ. Возвращает то, что снести НЕ удалось.
-
-    Провал сноса — ГРОМКИЙ и ПОИМЁННЫЙ, а не `ignore_errors=True`:
-    оставшийся каталог — это расшифрованная переписка и реквизиты на диске,
-    о которых никто не знает. Молчать про это нельзя (DEV-18). Но и
-    подменять этим настоящую причину провала дрила тоже нельзя — поэтому
-    текст в stderr и возвращённый список, а не исключение: код возврата
-    обязан говорить про БЭКАП, а не про уборку.
-
-    Второй заход после `gc.collect()` — не суеверие, а следствие корня
-    (`_release_sqlite_handle`): на Windows файл держит открытый ХЭНДЛ, и
-    хэндл, застрявший в недостижимом цикле ссылок, освобождает только
-    сборщик мусора. Если второй заход помог — значит соединение всё-таки
-    утекло, и это НАЗЫВАЕТСЯ вслух: снос такую утечку маскирует, а не лечит.
-    """
-    try:
-        _rmtree_forcing(path)
-        left = _surviving_files(path)
-        if left:
-            gc.collect()
-            _rmtree_forcing(path)
-            after = _surviving_files(path)
-            if not after:
-                print(
-                    f"⚠ песочница {path} снеслась только СО ВТОРОГО захода, "
-                    f"после сборки мусора: {len(left)} файл(ов) держал "
-                    "открытый хэндл. Снос это замаскировал; чинить надо "
-                    "утечку соединения, а не уборку.", file=sys.stderr)
-                return []
-            left = after
-        if left:
-            print(f"🚨 ПЕСОЧНИЦА НЕ СНЕСЕНА: {path}\n"
-                  f"   осталось файлов: {len(left)}", file=sys.stderr)
-            for item in left[:20]:
-                print(f"   - {item}", file=sys.stderr)
-            if len(left) > 20:
-                print(f"   ... и ещё {len(left) - 20}", file=sys.stderr)
-            print("   В них лежит РАСШИФРОВАННАЯ переписка и реквизиты. "
-                  "Удалите каталог руками.", file=sys.stderr)
-        return left
-    except Exception as exc:  # noqa: BLE001
-        # Уборка зовётся из `finally`. Исключение отсюда подменило бы собой
-        # настоящую причину провала дрила — и человек чинил бы уборку вместо
-        # бэкапа. Поэтому громко и без повторного возбуждения.
-        print(f"🚨 СНОС ПЕСОЧНИЦЫ САМ УПАЛ ({type(exc).__name__}): "
-              f"{path}: {exc}\n   Считайте, что открытый текст остался на "
-              "диске: проверьте каталог руками.", file=sys.stderr)
-        return [path]
+        return backup_sandbox.make_sandbox(
+            sandbox_root, prefix="jarvis-restore-drill-")
+    except SandboxRefused as exc:
+        raise DrillNotRun(str(exc)) from exc
 
 
 # --------------------------------------------------------------------------

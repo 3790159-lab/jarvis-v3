@@ -54,6 +54,11 @@ from app.services.backup_crypto import (  # noqa: E402
     generate_keypair,
     public_key_fingerprint,
 )
+# Определение «дерева репозитория» ОДНО на всю арку и живёт в
+# app/services/backup_sandbox.py: `app/` не имеет права импортировать из
+# `scripts/`, поэтому общим местом может быть только `app/`. Копия рядом
+# разошлась бы с оригиналом молча и в сторону СЛАБЕЕ — слабое не краснеет.
+from app.services.backup_sandbox import _is_inside, repo_roots  # noqa: E402,F401
 
 _PUBLIC_KEY_ENV = "JARVIS_BACKUP_PUBLIC_KEY"
 _SALT_ENV = "JARVIS_BACKUP_KEY_SALT"
@@ -79,40 +84,6 @@ class KeygenRefusal(Exception):
 # --------------------------------------------------------------------------
 # Куда НЕЛЬЗЯ: корни дерева репозитория
 # --------------------------------------------------------------------------
-
-def repo_roots() -> list[Path]:
-    """Корни, под которыми приватному ключу лежать запрещено.
-
-    Первый — дерево, из которого запущен сам скрипт. Второй появляется, когда
-    это дерево — worktree: файл ``.git`` тогда указывает на
-    ``<главное дерево>/.git/worktrees/<имя>``, и писать ключ в ГЛАВНОЕ дерево
-    из worktree — та же ошибка, просто этажом выше. Разбирается только точная
-    форма маркера; всё прочее оставляет один корень, и это честнее, чем
-    гадать."""
-    roots = [_ROOT]
-    marker = _ROOT / ".git"
-    if marker.is_file():
-        text = marker.read_text(encoding="utf-8", errors="replace").strip()
-        if text.startswith("gitdir:"):
-            gitdir = Path(text.split(":", 1)[1].strip())
-            if not gitdir.is_absolute():
-                gitdir = _ROOT / gitdir
-            parts = gitdir.resolve().parts
-            if len(parts) >= 3 and parts[-2] == "worktrees" and parts[-3] == ".git":
-                main_root = Path(*parts[:-3])
-                if main_root not in roots:
-                    roots.append(main_root)
-    return roots
-
-
-def _is_inside(path: Path, root: Path) -> bool:
-    """`path` лежит под `root` (или равен ему) — по разобранным путям."""
-    try:
-        path.relative_to(root)
-    except ValueError:
-        return False
-    return True
-
 
 def check_target(raw: str) -> Path:
     """Разобрать `--private-out` и отказать, если писать туда нельзя.
