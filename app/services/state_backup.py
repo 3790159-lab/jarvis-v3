@@ -765,7 +765,13 @@ def run_client_backup(
     # то же дерево отказывался распаковывать: два правила на одну вещь, и
     # слабое молчало (амендмент Д).
     try:
-        tmp_root = backup_sandbox.make_sandbox(prefix="jarvis-client-backup-")
+        # `extra_roots=(repo_root,)` — дерево, КОТОРОЕ МЫ БЭКАПИМ, запретно
+        # наравне с деревом, где лежит код. Сегодня это одно и то же (задача
+        # передаёт своё дерево), но защищаем мы именно бэкапимое: разойдись
+        # аргумент с расположением кода — снимок клиентской базы открытым
+        # текстом лёг бы внутрь него, а проверка смотрела бы не туда.
+        tmp_root = backup_sandbox.make_sandbox(
+            prefix="jarvis-client-backup-", extra_roots=(repo_root,))
     except backup_sandbox.SandboxRefused as exc:
         raise ClientBackupRefused(
             f"некуда положить снимок: {exc}") from exc

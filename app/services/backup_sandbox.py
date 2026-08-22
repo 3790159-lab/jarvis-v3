@@ -44,7 +44,7 @@ import stat
 import sys
 import tempfile
 from pathlib import Path
-from typing import Callable, Mapping
+from typing import Callable, Iterable, Mapping
 
 __all__ = [
     "SandboxRefused",
@@ -125,7 +125,8 @@ def is_inside(path: Path, root: Path) -> bool:
 _is_inside = is_inside
 
 
-def forbidden_sandbox_reason(path: Path | str) -> str | None:
+def forbidden_sandbox_reason(path: Path | str,
+                             extra_roots: Iterable[Path | str] = ()) -> str | None:
     """Почему в этот каталог нельзя класть расшифрованные данные (или None).
 
     Проверка по РАЗОБРАННОМУ пути: `resolve()` схлопывает `..`, и
@@ -137,7 +138,22 @@ def forbidden_sandbox_reason(path: Path | str) -> str | None:
       «на минуту»;
     * дерево репозитория (и главное дерево, если мы в worktree) — гейты,
       гардианы и автодеплой ходят по нему постоянно, а расшифрованная
-      переписка не должна пережить прогон ни секунды.
+      переписка не должна пережить прогон ни секунды;
+    * всё, что назвали в `extra_roots`.
+
+    ЗАЧЕМ `extra_roots`, если корни кода и так проверяются. Защищаем мы не
+    «дерево, где лежит КОД», а ТО ДЕРЕВО, КОТОРОЕ КОПИРУЮТ, КОММИТЯТ И
+    ПОДНИМАЮТ ГАРДИАНОМ, — а `run_client_backup` получает его АРГУМЕНТОМ
+    (`repo_root`). Сегодня `scripts/state_backup.py` передаёт своё же дерево,
+    и эти двое совпадают; разойдись они однажды — снимок клиентской базы
+    открытым текстом лёг бы внутрь бэкапимого дерева, а проверка промолчала
+    бы, потому что смотрит не туда. Проверить это на настоящем дереве нельзя,
+    не насорив в нём ровно тем, что запрещаешь, — отсюда и параметр.
+
+    Корни РАСШИРЯЮТСЯ, а не проверяются второй функцией рядом: второе
+    определение разошлось бы с первым молча и разошлось бы в сторону слабее,
+    потому что слабое не краснеет. У дрила и у заливки работает одна и та же
+    функция, просто заливка называет ей ещё один корень.
     """
     resolved = Path(path).expanduser().resolve()
     for part in resolved.parts:
@@ -146,7 +162,14 @@ def forbidden_sandbox_reason(path: Path | str) -> str | None:
                     "там боевые базы клиенток под живыми раннерами. "
                     "Расшифрованный снимок рядом с оригиналом — это лишняя "
                     "копия чужой переписки в самом опасном месте дерева")
-    for root in repo_roots():
+    roots = list(repo_roots())
+    for extra in extra_roots:
+        # Переданный корень — такой же непроверенный ввод, как и всё здесь:
+        # разбираем его тем же `resolve()`, чтобы `..` схлопнулся.
+        candidate = Path(extra).expanduser().resolve()
+        if candidate not in roots:
+            roots.append(candidate)
+    for root in roots:
         if is_inside(resolved, root):
             return (f"каталог назначения {resolved} лежит внутри дерева "
                     f"репозитория {root}: по дереву ходят гейты, гардианы и "
@@ -192,10 +215,14 @@ def default_sandbox_root(env: Mapping[str, str] | None = None) -> Path:
 
 
 def make_sandbox(sandbox_root: str | Path | None = None, *,
-                 prefix: str, env: Mapping[str, str] | None = None) -> Path:
+                 prefix: str, env: Mapping[str, str] | None = None,
+                 extra_roots: Iterable[Path | str] = ()) -> Path:
     """Свой временный каталог — и ничего кроме него.
 
     Корень: явный `sandbox_root`, иначе `TMPDIR`/`TEMP`/`TMP` в момент вызова.
+
+    `extra_roots` — запретные корни СВЕРХ корней кода; заливка называет здесь
+    дерево, которое она бэкапит (почему — см. `forbidden_sandbox_reason`).
 
     Корень проверяется ДО `mkdtemp`: иначе отказ уже создал бы каталог там,
     куда мы отказываемся писать. Созданный каталог проверяется ЕЩЁ РАЗ —
@@ -205,7 +232,7 @@ def make_sandbox(sandbox_root: str | Path | None = None, *,
     Отказ — `SandboxRefused`; вызывающий переводит его в свой словарь."""
     root = (Path(sandbox_root) if sandbox_root is not None
             else default_sandbox_root(env))
-    reason = forbidden_sandbox_reason(root)
+    reason = forbidden_sandbox_reason(root, extra_roots)
     if reason is not None:
         raise SandboxRefused(reason)
     try:
@@ -215,7 +242,7 @@ def make_sandbox(sandbox_root: str | Path | None = None, *,
         raise SandboxRefused(
             f"песочница не создаётся в {root} ({type(exc).__name__}): {exc}") from exc
 
-    reason = forbidden_sandbox_reason(path)
+    reason = forbidden_sandbox_reason(path, extra_roots)
     if reason is not None:
         remove_sandbox(path)
         raise SandboxRefused(reason)
