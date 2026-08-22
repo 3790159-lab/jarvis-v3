@@ -115,22 +115,38 @@ MUTATIONS = [
      '        "reason": "down",',
      T_EVAL + "::test_backend_down_and_backend_erroring_are_different_reasons"),
 
+    # ⚠️ ПРЕ-СУЩЕСТВУЮЩАЯ слепота, найдена прогоном 22.08 и здесь же чинится:
+    # обе мутации ниже целились в текст, которого в файле давно нет. Хвост
+    # `probe_chatter_runner` получил `beat_source` («PID %s, heartbeat %.0fс
+    # тому%s»), и трёхстрочный образец перестал находиться — на базовом
+    # `90564d31` его тоже нет, то есть это не побочный эффект доставки. Гейт
+    # при этом печатал «МУТАЦИЯ НЕ ПРИМЕНИЛАСЬ» и возвращал rc 1, то есть был
+    # красен ЗА СВОЮ УСТАРЕЛОСТЬ, а не за дефект: два настоящих сторожа
+    # причин раннера не проверялись вовсе, а прочитать это как «гейт красный,
+    # значит доставка сломала» было бы прямым ложным выводом.
+    #
+    # Третья строка образца заменена на КОММЕНТАРИЙ-ЯКОРЬ ниже по функции:
+    # хвост `return` теперь двухстрочный и снова уедет при следующей правке
+    # `detail`, а этот комментарий стоит РЯДОМ с мутируемой веткой и живёт
+    # ровно столько же, сколько сама ветка. Якорь нужен: точно такая же пара
+    # строк есть в `probe_chatter_guardian`, и без него мутация зависела бы от
+    # порядка функций в файле.
     ("раннер: «процесса нет» и «завис» схлопнуты", WATCHDOG,
      '        return {"ok": False, "reason": "stale_heartbeat",\n'
      '                "detail": "heartbeat %.0fс тому (поріг %ds)" % (beat_age, CHATTER_BEAT_MAX_AGE_S)}\n'
-     '    return {"ok": True, "detail": "PID %s, heartbeat %.0fс тому" % (alive[0].get("pid"), beat_age)}',
+     '    # Имя файла в detail:',
      '        return {"ok": False, "reason": "no_process",\n'
      '                "detail": "heartbeat %.0fс тому (поріг %ds)" % (beat_age, CHATTER_BEAT_MAX_AGE_S)}\n'
-     '    return {"ok": True, "detail": "PID %s, heartbeat %.0fс тому" % (alive[0].get("pid"), beat_age)}',
+     '    # Имя файла в detail:',
      T_CHAT + "::test_runner_gone_and_runner_frozen_are_different_reasons"),
 
     ("раннер: секунды heartbeat попали в причину", WATCHDOG,
      '        return {"ok": False, "reason": "stale_heartbeat",\n'
      '                "detail": "heartbeat %.0fс тому (поріг %ds)" % (beat_age, CHATTER_BEAT_MAX_AGE_S)}\n'
-     '    return {"ok": True, "detail": "PID %s, heartbeat %.0fс тому" % (alive[0].get("pid"), beat_age)}',
+     '    # Имя файла в detail:',
      '        return {"ok": False, "reason": "stale:%.0f" % beat_age,\n'
      '                "detail": "heartbeat %.0fс тому (поріг %ds)" % (beat_age, CHATTER_BEAT_MAX_AGE_S)}\n'
-     '    return {"ok": True, "detail": "PID %s, heartbeat %.0fс тому" % (alive[0].get("pid"), beat_age)}',
+     '    # Имя файла в detail:',
      T_CHAT + "::test_runner_reason_is_stable_while_the_beat_age_grows"),
 
     ("бандл: «нет копии» и «копия отстала» схлопнуты", WATCHDOG,
@@ -545,9 +561,14 @@ MUTATIONS = [
      "    if False:",
      T_JOURNAL + "::test_a_reboot_rides_in_the_same_journal_write"),
 
+    # Мишень переехала вместе с кодом: сборка текстов в `main()` заменена
+    # вызовом `group_alerts` (§4.2), и прежний фрагмент в файле не нашёлся бы —
+    # гейт напечатал бы «МУТАЦИЯ НЕ ПРИМЕНИЛАСЬ», то есть покраснел бы за
+    # СВОЮ устарелость, а не за дефект. Строка мутируется целиком и потому
+    # уникальна: в `evaluate()` тот же сборщик зовётся через `return`.
     ("цикл: ✅ шлётся о падении, о котором владельцу не говорили", WATCHDOG,
-     '    alerts = [build_alert(t["check"], t["kind"], t["detail"]) for t in to_owner]',
-     '    alerts = [build_alert(t["check"], t["kind"], t["detail"]) for t in journal]',
+     "    alerts = group_alerts(to_owner)",
+     "    alerts = group_alerts(journal)",
      T_JOURNAL + "::test_the_cycle_does_not_alert_about_what_only_the_journal_knows"),
 
     ("цикл: провал записи журнала молчит вовсе", WATCHDOG,

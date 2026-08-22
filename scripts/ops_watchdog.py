@@ -235,6 +235,18 @@ def build_alert(check: str, kind: str, detail: str) -> str:
     return "🚨 DOWN: %s. %s" % (label, detail)
 
 
+def is_client_check(check: str) -> bool:
+    """Ключ пробы относится к пер-клиентному раннеру.
+
+    Отдельная функция, а не `startswith` по месту: пер-клиентные ключи
+    разбираются В ТРЁХ местах доставки (подавление §4.1, отбор в склейку и
+    вырезание слага для текста), и три независимых написания префикса
+    разъехались бы молча — подавление перестало бы срабатывать, а склейка
+    сложила бы клиентов вместе с бэкендом.
+    """
+    return str(check or "").startswith(CLIENT_PROBE_PREFIX)
+
+
 def _transitions(prev_state: dict, probes: dict, debounce: int = DEBOUNCE,
                  suppress_down: bool = False, now: float | None = None):
     """Единственный анализатор состояний. Возвращает
@@ -268,6 +280,21 @@ def _transitions(prev_state: dict, probes: dict, debounce: int = DEBOUNCE,
                  for k, v in prev_state.items()}
     out = []
     to_owner = []
+    # §4.1: шесть клиентов, умерших от ОДНОЙ причины (упал гардиан), дали бы
+    # шесть 🚨 подряд. Это не наблюдаемость, а шум, после которого перестают
+    # читать, — и владелец пропустит в нём седьмое сообщение о чём-то другом.
+    #
+    # Вердикт берётся из САМИХ проб этого цикла, а не приходит новым
+    # параметром: сигнатура `_transitions` заморожена (на ней тесты и
+    # мутационный гейт), а вычисляй мы флаг в `main()` — подавление жило бы в
+    # единственном месте, куда юнит-тесты не доходят, и разъехалось бы с тем,
+    # что видит владелец, молча.
+    #
+    # 🔢 Строка `chatter_guardian` написана ЗДЕСЬ и в `probe_all` — два места
+    # на одно имя. Разъедутся они ТИХО: `probes.get` вернёт `None`, подавление
+    # просто перестанет срабатывать, и шесть сообщений вернутся.
+    guardian = probes.get("chatter_guardian")
+    guardian_red = isinstance(guardian, dict) and not guardian.get("ok")
 
     def fire(check, kind, res, reason, journal_only=False):
         t = {"ts": now, "check": check, "kind": kind,
@@ -334,9 +361,37 @@ def _transitions(prev_state: dict, probes: dict, debounce: int = DEBOUNCE,
                     fire(check, "suppressed", res, reason)
             elif not st.get("alerted"):
                 if st["fail"] >= debounce:
-                    fire(check, "down", res, reason)
-                    st["alerted"] = True
-                    st["alerted_reason"] = reason
+                    if guardian_red and is_client_check(check):
+                        # §4.1. Падение клиента под мёртвым гардианом — та же
+                        # новость, что и падение гардиана, сказанная во второй
+                        # раз. Владельцу её не повторяем, в журнал пишем: это
+                        # ровно то событие, ради которого журнал заводился (в
+                        # нём панель и покажет, КОГО именно недосчитались).
+                        #
+                        # ⚠️ `alerted` ЗДЕСЬ НЕ СТАВИТСЯ, и это главное
+                        # свойство всей правки, а не деталь. Поставь мы его —
+                        # клиент, которого гардиан после подъёма НЕ поднял,
+                        # промолчал бы навсегда: `alerted` снимается только
+                        # восстановлением, которого не будет. А так на первом
+                        # же цикле с зелёным гардианом `fail` уже набран, ветка
+                        # эта не выбирается, и 🚨 уходит владельцу.
+                        # (Тот же приём, что у окна загрузки выше.)
+                        #
+                        # РОВНО ОДНА запись на падение — по МОМЕНТУ пересечения
+                        # порога, как и у `suppressed`. Дедупить нечем:
+                        # `alerted` не ставится по построению, а нового ключа в
+                        # состоянии заводить нельзя (`evaluate()` отдаёт это
+                        # состояние наружу). Без `==` гардиан, пролежавший
+                        # красным час, дал бы 120 циклов × число клиентов
+                        # одинаковых записей — при потолке журнала в 5000 это
+                        # вымыло бы историю за ту же аварию, от которой мы
+                        # здесь спасаем владельца.
+                        if st["fail"] == debounce:
+                            fire(check, "down", res, reason, journal_only=True)
+                    else:
+                        fire(check, "down", res, reason)
+                        st["alerted"] = True
+                        st["alerted_reason"] = reason
             elif "alerted_reason" not in st:
                 # Стейт с диска старого формата. Причину принимаем МОЛЧА: иначе
                 # первый же цикл после выкатки разошлёт 🚨 по каждой красной
@@ -379,6 +434,90 @@ def transitions(prev_state: dict, probes: dict, debounce: int = DEBOUNCE,
 # определению: это падение в загрузочном окне, о котором мы намеренно молчим.
 ALERTING_KINDS = ("down", "recovered", "changed")
 
+# ── §4.2. Склейка пер-клиентных алертов одного цикла ───────────────────────
+#
+# Порог СТРОГИЙ: склеиваем, когда переходов БОЛЬШЕ этого числа. Два сообщения
+# владелец прочитает как два события и починит оба; на трёх начинается стена,
+# в которой теряется четвёртое. Число названо константой, а не вписано в
+# сравнение, чтобы у него было одно место правки и чтобы сторож мог сдвинуть
+# порог, не переписывая текст.
+ALERT_GROUP_MIN = 2
+
+
+def build_client_group_alert(kind: str, transitions: list[dict]) -> str:
+    """Одна строка про N клиентов: вид, слаг КАЖДОГО и его причина.
+
+    Имена обязательны и это не украшение: «упало 4 клиента» экономит четыре
+    сообщения ценой единственного, ради чего их читают, — списка, кого чинить.
+    Владелец с таким текстом пойдёт открывать панель, то есть склейка вернёт
+    его туда, откуда алерт должен был избавить.
+
+    Причина берётся из `reason`, а не из `detail`: `detail` несёт секунды
+    возраста отметки, и четыре таких хвоста превратили бы одно сообщение в
+    простыню — при том что чинят по причине, а не по числу секунд.
+
+    Форма пары «слаг (причина)» взята из образца §4.2 спеки дословно, чтобы
+    сторожа могли пиниться на неё, а не на мою вольную запись.
+    """
+    items = ", ".join(
+        "%s (%s)" % (str(t.get("check", ""))[len(CLIENT_PROBE_PREFIX):] or "?",
+                     t.get("reason") or "?")
+        for t in transitions)
+    n = len(transitions)
+    head = "раннеры chatter, %d %s" % (
+        n, _plural(n, "клиент", "клиента", "клиентов"))
+    if kind == "recovered":
+        return "✅ Восстановлено: %s: %s" % (head, items)
+    if kind == "changed":
+        return "🚨 Новая причина: %s: %s" % (head, items)
+    return "🚨 DOWN: %s: %s" % (head, items)
+
+
+def group_alerts(to_owner: list[dict]) -> list[str]:
+    """Переходы -> ТЕКСТЫ для владельца, со склейкой пер-клиентных.
+
+    Единственное место, где решается, что владелец услышит: и `evaluate()`, и
+    `main()` зовут ЕЁ, а не собирают тексты каждый по-своему. До этой правки
+    сборок было две, и они уже разошлись — `main()` не фильтровала по
+    `ALERTING_KINDS` и слала 🚨 о падении в загрузочном окне, о котором
+    `evaluate()` намеренно молчала.
+
+    Порядок выхода фиксирован: сначала не-клиентские (каждая через
+    `build_alert`, как и раньше), затем клиентские по видам в порядке
+    `ALERTING_KINDS`. Фиксирован он ради читающего: «гардиан упал» обязано
+    стоять ПЕРЕД списком клиентов, иначе список выглядит самостоятельной
+    аварией.
+
+    Склейка живёт ВНУТРИ одного вызова и ничего не помнит между циклами.
+    Память превратила бы её в кулдаун, а кулдаун — в «авария одного глушит
+    другого», то есть ровно в тот дефект, от которого §4.1 и §4.2 написаны.
+    Состояние она не получает и не возвращает: `alerted`, `fail` и дедуп по
+    причине остаются ПЕР-СЛАГОВЫМИ и живут в `_transitions`.
+
+    Подавлённых §4.1 переходов здесь нет по построению — они помечены
+    `journal_only` и в `to_owner` не попадают вовсе.
+    """
+    alerting = [t for t in to_owner if t.get("kind") in ALERTING_KINDS]
+    texts = [build_alert(t["check"], t["kind"], t["detail"])
+             for t in alerting if not is_client_check(t.get("check"))]
+    # Виды считаются РАЗДЕЛЬНО: два упавших и два поднявшихся клиента — это
+    # четыре перехода, но не «больше двух одного вида», и склеивать 🚨 с ✅ в
+    # одну строку значило бы сказать владельцу «четыре события» о двух разных.
+    per_kind = {}
+    for t in alerting:
+        if is_client_check(t.get("check")):
+            per_kind.setdefault(t["kind"], []).append(t)
+    for kind in ALERTING_KINDS:
+        group = per_kind.get(kind)
+        if not group:
+            continue
+        if len(group) > ALERT_GROUP_MIN:
+            texts.append(build_client_group_alert(kind, group))
+        else:
+            texts.extend(build_alert(t["check"], t["kind"], t["detail"])
+                         for t in group)
+    return texts
+
 
 def evaluate(prev_state: dict, probes: dict, debounce: int = DEBOUNCE,
              suppress_down: bool = False):
@@ -389,15 +528,18 @@ def evaluate(prev_state: dict, probes: dict, debounce: int = DEBOUNCE,
     Берётся `to_owner`, а не весь журнал: единственный переход, который
     существует ТОЛЬКО для журнала, — подъём после подавленного падения.
     `ALERTING_KINDS` при этом остаётся вторым, независимым фильтром: `suppressed`
-    в `to_owner` попадает и отсеивается здесь.
+    в `to_owner` попадает и отсеивается в `group_alerts`.
+
+    Тексты собирает `group_alerts`, а не эта функция: сборщик обязан быть ОДИН
+    на `evaluate()` и `main()`, иначе склейка §4.2 живёт в одном канале и не
+    живёт в другом — и сторож на `evaluate()` зелен при том, что владелец
+    получает шесть сообщений.
 
     Returns ``(alerts: list[str], new_state: dict)``.
     """
     _journal, to_owner, new_state = _transitions(
         prev_state, probes, debounce, suppress_down)
-    alerts = [build_alert(t["check"], t["kind"], t["detail"])
-              for t in to_owner if t["kind"] in ALERTING_KINDS]
-    return alerts, new_state
+    return group_alerts(to_owner), new_state
 
 
 # ── Журнал переходов для панели Джарвиса (спека 2026-08-14, §2) ────────────
@@ -2183,7 +2325,13 @@ def main() -> int:
     # запись однажды прочитается как чья-то. Чистка молчит, когда ростер
     # неизвестен, — см. `prune_client_state`.
     state = prune_client_state(state, probes)
-    alerts = [build_alert(t["check"], t["kind"], t["detail"]) for t in to_owner]
+    # Тексты собирает `group_alerts` — тот же сборщик, что и у `evaluate()`.
+    # Здесь стояла своя сборка, и она уже разошлась с той: фильтра по
+    # `ALERTING_KINDS` в ней не было, поэтому падение в загрузочном окне
+    # уезжало владельцу как 🚨 DOWN — то самое, о чём `suppressed` обещает
+    # молчать. Второй сборщик текстов — второе определение того, что владелец
+    # услышит; их и должно быть ноль.
+    alerts = group_alerts(to_owner)
 
     if reboot_text and boot_time is not None:
         # В НАЧАЛО списка: ребут объясняет всё, что записано следом.
