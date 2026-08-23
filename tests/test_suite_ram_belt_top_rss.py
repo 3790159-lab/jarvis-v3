@@ -455,30 +455,14 @@ def test_pin7_report_stays_complete_when_the_list_is_missing():
         assert label in text, "поле %r пропало из отчёта" % label
 
 
-# 🔴 ПИН 7в НЕ НАПИСАН: спека не задала канал для ПРИЧИНЫ отказа.
-#
-# §4 Г2 требует, чтобы отказ перебора давал строку `список процессов не снялся:
-# <причина>`. Но §3 задаёт РОВНО ТРИ состояния данных — `None`, `[]`, `[...]` —
-# и ни одно из них не несёт текста причины. Под контрактом §3 отказ неотличим от
-# «не снимали» и напечатается как `список процессов не снимался`, что §4 Г2
-# прямо противоречит.
-#
-# Чтобы этот пин стал писуемым, спека обязана дозадать ЧЕТВЁРТОЕ состояние или
-# отдельный аргумент, например:
-#     render_report(..., top_rss=None, top_rss_error: str | None = None)
-# и литеральную формулировку строки отказа целиком (сейчас в §4 Г2 дан только
-# префикс `список процессов не снялся: `).
+# ✅ ПИН 7в НАПИСАН: канал причины дозадан АМЕНДМЕНТОМ А
+# (`top_rss_error`, приоритет 1 из четырёх). Тесты — в разделе «АМЕНДМЕНТ А»
+# в конце файла.
 
 
-# 🔴 ПИН НА БЮДЖЕТ 0.5 с НЕ НАПИСАН: спека не дала точки инъекции часов.
-#
-# §4 Г3 требует, чтобы перебор укладывался в 0.5 с, а не уложившись — отдавал
-# то, что успел, и говорил об этом строкой. Проверить это можно только двумя
-# способами: настоящими паузами (медленный и плавающий сторож — то есть будущий
-# ложный красный) или инъекцией часов и бюджета в сборщик. Ни имени параметра
-# бюджета, ни инъекции часов спека не задаёт. Дозадать обязана:
-#     collect_top_rss(source, *, budget_s: float = 0.5, clock=time.monotonic)
-# плюс литеральную строку «успели не всех».
+# ✅ ПИН НА БЮДЖЕТ НАПИСАН: часы и бюджет внедряются по АМЕНДМЕНТУ В
+# (`clock=`, `budget_s=`, `status["truncated"]`). Настоящих пауз в сторожах нет.
+# Тесты — в разделе «АМЕНДМЕНТ В» в конце файла.
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -639,3 +623,576 @@ def test_empty_state_uses_the_wording_from_section_three():
     text = _report(REASON_FREE, top_rss=[])
 
     assert WORDING_EMPTY_SWEEP in text
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# АМЕНДМЕНТ А. Канал причины отказа. Закрывает пин 7в и замечание №1.
+# ═════════════════════════════════════════════════════════════════════════════
+#
+# Спека дозадана: `render_report` берёт `top_rss_error` и `top_rss_truncated`,
+# а порядок разбора СТРОГИЙ — причина отказа старше всех прочих состояний.
+# Ниже пины на строку целиком, а не на подстроку: «ровно вида» в спеке — это
+# требование к СТРОКЕ, и подстрочная проверка пропустила бы приписку.
+
+# Литеральные строки амендмента А. Отступ в два пробела — часть строки.
+LINE_ERROR_PREFIX = "  список процессов не снялся: "
+LINE_NOT_SAMPLED = "  список процессов не снимался"
+LINE_EMPTY_SWEEP = "  перебор ничего не вернул"
+LINE_TOP_HEADER = "  съели больше всех:"
+
+
+def _has_line(text: str, expected: str) -> bool:
+    return any(ln == expected for ln in text.splitlines())
+
+
+def _lines_hint(text: str) -> str:
+    return "\n".join("    %r" % ln for ln in text.splitlines())
+
+
+def test_amendmentA_failure_reason_is_a_line_of_exactly_the_specified_shape():
+    """Приоритет 1: строка ровно `"  список процессов не снялся: " + причина`.
+
+    Причина обязана ДОЕХАТЬ до глаз. Отказ, напечатанный без текста причины,
+    ничем не лучше молчания: читающий в аварии не станет лезть в код за тем,
+    какая именно ветка отказа сработала.
+    """
+    reason = "MemoryError при переборе процессов"
+    text = _report(REASON_FREE, top_rss=None, top_rss_error=reason)
+
+    assert _has_line(text, LINE_ERROR_PREFIX + reason), (
+        "строки %r в отчёте нет. Строки отчёта:\n%s"
+        % (LINE_ERROR_PREFIX + reason, _lines_hint(text)))
+
+
+def test_amendmentA_reason_text_is_carried_verbatim_not_summarised():
+    """Второй зуб к тому же: текст причины не имеет права быть подменён
+    обобщением. Два разных отказа обязаны читаться как два разных отказа."""
+    first = _report(REASON_FREE, top_rss=None, top_rss_error="отказано в доступе")
+    second = _report(REASON_FREE, top_rss=None, top_rss_error="перебор сорвался")
+
+    assert _has_line(first, LINE_ERROR_PREFIX + "отказано в доступе")
+    assert _has_line(second, LINE_ERROR_PREFIX + "перебор сорвался")
+    assert first != second, (
+        "два разных текста причины дали ОДИН отчёт: причина потеряна по дороге")
+
+
+def test_amendmentA_error_outranks_the_not_sampled_state():
+    """Приоритет 1 выше приоритета 2. Ровно тот случай, ради которого амендмент
+    и писался: `top_rss=None` вместе с причиной — это ОТКАЗ, а не «не снимали».
+    """
+    text = _report(REASON_FREE, top_rss=None, top_rss_error="перебор сорвался")
+
+    assert LINE_NOT_SAMPLED not in text, (
+        "при заданном top_rss_error отчёт всё равно сказал «не снимался» — "
+        "отказ склеен с «не снимали», то есть причина проглочена")
+    assert _has_line(text, LINE_ERROR_PREFIX + "перебор сорвался")
+
+
+def test_amendmentA_error_outranks_the_empty_and_the_filled_list_too():
+    """«СТРОГО такой» порядок — значит причина старше и пустого списка, и
+    непустого. Иначе половина исходов печатала бы отказ, а половина — нет."""
+    text_empty = _report(REASON_FREE, top_rss=[], top_rss_error="перебор сорвался")
+    text_rows = _report(REASON_FREE, top_rss=_three_rows(),
+                        top_rss_error="перебор сорвался")
+
+    assert LINE_EMPTY_SWEEP not in text_empty
+    assert _has_line(text_empty, LINE_ERROR_PREFIX + "перебор сорвался")
+
+    assert LINE_TOP_HEADER not in text_rows
+    assert _NUMBERED_LINE.search(text_rows) is None, (
+        "top_rss_error задан, но отчёт всё равно печатает нумерованный список: "
+        "приоритет 1 не соблюдён")
+
+
+def test_amendmentA_report_stays_complete_when_the_sweep_failed():
+    """«Отчёт при любом из четырёх исходов остаётся ПОЛНЫМ.»
+
+    Отказ подсказки не имеет права утащить за собой сам отчёт — ремень ради
+    отчёта и существует.
+    """
+    text = _report(REASON_FREE, top_rss=None, top_rss_error="перебор сорвался")
+
+    for label in LEGACY_LABELS:
+        assert label in text, "поле %r пропало из отчёта при отказе перебора" % label
+    assert CLOSING_FREE in text
+
+
+def test_amendmentA_truncated_flag_does_not_downgrade_a_delivered_list():
+    """`top_rss_truncated` НЕ участвует в разборе четырёх исходов: при непустом
+    списке и пустой причине действует исход 4.
+
+    Пин выведен из порядка «СТРОГО такой» и ни из чего больше: литеральной
+    формулировки для урезанного списка спека не дала (см. недосказанность №5
+    в конце файла), поэтому текста про урезание тут не проверяется.
+    """
+    text = _report(REASON_FREE, top_rss=_three_rows(), top_rss_truncated=True)
+
+    assert _has_line(text, LINE_TOP_HEADER)
+    numbered = [ln for ln in text.splitlines() if _NUMBERED_LINE.match(ln)]
+    assert len(numbered) == 3
+    for label in LEGACY_LABELS:
+        assert label in text
+
+
+def test_amendmentA_new_arguments_all_have_defaults():
+    """Все три новых аргумента — именованные СО ЗНАЧЕНИЕМ ПО УМОЛЧАНИЮ.
+
+    Литерально, а не интроспекцией «есть ли параметр»: обязательный аргумент,
+    просочившийся в `render_report`, ломает всех прежних звонящих разом.
+    """
+    sig = inspect.signature(render_report)
+    expected = {"top_rss": None, "top_rss_error": None, "top_rss_truncated": False}
+
+    for name, default in expected.items():
+        assert name in sig.parameters, (
+            "амендмент А требует аргумент %r у render_report" % name)
+        param = sig.parameters[name]
+        assert param.default == default, (
+            "у %r умолчание %r, а амендмент А требует %r"
+            % (name, param.default, default))
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# АМЕНДМЕНТ Б. Имена и сигнатуры. Закрывает замечания №2 и №4.
+# ═════════════════════════════════════════════════════════════════════════════
+#
+# Теперь имена заданы спекой, и разыскивать сборщик «по контракту» больше не
+# нужно: пины ниже зовут `top_rss_from` и `collect_top_rss` ПО ИМЕНИ. Пины 7 и
+# §5 выше оставлены как есть — они ловят ту же функцию другим способом, и если
+# два способа разойдутся, это само по себе сигнал.
+
+
+def _named(fn_name: str):
+    fn = getattr(belt_mod, fn_name, None)
+    if fn is None:
+        pytest.fail(
+            "амендмент Б требует публичную функцию %s в app.services.suite_ram_belt, "
+            "её нет" % fn_name)
+    return fn
+
+
+def test_amendmentB_top_rss_from_signature_is_literally_as_specified():
+    """Сигнатура — часть контракта, а не деталь.
+
+    Именно из-за неназванных имён параметров пин на бюджет был непишуем.
+    Литеральный список против интроспекции: сверяем ИМЕНА и УМОЛЧАНИЯ.
+    """
+    fn = _named("top_rss_from")
+    sig = inspect.signature(fn)
+    params = list(sig.parameters.values())
+
+    assert params and params[0].name == "processes", (
+        "первый параметр top_rss_from обязан называться `processes`, а не %r"
+        % (params[0].name if params else None))
+
+    expected_kw = {"self_pid": None, "clock": None, "count": 3,
+                   "budget_s": 0.5, "status": None}
+    for name, default in expected_kw.items():
+        assert name in sig.parameters, (
+            "у top_rss_from нет именованного параметра %r" % name)
+        param = sig.parameters[name]
+        assert param.kind is inspect.Parameter.KEYWORD_ONLY, (
+            "%r обязан быть ТОЛЬКО именованным (после `*`), а он %s"
+            % (name, param.kind))
+        assert param.default == default, (
+            "умолчание %r = %r, а спека требует %r"
+            % (name, param.default, default))
+
+
+def test_amendmentB_collect_top_rss_takes_a_callable_named_process_iter():
+    fn = _named("collect_top_rss")
+    params = list(inspect.signature(fn).parameters.values())
+
+    assert params and params[0].name == "process_iter", (
+        "первый параметр collect_top_rss обязан называться `process_iter`, а не %r"
+        % (params[0].name if params else None))
+
+
+def test_amendmentB_sampler_accepts_the_optional_collect_top():
+    """Шов из замечания №4 назван: `Sampler(collect_top=...)`, умолчание None."""
+    sampler_cls = getattr(belt_mod, "Sampler", None)
+    assert sampler_cls is not None
+    sig = inspect.signature(sampler_cls.__init__)
+
+    assert "collect_top" in sig.parameters, (
+        "амендмент Б требует необязательный параметр `collect_top` у Sampler.__init__")
+    assert sig.parameters["collect_top"].default is None, (
+        "умолчание `collect_top` обязано быть None — «отчёт печатает состояние "
+        "не снимался»")
+
+
+def test_amendmentB_collect_top_rss_returns_the_three_states_as_one_tuple():
+    """Чистый перебор: (строки, None, False)."""
+    fn = _named("collect_top_rss")
+    procs = [
+        _FakeProc("huge.exe", 2, 9.00),
+        _FakeProc("big.exe", 4, 5.00),
+        _FakeProc("mid.exe", 3, 3.00),
+        _FakeProc("tiny.exe", 5, 0.01),
+    ]
+
+    rows, error, truncated = fn(lambda: list(procs))
+
+    assert error is None, "чистый перебор не имеет права выдумать причину отказа"
+    assert truncated is False, (
+        "третье значение кортежа объявлено как bool, пришло %r" % (truncated,))
+    assert _looks_like_rows(rows)
+    assert [r.name for r in rows] == ["huge.exe", "big.exe", "mid.exe"]
+
+
+def test_amendmentB_broken_sweep_returns_none_and_not_the_gathered_half():
+    """«Оборвавшийся перебор отдаёт rows=None, а НЕ собранную половину.»
+
+    Половина опаснее пустоты: она выглядит как полный ответ. Читающий увидит
+    `chrome.exe 5.1 ГБ` первым номером и решит, что виноват браузер, — хотя
+    настоящий пожиратель мог не дожить до конца оборванного перебора.
+    """
+    fn = _named("collect_top_rss")
+
+    def process_iter():
+        def gen():
+            yield _FakeProc("chrome.exe", 4812, 5.10)
+            yield _FakeProc("python.exe", 11136, 1.90)
+            raise MemoryError("перебор сорвался на третьем")
+        return gen()
+
+    rows, error, truncated = fn(process_iter)
+
+    assert rows is None, (
+        "оборванный перебор выдал %r — собранная половина предъявлена как "
+        "полный список" % (rows,))
+    assert isinstance(error, str) and error, (
+        "оборванный перебор обязан назвать причину, пришло %r" % (error,))
+
+
+def test_amendmentB_collector_does_not_let_the_failure_escape():
+    """§4 Г2 на новом имени: наружу летит КОРТЕЖ, а не исключение."""
+    fn = _named("collect_top_rss")
+
+    def process_iter():
+        raise OSError("процессы не перечислить")
+
+    try:
+        rows, error, truncated = fn(process_iter)
+    except BaseException as exc:                     # noqa: BLE001
+        pytest.fail("collect_top_rss выпустил наружу %r — отчёт потерян" % (exc,))
+
+    assert rows is None
+    assert isinstance(error, str) and error
+
+
+def test_amendmentB_top_rss_from_never_raises_and_writes_the_reason_to_status():
+    """«НИКОГДА не бросает», а обстоятельства кладёт в `status`.
+
+    Именно этим каналом отказ и доезжает до `collect_top_rss`, а оттуда до
+    строки отчёта. Если `status["error"]` не заполняется, причина умирает молча
+    на первом же шве.
+    """
+    fn = _named("top_rss_from")
+
+    class _Exploding:
+        def __iter__(self):
+            raise MemoryError("перебор сорвался")
+
+    status = {}
+    try:
+        rows = fn(_Exploding(), status=status)
+    except BaseException as exc:                     # noqa: BLE001
+        pytest.fail("top_rss_from бросил %r, а спека говорит НИКОГДА" % (exc,))
+
+    assert isinstance(rows, list), (
+        "top_rss_from объявлен как -> list[ProcRow], вернул %r" % (rows,))
+    assert isinstance(status.get("error"), str) and status["error"], (
+        "обстоятельства отказа не записаны в status['error']: %r" % (status,))
+
+
+def test_amendmentB_top_rss_from_marks_self_by_the_injected_pid():
+    """`self_pid` внедряется, а не берётся из `os.getpid()` внутри.
+
+    Иначе пометка «ЭТОТ ПРОГОН» непроверяема нигде, кроме как на живом pytest,
+    и живёт на честном слове.
+    """
+    fn = _named("top_rss_from")
+    procs = [_FakeProc("chrome.exe", 4812, 5.10), _FakeProc("python.exe", 9200, 1.90)]
+
+    rows = fn(procs, self_pid=9200)
+
+    by_pid = {r.pid: r for r in rows}
+    assert by_pid[9200].is_self is True
+    assert by_pid[4812].is_self is False
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# АМЕНДМЕНТ В. Бюджет — инъекцией часов. Закрывает замечание №3.
+# ═════════════════════════════════════════════════════════════════════════════
+#
+# Настоящих пауз здесь нет и быть не должно: сторож на `time.sleep(0.5)` — это
+# заготовка будущего ложного красного на загруженной машине.
+#
+# Часы двигает САМ ИСТОЧНИК, по шагу на каждый выданный процесс. Так сторож не
+# зависит от того, сколько раз реализация дёрнет `clock()` за оборот: спека
+# задала бюджет и поведение при исчерпании, а не число замеров.
+
+
+class _HandClock:
+    """Часы, которые сами не идут. Двигает их источник процессов."""
+
+    def __init__(self, start: float = 0.0) -> None:
+        self.now = float(start)
+
+    def __call__(self) -> float:
+        return self.now
+
+
+class _TimedSweep:
+    """Источник, где КАЖДЫЙ выданный процесс стоит `step` секунд.
+
+    Помнит, до кого перебор дошёл: «прекратился досрочно» — это про то, что
+    хвост источника ОСТАЛСЯ НЕТРОНУТЫМ, а не про длину результата (результат
+    и так срезан до трёх).
+    """
+
+    def __init__(self, clock: _HandClock, procs, step: float) -> None:
+        self.clock = clock
+        self.procs = list(procs)
+        self.step = step
+        self.consumed = []
+
+    def __iter__(self):
+        for proc in self.procs:
+            self.clock.now += self.step
+            self.consumed.append(proc.pid)
+            yield proc
+
+
+def _six_procs():
+    return [_FakeProc("p%d.exe" % i, 100 + i, 9.0 - i * 0.5) for i in range(6)]
+
+
+def test_amendmentV_exhausted_budget_stops_the_sweep_before_the_tail():
+    """Бюджет исчерпан → перебор ПРЕКРАЩАЕТСЯ, хвост источника не тронут."""
+    fn = _named("top_rss_from")
+    clock = _HandClock()
+    sweep = _TimedSweep(clock, _six_procs(), step=0.3)
+
+    fn(sweep, clock=clock, budget_s=0.5, status={})
+
+    assert len(sweep.consumed) < 6, (
+        "бюджет 0.5 с при шаге 0.3 с исчерпан на втором процессе, а перебор "
+        "прошёл всех шестерых: часы не смотрят или бюджет не соблюдается")
+
+
+def test_amendmentV_exhausted_budget_sets_truncated_and_hands_over_what_it_got():
+    """«собранное отдаётся», и об урезании СКАЗАНО в status.
+
+    Молчаливое урезание — это ложь ровно того сорта, от которой лечится весь
+    DEV-52: короткий список выглядит как полный ответ.
+    """
+    fn = _named("top_rss_from")
+    clock = _HandClock()
+    sweep = _TimedSweep(clock, _six_procs(), step=0.3)
+    status = {}
+
+    rows = fn(sweep, clock=clock, budget_s=0.5, status=status)
+
+    assert status.get("truncated") is True, (
+        "перебор оборвался по бюджету, а status['truncated'] = %r"
+        % (status.get("truncated"),))
+    assert _looks_like_rows(rows) and rows, (
+        "собранное не отдано: %r" % (rows,))
+    assert set(r.pid for r in rows) <= set(sweep.consumed), (
+        "в результате процессы, до которых перебор не доходил: %r против %r"
+        % ([r.pid for r in rows], sweep.consumed))
+    assert rows[0].name == "p0.exe"
+
+
+def test_amendmentV_generous_budget_sweeps_everyone_and_flags_nothing():
+    """Обратная сторона: пока бюджета хватает, `truncated` не выставляется.
+
+    Сигнал, всегда включённый, — это не сторож, а фон.
+    """
+    fn = _named("top_rss_from")
+    clock = _HandClock()
+    sweep = _TimedSweep(clock, _six_procs(), step=0.3)
+    status = {}
+
+    rows = fn(sweep, clock=clock, budget_s=100.0, status=status)
+
+    assert sweep.consumed == [100 + i for i in range(6)], (
+        "щедрый бюджет, а перебор всё равно оборван: дошёл до %r" % (sweep.consumed,))
+    assert not status.get("truncated"), (
+        "урезания не было, а status['truncated'] = %r" % (status.get("truncated"),))
+    assert [r.name for r in rows] == ["p0.exe", "p1.exe", "p2.exe"]
+
+
+def test_amendmentV_truncation_survives_the_trip_through_collect_top_rss():
+    """Третье значение кортежа — не украшение: урезание обязано доехать до
+    отчёта, иначе шов съедает ровно тот факт, ради которого флаг заведён."""
+    fn = _named("collect_top_rss")
+    clock = _HandClock()
+    sweep = _TimedSweep(clock, _six_procs(), step=0.3)
+
+    rows, error, truncated = fn(lambda: sweep, clock=clock, budget_s=0.5)
+
+    assert truncated is True, (
+        "урезание по бюджету не доехало до кортежа: truncated = %r" % (truncated,))
+    assert error is None, (
+        "урезание — не отказ: собранное отдано, причины быть не должно, "
+        "пришло %r" % (error,))
+    assert _looks_like_rows(rows) and rows, (
+        "урезанный перебор обязан отдать собранное, пришло %r" % (rows,))
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# ШОВ Sampler -> отчёт. Замечание №4.
+# ═════════════════════════════════════════════════════════════════════════════
+#
+# Пины выше проверяют два КОНЦА: сборщик отдаёт кортеж, отчёт печатает строку.
+# Между ними шов, на котором всё это может потеряться целиком — и оба конца
+# останутся зелёными. Ровно так и выглядит ложный зелёный из-за границы слоя.
+
+_UNSET = object()
+
+
+def _sampler_report(collect_top=_UNSET, current_test="tests/t.py::test_leak") -> str:
+    """Собрать `Sampler` с подставной обвязкой, пробить порог и вернуть отчёт.
+
+    Обвязка — как в tests/test_suite_ram_belt.py: read/clock/emit/interrupt/die/
+    current_test внедряются, живых процессов и настоящей аварии нет.
+    Порог: free=1.0 ровно на жёсткой линии → мягкий путь и отчёт (REASON_FREE).
+    """
+    from app.services.suite_ram_belt import Belt, Sampler
+
+    emitted = []
+    clock = iter([0.0])
+    values = iter([(1.0, 0.8)])
+    kwargs = dict(
+        read=lambda: next(values),
+        clock=lambda: next(clock),
+        emit=emitted.append,
+        interrupt=lambda: None,
+        die=lambda code: None,
+        current_test=lambda: current_test,
+        started_at=0.0,
+    )
+    if collect_top is not _UNSET:
+        kwargs["collect_top"] = collect_top
+
+    try:
+        sampler = Sampler(Belt(_limits()), **kwargs)
+    except TypeError as exc:
+        pytest.fail(
+            "Sampler не собрался с %s: %s"
+            % ("collect_top" if collect_top is not _UNSET else "прежней обвязкой", exc))
+
+    sampler.tick()
+
+    assert emitted, "сэмплер пробил порог, но отчёта не выдал"
+    return emitted[-1]
+
+
+def test_seam_sampler_carries_the_collected_rows_into_the_report():
+    """Кортеж (строки, None, False) обязан доехать до блока процессов."""
+    rows = _three_rows()
+
+    text = _sampler_report(collect_top=lambda: (rows, None, False))
+
+    assert _has_line(text, LINE_TOP_HEADER), (
+        "Sampler получил список процессов, но отчёт его не показал. Строки:\n%s"
+        % _lines_hint(text))
+    assert "chrome.exe" in text
+    assert "4812" in text
+
+
+def test_seam_sampler_carries_the_failure_reason_into_the_report():
+    """Кортеж (None, причина, False) обязан доехать до строки отказа.
+
+    Это тот же путь, но по ветке отказа: сборщик мог честно назвать причину, а
+    шов — превратить её в «не снимался».
+    """
+    text = _sampler_report(collect_top=lambda: (None, "перебор сорвался", False))
+
+    assert _has_line(text, LINE_ERROR_PREFIX + "перебор сорвался"), (
+        "причина не доехала от collect_top до отчёта. Строки:\n%s" % _lines_hint(text))
+    assert LINE_NOT_SAMPLED not in text
+
+
+def test_seam_sampler_without_collect_top_reports_the_not_sampled_state():
+    """«Без него отчёт печатает состояние "не снимался".»
+
+    Не пустой список и не отказ: не звали — значит не знаем.
+    """
+    text = _sampler_report()
+
+    assert _has_line(text, LINE_NOT_SAMPLED), (
+        "без collect_top отчёт обязан сказать %r. Строки:\n%s"
+        % (LINE_NOT_SAMPLED, _lines_hint(text)))
+    assert _NUMBERED_LINE.search(text) is None
+    assert LINE_ERROR_PREFIX.strip() not in text
+
+
+def test_seam_sampler_does_not_die_when_collect_top_itself_explodes():
+    """Шов обязан пережить сборщик, который сам сломался.
+
+    §4 Г2 требует, чтобы подсказка не уронила отчёт; `collect_top` внедряется
+    снаружи, и его исключение — такая же подсказка, как оборванный перебор.
+    Выведено из Г2, спека про этот случай прямо не говорит (недосказанность №4).
+    """
+    def _boom():
+        raise RuntimeError("сборщик сломался")
+
+    try:
+        text = _sampler_report(collect_top=_boom)
+    except RuntimeError as exc:                      # noqa: BLE001
+        pytest.fail("исключение сборщика вылетело наружу и убило отчёт: %r" % (exc,))
+
+    for label in LEGACY_LABELS:
+        assert label in text, "поле %r пропало из отчёта" % label
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 🔴 ГДЕ КОНТРАКТ ВСЁ ЕЩЁ МОЛЧИТ (новые места, найдены при написании пинов)
+# ═════════════════════════════════════════════════════════════════════════════
+#
+# №4. `collect_top` у `Sampler` — вызываемое, ВНЕДРЯЕМОЕ снаружи, и спека не
+#     говорит, что делать, если оно само бросит. Пин
+#     `test_seam_sampler_does_not_die_when_collect_top_itself_explodes` выведен
+#     из §4 Г2 по смыслу; спека обязана сказать это прямо (проглотить и напечатать
+#     причину — или пусть падает).
+#
+# №5. `top_rss_truncated=True` принят `render_report`, но НИ ОДНОГО слова о том,
+#     что при этом печатается, амендмент А не дал: все четыре исхода разбирают
+#     только `top_rss_error` и `top_rss`. Флаг, ничего не меняющий в выводе, —
+#     это мёртвый параметр; урезание останется невидимым читающему, ради которого
+#     весь отчёт и пишется. Спека обязана дать ЛИТЕРАЛЬНУЮ формулировку
+#     (например `  успели не всех: бюджет 0.5 с исчерпан`) и место строки
+#     относительно нумерованного списка.
+#
+# №6. `budget_s` объявлен и у `top_rss_from`, и (через `**kwargs`) у
+#     `collect_top_rss`, но не сказано, ЧТО замеряется: только перебор процессов
+#     или ещё и сортировка со срезом. При исчерпании бюджета ровно на границе
+#     (`elapsed == budget_s`) поведение тоже не задано — пины выше намеренно
+#     держатся далеко от границы, чтобы не пинить угаданное.
+#
+# №7. `status` у `top_rss_from` — «необязательный словарь». Не сказано, обязана
+#     ли реализация класть `"truncated": False` при чистом переборе, или ключ
+#     просто отсутствует. Пин
+#     `test_amendmentV_generous_budget_sweeps_everyone_and_flags_nothing`
+#     принимает ОБА варианта (`not status.get("truncated")`) — сузить его можно
+#     только после ответа спеки.
+#
+# №8. Не сказано, что происходит при `top_rss_error` НЕ строкой (например
+#     исключение положили в аргумент как есть). Форматирование `str(exc)` против
+#     `repr(exc)` меняет читаемость строки отказа, а сверяется она дословно.
+#
+# №9. КТО ПОДАЁТ `self_pid` — не сказано, и это уже СТОЛКНУЛОСЬ с пином.
+#     У `top_rss_from` умолчание `self_pid=None`, то есть «своего не помечать».
+#     Значит пометку «ЭТОТ ПРОГОН» обязан обеспечивать кто-то выше: либо
+#     `collect_top_rss` сама подставляет `os.getpid()`, либо это делает
+#     `install()`. Пока спека молчит, ПРЕЖНИЙ пин
+#     `test_collector_marks_the_running_pytest_as_self` (он разыскивает сборщик
+#     по контракту и попадает на `top_rss_from`, зовя её ОДНИМ позиционным
+#     аргументом) обязан краснеть даже на верной реализации: без `self_pid`
+#     пометки не будет. Проверено на черновике-подделке по амендментам: 44 пина
+#     из 45 зелёные, красный ровно этот. Спека обязана сказать, кто подставляет
+#     свой pid, — иначе либо пин 5 недостижим, либо умолчание должно быть не None.

@@ -53,7 +53,7 @@ MUTATIONS = [
     ("причина отказа перебора проглочена — отказ выглядит как «не снимали»", M,
      [('    if error is not None:\n'
        '        return ["  список процессов не снялся: %s" % error]\n', '')],
-     f"{T}::test_pin3_none_says_not_sampled_and_prints_no_numbered_lines"),
+     f"{T}::test_amendmentA_error_outranks_the_not_sampled_state"),
 
     ("пометка «ЭТОТ ПРОГОН» снята — свой pytest не отличить от пожирателя", M,
      [('        mark = "  <- ЭТОТ ПРОГОН" if row.is_self else ""',
@@ -99,6 +99,33 @@ MUTATIONS = [
      [("                  top_rss: Optional[list] = None,",
        "                  top_rss: Optional[list],")],
      f"{T}::test_pin8_render_report_still_works_without_the_new_argument"),
+    ("бюджет снят — перебор больше не ограничен по времени", M,
+     [("TOP_RSS_BUDGET_S = 0.5", "TOP_RSS_BUDGET_S = 1e9")],
+     f"{T}::test_amendmentV_exhausted_budget_stops_the_sweep_before_the_tail"),
+
+    ("отметка об урезании не выставляется — неполный список выглядит полным", M,
+     [('                if status is not None:
+'
+       '                    status["truncated"] = True
+', "")],
+     f"{T}::test_amendmentV_sets_truncated_and_hands_over_what_it_got"),
+
+    ("Sampler перестал доносить подсказку до отчёта — шов разорван", M,
+     [("                top_rss=top_rss,
+", "                top_rss=None,
+")],
+     f"{T}::test_seam_sampler_carries_the_collected_rows_into_the_report"),
+
+    ("падение самого collect_top валит замер целиком", M,
+     [("                except Exception as exc:      # noqa: BLE001
+"
+       '                    top_rss, top_err, top_cut = None, "%r" % (exc,), False
+',
+       "                except Exception as exc:      # noqa: BLE001
+"
+       "                    raise
+")],
+     f"{T}::test_seam_sampler_does_not_die_when_collect_top_itself_explodes"),
 ]
 
 
