@@ -20,7 +20,13 @@ $TaskName = 'JarvisChatterCacheDigest'
 $Python   = 'C:\jarvis\.venv\Scripts\python.exe'
 $Script   = 'C:\jarvis\scripts\chatter_cache_digest.py'
 
-$psArgs = '"{0}"' -f $Script
+# `-X utf8` (DEV-58): диагностика этой задачи уходит в stdout, который
+# Планировщик не хранит. Причину отказа читают, повторяя прогон руками, — и
+# если вывод рвётся консольной кодировкой, причина теряется ВТОРОЙ раз,
+# ровно в аварии. Не обёртка (проглотит код возврата) и не переменная
+# окружения (действует незаметно и на всё сразу).
+# Сверка: app/services/task_encoding.py.
+$psArgs = '-X utf8 "{0}"' -f $Script
 $Action = New-ScheduledTaskAction -Execute $Python -Argument $psArgs -WorkingDirectory 'C:\jarvis'
 
 # Workgroup (non-domain) machine: qualify the local account with the computer name.
@@ -42,4 +48,15 @@ $Settings.StopIfGoingOnBatteries     = $false
 Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger `
     -Principal $Principal -Settings $Settings -Force | Out-Null
 
+# ── ПРОВЕРКА ФАКТОМ ─────────────────────────────────────────────────────────
+# Перечитываем ЖИВУЮ задачу, а не считаем регистрацию удавшейся по
+# отсутствию исключения. 23.08 живая копия JarvisDrillNightly разошлась с
+# файлом: «записано» и «стоит в системе» — разные утверждения.
+$live = Get-ScheduledTask -TaskName $TaskName
+$liveArgs = ($live.Actions | Select-Object -First 1).Arguments
+if ($liveArgs -notmatch '(?<![\w-])-X\s+utf8(?![\w])') {
+    throw "[FAIL] в живой задаче '$TaskName' нет '-X utf8': $liveArgs"
+}
+
 Write-Host "[OK] Registered scheduled task '$TaskName' (S4U / Highest, Daily 21:05)"
+Write-Host "[OK] прочитано обратно: $liveArgs"
