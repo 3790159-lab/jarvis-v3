@@ -286,6 +286,26 @@ def strip_ps_comments(source: str) -> str:
     / двойные кавычки / `#` до конца строки / блочный комментарий / here-string
     обеих форм.
     """
+    return _strip(source, blank_strings=True)
+
+
+def _strip(source: str, blank_strings: bool) -> str:
+    """Тот же проход, но с выбором: гасить строковые литералы или сохранить.
+
+    Зачем понадобились ДВА текста, а не один. Амендмент А.1 велит засчитывать
+    `GetEncoding('utf-8')` — то есть правая часть признака сама бывает
+    СТРОКОВЫМ ЛИТЕРАЛОМ. А §3.3 велит быть слепым к строкам, потому что
+    присваивание, целиком лежащее в кавычках, защитой не является. Одним
+    текстом эти два требования не выполнить: погасишь строки — потеряешь имя
+    кодировки, сохранишь — засчитаешь объявление, напечатанное в сообщении.
+
+    Разведено так: текст с ПОГАШЕННЫМИ строками отвечает на вопрос «где здесь
+    код», текст с СОХРАНЁННЫМИ — на вопрос «что этот код говорит». Длина и
+    разбивка по строкам у обоих одинаковы, поэтому позиция из одного
+    осмысленна в другом, и `_scan_source` сверяет их в одной точке.
+
+    Комментарии гасятся в ОБОИХ: там кода нет ни в каком смысле.
+    """
     text = source or ""
     out: list = []
     i, n = 0, len(text)
@@ -293,6 +313,13 @@ def strip_ps_comments(source: str) -> str:
     def blank(start: int, end: int) -> None:
         for ch in text[start:end]:
             out.append("\n" if ch == "\n" else " ")
+
+    def literal(start: int, end: int) -> None:
+        """Строковый литерал: погасить или оставить как есть."""
+        if blank_strings:
+            blank(start, end)
+        else:
+            out.append(text[start:end])
 
     while i < n:
         ch = text[i]
@@ -331,7 +358,7 @@ def strip_ps_comments(source: str) -> str:
                     if nxt < 0:
                         break
                     k = nxt + 1
-            blank(i, end)
+            literal(i, end)
             i = end
             continue
 
@@ -347,7 +374,7 @@ def strip_ps_comments(source: str) -> str:
                     j += 1
                     break
                 j += 1
-            blank(i, j)
+            literal(i, j)
             i = j
             continue
 
@@ -366,7 +393,7 @@ def strip_ps_comments(source: str) -> str:
                     j += 1
                     break
                 j += 1
-            blank(i, j)
+            literal(i, j)
             i = j
             continue
 
@@ -383,15 +410,41 @@ _LHS = r"\[\s*(?:System\s*\.\s*)?Console\s*\]\s*::\s*OutputEncoding"
 
 # Правая часть — ТОЛЬКО UTF-8, и это ловушка контракта №1: объявить кодировку
 # можно и в cp1251 (`[Text.Encoding]::GetEncoding(1251)`). Признак обязан
-# смотреть, ЧТО присвоено, а не только КУДА. Отказ здесь устроен
-# НЕСОВПАДЕНИЕМ, а не чёрным списком: всё неперечисленное не проходит само
-# собой, и завтрашний способ соврать не проскочит мимо списка, которого нет.
+# смотреть, ЧТО присвоено, а не только КУДА.
+#
+# АМЕНДМЕНТ А.1: признак СЕМАНТИЧЕСКИЙ, а не белый список из четырёх форм.
+# Четыре формы, живущие сегодня в репозитории, — примеры, а НЕ перечень.
+# Засчитывается всё, что ОБОЗНАЧАЕТ UTF-8, включая `GetEncoding(65001)` и
+# `GetEncoding('utf-8')`: 65001 буквально И ЕСТЬ кодовая страница UTF-8, а
+# отказ на заведомо ВЕРНОМ объявлении — ложный красный. Ложный красный дороже
+# лишней формы в признаке: он приучает не читать красное.
+#
+# `$true` у `UTF8Encoding` управляет ПРЕАМБУЛОЙ (пишется ли BOM), а не самой
+# кодировкой. Для `[Console]::OutputEncoding` преамбула роли не играет, поэтому
+# `::new($true)` засчитывается наравне с `::new($false)` и `::new()`. Это не
+# дырка, которую надо завтра «починить»: аргумент тут не про UTF-8 вообще.
+#
+# Отвергается всё, что называет ДРУГУЮ кодировку: `GetEncoding(1251)`,
+# `GetEncoding(866)`, `GetEncoding('windows-1251')`, `::Unicode`, `::ASCII`,
+# `::Default`, `::BigEndianUnicode`. Отказ устроен НЕСОВПАДЕНИЕМ, а не чёрным
+# списком: всё, что не названо UTF-8, не проходит само собой, и завтрашний
+# способ соврать не проскочит мимо списка, которого нет.
+#
 # `System.` перед `Text.` необязателен: PowerShell так разрешает.
-_RHS_UTF8 = (
-    r"\[\s*(?:System\s*\.\s*)?Text\s*\.\s*UTF8Encoding\s*\]\s*::\s*new\s*\("
-    r"|"
-    r"\[\s*(?:System\s*\.\s*)?Text\s*\.\s*Encoding\s*\]\s*::\s*UTF8(?![\w])"
-)
+_ENCODING_CLASS = r"\[\s*(?:System\s*\.\s*)?Text\s*\.\s*Encoding\s*\]\s*::\s*"
+
+# Имя кодировки строкой: кавычки любые, дефис в `utf-8` необязателен.
+_QUOTED_UTF8 = r"""(?:'\s*utf-?8\s*'|"\s*utf-?8\s*")"""
+
+_RHS_UTF8 = "|".join((
+    # `[Text.UTF8Encoding]::new(...)` — аргументы ЛЮБЫЕ, включая `$true`.
+    r"\[\s*(?:System\s*\.\s*)?Text\s*\.\s*UTF8Encoding\s*\]\s*::\s*new\s*\(",
+    # `[Text.Encoding]::UTF8`. Граница справа обязательна: без неё сюда попал
+    # бы по префиксу `UTF8Encoding`, а `::Unicode`/`::ASCII` не попадают вовсе.
+    _ENCODING_CLASS + r"UTF8(?![\w])",
+    # `[Text.Encoding]::GetEncoding(65001)` и `GetEncoding('utf-8')`.
+    _ENCODING_CLASS + r"GetEncoding\s*\(\s*(?:65001|" + _QUOTED_UTF8 + r")\s*\)",
+))
 
 # Пробелы вокруг `=` и регистр имён свободны — PowerShell регистра не
 # различает. `==`, `+=` и `-eq` сюда не попадают: после `=` сразу требуется
@@ -413,12 +466,33 @@ _PRINTS = re.compile(
 
 
 def _scan_source(source: str) -> tuple:
-    """(код без комментариев, позиция объявления, позиция первой печати)."""
+    """(код без комментариев, позиция объявления, позиция первой печати).
+
+    Объявление ищется по тексту с СОХРАНЁННЫМИ строковыми литералами — иначе
+    имя кодировки в `GetEncoding('utf-8')` стёрлось бы раньше, чем признак
+    успел его прочитать (амендмент А.1 против §3.3).
+
+    Чтобы сохранение строк не пустило обратно объявление, НАПЕЧАТАННОЕ в
+    сообщении, каждое совпадение сверяется с текстом, где строки погашены: у
+    настоящего кода начало совпадения в обоих текстах одно и то же (`[`), а у
+    совпадения внутри литерала в погашенном тексте на этом месте пробел. Оба
+    текста одной длины по построению, поэтому позиция значит одно и то же.
+
+    Первая печать ищется только по ПОГАШЕННОМУ тексту: `Write-Host` внутри
+    кавычек печатью не является.
+    """
     code = strip_ps_comments(source)
-    decl = _DECLARES.search(code)
+    code_with_strings = _strip(source, blank_strings=False)
+
+    decl = None
+    for match in _DECLARES.finditer(code_with_strings):
+        start = match.start()
+        if code[start] == code_with_strings[start]:
+            decl = start
+            break
+
     printing = _PRINTS.search(code)
-    return (code,
-            decl.start() if decl is not None else None,
+    return (code, decl,
             printing.start() if printing is not None else None)
 
 
@@ -462,6 +536,12 @@ def _read_record(record: Any) -> tuple:
     имя и аргументы. Пустая строка считается ОТСУТСТВИЕМ: «поле есть, но
     пустое» ничем не отличается от «поля нет», и притворяться, будто мы знаем
     исполнителя, нельзя. То же и про аргументы.
+
+    АМЕНДМЕНТ А.4: написание ключа исполнителя ЛИТЕРАЛЬНОЕ — `Execute`,
+    `execute`, `Executable`, и никаких других. Запись с ключом иного написания
+    читается как «исполнитель отсутствует» (§6.3): у `ps_console` это красное,
+    а не тихо угаданное зелёное. Угадывание написаний — источник ложного
+    зелёного ровно того же класса, что и сокращения `-File`.
     """
     def clean(value: Any) -> Optional[str]:
         if value is None:
@@ -473,17 +553,17 @@ def _read_record(record: Any) -> tuple:
         name = record.get("name") or record.get("task") or record.get("TaskName")
         args = clean(record.get("arguments") or record.get("args")
                      or record.get("Arguments"))
-        executable = clean(record.get("exec") or record.get("execute")
-                           or record.get("Execute"))
+        executable = clean(record.get("Execute") or record.get("execute")
+                           or record.get("Executable"))
         return (str(name) if name is not None else None), args, executable
 
     name = getattr(record, "name", None) or getattr(record, "task", None)
     if name is not None:
         args = clean(getattr(record, "arguments", None)
                      or getattr(record, "args", None))
-        executable = clean(getattr(record, "exec", None)
+        executable = clean(getattr(record, "Execute", None)
                            or getattr(record, "execute", None)
-                           or getattr(record, "Execute", None))
+                           or getattr(record, "Executable", None))
         return str(name), args, executable
 
     if isinstance(record, (tuple, list)) and len(record) >= 2:
@@ -506,6 +586,14 @@ def _stem(executable: str) -> str:
     return tail.lower()
 
 
+# Питон с ВЕРСИЕЙ В ИМЕНИ узнаётся тоже: `python3`, `python3.11`, `pythonw`.
+# АМЕНДМЕНТ А.4 отменил здесь узкий список из двух имён, и довод не про
+# аккуратность: непризнанный питон у `x_utf8`-задачи МОЛЧА выключает сверку
+# вида (§6.3 прощает `unknown`), то есть даёт ложное ЗЕЛЁНОЕ. Живой венв может
+# называться иначе, чем сегодняшний.
+_PYTHON_STEM = re.compile(r"python[0-9._]*w?\Z", re.IGNORECASE)
+
+
 def _executor_kind(executable: Optional[str]) -> str:
     """Вид исполнителя по базовому имени `Execute`, регистронезависимо.
 
@@ -518,7 +606,7 @@ def _executor_kind(executable: Optional[str]) -> str:
     stem = _stem(executable)
     if stem in ("powershell", "pwsh"):
         return KIND_POWERSHELL
-    if stem in ("python", "pythonw"):
+    if _PYTHON_STEM.match(stem):
         return KIND_PYTHON
     return KIND_UNKNOWN
 
