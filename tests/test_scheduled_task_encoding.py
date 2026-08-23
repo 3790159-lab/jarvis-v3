@@ -57,7 +57,12 @@ EXPECTED_TABLE = {
 # Контракт §1 — допустимые значения защиты.
 PROTECTION_X_UTF8 = "x_utf8"
 PROTECTION_EXEMPT = "exempt"
-PROTECTIONS = {PROTECTION_X_UTF8, PROTECTION_EXEMPT}
+# АМЕНДМЕНТ А (24.08): защит стало ТРИ (спека §2, контракт §7). Литерал
+# дописан затем, чтобы `_pick` умел прочитать третье значение таблицы. Ни
+# одно утверждение пинов ниже от этого не меняется: все они про `x_utf8` и
+# `exempt`.
+PROTECTION_PS_CONSOLE = "ps_console"
+PROTECTIONS = {PROTECTION_X_UTF8, PROTECTION_EXEMPT, PROTECTION_PS_CONSOLE}
 
 # Контракт §3 — пять состояний сверки. Склеивать нельзя.
 STATUS_OK = "ok"
@@ -124,44 +129,53 @@ def _pick(value, allowed: set):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Розыск таблицы ожидания. Имя контрактом не задано.
+# Таблица ожидания берётся ПО ИМЕНИ (АМЕНДМЕНТ А.3).
+#
+# Раньше она РАЗЫСКИВАЛАСЬ по форме: «словарь уровня модуля, все значения
+# которого сводятся к литералам {x_utf8, exempt}». Розыск сломался ровно там,
+# где владелец завёл ТРЕТЬЮ защиту (контракт §7: 13 имён, из них восемь
+# `ps_console`): подходящих словарей не осталось ни одного, и розыск начал
+# падать громко — сразу у тринадцати пинов, потому что механизм общий.
+#
+# Ломалась НЕ проверка, а механизм розыска. Пин просил починки в тексте
+# своего же отказа: «контракт обязан дозадать точное ИМЯ таблицы». Имя задано
+# и всегда было задано.
+#
+# Отказ остался ГРОМКИМ: нет атрибута с этим именем или он не словарь —
+# падаем и говорим, что именно. «Не смогли проверить» по-прежнему не имеет
+# права выглядеть как «проверили, всё хорошо».
+#
+# Прежний розыск по форме удалён целиком: после перехода на имя он стал
+# недостижим, а мёртвая ветка сторожа — отдельный класс дефекта.
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _table_candidates() -> list:
-    out = []
-    for name, obj in sorted(vars(mod).items()):
-        if name.startswith("__"):
-            continue
-        if not isinstance(obj, Mapping) or not obj:
-            continue
-        if not all(isinstance(k, str) for k in obj):
-            continue
-        pairs = {k: _pick(v, PROTECTIONS) for k, v in obj.items()}
-        if any(v is None for v in pairs.values()):
-            continue
-        out.append((name, obj, pairs))
-    return out
+TABLE_ATTR = "TASK_ENCODING_EXPECTATION"
 
 
 def _expectation_table():
     """(имя атрибута, сам объект, {имя задачи: защита}) или громкий отказ."""
-    candidates = _table_candidates()
-    if not candidates:
+    obj = getattr(mod, TABLE_ATTR, None)
+    if obj is None:
         pytest.fail(
-            "в app.services.task_encoding нет таблицы ожидания «имя задачи -> "
-            "защита» (контракт §1): не нашлось ни одного словаря уровня модуля, "
-            "все значения которого сводятся к литералам %r. Контракт обязан "
-            "дозадать точное ИМЯ таблицы и ФОРМУ значения. Публичные имена "
-            "модуля сейчас: %s"
-            % (sorted(PROTECTIONS),
-               ", ".join(sorted(n for n in vars(mod) if not n.startswith("_")))))
-    if len(candidates) > 1:
+            "в app.services.task_encoding нет таблицы ожидания `%s` "
+            "(контракт §1/§7). Публичные имена модуля сейчас: %s"
+            % (TABLE_ATTR,
+               ", ".join(sorted(n for n in vars(mod)
+                                if not n.startswith("_")))))
+    if not isinstance(obj, Mapping):
         pytest.fail(
-            "в app.services.task_encoding НЕСКОЛЬКО словарей подходят под "
-            "таблицу ожидания (%s) — какой из них ожидание, контракт не "
-            "говорит; разыскивать вслепую нельзя, имя надо дозадать"
-            % ", ".join(n for n, _, _ in candidates))
-    return candidates[0]
+            "`%s` есть, но это не отображение «имя задачи -> защита», а %s. "
+            "Таблица обязана читаться одним взглядом (контракт §1)"
+            % (TABLE_ATTR, type(obj).__name__))
+    if not obj:
+        pytest.fail("`%s` пуст: сверка, которой нечего сверять, не «прошла», "
+                    "а НЕ СОСТОЯЛАСЬ" % TABLE_ATTR)
+    bad_keys = sorted(repr(k) for k in obj if not isinstance(k, str))
+    if bad_keys:
+        pytest.fail("в `%s` ключи-не-строки: %s — имя задачи Планировщика "
+                    "всегда строка" % (TABLE_ATTR, ", ".join(bad_keys)))
+    pairs = {k: _pick(v, PROTECTIONS) for k, v in obj.items()}
+    return TABLE_ATTR, obj, pairs
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -791,8 +805,19 @@ def _expectation_param() -> str:
 
     hits, tried = [], []
     for param in candidates:
+        # АМЕНДМЕНТ А.3 / контракт §6.6: у ВНЕДРЁННОЙ исключённой задачи
+        # причина обязана быть записана, иначе вердикт по ней — `unreadable`,
+        # а не `exempt`, и розыск не найдёт ничего. Имя параметра причин тут
+        # ещё не разыскано (его собственный розыск опирается на этот),
+        # поэтому причина кладётся во ВСЕ остальные параметры-кандидаты: тот
+        # из них, который и есть причины, её получит. Роль каждого параметра
+        # по-прежнему доказывается ПОВЕДЕНИЕМ, а не именем.
+        kwargs = {param.name: dict(FAKE_TABLE)}
+        for other in candidates:
+            if other.name != param.name:
+                kwargs[other.name] = {FAKE_EXEMPT_TASK: INJECTED_REASON}
         try:
-            result = _call(_fake_snapshot(), **{param.name: dict(FAKE_TABLE)})
+            result = _call(_fake_snapshot(), **kwargs)
         except TypeError as exc:
             tried.append("%s: вызов не принят (%r)" % (param.name, exc))
             continue
@@ -841,8 +866,14 @@ def _expectation_param() -> str:
 
 def test_injected_expectation_is_used_instead_of_the_module_table():
     param = _expectation_param()
+    # АМЕНДМЕНТ А.3 / контракт §6.6: внедрённой исключённой задаче дописана
+    # причина — без записанной причины `exempt` стал бы `unreadable`.
+    # Меняются ВХОДНЫЕ ДАННЫЕ; ни одно утверждение ниже не тронуто.
+    reason_param = _reason_param()
     got = _statuses_or_fail(
-        _call(_fake_snapshot(), **{param: dict(FAKE_TABLE)}),
+        _call(_fake_snapshot(),
+              **{param: dict(FAKE_TABLE),
+                 reason_param: {FAKE_EXEMPT_TASK: INJECTED_REASON}}),
         "внедрено ожидание %s=%r" % (param, FAKE_TABLE))
 
     leaked = sorted(set(got) & set(EXPECTED_TABLE))
