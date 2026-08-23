@@ -60,6 +60,32 @@ REASON_RSS = "rss"
 
 _NO_TEST = "тест не выполнялся (сбор, фикстура сессии или разматывание)"
 
+# Сколько процессов называем (DEV-52 §5). Три, а не пять и не десять: отчёт
+# читают В АВАРИИ, и он обязан помещаться в экран целиком. Больше трёх — это
+# уже разбор, а разбор идёт по `tasklist` руками.
+TOP_RSS_COUNT = 3
+
+# Потолок времени на весь перебор (DEV-52 §4 Г3). Вчетверо меньше интервала
+# сэмплирования (`DEFAULT_SAMPLE_S`), поэтому подсказка физически не может
+# сдвинуть следующий замер. На жёсткой линии ждать нечего: живой дрил 21.08
+# дал 2 ГБ/с, и лишняя секунда стоит двух гигабайт.
+TOP_RSS_BUDGET_S = 0.5
+
+
+@dataclass(frozen=True)
+class ProcRow:
+    """Одна строка подсказки «кто съел память» (DEV-52 §3).
+
+    `is_self` — это САМ процесс pytest. Пометка нужна, чтобы читающий не принял
+    собственный прогон за пожирателя: в ветке `REASON_RSS` он В СПИСКЕ ОБЯЗАН
+    БЫТЬ и это норма, а в `REASON_FREE` его присутствие наверху — сигнал, что
+    причина всё-таки своя.
+    """
+    name: str
+    pid: int
+    rss_gb: float
+    is_self: bool = False
+
 
 @dataclass(frozen=True)
 class Limits:
@@ -196,7 +222,10 @@ class Belt:
 
 def render_report(*, current_test: Optional[str], free_gb: float, rss_gb: float,
                   elapsed_s: float, limits: Limits, reason: str,
-                  hard: bool = False) -> str:
+                  hard: bool = False,
+                  top_rss: Optional[list] = None,
+                  top_rss_error: Optional[str] = None,
+                  top_rss_truncated: bool = False) -> str:
     """Отчёт, который обязан пережить аварийный выход.
 
     `os._exit` не исполняет обработчики и не сбрасывает буферы, поэтому текст
@@ -217,6 +246,21 @@ def render_report(*, current_test: Optional[str], free_gb: float, rss_gb: float,
     else:
         crossed = "свой RSS выше потолка %.2f ГБ" % limits.rss_gb
 
+    # Кого винить. Для `REASON_RSS` виноват СВОЙ процесс, и прежняя строка
+    # верна дословно. Для `REASON_FREE` оснований винить тест нет НИКОГДА:
+    # свободную память мог съесть кто угодно снаружи, а названный тест просто
+    # оказался текущим. Поэтому «смотреть надо тест» на этой ветке не
+    # печатается ни при каком состоянии подсказки (DEV-52 §2, §6).
+    if reason != REASON_FREE:
+        blame = "  Смотреть надо тест, названный выше."
+    elif top_rss:
+        blame = "  Память съели процессы, названные выше, — тест тут ни при чём."
+    else:
+        # ПОЧЕМУ списка нет — уже сказано строкой выше, и там три РАЗНЫХ
+        # причины (§3). Повторять её здесь значит однажды соврать: состояние
+        # «перебор ничего не вернул» — это не «снять не удалось».
+        blame = "  Память мог съесть процесс СНАРУЖИ — тест тут ни при чём."
+
     return "\n".join([
         "",
         "=" * 78,
@@ -226,10 +270,11 @@ def render_report(*, current_test: Optional[str], free_gb: float, rss_gb: float,
         "  свободно RAM : %.2f ГБ   (пол %.2f)" % (free_gb, limits.free_gb),
         "  свой RSS     : %.2f ГБ   (потолок %.2f)" % (rss_gb, limits.rss_gb),
         "  от старта    : %.1f с" % elapsed_s,
+    ] + _render_top_rss(top_rss, top_rss_error, top_rss_truncated) + [
         "",
         "  Это НЕ падение теста. Прогон остановлен, чтобы машина не дошла до",
         "  потолка commit: 21.08 такой прогон кончился BSOD и перезагрузкой.",
-        "  Смотреть надо тест, названный выше.",
+        blame,
         "=" * 78,
         "",
     ])
@@ -289,6 +334,85 @@ def make_emitter(path: Any, stream: Any) -> Callable[[str], None]:
     return _emit
 
 
+def collect_top_rss(*, process_iter: Callable[[], Any],
+                    self_pid: int,
+                    clock: Callable[[], float],
+                    count: int = TOP_RSS_COUNT,
+                    budget_s: float = TOP_RSS_BUDGET_S,
+                    ) -> Tuple[Optional[list], Optional[str], bool]:
+    """Кто съел память НА САМОМ ДЕЛЕ (DEV-52 §5).
+
+    Источник процессов ВНЕДРЯЕТСЯ (`process_iter`) — psutil здесь не
+    импортируется. Иначе сторожа на эту функцию требовали бы воспроизводить
+    аварию, а такой сторож — не сторож, а надежда (Г1).
+
+    Возвращает `(rows, error, truncated)`:
+
+      `rows is None`     перебор ОТКАЗАЛ целиком, причина в `error`;
+      `rows == []`       перебор состоялся и не увидел никого;
+      `rows == [...]`    вот они, не больше `count`, по убыванию RSS.
+
+    Первое и второе НЕ склеиваются: «не знаем» и «знаем, что пусто» — разные
+    положения дел с разными следующими действиями (§3, тот же приём, что
+    `drill_never` против `drill_stale`).
+
+    `truncated` — бюджет времени исчерпан, отдано то, что успели (Г3).
+
+    Отказ по ОДНОМУ процессу (исчез между перебором и чтением полей, или не дал
+    доступа) пропускает ЭТОТ процесс и не отменяет остальных: подсказка не
+    имеет права стоить отчёта (Г2).
+    """
+    started = clock()
+    rows: list = []
+    truncated = False
+    try:
+        for proc in process_iter():
+            if clock() - started >= budget_s:
+                truncated = True
+                break
+            try:
+                info = getattr(proc, "info", None) or {}
+                mem = info.get("memory_info")
+                if mem is None:
+                    continue
+                pid = int(info.get("pid"))
+                rows.append(ProcRow(
+                    name=str(info.get("name") or "?"),
+                    pid=pid,
+                    rss_gb=float(mem.rss) / float(2 ** 30),
+                    is_self=(pid == self_pid),
+                ))
+            except Exception:                 # noqa: BLE001
+                # Один процесс — не весь перебор (Г2).
+                continue
+    except Exception as exc:                  # noqa: BLE001
+        return None, "%r" % (exc,), truncated
+
+    rows.sort(key=lambda r: r.rss_gb, reverse=True)
+    return rows[:count], None, truncated
+
+
+def _render_top_rss(top_rss: Optional[list], error: Optional[str],
+                    truncated: bool) -> list:
+    """Блок подсказки. Отдельной функцией — чтобы три состояния §3 были видны
+    одним взглядом и ни одно не потерялось в ветвлении отчёта."""
+    if error is not None:
+        return ["  список процессов не снялся: %s" % error]
+    if top_rss is None:
+        return ["  список процессов не снимался"]
+    if not top_rss:
+        return ["  перебор процессов ничего не вернул"]
+
+    lines = ["  съели больше всех:"]
+    for n, row in enumerate(top_rss, 1):
+        mark = "  <- ЭТОТ ПРОГОН" if row.is_self else ""
+        lines.append("    %d. %-22s pid %-7d %.2f ГБ%s"
+                     % (n, row.name, row.pid, row.rss_gb, mark))
+    if truncated:
+        lines.append("       (перебор не уложился в бюджет — список неполный)")
+    return lines
+
+
 class Sampler:
     """Один замер и решение по нему. Всё внешнее внедряется.
 
@@ -303,7 +427,10 @@ class Sampler:
                  interrupt: Callable[[], None],
                  die: Callable[[int], None],
                  current_test: Callable[[], Optional[str]],
-                 started_at: float = 0.0) -> None:
+                 started_at: float = 0.0,
+                 collect_top: Optional[Callable[[], Tuple[Optional[list],
+                                                          Optional[str],
+                                                          bool]]] = None) -> None:
         self._belt = belt
         self._read = read
         self._clock = clock
@@ -312,6 +439,9 @@ class Sampler:
         self._die = die
         self._current_test = current_test
         self._started_at = started_at
+        # Без сборщика (консоль, старые тесты) отчёт печатает «не снимался» —
+        # это ЧЕСТНОЕ третье состояние, а не пустой список (§3).
+        self._collect_top = collect_top
         # Запомненный отчёт печатает крючок `pytest_keyboard_interrupt`.
         # Живой дрил показал: `sys.stderr` до экрана НЕ доходит — pytest
         # перехватывает поток на уровне дескриптора, а при KeyboardInterrupt
@@ -324,6 +454,17 @@ class Sampler:
         action = self._belt.observe(now=now, free_gb=free_gb, rss_gb=rss_gb)
 
         if action in (ACTION_INTERRUPT, ACTION_EXIT):
+            # Подсказка снимается ЗДЕСЬ, в слое I/O, и уходит в отчёт данными:
+            # `render_report` обязана остаться чистой (Г1). И она не имеет
+            # права стоить отчёта — отказ сборщика становится ОДНОЙ строкой,
+            # а не потерей всего текста (Г2).
+            top_rss, top_err, top_cut = None, None, False
+            if self._collect_top is not None:
+                try:
+                    top_rss, top_err, top_cut = self._collect_top()
+                except Exception as exc:      # noqa: BLE001
+                    top_rss, top_err, top_cut = None, "%r" % (exc,), False
+
             self.last_report = render_report(
                 current_test=self._current_test(),
                 free_gb=free_gb, rss_gb=rss_gb,
@@ -331,6 +472,9 @@ class Sampler:
                 limits=self._belt.limits,
                 reason=self._belt.reason or REASON_RSS,
                 hard=self._belt.hard,
+                top_rss=top_rss,
+                top_rss_error=top_err,
+                top_rss_truncated=top_cut,
             )
             self._emit(self.last_report)
 
@@ -392,6 +536,17 @@ def install(*, env: Optional[Mapping[str, str]] = None,
             pass
         os._exit(code)
 
+    # Единственное место, где подсказка встречается с psutil (Г1). Поля берём
+    # СПИСКОМ — тогда psutil снимает их одним проходом, а не по одному на
+    # процесс, и бюджет Г3 перестаёт быть надеждой.
+    def _collect_top() -> Tuple[Optional[list], Optional[str], bool]:
+        return collect_top_rss(
+            process_iter=lambda: psutil.process_iter(
+                ["name", "pid", "memory_info"]),
+            self_pid=os.getpid(),
+            clock=time.monotonic,
+        )
+
     sampler = Sampler(
         Belt(limits),
         read=lambda: (psutil.virtual_memory().available / float(2 ** 30),
@@ -402,6 +557,7 @@ def install(*, env: Optional[Mapping[str, str]] = None,
         die=_die,
         current_test=tracker.get,
         started_at=started,
+        collect_top=_collect_top,
     )
 
     def _loop() -> None:
