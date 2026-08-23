@@ -13,6 +13,17 @@
 
 $ErrorActionPreference = 'Continue'
 
+# DEV-59: declare the console encoding as UTF-8 -- the READER side. Under Task
+# Scheduler the console starts in cp866 (measured 24.08 with a probe task, and
+# the setter does NOT throw there even with no console attached).
+# This script prints nothing today, and that is exactly why the declaration
+# goes in anyway: the park grants no exemption for "nothing to break today" --
+# tomorrow the file grows a Cyrillic message and such an exemption rots
+# silently. No mediator (PYTHONUTF8) here: this script starts no python.
+# ASCII only on purpose -- this file carries no BOM, so PS 5.1 decodes it as
+# cp1251 and a Cyrillic comment would land here as mojibake.
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+
 $svc = Get-Service -Name cloudflared -ErrorAction SilentlyContinue
 if ($svc -and $svc.Status -eq 'StopPending') {
     Get-Process -Name cloudflared -ErrorAction SilentlyContinue |
