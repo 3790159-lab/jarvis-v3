@@ -39,12 +39,12 @@ T_REPORT = "tests/test_dev59_report_pure.py"
 MUTATIONS = [
     ("имя выпало из таблицы ожидания — забытая задача перестала ожидаться", M,
      [('    "JarvisDrillNightly": PROTECTION_X_UTF8,\n', "")],
-     f"{T}::test_expectation_table_is_the_literal_five_names"),
+     T_STATES),
 
     ("исключение превращено в обязательство — решение владельца стёрто", M,
      [('    "JarvisIgTokenRefresh": PROTECTION_EXEMPT,',
        '    "JarvisIgTokenRefresh": PROTECTION_X_UTF8,')],
-     f"{T}::test_expectation_table_is_the_literal_five_names"),
+     T_STATES),
 
     ("незащищённая задача объявлена защищённой — весь предмет снят", M,
      [("                    task=name, state=STATE_UNPROTECTED,",
