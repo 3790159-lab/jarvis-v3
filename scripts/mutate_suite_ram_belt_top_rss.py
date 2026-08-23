@@ -43,6 +43,10 @@ MUTATIONS = [
        '        blame = "  Смотреть надо процессы, названные выше."')],
      f"{T}::test_pin2_rss_branch_keeps_the_old_closing_line_verbatim"),
 
+    ("закрывающая строка снова слепа к отказу перебора — ссылка в никуда", M,
+     [("    elif top_rss and top_rss_error is None:", "    elif top_rss:")],
+     f"{T}::test_amendmentZ_error_outranks_a_delivered_list_for_the_closing_line_too"),
+
     ("«не снимали» склеено с «сняли, пусто» — три состояния стали двумя", M,
      [('    if top_rss is None:\n'
        '        return ["  список процессов не снимался"]',

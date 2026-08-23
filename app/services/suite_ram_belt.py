@@ -254,7 +254,7 @@ def render_report(*, current_test: Optional[str], free_gb: float, rss_gb: float,
     # печатается ни при каком состоянии подсказки (DEV-52 §2, §6).
     if reason != REASON_FREE:
         blame = "  Смотреть надо тест, названный выше."
-    elif top_rss:
+    elif top_rss and top_rss_error is None:
         blame = "  Память съели процессы, названные выше, — тест тут ни при чём."
     else:
         # ПОЧЕМУ списка нет — уже сказано строкой выше, и там три РАЗНЫХ

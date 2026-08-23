@@ -39,9 +39,14 @@ from app.services import suite_ram_belt as belt_mod
 
 # §6: закрывающая строка ветки REASON_RSS — дословно прежняя.
 CLOSING_RSS = "Смотреть надо тест, названный выше."
+CLOSING_RSS_LINE = "  Смотреть надо тест, названный выше."
 
-# §6: закрывающая строка ветки REASON_FREE.
-CLOSING_FREE = "Память съели процессы, названные выше, — тест тут ни при чём."
+# АМЕНДМЕНТ З: в ветке REASON_FREE закрывающих строк ДВЕ, по наличию списка.
+# Прежняя единственная константа CLOSING_FREE убрана намеренно: одно имя на два
+# состояния — это и была та самая склейка, из-за которой пин требовал от кода
+# сказать «названные выше» там, где выше не названо ничего.
+CLOSING_FREE_LISTED = "  Память съели процессы, названные выше, — тест тут ни при чём."
+CLOSING_FREE_UNLISTED = "  Память мог съесть процесс СНАРУЖИ — тест тут ни при чём."
 
 # §6: заголовок блока.
 TOP_HEADER = "съели больше всех:"
@@ -600,10 +605,13 @@ def test_report_prints_exactly_three_numbered_rows_with_name_pid_and_rss():
 
 
 def test_free_branch_closing_line_is_the_literal_from_the_spec():
-    """§6: закрывающая строка ветки REASON_FREE — дословная."""
+    """§6 + амендмент З: при НЕПУСТОМ списке закрывающая строка — первая из двух,
+    дословно."""
     text = _report(REASON_FREE, top_rss=_three_rows())
 
-    assert CLOSING_FREE in text
+    assert _has_line(text, CLOSING_FREE_LISTED), (
+        "строки %r в отчёте нет. Строки отчёта:\n%s"
+        % (CLOSING_FREE_LISTED, _lines_hint(text)))
 
 
 def test_top_block_header_is_the_literal_from_the_spec():
@@ -709,12 +717,20 @@ def test_amendmentA_report_stays_complete_when_the_sweep_failed():
 
     Отказ подсказки не имеет права утащить за собой сам отчёт — ремень ради
     отчёта и существует.
+
+    ИСПРАВЛЕНО АМЕНДМЕНТОМ З. Прежняя редакция требовала здесь строку «Память
+    съели процессы, НАЗВАННЫЕ ВЫШЕ»: при провале перебора выше не названо
+    ничего, и пин требовал от кода напечатать ссылку в никуда. Ошиблась спека,
+    а не код; полнота отчёта проверяется по-прежнему, закрывающая строка —
+    вторая из таблицы.
     """
     text = _report(REASON_FREE, top_rss=None, top_rss_error="перебор сорвался")
 
     for label in LEGACY_LABELS:
         assert label in text, "поле %r пропало из отчёта при отказе перебора" % label
-    assert CLOSING_FREE in text
+    assert _has_line(text, CLOSING_FREE_UNLISTED), (
+        "строки %r в отчёте нет. Строки отчёта:\n%s"
+        % (CLOSING_FREE_UNLISTED, _lines_hint(text)))
 
 
 def test_amendmentA_truncated_flag_does_not_downgrade_a_delivered_list():
@@ -1151,6 +1167,164 @@ def test_seam_sampler_does_not_die_when_collect_top_itself_explodes():
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+# АМЕНДМЕНТ З. В ветке REASON_FREE закрывающих строк ДВЕ.
+# ═════════════════════════════════════════════════════════════════════════════
+#
+# Владелец рассудил в пользу кода: одна закрывающая строка на всю ветку
+# REASON_FREE — ошибка спеки. Внутри ветки два разных состояния, и «названные
+# выше» при отсутствующем списке — ссылка в никуда.
+#
+#   список ЕСТЬ (непустой)                     -> CLOSING_FREE_LISTED
+#   списка НЕТ (None | [] | задан top_rss_error) -> CLOSING_FREE_UNLISTED
+#
+# Раз строк стало ДВЕ, каждая обязана иметь и пин на присутствие, и пин на
+# ОТСУТСТВИЕ второй: строка, которая печатается всегда, не различает состояния,
+# а сторож, видящий только присутствие, такую вечную строку пропустит.
+#
+# Причина отказа в закрывающей строке НЕ повторяется намеренно: состояний без
+# списка три, у каждого своя формулировка блоком ВЫШЕ (пины амендмента А), и
+# повтор однажды сказал бы «снять не удалось» там, где перебор состоялся и
+# просто никого не увидел.
+#
+# Присутствие первой строки при непустом списке пинит
+# `test_free_branch_closing_line_is_the_literal_from_the_spec` выше; здесь —
+# её отсутствие в трёх состояниях без списка и вся вторая строка.
+#
+# Отсутствие сверяется ПОДСТРОКОЙ (`.strip()`), а присутствие — целой строкой:
+# так лишний отступ или приписка не спасут строку, которой быть не должно, и не
+# пройдут за строку, которая должна стоять дословно.
+
+
+def test_amendmentZ_filled_list_does_not_print_the_unlisted_closing_line():
+    """Список ЕСТЬ — значит «мог съесть кто-то СНАРУЖИ» здесь неуместно: снаружи
+    уже названы поимённо, строкой выше."""
+    text = _report(REASON_FREE, top_rss=_three_rows())
+
+    assert CLOSING_FREE_UNLISTED.strip() not in text, (
+        "при непустом списке напечатана строка состояния БЕЗ списка. Строки:\n%s"
+        % _lines_hint(text))
+
+
+def test_amendmentZ_none_prints_the_unlisted_closing_line():
+    """`top_rss=None` — список не снимали, назвать некого; известно ровно одно:
+    съесть мог процесс снаружи."""
+    text = _report(REASON_FREE, top_rss=None)
+
+    assert _has_line(text, CLOSING_FREE_UNLISTED), (
+        "строки %r в отчёте нет. Строки отчёта:\n%s"
+        % (CLOSING_FREE_UNLISTED, _lines_hint(text)))
+
+
+def test_amendmentZ_none_does_not_print_the_listed_closing_line():
+    """Второй зуб: «названные выше» при `None` — ссылка в никуда, ровно та ложь,
+    из-за которой амендмент и появился."""
+    text = _report(REASON_FREE, top_rss=None)
+
+    assert CLOSING_FREE_LISTED.strip() not in text, (
+        "отчёт без списка сослался на «названные выше». Строки:\n%s"
+        % _lines_hint(text))
+
+
+def test_amendmentZ_empty_list_prints_the_unlisted_closing_line():
+    """`[]` — перебор состоялся и не увидел никого. Названных выше опять нет."""
+    text = _report(REASON_FREE, top_rss=[])
+
+    assert _has_line(text, CLOSING_FREE_UNLISTED), (
+        "строки %r в отчёте нет. Строки отчёта:\n%s"
+        % (CLOSING_FREE_UNLISTED, _lines_hint(text)))
+
+
+def test_amendmentZ_empty_list_does_not_print_the_listed_closing_line():
+    text = _report(REASON_FREE, top_rss=[])
+
+    assert CLOSING_FREE_LISTED.strip() not in text, (
+        "пустой перебор сослался на «названные выше». Строки:\n%s"
+        % _lines_hint(text))
+
+
+def test_amendmentZ_failed_sweep_prints_the_unlisted_closing_line():
+    """Задан `top_rss_error` — списка нет по третьей причине, строка та же.
+
+    Полнота отчёта в этом состоянии пинится отдельно
+    (`test_amendmentA_report_stays_complete_when_the_sweep_failed`); здесь
+    утверждение ровно одно — какая именно строка закрывает.
+    """
+    text = _report(REASON_FREE, top_rss=None, top_rss_error="перебор сорвался")
+
+    assert _has_line(text, CLOSING_FREE_UNLISTED), (
+        "строки %r в отчёте нет. Строки отчёта:\n%s"
+        % (CLOSING_FREE_UNLISTED, _lines_hint(text)))
+
+
+def test_amendmentZ_failed_sweep_does_not_print_the_listed_closing_line():
+    text = _report(REASON_FREE, top_rss=None, top_rss_error="перебор сорвался")
+
+    assert CLOSING_FREE_LISTED.strip() not in text, (
+        "провалившийся перебор сослался на «названные выше». Строки:\n%s"
+        % _lines_hint(text))
+
+
+def test_amendmentZ_error_outranks_a_delivered_list_for_the_closing_line_too():
+    """Стык амендментов А и З: причина отказа старше списка (приоритет 1), значит
+    список НЕ печатается — и закрывающая строка обязана согласиться с этим.
+
+    Иначе отчёт скажет «названные выше» ровно там, где сам же список и проглотил:
+    два решения об одном и том же состоянии, принятые в разных местах, разъезжаются
+    молча.
+    """
+    text = _report(REASON_FREE, top_rss=_three_rows(),
+                   top_rss_error="перебор сорвался")
+
+    assert _has_line(text, CLOSING_FREE_UNLISTED), (
+        "строки %r в отчёте нет. Строки отчёта:\n%s"
+        % (CLOSING_FREE_UNLISTED, _lines_hint(text)))
+    assert CLOSING_FREE_LISTED.strip() not in text
+
+
+def test_amendmentZ_rss_branch_with_a_list_prints_neither_free_closing_line():
+    """REASON_RSS — своя закрывающая строка, прежняя. Ни одна из двух строк
+    ветки REASON_FREE сюда не протекает.
+
+    Проверяется при НЕПУСТОМ списке: блок процессов в этой ветке печатается, и
+    соблазн дописать к нему «названные выше» максимален.
+    """
+    text = _report(REASON_RSS, rss_gb=4.7, top_rss=_three_rows())
+
+    assert CLOSING_FREE_LISTED.strip() not in text
+    assert CLOSING_FREE_UNLISTED.strip() not in text
+
+
+def test_amendmentZ_rss_branch_without_a_list_prints_neither_free_closing_line():
+    """То же при `top_rss=None`: отсутствие списка не имеет права переключить
+    ветку RSS на чужую формулировку."""
+    text = _report(REASON_RSS, rss_gb=4.7, top_rss=None)
+
+    assert CLOSING_FREE_LISTED.strip() not in text
+    assert CLOSING_FREE_UNLISTED.strip() not in text
+
+
+def test_amendmentZ_rss_branch_with_a_failed_sweep_prints_neither_free_line():
+    """И при провале перебора: пробит СВОЙ RSS, виноват названный тест, чужие
+    процессы тут ни при чём независимо от того, снялись они или нет."""
+    text = _report(REASON_RSS, rss_gb=4.7, top_rss=None,
+                   top_rss_error="перебор сорвался")
+
+    assert CLOSING_FREE_LISTED.strip() not in text
+    assert CLOSING_FREE_UNLISTED.strip() not in text
+
+
+def test_amendmentZ_rss_branch_closing_line_is_a_whole_line_verbatim():
+    """Пин 2 сверяет строку RSS подстрокой; здесь — целой строкой, вместе с
+    отступом в два пробела: отступ у закрывающих строк — часть разметки, и
+    съехавший на ней ремень читается как чужой блок."""
+    text = _report(REASON_RSS, rss_gb=4.7, top_rss=_three_rows())
+
+    assert _has_line(text, CLOSING_RSS_LINE), (
+        "строки %r в отчёте нет. Строки отчёта:\n%s"
+        % (CLOSING_RSS_LINE, _lines_hint(text)))
+
+
+# ═════════════════════════════════════════════════════════════════════════════
 # 🔴 ГДЕ КОНТРАКТ ВСЁ ЕЩЁ МОЛЧИТ (новые места, найдены при написании пинов)
 # ═════════════════════════════════════════════════════════════════════════════
 #
@@ -1196,3 +1370,18 @@ def test_seam_sampler_does_not_die_when_collect_top_itself_explodes():
 #     пометки не будет. Проверено на черновике-подделке по амендментам: 44 пина
 #     из 45 зелёные, красный ровно этот. Спека обязана сказать, кто подставляет
 #     свой pid, — иначе либо пин 5 недостижим, либо умолчание должно быть не None.
+#
+# №10. Амендмент З дал ТЕКСТ обеих закрывающих строк, но не их МЕСТО. Замер
+#     прежнего отчёта (без DEV-52): закрывающая идёт ПОСЛЕ двух строк про BSOD и
+#     перед рамкой из `=`, отступ — два пробела. Пины выше сверяют строку целиком
+#     (отступ включён), но не её позицию: угаданный порядок — не пин, а
+#     совпадение. Спека обязана сказать, сохраняется ли это место и куда встаёт
+#     блок процессов относительно него.
+#
+# №11. СЦЕПКА З и недосказанности №5. По З «список ЕСТЬ (непустой)» даёт строку
+#     «названные выше» — включая случай `top_rss_truncated=True`, где список
+#     непустой, но заведомо НЕПОЛНЫЙ, а слова об урезании отчёт (по №5) не
+#     печатает вовсе. Получается ровно то, от чего лечится DEV-52: уверенная
+#     ссылка на «названных выше» поверх списка, в который настоящий пожиратель мог
+#     не попасть. Либо №5 закрывается строкой об урезании, либо З обязан назвать
+#     для урезанного списка третью формулировку.
