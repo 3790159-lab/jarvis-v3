@@ -553,3 +553,41 @@ def test_a4_printer_boundary_both_sides_at_once():
            "[Console]::OutputEncoding = [Text.Encoding]::UTF8\n"
            "Write-Host 'настоящая печать'\n")
     assert _declares(src) is True
+
+
+# ── АМЕНДМЕНТ А (24.08): статически НЕРАЗРЕШИМАЯ правая часть = отказ ────────
+#
+# Я поднял вопрос про `GetEncoding($cp)` и не пинил его ни в какую сторону.
+# Дозадано: если по тексту нельзя доказать, что правая часть — UTF-8, признак
+# НЕ засчитывается. Ловушка №5 применяется буквально: «недоказуем» != «прошёл».
+
+@pytest.mark.parametrize("right", [
+    "[Text.Encoding]::GetEncoding($cp)",
+    "[System.Text.Encoding]::GetEncoding($env:JARVIS_CP)",
+    "[Text.Encoding]::GetEncoding((Get-Culture).TextInfo.OEMCodePage)",
+    "[Text.Encoding]::GetEncoding($script:CodePage)",
+    "$enc",
+    "Get-MyEncoding",
+    "(Get-MyEncoding)",
+])
+def test_a_statically_unresolvable_right_hand_side_is_refused(right):
+    assert _declares("[Console]::OutputEncoding = %s\n" % right) is False, (
+        "правая часть %r по тексту не доказывает UTF-8. Признак, который "
+        "нельзя доказать, признаком не является — тот же довод, по которому "
+        "отвергнут `chcp 65001`" % right)
+
+
+def test_a_variable_in_the_PREAMBLE_argument_does_not_make_it_unresolvable():
+    """Граница, которую легко перепутать, поэтому она пинится отдельно.
+
+    У `GetEncoding(...)` кодировку задаёт САМ ДОВОД — переменная делает
+    правую часть недоказуемой. У `UTF8Encoding::new(...)` кодировку задаёт
+    ИМЯ КЛАССА, а довод управляет лишь преамбулой, к кодировке отношения не
+    имеющей (А.1). Значит переменная в нём доказуемости не рушит.
+    """
+    assert _declares(
+        "[Console]::OutputEncoding = "
+        "[System.Text.UTF8Encoding]::new($useBom)\n") is True
+    assert _declares(
+        "[Console]::OutputEncoding = [Text.Encoding]::GetEncoding($useBom)\n"
+    ) is False

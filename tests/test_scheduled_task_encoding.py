@@ -447,24 +447,29 @@ def _all_protected_snapshot() -> list:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ПИН 1 — литеральный пин на саму таблицу ожидания, сверка в ОБЕ стороны.
+# ПИН 1 УДАЛЁН 24.08 (амендмент А, решение сведения). Здесь стоял
+# `test_expectation_table_is_the_literal_five_names` — литеральный пин на саму
+# таблицу ожидания в обе стороны.
+#
+# ПОЧЕМУ УДАЛЁН, А НЕ ПОПРАВЛЕН. Его литерал — старая пятёрка имён; решение
+# владельца §7 заменило её на тринадцать. Обновить литерал здесь значило бы
+# держать ДВА литерала одной таблицы в двух файлах: следующая правка таблицы
+# обновит один и забудет другой.
+#
+# ЧЕМ ПЕРЕКРЫТ — строго сильнее, в `tests/test_dev59_compare_tasks_states.py`:
+#   * `test_table_has_exactly_the_thirteen_names_and_values` — точное
+#     равенство таблицы литералу из 13 имён, обе стороны разом;
+#   * `test_table_has_no_fourteenth_name` — отсутствие четырнадцатого, с
+#     раздельными списками лишних и пропавших;
+#   * `test_each_of_the_thirteen_names_carries_its_own_value` — пин НА КАЖДОЕ
+#     имя: падение называет конкретную задачу, а не вываливает три списка.
+#
+# Удаление сторожа само по себе опасно: удалённый сторож не краснеет, и
+# зелёный прогон после удаления выглядит ровно так же, как до. Поэтому оно
+# разрешено ТОЛЬКО вместе с перенацеливанием двух мутаций гейта, звавших
+# именно этот тест («имя выпало из таблицы ожидания» и «исключение превращено
+# в обязательство»), на файл-преемник. Слепая мутация там = удаление отменяется.
 # ─────────────────────────────────────────────────────────────────────────────
-
-def test_expectation_table_is_the_literal_five_names():
-    attr, _, pairs = _expectation_table()
-    assert pairs == EXPECTED_TABLE, (
-        "таблица ожидания %s разошлась с контрактом §1.\n"
-        "  забыты в модуле: %s\n"
-        "  лишние в модуле: %s\n"
-        "  разошлась защита: %s\n"
-        "Ожидание не выводится из Планировщика: выведенный список согласен с "
-        "Планировщиком по определению и промолчит там, где задачу забыли."
-        % (attr,
-           sorted(set(EXPECTED_TABLE) - set(pairs)),
-           sorted(set(pairs) - set(EXPECTED_TABLE)),
-           sorted((n, EXPECTED_TABLE[n], pairs[n])
-                  for n in set(pairs) & set(EXPECTED_TABLE)
-                  if pairs[n] != EXPECTED_TABLE[n])))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -808,33 +813,46 @@ def _expectation_param() -> str:
         # АМЕНДМЕНТ А.3 / контракт §6.6: у ВНЕДРЁННОЙ исключённой задачи
         # причина обязана быть записана, иначе вердикт по ней — `unreadable`,
         # а не `exempt`, и розыск не найдёт ничего. Имя параметра причин тут
-        # ещё не разыскано (его собственный розыск опирается на этот),
-        # поэтому причина кладётся во ВСЕ остальные параметры-кандидаты: тот
-        # из них, который и есть причины, её получит. Роль каждого параметра
+        # ещё не разыскано (его собственный розыск опирается на этот), поэтому
+        # причина кладётся в ОДИН другой параметр-кандидат ЗА РАЗ: тот из них,
+        # который и есть причины, её получит. Роль каждого параметра
         # по-прежнему доказывается ПОВЕДЕНИЕМ, а не именем.
-        kwargs = {param.name: dict(FAKE_TABLE)}
-        for other in candidates:
-            if other.name != param.name:
-                kwargs[other.name] = {FAKE_EXEMPT_TASK: INJECTED_REASON}
-        try:
-            result = _call(_fake_snapshot(), **kwargs)
-        except TypeError as exc:
-            tried.append("%s: вызов не принят (%r)" % (param.name, exc))
-            continue
-        except Exception as exc:  # noqa: BLE001 — отказ показываем как есть
-            tried.append("%s: сверка выпустила наружу %r" % (param.name, exc))
-            continue
-        got = _statuses(result)
-        if not got:
-            tried.append("%s: результат %r не разбирается на состояния"
-                         % (param.name, type(result)))
-            continue
-        if (set(got) == set(FAKE_TABLE)
-                and got.get(FAKE_PROTECTED_TASK) == STATUS_OK):
-            hits.append(param.name)
-        else:
+        #
+        # По одному, а не во все сразу: среди кандидатов есть и ЧИТАТЕЛЬ
+        # скриптов, которому словарь вместо вызываемого не годится. Раздача
+        # «во все сразу» роняла бы ВЕСЬ розыск на реализации, которая читателя
+        # проверяет; при переборе по одному падает только та комбинация, а
+        # верная доходит до конца.
+        others = [o for o in candidates if o.name != param.name]
+        combos = [(o.name, {param.name: dict(FAKE_TABLE),
+                            o.name: {FAKE_EXEMPT_TASK: INJECTED_REASON}})
+                  for o in others] or [(None, {param.name: dict(FAKE_TABLE)})]
+
+        found = False
+        for other_name, kwargs in combos:
+            label = (param.name if other_name is None
+                     else "%s + причина в %s" % (param.name, other_name))
+            try:
+                result = _call(_fake_snapshot(), **kwargs)
+            except TypeError as exc:
+                tried.append("%s: вызов не принят (%r)" % (label, exc))
+                continue
+            except Exception as exc:  # noqa: BLE001 — отказ показываем как есть
+                tried.append("%s: сверка выпустила наружу %r" % (label, exc))
+                continue
+            got = _statuses(result)
+            if not got:
+                tried.append("%s: результат %r не разбирается на состояния"
+                             % (label, type(result)))
+                continue
+            if (set(got) == set(FAKE_TABLE)
+                    and got.get(FAKE_PROTECTED_TASK) == STATUS_OK):
+                found = True
+                break
             tried.append("%s: сверка посчитана НЕ по внедрённому ожиданию "
-                         "(вышло %r)" % (param.name, got))
+                         "(вышло %r)" % (label, got))
+        if found:
+            hits.append(param.name)
 
     if len(hits) == 1:
         _EXPECTATION_PARAM.append(hits[0])
@@ -918,20 +936,43 @@ def test_expectation_defaults_to_the_module_table_when_not_injected():
             "ожидание с собой. Сигнатура: %s" % (exc, _signature_note()))
     got = _statuses_or_fail(result, "ожидание не внедрялось")
 
-    assert set(got) == set(EXPECTED_TABLE) | {FAKE_PROTECTED_TASK}, (
-        "без внедрения сверка обязана считать по МОДУЛЬНОЙ таблице %s (плюс "
-        "лишняя задача из снимка), а отчиталась по %s"
-        % (sorted(EXPECTED_TABLE), sorted(got)))
+    # АМЕНДМЕНТ А: сверяемся с МОДУЛЬНОЙ таблицей, а не со старым пятиимённым
+    # литералом. Тавтологией это не является: пин не про СОДЕРЖИМОЕ таблицы
+    # (оно припинено литерально в `test_dev59_compare_tasks_states.py`), а про
+    # ШОВ — подставляется ли умолчание, когда ожидание не внедрили. Код МОГ БЫ
+    # таблицу проигнорировать, и тогда имена в результате с ней разойдутся.
+    attr, table_obj, pairs = _expectation_table()
+
+    assert set(got) == set(table_obj) | {FAKE_PROTECTED_TASK}, (
+        "без внедрения сверка обязана считать по МОДУЛЬНОЙ таблице %s (%s, "
+        "плюс лишняя задача из снимка), а отчиталась по %s"
+        % (attr, sorted(table_obj), sorted(got)))
     assert got[FAKE_PROTECTED_TASK] == STATUS_UNEXPECTED, (
         "%s нет в модульной таблице, значит без внедрения это %r, а сверка "
         "сказала %r" % (FAKE_PROTECTED_TASK, STATUS_UNEXPECTED,
                         got[FAKE_PROTECTED_TASK]))
+    # Снимок пуст на настоящие задачи, поэтому пропавшими обязаны выйти ВСЕ
+    # имена таблицы, КРОМЕ исключённых. Правило именно такое, а не «все
+    # задачи-x_utf8»: на таблице из 13 имён восемь `ps_console`-задач в пустом
+    # снимке тоже выходят `missing` — ступень «нет в снимке» стоит ВЫШЕ
+    # ступени «исполнитель неизвестен» (§6.2), это замерено.
+    #
+    # Утверждение несёт ту же нагрузку, ради которой писалось, — «исключение
+    # СИЛЬНЕЕ отсутствия», — и продолжает ловить обратную мутацию: сделай
+    # отсутствие сильнее исключения, и исключённая задача станет `missing`,
+    # список вырастет, пин покраснеет. Незамеченной она туда попасть не может:
+    # список ожидаемых пропавших строится ИСКЛЮЧЕНИЕМ exempt-имён, а не их
+    # умолчанием.
     missing = sorted(n for n, s in got.items() if s == STATUS_MISSING)
-    assert missing == sorted(n for n, p in EXPECTED_TABLE.items()
-                             if p == PROTECTION_X_UTF8), (
-        "снимок пуст на настоящие задачи, поэтому без внедрения все "
-        "задачи-%r модульной таблицы обязаны выйти %r; вышли: %s"
-        % (PROTECTION_X_UTF8, STATUS_MISSING, missing))
+    expected_missing = sorted(n for n, prot in pairs.items()
+                              if prot != PROTECTION_EXEMPT)
+    assert missing == expected_missing, (
+        "без внедрения пропавшими обязаны выйти все имена модульной таблицы "
+        "%s кроме исключённых, то есть %s; вышли: %s.\n"
+        "  лишние в missing: %s\n  недостающие в missing: %s"
+        % (attr, expected_missing, missing,
+           sorted(set(missing) - set(expected_missing)),
+           sorted(set(expected_missing) - set(missing))))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
