@@ -666,3 +666,396 @@ def test_comparison_never_reaches_the_scheduler():
         "%s обращается к Планировщику из слоя сверки: %s. Снимок обязан "
         "внедряться, а не сниматься внутри — иначе сверку нельзя прогнать "
         "ни на подставных данных, ни на чужой машине" % (path, hits))
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# ШОВ ВНЕДРЕНИЯ (дозадано контрактом 24.08).
+#
+# Функция сверки принимает ожидание ПАРАМЕТРОМ (умолчание None -> модульная
+# таблица), и то же самое — словарём ПРИЧИН исключения. Смысл шва: сверку
+# обязано быть можно прогнать на ВЫДУМАННОМ наборе задач, не завися от
+# сегодняшнего состава настоящих.
+#
+# Пины 1-9 все до одного работают на НАСТОЯЩЕЙ таблице модуля, поэтому шов
+# ими не покрыт: реализация, которая параметр молча игнорирует, проходит их
+# все до единого.
+#
+# ИМЕНА параметров контрактом не заданы, поэтому они РАЗЫСКИВАЮТСЯ по
+# поведению (как разысканы таблица и функция): среди именованных параметров с
+# умолчанием None ищется тот, на который сверка РЕАГИРУЕТ. Розыск по поведению
+# заодно и есть проверка: параметр, который игнорируется, не отзовётся ни на
+# одном имени — и розыск упадёт ГРОМКО, назвав, что дозадать.
+# ═════════════════════════════════════════════════════════════════════════════
+
+# Выдуманный набор задач: этих имён в настоящей таблице НЕТ и быть не должно.
+FAKE_PROTECTED_TASK = "ZzGuardFakeProtectedTask"
+FAKE_EXEMPT_TASK = "ZzGuardFakeExemptTask"
+FAKE_TABLE = {
+    FAKE_PROTECTED_TASK: PROTECTION_X_UTF8,
+    FAKE_EXEMPT_TASK: PROTECTION_EXEMPT,
+}
+
+# Причина-метка: строка, которой в модуле взяться неоткуда.
+INJECTED_REASON = "ZzGuardInjectedReason-7f3c"
+
+
+def _fake_snapshot() -> list:
+    """Снимок ровно из выдуманных задач: защищённая и намеренно исключённая."""
+    return [(FAKE_PROTECTED_TASK, ARGS_ONE_SPACE),
+            (FAKE_EXEMPT_TASK, ARGS_NO_FLAG)]
+
+
+def _call(pairs, **kwargs):
+    """Позвать сверку подставным снимком и ЯВНО заданными параметрами.
+
+    Отличается от `_invoke`: никакого перебора форм вызова — снимок кладётся
+    ровно в тот параметр, что разыскан `_seam()`, а всё остальное передаётся
+    ИМЕНОВАННО. Иначе «параметр не принят» пряталось бы за запасной формой
+    вызова, и слепой пин выглядел бы как зелёный.
+    """
+    _, fn, first, _, enc = _seam()
+    snapshot = [enc(name, args) for name, args in pairs]
+    if first.kind is inspect.Parameter.KEYWORD_ONLY:
+        return fn(**dict(kwargs, **{first.name: snapshot}))
+    return fn(snapshot, **kwargs)
+
+
+def _statuses_or_fail(result, what: str) -> dict:
+    got = _statuses(result)
+    if not got:
+        pytest.fail("результат сверки (%s) не разбирается на состояния "
+                    "контракта §3 %s; получено: %r"
+                    % (what, sorted(STATUSES), result))
+    return got
+
+
+def _carries_text(value, needle: str) -> bool:
+    """Несёт ли результат сверки данную строку (в любом поле, любой глубины)."""
+    if any(needle in text for text in _texts(value, depth=4)):
+        return True
+    try:
+        return needle in repr(value)
+    except Exception:  # noqa: BLE001 — сломанный __repr__ не повод падать тут
+        return False
+
+
+def _named_optional_params() -> list:
+    """Именованные параметры сверки с умолчанием None (кроме самого снимка)."""
+    _, fn, first, _, _ = _seam()
+    out = []
+    for param in inspect.signature(fn).parameters.values():
+        if param.name == first.name:
+            continue
+        if param.kind not in (inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                              inspect.Parameter.KEYWORD_ONLY):
+            continue
+        if param.default is not None:
+            continue
+        out.append(param)
+    return out
+
+
+def _signature_note() -> str:
+    fn_name, fn, _, _, _ = _seam()
+    try:
+        return "%s%s" % (fn_name, inspect.signature(fn))
+    except (TypeError, ValueError):  # pragma: no cover — сигнатуры нет
+        return fn_name
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Розыск параметра, которым внедряется ОЖИДАНИЕ.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_EXPECTATION_PARAM = []
+
+
+def _expectation_param() -> str:
+    if _EXPECTATION_PARAM:
+        return _EXPECTATION_PARAM[0]
+
+    assert not (set(FAKE_TABLE) & set(EXPECTED_TABLE)), (
+        "выдуманные имена %s попали в настоящую таблицу ожидания — розыск "
+        "перестал что-либо доказывать, имена-подделки надо сменить"
+        % sorted(set(FAKE_TABLE) & set(EXPECTED_TABLE)))
+
+    fn_name = _seam()[0]
+    candidates = _named_optional_params()
+    if not candidates:
+        pytest.fail(
+            "у сверки %s нет ни одного ИМЕНОВАННОГО параметра с умолчанием "
+            "None, которым можно внедрить ожидание (контракт, шов внедрения). "
+            "Сигнатура сейчас: %s. Без этого шва сверку нельзя прогнать на "
+            "выдуманном наборе задач: любой её тест зависит от сегодняшнего "
+            "состава настоящих." % (fn_name, _signature_note()))
+
+    hits, tried = [], []
+    for param in candidates:
+        try:
+            result = _call(_fake_snapshot(), **{param.name: dict(FAKE_TABLE)})
+        except TypeError as exc:
+            tried.append("%s: вызов не принят (%r)" % (param.name, exc))
+            continue
+        except Exception as exc:  # noqa: BLE001 — отказ показываем как есть
+            tried.append("%s: сверка выпустила наружу %r" % (param.name, exc))
+            continue
+        got = _statuses(result)
+        if not got:
+            tried.append("%s: результат %r не разбирается на состояния"
+                         % (param.name, type(result)))
+            continue
+        if (set(got) == set(FAKE_TABLE)
+                and got.get(FAKE_PROTECTED_TASK) == STATUS_OK):
+            hits.append(param.name)
+        else:
+            tried.append("%s: сверка посчитана НЕ по внедрённому ожиданию "
+                         "(вышло %r)" % (param.name, got))
+
+    if len(hits) == 1:
+        _EXPECTATION_PARAM.append(hits[0])
+        return hits[0]
+    if not hits:
+        pytest.fail(
+            "внедрённое ожидание НЕ ИСПОЛЬЗУЕТСЯ: ни один именованный "
+            "параметр сверки %s с умолчанием None не изменил результат, хотя "
+            "подан выдуманный набор задач %s. Либо параметр молча "
+            "игнорируется (и тогда сверку нельзя проверить ни на чём, кроме "
+            "сегодняшнего состава настоящих задач), либо шва внедрения нет "
+            "вовсе и контракт обязан дозадать ИМЯ параметра.\n"
+            "  сигнатура: %s\n  попытки:\n    %s"
+            % (fn_name, sorted(FAKE_TABLE), _signature_note(),
+               "\n    ".join(tried) or "кандидатов не нашлось"))
+    pytest.fail(
+        "внедрению ожидания отзываются СРАЗУ НЕСКОЛЬКО параметров (%s): какой "
+        "из них ожидание, контракт не говорит — имя надо дозадать. "
+        "Сигнатура: %s" % (", ".join(hits), _signature_note()))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ПИН 10 — внедрённое ожидание ДЕЙСТВИТЕЛЬНО считается вместо модульного.
+#
+# Красный ровно на той мутации, что осталась слепой: «функция всегда берёт
+# модульную таблицу». При ней в результате окажутся настоящие имена (как
+# missing), а выдуманная задача — как unexpected: то есть НЕ то, что внедрено.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_injected_expectation_is_used_instead_of_the_module_table():
+    param = _expectation_param()
+    got = _statuses_or_fail(
+        _call(_fake_snapshot(), **{param: dict(FAKE_TABLE)}),
+        "внедрено ожидание %s=%r" % (param, FAKE_TABLE))
+
+    leaked = sorted(set(got) & set(EXPECTED_TABLE))
+    assert leaked == [], (
+        "внедрено выдуманное ожидание %s, а в результате сверки всплыли "
+        "НАСТОЯЩИЕ задачи %s: параметр проигнорирован и сверка идёт по "
+        "модульной таблице. Тогда сверку нельзя прогнать на выдуманном "
+        "наборе — любой её тест держится на сегодняшнем составе настоящих "
+        "задач и рассыплется, как только состав поменяют."
+        % (sorted(FAKE_TABLE), leaked))
+    assert set(got) == set(FAKE_TABLE), (
+        "внедрено ожидание из %s, а сверка отчиталась по %s"
+        % (sorted(FAKE_TABLE), sorted(got)))
+    assert got[FAKE_PROTECTED_TASK] == STATUS_OK, (
+        "выдуманная задача %s внедрена как %r и несёт `-X utf8`, а сверка по "
+        "внедрённому ожиданию сказала %r вместо %r"
+        % (FAKE_PROTECTED_TASK, PROTECTION_X_UTF8,
+           got[FAKE_PROTECTED_TASK], STATUS_OK))
+    assert got[FAKE_EXEMPT_TASK] == STATUS_EXEMPT, (
+        "выдуманная задача %s внедрена как %r и в снимке идёт БЕЗ `-X utf8`, "
+        "а сверка сказала %r вместо %r: внедрённое исключение не сработало "
+        "исключением" % (FAKE_EXEMPT_TASK, PROTECTION_EXEMPT,
+                         got[FAKE_EXEMPT_TASK], STATUS_EXEMPT))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ПИН 11 — БЕЗ внедрения сверка берёт модульную таблицу (умолчание None).
+#
+# Обратная сторона пина 10: шов не имеет права стать обязанностью — прежние
+# девять пинов зовут сверку одним снимком и обязаны продолжать работать на
+# настоящей таблице.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_expectation_defaults_to_the_module_table_when_not_injected():
+    try:
+        result = _call([(FAKE_PROTECTED_TASK, ARGS_ONE_SPACE)])
+    except TypeError as exc:
+        pytest.fail(
+            "сверку нельзя позвать БЕЗ ожидания (%r): контракт требует "
+            "умолчания None -> модульная таблица, иначе шов внедрения из "
+            "удобства превращается в обязанность каждого зовущего носить "
+            "ожидание с собой. Сигнатура: %s" % (exc, _signature_note()))
+    got = _statuses_or_fail(result, "ожидание не внедрялось")
+
+    assert set(got) == set(EXPECTED_TABLE) | {FAKE_PROTECTED_TASK}, (
+        "без внедрения сверка обязана считать по МОДУЛЬНОЙ таблице %s (плюс "
+        "лишняя задача из снимка), а отчиталась по %s"
+        % (sorted(EXPECTED_TABLE), sorted(got)))
+    assert got[FAKE_PROTECTED_TASK] == STATUS_UNEXPECTED, (
+        "%s нет в модульной таблице, значит без внедрения это %r, а сверка "
+        "сказала %r" % (FAKE_PROTECTED_TASK, STATUS_UNEXPECTED,
+                        got[FAKE_PROTECTED_TASK]))
+    missing = sorted(n for n, s in got.items() if s == STATUS_MISSING)
+    assert missing == sorted(n for n, p in EXPECTED_TABLE.items()
+                             if p == PROTECTION_X_UTF8), (
+        "снимок пуст на настоящие задачи, поэтому без внедрения все "
+        "задачи-%r модульной таблицы обязаны выйти %r; вышли: %s"
+        % (PROTECTION_X_UTF8, STATUS_MISSING, missing))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Розыск параметра, которым внедряется СЛОВАРЬ ПРИЧИН исключения, и розыск
+# самого модульного словаря причин.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_REASON_PARAM = []
+
+
+def _reason_param() -> str:
+    if _REASON_PARAM:
+        return _REASON_PARAM[0]
+
+    fn_name = _seam()[0]
+    expectation_param = _expectation_param()
+    candidates = [p for p in _named_optional_params()
+                  if p.name != expectation_param]
+    if not candidates:
+        pytest.fail(
+            "у сверки %s нет ВТОРОГО именованного параметра с умолчанием "
+            "None для словаря ПРИЧИН исключения (контракт: «то же самое — для "
+            "словаря причин»). Сигнатура: %s"
+            % (fn_name, _signature_note()))
+
+    hits, tried = [], []
+    for param in candidates:
+        kwargs = {expectation_param: dict(FAKE_TABLE),
+                  param.name: {FAKE_EXEMPT_TASK: INJECTED_REASON}}
+        try:
+            result = _call(_fake_snapshot(), **kwargs)
+        except TypeError as exc:
+            tried.append("%s: вызов не принят (%r)" % (param.name, exc))
+            continue
+        except Exception as exc:  # noqa: BLE001
+            tried.append("%s: сверка выпустила наружу %r" % (param.name, exc))
+            continue
+        if _carries_text(result, INJECTED_REASON):
+            hits.append(param.name)
+        else:
+            tried.append("%s: внедрённой причины в результате нет (%r)"
+                         % (param.name, result))
+
+    if len(hits) == 1:
+        _REASON_PARAM.append(hits[0])
+        return hits[0]
+    if not hits:
+        pytest.fail(
+            "внедрённая причина исключения НЕ ДОШЛА до результата сверки. "
+            "Возможностей две, и обе требуют работы:\n"
+            "  1) параметр причин молча игнорируется — тогда исключение "
+            "нельзя объяснить на выдуманном наборе задач;\n"
+            "  2) причина вообще не выходит из сверки наружу — тогда контракт "
+            "обязан дозадать, ГДЕ причина видна в результате (поле записи? "
+            "отдельная выдача?), потому что молчаливое исключение "
+            "неотличимо от забытой задачи.\n"
+            "  сигнатура: %s\n  попытки:\n    %s"
+            % (_signature_note(), "\n    ".join(tried)))
+    pytest.fail(
+        "внедрению причин отзываются сразу несколько параметров (%s) — какой "
+        "из них причины, контракт не говорит. Сигнатура: %s"
+        % (", ".join(hits), _signature_note()))
+
+
+def _exempt_names() -> list:
+    return sorted(n for n, p in EXPECTED_TABLE.items()
+                  if p == PROTECTION_EXEMPT)
+
+
+def _module_reason_table():
+    """(имя атрибута, словарь, {ключ: тексты причины}) или громкий отказ.
+
+    Имя контрактом не задано, поэтому словарь разыскивается по форме: ключи —
+    имена задач литеральной таблицы, значения — непустой текст, который не
+    является ни защитой, ни состоянием.
+    """
+    table_attr = _expectation_table()[0]
+    out = []
+    for name, obj in sorted(vars(mod).items()):
+        if name.startswith("__") or name == table_attr:
+            continue
+        if not isinstance(obj, Mapping) or not obj:
+            continue
+        if not all(isinstance(k, str) for k in obj):
+            continue
+        if not set(obj) <= set(EXPECTED_TABLE):
+            continue
+        texts = {k: [t for t in _texts(v)
+                     if t and t not in PROTECTIONS and t not in STATUSES]
+                 for k, v in obj.items()}
+        if any(not v for v in texts.values()):
+            continue
+        out.append((name, obj, texts))
+    if not out:
+        pytest.fail(
+            "в app.services.task_encoding нет модульного словаря ПРИЧИН "
+            "исключения (ключи — имена исключённых задач %s, значения — текст "
+            "причины). Контракт обязан дозадать его ИМЯ и форму: исключение "
+            "без записанной причины через полгода неотличимо от забытой "
+            "задачи. Публичные имена модуля сейчас: %s"
+            % (_exempt_names(),
+               ", ".join(sorted(n for n in vars(mod)
+                                if not n.startswith("_")))))
+    if len(out) > 1:
+        pytest.fail(
+            "под словарь причин исключения подходят несколько словарей модуля "
+            "(%s) — имя надо дозадать" % ", ".join(n for n, _, _ in out))
+    return out[0]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ПИН 12 — внедрённая причина исключения доходит до результата.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_injected_exempt_reason_reaches_the_result():
+    expectation_param = _expectation_param()
+    reason_param = _reason_param()
+    result = _call(_fake_snapshot(),
+                   **{expectation_param: dict(FAKE_TABLE),
+                      reason_param: {FAKE_EXEMPT_TASK: INJECTED_REASON}})
+    assert _carries_text(result, INJECTED_REASON), (
+        "внедрена причина %r для выдуманной исключённой задачи %s, а в "
+        "результате сверки её нет: словарь причин игнорируется. Тогда "
+        "объяснение исключения нельзя проверить на выдуманном наборе — "
+        "только на сегодняшних настоящих задачах.\n  результат: %r"
+        % (INJECTED_REASON, FAKE_EXEMPT_TASK, result))
+    got = _statuses_or_fail(result, "внедрены и ожидание, и причины")
+    assert got.get(FAKE_EXEMPT_TASK) == STATUS_EXEMPT, (
+        "причина внедрена, а состояние выдуманной исключённой задачи вышло "
+        "%r вместо %r: причина не имеет права менять вердикт"
+        % (got.get(FAKE_EXEMPT_TASK), STATUS_EXEMPT))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ПИН 13 — БЕЗ внедрения причина берётся из модульного словаря.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_exempt_reason_defaults_to_the_module_table_when_not_injected():
+    _reason_param()  # шов обязан существовать и быть наблюдаемым
+    attr, _, texts = _module_reason_table()
+
+    uncovered = sorted(set(_exempt_names()) - set(texts))
+    assert uncovered == [], (
+        "в модульном словаре причин %s нет объяснения для исключённых задач "
+        "%s: исключение без записанной причины — молчаливое исключение, через "
+        "полгода его не отличить от забытой задачи" % (attr, uncovered))
+
+    exempt = _exempt_names()[0]
+    result = _call(_all_protected_snapshot() + [(exempt, ARGS_NO_FLAG)])
+    if not any(_carries_text(result, text) for text in texts[exempt]):
+        pytest.fail(
+            "без внедрения причина исключения %s обязана прийти из модульного "
+            "словаря %s (%r), а в результате сверки её нет: умолчание None -> "
+            "модульное значение не работает.\n  результат: %r"
+            % (exempt, attr, texts[exempt], result))
+    assert not _carries_text(result, INJECTED_REASON), (
+        "причина не внедрялась, а в результате всплыла подставная метка %r: "
+        "внедрение протекло между вызовами" % INJECTED_REASON)

@@ -96,7 +96,18 @@ MUTATIONS = [
      [("    expectation = (TASK_ENCODING_EXPECTATION if expectation is None\n"
        "                   else expectation)",
        "    expectation = TASK_ENCODING_EXPECTATION")],
-     f"{T}::test_expected_task_absent_from_snapshot_is_missing"),
+     f"{T}::test_injected_expectation_is_used_instead_of_the_module_table"),
+
+    ("внедрённые ПРИЧИНЫ игнорируются — шов есть, а работы в нём нет", M,
+     [("    exempt_reasons = (EXEMPT_REASONS if exempt_reasons is None\n"
+       "                      else exempt_reasons)",
+       "    exempt_reasons = EXEMPT_REASONS")],
+     f"{T}::test_injected_exempt_reason_reaches_the_result"),
+
+    ("отсутствие снова сильнее исключения — лампа краснеет при порядке", M,
+     [("        if protection == PROTECTION_EXEMPT:",
+       "        if protection == PROTECTION_EXEMPT and name in seen:")],
+     f"{T}::test_expectation_defaults_to_the_module_table_when_not_injected"),
 ]
 
 

@@ -147,21 +147,30 @@ def compare_tasks(snapshot: Iterable[Any],
     out: list = []
 
     for name, protection in expectation.items():
-        if name not in seen:
-            # Отсутствие СИЛЬНЕЕ исключения: `exempt` говорит про защиту, а не
-            # про существование. Исчезнувшая задача обязана быть названа, даже
-            # если чинить её защиту мы не собирались.
-            out.append(TaskVerdict(
-                task=name, state=STATE_MISSING,
-                reason=STATE_MISSING,
-                detail="задача есть в ожидании, но в системе её нет"))
-            continue
-
+        # ИСКЛЮЧЕНИЕ СИЛЬНЕЕ ОТСУТСТВИЯ, и это решение, а не мелочь.
+        #
+        # Соблазн обратный: «задача исчезла — скажи об этом, даже если чинить
+        # её мы не собирались». Но предмет ЭТОГО сторожа — кодировка. Скажи он
+        # `missing` про исключённую, и лампа загорится по причине, к кодировке
+        # отношения не имеющей: владельцу придётся либо чинить вне арки, либо
+        # гасить сигнал. «Красное при полном порядке» приучает не читать
+        # красное — а это ровно то, ради чего сторож и заводился.
+        #
+        # Граница, которую надо знать вслух: удалённая ИСКЛЮЧЁННАЯ задача этим
+        # сторожем не видна. Её существование обязан стеречь тот, кто за неё
+        # отвечает, а не сверка кодировки.
         if protection == PROTECTION_EXEMPT:
             why = exempt_reasons.get(name, "причина исключения не записана")
             out.append(TaskVerdict(
                 task=name, state=STATE_EXEMPT, reason=STATE_EXEMPT,
                 detail=why))
+            continue
+
+        if name not in seen:
+            out.append(TaskVerdict(
+                task=name, state=STATE_MISSING,
+                reason=STATE_MISSING,
+                detail="задача есть в ожидании, но в системе её нет"))
             continue
 
         if has_x_utf8(seen[name]):
