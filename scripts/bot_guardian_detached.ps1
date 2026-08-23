@@ -37,6 +37,21 @@ Set-Location $Root
 $env:PYTHONUTF8 = '1'
 $env:PYTHONIOENCODING = 'utf-8'
 
+# DEV-59: объявляем кодировку консоли UTF-8 — сторона ЧИТАТЕЛЯ, другой конец
+# трубы относительно PYTHONUTF8 строкой выше (сторона ПИСАТЕЛЯ). Остаются
+# ОБА. Снять посредник, «раз объявление на месте», значит закрыть путь ничем
+# и заново открыть уже закрытый jarvis-detached-bot-utf8.
+#
+# Честно вслух: до вывода БОТА это объявление не достаёт. Бот поднимается
+# через `Start-Process -RedirectStandardOutput/-RedirectStandardError` ниже,
+# а в той цепочке консоли нет вовсе (спека DEV-59 §7). Строка всё равно
+# стоит: предмет признака — вывод самой ЗАДАЧИ, а `Write-Host` из Write-G
+# идёт именно в консоль задачи, и читают его именно в аварии.
+#
+# Замер 24.08 пробной задачей: под Планировщиком консоль стартует в cp866, и
+# сеттер не бросает даже там, где консоли у процесса будто бы нет.
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+
 $py        = Join-Path $Root '.venv\Scripts\python.exe'
 if (-not (Test-Path $py)) { $py = 'python' }
 $botFile   = Join-Path $Root 'tools\jarvis_smart_telegram_control.py'
