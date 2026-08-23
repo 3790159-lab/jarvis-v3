@@ -17,6 +17,7 @@ from __future__ import annotations
 import os
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Tuple
@@ -334,41 +335,40 @@ def make_emitter(path: Any, stream: Any) -> Callable[[str], None]:
     return _emit
 
 
-def collect_top_rss(*, process_iter: Callable[[], Any],
-                    self_pid: int,
-                    clock: Callable[[], float],
-                    count: int = TOP_RSS_COUNT,
-                    budget_s: float = TOP_RSS_BUDGET_S,
-                    ) -> Tuple[Optional[list], Optional[str], bool]:
-    """Кто съел память НА САМОМ ДЕЛЕ (DEV-52 §5).
+def top_rss_from(processes: Any,
+                 *,
+                 self_pid: Optional[int] = None,
+                 clock: Optional[Callable[[], float]] = None,
+                 count: int = TOP_RSS_COUNT,
+                 budget_s: float = TOP_RSS_BUDGET_S,
+                 status: Optional[dict] = None) -> list:
+    """Кто съел память — ЧИСТЫЙ преобразователь (DEV-52 §5).
 
-    Источник процессов ВНЕДРЯЕТСЯ (`process_iter`) — psutil здесь не
-    импортируется. Иначе сторожа на эту функцию требовали бы воспроизводить
-    аварию, а такой сторож — не сторож, а надежда (Г1).
+    Берёт ИТЕРИРУЕМОЕ процессов в форме psutil (`.info` с `name`/`pid`/
+    `memory_info`) и отдаёт список `ProcRow`: по убыванию RSS, не больше
+    `count`. psutil здесь не импортируется — источник приходит снаружи, и
+    поэтому сторожа на эту функцию пишутся без воспроизведения аварии (Г1).
 
-    Возвращает `(rows, error, truncated)`:
+    НИКОГДА НЕ БРОСАЕТ (Г2). Подсказка не имеет права стоить отчёта:
+      * отказ по ОДНОМУ процессу (исчез, не дал доступа) пропускает ЭТОТ
+        процесс — иначе один защищённый системный процесс превращает
+        подсказку в пустоту ровно в аварии, когда она и нужна;
+      * обрыв перебора ЦЕЛИКОМ (MemoryError, отказ ОС) съедается здесь же.
 
-      `rows is None`     перебор ОТКАЗАЛ целиком, причина в `error`;
-      `rows == []`       перебор состоялся и не увидел никого;
-      `rows == [...]`    вот они, не больше `count`, по убыванию RSS.
-
-    Первое и второе НЕ склеиваются: «не знаем» и «знаем, что пусто» — разные
-    положения дел с разными следующими действиями (§3, тот же приём, что
-    `drill_never` против `drill_stale`).
-
-    `truncated` — бюджет времени исчерпан, отдано то, что успели (Г3).
-
-    Отказ по ОДНОМУ процессу (исчез между перебором и чтением полей, или не дал
-    доступа) пропускает ЭТОТ процесс и не отменяет остальных: подсказка не
-    имеет права стоить отчёта (Г2).
+    `status` — необязательный словарь, куда пишутся обстоятельства перебора
+    (`error`, `truncated`). Отдельным каналом, а не значением: возвращаемый
+    тип обязан остаться списком, иначе сторожа §7 не могут разыскать сборщик
+    по контракту. Кому нужны обстоятельства — тот их спрашивает.
     """
+    self_pid = os.getpid() if self_pid is None else self_pid
+    clock = time.monotonic if clock is None else clock
     started = clock()
     rows: list = []
-    truncated = False
     try:
-        for proc in process_iter():
+        for proc in processes:
             if clock() - started >= budget_s:
-                truncated = True
+                if status is not None:
+                    status["truncated"] = True
                 break
             try:
                 info = getattr(proc, "info", None) or {}
@@ -383,13 +383,47 @@ def collect_top_rss(*, process_iter: Callable[[], Any],
                     is_self=(pid == self_pid),
                 ))
             except Exception:                 # noqa: BLE001
-                # Один процесс — не весь перебор (Г2).
+                # Один процесс — не весь перебор.
                 continue
     except Exception as exc:                  # noqa: BLE001
-        return None, "%r" % (exc,), truncated
+        if status is not None:
+            status["error"] = "%r" % (exc,)
 
     rows.sort(key=lambda r: r.rss_gb, reverse=True)
-    return rows[:count], None, truncated
+    return rows[:count]
+
+
+def collect_top_rss(process_iter: Callable[[], Any],
+                    **kwargs) -> Tuple[Optional[list], Optional[str], bool]:
+    """Обёртка слоя I/O над `top_rss_from`: три состояния §3 одним значением.
+
+    Возвращает `(rows, error, truncated)`:
+
+      `rows is None`     перебор ОТКАЗАЛ, причина в `error`;
+      `rows == []`       перебор состоялся и не увидел никого;
+      `rows == [...]`    вот они.
+
+    Первое и второе НЕ склеиваются: «не знаем» и «знаем, что пусто» — разные
+    положения дел с разными следующими действиями (тот же приём, что
+    `drill_never` против `drill_stale` в пробе восстановления).
+
+    🔴 Оборвавшийся перебор отдаёт `None`, а НЕ то, что успел собрать. Причина
+    не в аккуратности: самый крупный пожиратель мог оказаться ровно за местом
+    обрыва, и частичный список назвал бы виноватым второго. Лучше честное
+    «не знаем», чем уверенно названный невиновный — это вся суть DEV-52.
+    """
+    status: dict = {}
+    try:
+        processes = process_iter()
+    except Exception as exc:                  # noqa: BLE001
+        return None, "%r" % (exc,), False
+
+    rows = top_rss_from(processes, status=status, **kwargs)
+    error = status.get("error")
+    truncated = bool(status.get("truncated"))
+    if error is not None:
+        return None, error, truncated
+    return rows, None, truncated
 
 
 def _render_top_rss(top_rss: Optional[list], error: Optional[str],
@@ -401,7 +435,7 @@ def _render_top_rss(top_rss: Optional[list], error: Optional[str],
     if top_rss is None:
         return ["  список процессов не снимался"]
     if not top_rss:
-        return ["  перебор процессов ничего не вернул"]
+        return ["  перебор ничего не вернул"]
 
     lines = ["  съели больше всех:"]
     for n, row in enumerate(top_rss, 1):
