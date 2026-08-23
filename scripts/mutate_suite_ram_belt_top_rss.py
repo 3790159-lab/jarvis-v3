@@ -104,27 +104,19 @@ MUTATIONS = [
      f"{T}::test_amendmentV_exhausted_budget_stops_the_sweep_before_the_tail"),
 
     ("отметка об урезании не выставляется — неполный список выглядит полным", M,
-     [('                if status is not None:
-'
-       '                    status["truncated"] = True
-', "")],
+     [("                if status is not None:\n"
+       '                    status["truncated"] = True\n', "")],
      f"{T}::test_amendmentV_sets_truncated_and_hands_over_what_it_got"),
 
     ("Sampler перестал доносить подсказку до отчёта — шов разорван", M,
-     [("                top_rss=top_rss,
-", "                top_rss=None,
-")],
+     [("                top_rss=top_rss,\n", "                top_rss=None,\n")],
      f"{T}::test_seam_sampler_carries_the_collected_rows_into_the_report"),
 
     ("падение самого collect_top валит замер целиком", M,
-     [("                except Exception as exc:      # noqa: BLE001
-"
-       '                    top_rss, top_err, top_cut = None, "%r" % (exc,), False
-',
-       "                except Exception as exc:      # noqa: BLE001
-"
-       "                    raise
-")],
+     [("                except Exception as exc:      # noqa: BLE001\n"
+       '                    top_rss, top_err, top_cut = None, "%r" % (exc,), False\n',
+       "                except Exception as exc:      # noqa: BLE001\n"
+       "                    raise\n")],
      f"{T}::test_seam_sampler_does_not_die_when_collect_top_itself_explodes"),
 ]
 
