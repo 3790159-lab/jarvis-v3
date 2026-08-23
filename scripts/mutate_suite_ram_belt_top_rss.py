@@ -101,12 +101,12 @@ MUTATIONS = [
      f"{T}::test_pin8_render_report_still_works_without_the_new_argument"),
     ("бюджет снят — перебор больше не ограничен по времени", M,
      [("TOP_RSS_BUDGET_S = 0.5", "TOP_RSS_BUDGET_S = 1e9")],
-     f"{T}::test_amendmentV_exhausted_budget_stops_the_sweep_before_the_tail"),
+     f"{T}::test_amendmentB_top_rss_from_signature_is_literally_as_specified"),
 
     ("отметка об урезании не выставляется — неполный список выглядит полным", M,
      [("                if status is not None:\n"
        '                    status["truncated"] = True\n', "")],
-     f"{T}::test_amendmentV_sets_truncated_and_hands_over_what_it_got"),
+     f"{T}::test_amendmentV_exhausted_budget_sets_truncated_and_hands_over_what_it_got"),
 
     ("Sampler перестал доносить подсказку до отчёта — шов разорван", M,
      [("                top_rss=top_rss,\n", "                top_rss=None,\n")],
