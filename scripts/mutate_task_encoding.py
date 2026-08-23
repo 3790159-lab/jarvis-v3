@@ -37,25 +37,25 @@ MUTATIONS = [
      f"{T}::test_expectation_table_is_the_literal_five_names"),
 
     ("незащищённая задача объявлена защищённой — весь предмет снят", M,
-     [("                task=name, state=STATE_UNPROTECTED, reason=STATE_UNPROTECTED,",
-       "                task=name, state=STATE_OK, reason=STATE_OK,")],
+     [("                    task=name, state=STATE_UNPROTECTED,",
+       "                    task=name, state=STATE_OK,"),
+      ("                    reason=REASON_UNPROTECTED,",
+       "                    reason=REASON_OK,")],
      f"{T}::test_task_without_x_utf8_is_unprotected_not_ok_not_missing"),
 
     ("защищённая объявлена незащищённой — сторож станет фоном", M,
-     [("                task=name, state=STATE_OK, reason=STATE_OK,",
-       "                task=name, state=STATE_UNPROTECTED, reason=STATE_UNPROTECTED,")],
+     [("                    task=name, state=STATE_OK, reason=REASON_OK,",
+       "                    task=name, state=STATE_UNPROTECTED, reason=REASON_UNPROTECTED,")],
      f"{T}::test_protected_task_is_ok"),
 
     ("исключённая задача объявлена нарушением — красное при полном порядке", M,
-     [("                task=name, state=STATE_EXEMPT, reason=STATE_EXEMPT,",
-       "                task=name, state=STATE_UNPROTECTED, reason=STATE_UNPROTECTED,")],
+     [("                task=name, state=STATE_EXEMPT, reason=REASON_EXEMPT,",
+       "                task=name, state=STATE_UNPROTECTED, reason=REASON_UNPROTECTED,")],
      f"{T}::test_exempt_task_without_x_utf8_is_exempt_and_not_a_violation"),
 
     ("пропажа задачи склеена с неожиданной — «что делать» потеряно", M,
-     [("                task=name, state=STATE_MISSING,\n"
-       "                reason=STATE_MISSING,",
-       "                task=name, state=STATE_UNEXPECTED,\n"
-       "                reason=STATE_UNEXPECTED,")],
+     [("                task=name, state=STATE_MISSING, reason=REASON_MISSING,",
+       "                task=name, state=STATE_UNEXPECTED, reason=REASON_UNEXPECTED,")],
      f"{T}::test_missing_and_unexpected_are_different_verdicts"),
 
     ("обратная сверка снята — завтрашняя забытая задача не всплывёт", M,
