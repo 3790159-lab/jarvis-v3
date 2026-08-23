@@ -698,3 +698,120 @@ def test_module_never_opens_a_file():
                 "open", "read_bytes", "read_text", "popen", "system"}:
             calls.append(fn.attr)
     assert calls == [], "модуль сам ходит на диск: %r" % (calls,)
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# АМЕНДМЕНТ А.4 — дозадано по вопросам, поднятым на первом круге.
+# ═════════════════════════════════════════════════════════════════════════════
+
+# ── Написание ключа исполнителя ─────────────────────────────────────────────
+#
+# На первом круге контракт называл только `Execute` и другого написания не
+# давал; я пинил его буквально и назвал это первым кандидатом в ложный
+# красный. Дозадано: понимаются РОВНО три написания, прочие — «`Execute`
+# отсутствует».
+
+EXECUTE_KEYS_UNDERSTOOD = ["Execute", "execute", "Executable"]
+EXECUTE_KEYS_NOT_UNDERSTOOD = ["EXECUTE", "executable", "Exec", "Action",
+                               "ExecutePath", "TaskExecute"]
+
+
+def _rec_key(name, arguments, key, execute):
+    """Запись снимка, где исполнитель лежит под ЗАДАННЫМ ключом."""
+    r = {"name": name}
+    if arguments is not None:
+        r["arguments"] = arguments
+    r[key] = execute
+    return r
+
+
+@pytest.mark.parametrize("key", EXECUTE_KEYS_UNDERSTOOD)
+def test_a4_execute_key_spelling_is_understood(key):
+    v = _one([_rec_key("JarvisOpsWatchdog", PS_ARGS, key, "powershell.exe")],
+             "JarvisOpsWatchdog", expectation=PS_EXPECT,
+             read_script=_reader_ok(PS_OK))
+    assert (v.state, v.reason) == ("ok", "ok"), (
+        "ключ %r обязан читаться как исполнитель (А.4)" % key)
+
+
+@pytest.mark.parametrize("key", EXECUTE_KEYS_UNDERSTOOD)
+def test_a4_understood_key_also_powers_kind_mismatch(key):
+    """Вторая сторона: узнанный ключ обязан РАБОТАТЬ, а не просто не мешать."""
+    v = _one([_rec_key("JarvisStateBackup", PY_ARGS_OK, key, "powershell.exe")],
+             "JarvisStateBackup", expectation=PY_EXPECT)
+    assert (v.state, v.reason) == ("kind_mismatch", "kind_mismatch")
+
+
+@pytest.mark.parametrize("key", EXECUTE_KEYS_NOT_UNDERSTOOD)
+def test_a4_other_key_spellings_mean_execute_is_absent(key):
+    """«Другие написания не понимаются: запись без узнаваемого ключа идёт по
+    §6.3 как "`Execute` отсутствует"» — то есть fail-closed у `ps_console`."""
+    v = _one([_rec_key("JarvisOpsWatchdog", PS_ARGS, key, "powershell.exe")],
+             "JarvisOpsWatchdog", expectation=PS_EXPECT,
+             read_script=_reader_ok(PS_OK))
+    assert (v.state, v.reason) == ("unreadable", "execute_unknown")
+
+
+@pytest.mark.parametrize("key", EXECUTE_KEYS_NOT_UNDERSTOOD)
+def test_a4_other_key_spellings_do_not_trigger_kind_mismatch(key):
+    """И зеркало, ради асимметрии §6.3: у `x_utf8` неузнанный ключ = вид не
+    сверяется, поведение как было. Иначе 17 существующих пинов поедут."""
+    v = _one([_rec_key("JarvisStateBackup", PY_ARGS_OK, key, "powershell.exe")],
+             "JarvisStateBackup", expectation=PY_EXPECT)
+    assert (v.state, v.reason) == ("ok", "ok")
+
+
+# ── `python3.exe` узнаётся как python ───────────────────────────────────────
+
+def test_a4_python3_exe_is_recognised_as_python():
+    """Сужение отменено амендментом: живой венв может называться иначе, а
+    НЕПРИЗНАННЫЙ python у `x_utf8`-задачи молча отключает сверку вида — то
+    есть даёт зелёное там, где вид не сверялся вовсе.
+    """
+    ps = _one([_rec("JarvisOpsWatchdog", PS_ARGS, "python3.exe")],
+              "JarvisOpsWatchdog", expectation=PS_EXPECT,
+              read_script=_reader_ok(PS_OK))
+    assert (ps.state, ps.reason) == ("kind_mismatch", "kind_mismatch")
+
+
+@pytest.mark.parametrize("execute", [
+    "python3.exe",
+    "PYTHON3.EXE",
+    r"C:\jarvis\.venv\Scripts\python3.exe",
+])
+def test_a4_python3_is_the_right_kind_for_an_x_utf8_task(execute):
+    """Вторая сторона: у python-задачи `python3.exe` — СВОЙ вид, не чужой."""
+    ok = _one([_rec("JarvisStateBackup", PY_ARGS_OK, execute)],
+              "JarvisStateBackup", expectation=PY_EXPECT)
+    assert (ok.state, ok.reason) == ("ok", "ok")
+    bad = _one([_rec("JarvisStateBackup", PY_ARGS_BAD, execute)],
+               "JarvisStateBackup", expectation=PY_EXPECT)
+    assert (bad.state, bad.reason) == ("unprotected", "unprotected")
+
+
+# ── `exempt` сильнее дубля ──────────────────────────────────────────────────
+
+def test_a4_exempt_beats_duplicate_in_snapshot():
+    """«`exempt` сильнее дубля — как и сильнее отсутствия» (А.4).
+
+    Довод тот же, что записан у «исключение сильнее отсутствия»: предмет
+    сторожа — кодировка. Красное про исключённую задачу горит по причине, к
+    кодировке отношения не имеющей, а «красное при полном порядке» приучает
+    не читать красное.
+    """
+    snapshot = [_rec("X", ""), _rec("X", "")]
+    v = _one(snapshot, "X", expectation={"X": "exempt"},
+             exempt_reasons={"X": "решение владельца 24.08"})
+    assert (v.state, v.reason) == ("exempt", "exempt")
+
+
+def test_a4_exempt_without_reason_still_wins_over_duplicate():
+    """Следствие, которое я вывожу сам: раз ветка `exempt` решает раньше
+    дубля, то и §6.6 решает внутри неё раньше дубля.
+
+    Названо вслух как МОЁ прочтение: амендмент говорит «`exempt` сильнее
+    дубля», но про `exempt` БЕЗ причины вместе с дублём не говорит.
+    """
+    snapshot = [_rec("X", ""), _rec("X", "")]
+    v = _one(snapshot, "X", expectation={"X": "exempt"}, exempt_reasons={})
+    assert (v.state, v.reason) == ("unreadable", "exempt_without_reason")

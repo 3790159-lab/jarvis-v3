@@ -449,3 +449,107 @@ def test_strip_ps_comments_hides_comment_and_keeps_code():
     assert "$real" in lines[1], "код пропал вместе с комментарием"
     assert "OutputEncoding" not in lines[2], "строчный комментарий остался видим"
     assert "OutputEncoding" in lines[3], "настоящее объявление пропало"
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# АМЕНДМЕНТ А.1 — признак СЕМАНТИЧЕСКИЙ, а не белый список.
+#
+# На первом круге я нашёл противоречие и намеренно не пинил его ни в какую
+# сторону: §3 п.3 давал БЕЛЫЙ СПИСОК из четырёх форм (значит `GetEncoding(65001)`
+# отвергнуть), а §3.1 отвергал «любую НЕ-UTF-8 правую часть» (значит засчитать:
+# 65001 и есть UTF-8). Разрешено в пользу СЕМАНТИКИ.
+#
+# Довод владельца: отказ на заведомо ВЕРНОМ объявлении — ложный красный, а
+# ложный красный приучает не читать красное. Это дороже лишней формы в
+# признаке.
+# ═════════════════════════════════════════════════════════════════════════════
+
+SEMANTIC_UTF8_RIGHT = [
+    "[Text.Encoding]::GetEncoding(65001)",
+    "[System.Text.Encoding]::GetEncoding(65001)",
+    "[Text.Encoding]::GetEncoding('utf-8')",
+    "[Text.Encoding]::GetEncoding(\"utf-8\")",
+    "[System.Text.Encoding]::GetEncoding('UTF-8')",
+    "[Text.Encoding]::GetEncoding(\"Utf-8\")",
+    "[System.Text.UTF8Encoding]::new($true)",
+    "[Text.UTF8Encoding]::new($true)",
+]
+
+
+@pytest.mark.parametrize("right", SEMANTIC_UTF8_RIGHT)
+def test_a1_right_hand_side_is_accepted_by_MEANING(right):
+    assert _declares("[Console]::OutputEncoding = %s\n" % right) is True, (
+        "правая часть обозначает UTF-8, но отвергнута: белый список из §3 п.3 "
+        "принят за исчерпывающий перечень. Отказ на ВЕРНОМ объявлении — "
+        "ложный красный, а он приучает не читать красное")
+
+
+def test_a1_preamble_flag_is_not_the_encoding():
+    """`$true` у `UTF8Encoding` управляет ПРЕАМБУЛОЙ (BOM), а не кодировкой.
+
+    Для `[Console]::OutputEncoding` преамбула роли не играет, поэтому обе
+    формы обязаны дать ОДИН И ТОТ ЖЕ ответ. Пинится ЯВНО и обеими формами
+    сразу: иначе следующий читатель увидит «странный `$true`» и «починит»,
+    превратив верное объявление в красное.
+    """
+    yes = _declares(
+        "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($true)\n")
+    no = _declares(
+        "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)\n")
+    assert yes is True
+    assert no is True
+    assert yes == no, (
+        "преамбула изменила вердикт, хотя к кодировке отношения не имеет")
+
+
+@pytest.mark.parametrize("right", [
+    "[Text.Encoding]::GetEncoding(1251)",
+    "[System.Text.Encoding]::GetEncoding(1251)",
+    "[Text.Encoding]::GetEncoding(866)",
+    "[Text.Encoding]::GetEncoding(1252)",
+    "[Text.Encoding]::GetEncoding('windows-1251')",
+    "[System.Text.Encoding]::GetEncoding(\"windows-1251\")",
+    "[Text.Encoding]::Unicode",
+    "[System.Text.Encoding]::Unicode",
+    "[Text.Encoding]::ASCII",
+    "[Text.Encoding]::Default",
+    "[Text.Encoding]::BigEndianUnicode",
+    "[System.Text.Encoding]::BigEndianUnicode",
+])
+def test_a1_any_other_codepage_or_name_is_refused(right):
+    """Семантика режет в ОБЕ стороны: расширение признака не имеет права
+    превратиться в «правая часть больше не смотрится» (ловушка №1)."""
+    assert _declares("[Console]::OutputEncoding = %s\n" % right) is False
+
+
+def test_a1_semantic_rule_still_obeys_comments_and_position():
+    """Расширение признака не отменяет ни ловушки №2, ни правила позиции."""
+    assert _declares(
+        "# [Console]::OutputEncoding = [Text.Encoding]::GetEncoding(65001)\n"
+    ) is False
+    assert _declares(
+        "Write-Host 'раньше'\n"
+        "[Console]::OutputEncoding = [Text.Encoding]::GetEncoding(65001)\n"
+    ) is False
+
+
+# ── АМЕНДМЕНТ А.4: граница токена у имён печати — с ОБЕИХ сторон ────────────
+
+def test_a4_printer_name_needs_a_token_boundary_on_the_LEFT_too():
+    """`My-Write-Host` — не печать (А.4).
+
+    Левая граница на первом круге была названа неопределённой и не пинилась;
+    теперь она дозадана. Регулярка с одним `\\b` слева здесь ошибётся: между
+    `-` и `W` граница слова ЕСТЬ, и мнимая печать уедет выше объявления.
+    """
+    src = ("My-Write-Host 'привет'\n"
+           "[Console]::OutputEncoding = [Text.Encoding]::UTF8\n")
+    assert _declares(src) is True
+
+
+def test_a4_printer_boundary_both_sides_at_once():
+    src = ("My-Write-Host 'раз'\n"
+           "Write-HostName 'два'\n"
+           "[Console]::OutputEncoding = [Text.Encoding]::UTF8\n"
+           "Write-Host 'настоящая печать'\n")
+    assert _declares(src) is True

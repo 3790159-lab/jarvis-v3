@@ -221,3 +221,31 @@ def test_file_flag_needs_a_left_token_boundary():
 def test_file_flag_without_a_value_gives_none():
     assert _path("-NoProfile -File") is None
     assert _path("-NoProfile -File   ") is None
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# АМЕНДМЕНТ А.4 — граница токена у `-File` с ОБЕИХ сторон.
+#
+# На первом круге контракт говорил только «понимается ТОЛЬКО явный `-File`», и
+# я прочитал границу так же, как у живущего рядом `-X utf8`, назвав это своим
+# решением. Дозадано: граница с обеих сторон, как у `-X utf8`.
+# ═════════════════════════════════════════════════════════════════════════════
+
+@pytest.mark.parametrize("args", [
+    r'--File "C:\jarvis\scripts\x.ps1"',
+    r'-NoFile "C:\jarvis\scripts\x.ps1"',
+    r'-XFile "C:\jarvis\scripts\x.ps1"',
+    r'---File "C:\jarvis\scripts\x.ps1"',
+    r'-Filex "C:\jarvis\scripts\x.ps1"',
+    r'-Files "C:\jarvis\scripts\x.ps1"',
+])
+def test_a4_file_flag_boundary_on_both_sides(args):
+    assert _path(args) is None, (
+        "%r — не явный `-File`; угадывание похожего есть источник ложного "
+        "зелёного" % args)
+
+
+def test_a4_the_real_flag_still_works_next_to_the_lookalikes():
+    """Зеркало: граница не имеет права съесть НАСТОЯЩИЙ флаг."""
+    args = r'-NoProfile -File "C:\jarvis\scripts\x.ps1"'
+    assert _path(args) == r"C:\jarvis\scripts\x.ps1"
