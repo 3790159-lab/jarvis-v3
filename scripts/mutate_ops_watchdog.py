@@ -21,6 +21,7 @@ rc, поэтому мутация, сломавшая СБОР тестов (rc 
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import subprocess
 import sys
@@ -41,6 +42,16 @@ T_TREE = "tests/test_ops_watchdog_tree.py"
 T_CHAT = "tests/test_ops_watchdog_chatter.py"
 T_SEC = "tests/test_ops_watchdog_secrets.py"
 T_JOURNAL = "tests/test_panel_event_journal.py"
+# Арка «карточки эскалации не читают». Сторожа писались ОТ СПЕКИ, кода автор
+# сторожей не видел, — поэтому они и годятся в ловцы: мишени ниже написаны по
+# исходнику, ловцы по спеке, и совпасть в одном неверном допущении им нечем.
+T_ATT = "tests/test_ops_watchdog_attention.py"
+T_HANDLE = "tests/test_panel_client_attention_handle.py"
+# ВТОРОЙ мутируемый файл. Ловушка `limit` живёт в ручке инстанса, а не в
+# watchdog'е, и оставить её без мишени значило бы охранять половину арки:
+# занижённый возраст самой старой карточки не виден НИ ОДНОЙ пробе — она
+# получает уже испорченное число и честно докладывает его.
+PANEL = "app/panel_client.py"
 
 # (имя, файл, что заменить, на что, какой тест ОБЯЗАН покраснеть)
 MUTATIONS = [
@@ -661,6 +672,139 @@ MUTATIONS = [
      "    for text in journal_alerts + trim_alerts:",
      "    for text in journal_alerts:",
      T_JOURNAL + "::test_the_cycle_carries_the_trim_verdict_into_the_state"),
+
+    # ── арка эскалаций: ветки решения, которых раньше не было ──────────────
+    # Спека §9 требует «цели по новым веткам решения, слепых ноль». Ветка без
+    # мишени — это ветка, о которой гейт молчит: она может быть выломана
+    # правкой, и все 93 сторожа останутся зелёными, потому что ни один из них
+    # не прогоняется гейтом на этой конкретной поломке.
+
+    # §5.1 спеки, ГЛАВНАЯ ловушка всей арки. Инстанс ОДИН, а из четырёх
+    # открытых карточек ТРИ у клиента без инстанса, включая самую старую.
+    # Состав «по инстансам» зелен ПО ПОСТРОЕНИЮ ровно там, где вся проблема.
+    ("состав проб: перебирается СПИСОК ИНСТАНСОВ, а не ростер", WATCHDOG,
+     "    for entry in (roster_snapshot.get(\"clients\") or []):",
+     "    for entry in [{\"slug\": slug, \"enabled\": True}]:",
+     T_ATT + "::test_the_cycle_probes_every_ENABLED_client_of_the_roster"),
+
+    # Вторая половина того же: не «зелёное», а ОТСУТСТВИЕ ключа. Отдельной
+    # мишенью, потому что чинится иначе и молчит иначе: зелёная лампа хотя бы
+    # видна на панели, а пропавшего ключа не видно нигде.
+    ("состав проб: клиент без инстанса выпал из состава — ключа НЕТ", WATCHDOG,
+     "        has_instance = (name == slug)\n"
+     "        status = payload = None",
+     "        has_instance = (name == slug)\n"
+     "        if not has_instance:\n"
+     "            continue\n"
+     "        status = payload = None",
+     T_ATT + "::test_the_client_without_an_instance_is_RED_no_instance"),
+
+    ("no_instance: клиент без инстанса ПОЗЕЛЕНЕЛ", WATCHDOG,
+     '        return {"ok": False, "reason": "no_instance",',
+     '        return {"ok": True, "reason": "no_instance",',
+     T_ATT + "::test_the_client_without_an_instance_is_RED_no_instance"),
+
+    # ЛОВУШКА 5 контракта: «зелёное по построению» — самый дорогой из
+    # возможных отказов. Проба, которая при ЛЮБОЙ поломке ручки говорит
+    # «карточки читают», хуже отсутствующей: на зелёное никто не смотрит.
+    ("bad_payload: неразобранное тело выдано за «всё тихо»", WATCHDOG,
+     '        return {"ok": False, "reason": "bad_payload",',
+     '        return {"ok": True, "reason": "bad_payload",',
+     T_ATT + "::test_a_body_of_the_wrong_shape_is_RED"),
+
+    # §4.1 спеки: порог живёт в `STALE_AFTER` инстанса, у watchdog'а своего
+    # быть не может. Число написано как `48 * 3600.0`, а не `172800.0`,
+    # НАМЕРЕННО: структурный сторож считает константы через AST и такого
+    # произведения не увидит. Ловцом обязано выступить ПОВЕДЕНИЕ.
+    ("порог: проба завела СВОЁ число вместо stale_open инстанса", WATCHDOG,
+     "    if stale_n > 0:",
+     "    if (payload.get(\"oldest_age_s\") or 0.0) > 48 * 3600.0:",
+     T_ATT + "::test_the_verdict_follows_stale_open_and_not_the_probes_own_arithmetic"),
+
+    # §6.2 контракта. Мёртвый гардиан не объясняет, почему человек не пришёл в
+    # диалог: широкий предикат здесь означает, что красный гардиан МОЛЧА гасит
+    # лампу «карточки не читают» — и гасит ровно тогда, когда на ферме авария.
+    ("подавление §4.1: широкий предикат затянул эскалации", WATCHDOG,
+     "                    if guardian_red and is_runner_check(check):",
+     "                    if guardian_red and is_client_check(check):",
+     T_ATT + "::test_a_red_guardian_does_NOT_silence_the_new_family"),
+
+    # §6.3 контракта: два упавших раннера и две протухшие эскалации — это
+    # ОДНО сообщение «упало 4 клиента» о ДВУХ разных новостях, которые чинят
+    # разные люди (одну гардиан, вторую — человек, который придёт в диалог).
+    ("склейка §4.2: группировка по виду БЕЗ семейства", WATCHDOG,
+     '            per_group.setdefault((family, t["kind"]), []).append(t)',
+     '            per_group.setdefault((CLIENT_PROBE_PREFIX, t["kind"]), []).append(t)',
+     T_ATT + "::test_the_two_families_are_glued_separately"),
+
+    # §6.1 контракта: ярлык «раннер» на ключе эскалаций — это дефект,
+    # закрытый в `e132b707`, но наоборот. Владелец читает ФРАЗУ и пойдёт
+    # чинить раннер вместо того, чтобы прийти в диалог.
+    ("ярлык: новое семейство названо РАННЕРОМ", WATCHDOG,
+     '        "label": "ЭСКАЛАЦИИ клиента «%s»",',
+     '        "label": "CHATTER раннер клиента «%s»",',
+     T_ATT + "::test_the_label_of_the_new_family_is_about_escalations_not_runners"),
+
+    # ЛОВУШКА 1 контракта. `needs_attention` сортирует `card_ts` УБЫВАЮЩЕ и
+    # режет `out[:limit]`; на 51-й открытой карточке САМАЯ СТАРАЯ выпадает, и
+    # ручка занижает возраст МОЛЧА — тем сильнее, чем хуже дела.
+    ("ручка: limit не передан — умолчание 50 режет самые старые", PANEL,
+     "        rows = tamapi_metrics.needs_attention(\n"
+     "            tamapi_dashboard._db_path(), now=now, limit=ATTENTION_SCAN_LIMIT)",
+     "        rows = tamapi_metrics.needs_attention(\n"
+     "            tamapi_dashboard._db_path(), now=now)",
+     T_HANDLE + "::test_the_oldest_card_survives_more_than_fifty_open_ones"),
+
+    # Та же ловушка, но НЕВИДИМАЯ грепу: вызов по-прежнему передаёт
+    # `limit=ATTENTION_SCAN_LIMIT`, и структурный сторож на текст вызова
+    # остаётся зелёным. Ловцом обязано выступить поведение на 51 карточке.
+    ("ручка: ATTENTION_SCAN_LIMIT опущен до 50 — вызову не видно", PANEL,
+     "ATTENTION_SCAN_LIMIT = 100_000",
+     "ATTENTION_SCAN_LIMIT = 50",
+     T_HANDLE + "::test_the_oldest_card_survives_more_than_fifty_open_ones"),
+
+    # §7 спеки: `reason` — ключ дедупа, возраст растёт КАЖДЫЙ цикл. Секунды в
+    # нём означают 🚨 раз в 30 секунд, то есть пятнадцать записей об одном
+    # событии, в которых однажды спрячется настоящее.
+    ("reason: СЫРЫЕ секунды возраста уехали в ключ дедупа", WATCHDOG,
+     '        return {"ok": False, "reason": "attention_stale",',
+     '        return {"ok": False,\n'
+     '                "reason": "attention_stale:%.0f" % (\n'
+     '                    payload.get("oldest_age_s") or 0.0),',
+     T_ATT + "::test_two_cycles_with_different_ages_give_ONE_alert"),
+
+    # 🔴 НАХОДКА ПЕРВОГО ПРОГОНА, И ОНА ПРО СТОРОЖА, А НЕ ПРО КОД.
+    # Вторая половина той же ветки: возраст, попавший в `reason` уже
+    # СВЁРНУТЫМ (`_fmt_age`, десятые доли суток), переживает поведенческого
+    # ловца выше — и переживает ПО ПОСТРОЕНИЮ. Тот сравнивает два цикла с
+    # возрастами 200000 и 200030 секунд, то есть отстоящими на ОДИН цикл, а
+    # разрешение свёртки — 0.1 суток ≈ 8640 секунд. Оба возраста дают строку
+    # «2.3 сут», причины совпадают, дедуп срабатывает, сторож зелен. При этом
+    # авария настоящая: через сутки строка станет «3.3 сут», и владелец
+    # получит 🚨 «новая причина» о падении, которое никуда не девалось.
+    #
+    # Поймать это может только СТРУКТУРНЫЙ ловец — «в причине нет цифр».
+    # Пара мишеней держит обе половины, и мишень тут именно поэтому не одна:
+    # поведенческий сторож на дедупе НЕ покрывает грубую свёртку, и знать это
+    # надо явно, а не выяснять в тот день, когда причина поедет.
+    ("reason: СВЁРНУТЫЙ возраст в ключе дедупа — поведению не видно", WATCHDOG,
+     '        return {"ok": False, "reason": "attention_stale",',
+     '        return {"ok": False,\n'
+     '                "reason": "attention_stale:%s" % _fmt_age(\n'
+     '                    payload.get("oldest_age_s")),',
+     T_ATT + "::test_the_reason_carries_no_age_and_no_address"),
+
+    # Порядок деплоя из §1 контракта: ручка едет ПЕРВОЙ, проба второй. 404 —
+    # это «ручки ещё нет», а не «инстанс мёртв»; прочитанное как смерть, оно
+    # отправит владельца поднимать живой процесс.
+    ("404: «ручки ещё нет» прочитано как смерть инстанса", WATCHDOG,
+     '    if status is None:\n'
+     '        return {"ok": False, "reason": "no_response",\n'
+     '                "detail": "%s: нет ответа (refused/timeout) — инстанс молчит, "',
+     '    if status is None or status == 404:\n'
+     '        return {"ok": False, "reason": "no_response",\n'
+     '                "detail": "%s: нет ответа (refused/timeout) — инстанс молчит, "',
+     T_ATT + "::test_a_missing_handle_reads_as_http_404_not_as_death"),
 ]
 
 
@@ -713,33 +857,109 @@ def assert_clean() -> None:
             "Закоммить их и повтори прогон:\n" + out)
 
 
-def write_mutant(path: Path, text: str) -> None:
-    """Записать мутанта и выдать ему СВОЙ mtime.
+def write_mutant(path: Path, blob: bytes) -> None:
+    """Записать мутанта БАЙТАМИ и выдать ему СВОЙ mtime.
 
-    Без подписи два мутанта одинакового размера в одну секунду делят один
-    байткод, и второй прогон проверяет первый код. Сторож `[ok]` — ложный.
+    🔴 БАЙТАМИ, А НЕ `write_text`. `Path.write_text` открывает файл в
+    текстовом режиме, а он на Windows переводит КАЖДЫЙ `\\n` в `\\r\\n` — то есть
+    правит ВЕСЬ файл, а не тот фрагмент, ради которого пришли. Это уже гасило
+    мутации молча (пятый способ вранья гейта): сторож, ищущий в исходнике
+    многострочный фрагмент, перестаёт его находить и краснеет НЕ ПО ТОЙ
+    ПРИЧИНЕ — гейт при этом печатает `[ok]` и отчитывается за пойманное,
+    которое поймано не было. Поиск и замена идут по байтам по той же причине:
+    искать в одном представлении, а писать в другом — значит однажды
+    промахнуться мимо мишени.
+
+    Без подписи mtime два мутанта одинакового размера в одну секунду делят
+    один байткод, и второй прогон проверяет первый код. Сторож `[ok]` — тоже
+    ложный, и это уже отдельно стоило недостоверных цифр (DEV-26).
     """
-    path.write_text(text, encoding="utf-8")
+    path.write_bytes(blob)
     stamp = _MTIME_BASE + next(_mtime_seq)
     os.utime(path, (stamp, stamp))
+
+
+def preflight() -> list[str]:
+    """Мишени существуют РОВНО ПО РАЗУ, ловцы существуют вовсе. До прогона.
+
+    🔴 ЭТО ЧАСТЬ ГЕЙТА, А НЕ ПРОВЕРКА ГЛАЗАМИ. Две беды, обе молчаливые:
+
+    * мишень, встречающаяся ДВАЖДЫ, мутируется в первом попавшемся месте —
+      гейт отчитается за ветку, которую не трогал, а `replace(..., 1)` не
+      скажет об этом ни слова. Мишень, уехавшая от кода (переименовали,
+      переформатировали), ловится и старой проверкой, но уже В ПРОГОНЕ, то
+      есть после того, как на неё потратили минуты;
+    * ловца, которого НЕТ, pytest встречает `rc 4` («file or directory not
+      found»). Красным это не считается — и правильно, — но выглядит как
+      слепой сторож, хотя сторожа просто не существует. Отличать «сторож
+      промолчал» от «сторожа нет» обязан гейт, а не читающий его вывод.
+
+    Возвращает список бед. Пустой список = можно гонять.
+    """
+    problems = []
+    seen = {}
+    for name, rel, old, _new, test in MUTATIONS:
+        path = ROOT / rel
+        if not path.exists():
+            problems.append("%s: нет мутируемого файла %s" % (name, rel))
+            continue
+        blob = seen.setdefault(rel, path.read_bytes())
+        found = blob.count(old.encode("utf-8"))
+        if found != 1:
+            problems.append(
+                "%s: мишень найдена %d раз(а) в %s — мутация уедет не туда"
+                % (name, found, rel))
+        test_rel = test.split("::", 1)[0]
+        test_path = ROOT / test_rel
+        if not test_path.exists():
+            problems.append("%s: ловца нет на диске — %s" % (name, test_rel))
+            continue
+        if "::" in test:
+            want = "def %s(" % test.split("::", 1)[1]
+            if want not in test_path.read_text(encoding="utf-8"):
+                problems.append("%s: в %s нет теста %s"
+                                % (name, test_rel, test.split("::", 1)[1]))
+    return problems
 
 
 def main() -> int:
     refuse_if_live_tree(ROOT)
     assert_clean()
+    problems = preflight()
+    if problems:
+        print("ОТКАЗ: гейт не годен к прогону — %d бед(ы):" % len(problems))
+        for line in problems:
+            print("  -", line)
+        return 1
+    print("предполётная сверка: %d мишеней, все по разу, ловцы на месте"
+          % len(MUTATIONS))
     blind = []
     for name, rel, old, new, test in MUTATIONS:
         path = ROOT / rel
-        text = path.read_text(encoding="utf-8")
-        if old not in text:
-            print("[!] МУТАЦИЯ НЕ ПРИМЕНИЛАСЬ: %s — фрагмент не найден" % name)
-            blind.append((name, "фрагмент не найден"))
+        blob = path.read_bytes()
+        # Отпечаток ДО мутации. `finally` возвращает файл, но не доказывает,
+        # что вернул его тем же: `git checkout --` при сбое молчит так же,
+        # как при успехе, а следующая мутация ляжет уже на испорченное дерево
+        # и будет проверять не то. Надежда — не предохранитель.
+        before = hashlib.sha256(blob).hexdigest()
+        old_b, new_b = old.encode("utf-8"), new.encode("utf-8")
+        if blob.count(old_b) != 1:
+            print("[!] МУТАЦИЯ НЕ ПРИМЕНИЛАСЬ: %s — фрагмент найден %d раз(а)"
+                  % (name, blob.count(old_b)))
+            blind.append((name, "фрагмент найден %d раз(а)" % blob.count(old_b)))
             continue
-        write_mutant(path, text.replace(old, new, 1))
+        write_mutant(path, blob.replace(old_b, new_b, 1))
         try:
             caught, answer = run(test)
         finally:
             revert(rel)
+        after = hashlib.sha256(path.read_bytes()).hexdigest()
+        if after != before:
+            # Дальше гонять нельзя: следующие мутации лягут на чужой текст.
+            print("[!] ОТКАТ НЕ ПОБАЙТОВЫЙ: %s (%s)\n"
+                  "    было %s\n    стало %s" % (name, rel, before, after))
+            blind.append((name, "откат не побайтовый"))
+            break
         if caught:
             print("[ok]   %s -> сторож покраснел" % name)
         else:
