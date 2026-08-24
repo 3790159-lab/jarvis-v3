@@ -22,6 +22,20 @@ Set-Location $Root
 $env:PYTHONUTF8 = '1'
 $env:PYTHONIOENCODING = 'utf-8'
 
+# DEV-59: declare the console encoding as UTF-8 -- the READER side, and the
+# other end of the pipe from PYTHONUTF8 just above (the WRITER side). Both
+# stay: dropping the mediator because the declaration landed would close a
+# path with nothing and reopen jarvis-detached-bot-utf8.
+# It does NOT reach the backend's own output: the backend goes up through
+# Start-Process with redirects below, and that chain has no console in it at
+# all (spec DEV-59, section 7). The line is here for THIS task's output --
+# Write-G tees into the console, and that tee is what a human reads when
+# re-running the task by hand during an outage.
+# Measured 24.08 with a probe task: under Task Scheduler the console starts in
+# cp866 and this setter does not throw even with no console attached.
+# ASCII only on purpose -- no BOM on this file, so PS 5.1 decodes it cp1251.
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+
 $py        = Join-Path $Root '.venv\Scripts\python.exe'
 if (-not (Test-Path $py)) { $py = 'python' }
 $entry     = Join-Path $Root 'scripts\run_backend_detached.py'

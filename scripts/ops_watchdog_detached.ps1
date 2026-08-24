@@ -31,6 +31,18 @@ Set-Location $Root
 $env:PYTHONUTF8 = '1'
 $env:PYTHONIOENCODING = 'utf-8'
 
+# DEV-59: declare the console encoding as UTF-8 -- the READER side, and the
+# other end of the pipe from PYTHONUTF8 just above (the WRITER side). Both
+# stay: dropping either one closes a path with nothing.
+# This file is the ONE place in the park where the declaration actually
+# reaches the output (spec DEV-59, section 7): `& $py ... 2>&1 | ForEach-Object`
+# below runs the child THROUGH this console, unlike the Start-Process
+# redirects the other guardians use, which have no console in the chain at all.
+# Measured 24.08 with a probe task: under Task Scheduler the console starts in
+# cp866 and this setter does not throw even with no console attached.
+# Stands before the first print (Write-G below).
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+
 $py = Join-Path $Root '.venv\Scripts\python.exe'
 if (-not (Test-Path $py)) { $py = 'python' }
 $watchScript = Join-Path $Root 'scripts\ops_watchdog.py'
