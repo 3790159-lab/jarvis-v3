@@ -46,7 +46,13 @@ CREATE TABLE IF NOT EXISTS messages (
     contact_id TEXT NOT NULL,
     role TEXT NOT NULL,
     text TEXT NOT NULL,
-    ts REAL NOT NULL
+    ts REAL NOT NULL,
+    -- Кто написал: 'bot' или 'human'. НЕ роль: роль уходит в поле `role`
+    -- вызова Anthropic напрямую (brain.build_messages), и роли 'human' в том
+    -- API нет — она сломала бы вызов. Ручное сообщение владельца ложится как
+    -- role='assistant' (с точки зрения лида это та же персона, общий аккаунт)
+    -- и author='human'.
+    author TEXT
 );
 CREATE TABLE IF NOT EXISTS facts (
     contact_id TEXT NOT NULL,
@@ -239,6 +245,14 @@ ROW_MUTE_SOURCES = frozenset({"human_takeover", "command"})
 # Колонки, которых нет в базах арки 1/2. CREATE TABLE IF NOT EXISTS не добавляет
 # колонки в СУЩЕСТВУЮЩУЮ таблицу — старая база получит их только через ALTER.
 _ADDED_COLUMNS = {
+    # Автор сообщения (TG-1). NULL у исторических строк — осознанно и по той же
+    # причине, что у llm_usage ниже: авторство задним числом НЕ восстановимо.
+    # Пометить старые строки 'bot' значило бы соврать ровно про те сообщения,
+    # ради которых колонка и заводится, — ручные реплики владельца, которые до
+    # сих пор были неотличимы от бота. NULL здесь читается «не знаем».
+    "messages": {
+        "author": "TEXT",
+    },
     # Разбивка записи кэша по TTL (арка «кэш классификатора», фаза 0). Ставки
     # записи разные ($3.75/M за 5m, $6/M за 1h), а суммарный
     # cache_creation_input_tokens их не различает. NULL у исторических строк —
@@ -786,11 +800,21 @@ class Store:
                 "UPDATE contacts SET last_human_out_ts=? WHERE contact_id=?", (ts, contact_id))
             self._conn.commit()
 
-    def add_message(self, contact_id: str, role: str, text: str, ts: float) -> None:
+    def add_message(self, contact_id: str, role: str, text: str, ts: float,
+                    author: str = "bot") -> None:
+        """Записать сообщение в историю.
+
+        `author` — КТО написал ('bot' | 'human'), и это НЕ роль. Роль уходит в
+        API как есть, а автор живёт рядом: ручная реплика владельца хранится
+        как role='assistant' + author='human'. Умолчание 'bot' держит все
+        существующие вызывающие стороны без правок и не притворяется знанием
+        про исторические строки — у тех author остаётся NULL (см.
+        `_ADDED_COLUMNS`)."""
         with self._lock:
             self._conn.execute(
-                "INSERT INTO messages(contact_id, role, text, ts) VALUES (?,?,?,?)",
-                (contact_id, role, text, ts))
+                "INSERT INTO messages(contact_id, role, text, ts, author) "
+                "VALUES (?,?,?,?,?)",
+                (contact_id, role, text, ts, author))
             self._conn.commit()
 
     def delete_command_messages(self, prefixes: list[str], role: str = "assistant") -> int:
@@ -811,7 +835,8 @@ class Store:
     def history(self, contact_id: str, limit: int | None = None) -> list[dict]:
         with self._lock:
             rows = self._conn.execute(
-                "SELECT role, text, ts FROM messages WHERE contact_id=? ORDER BY id",
+                "SELECT role, text, ts, author FROM messages "
+                "WHERE contact_id=? ORDER BY id",
                 (contact_id,)).fetchall()
         rows = [dict(r) for r in rows]
         if limit is None:

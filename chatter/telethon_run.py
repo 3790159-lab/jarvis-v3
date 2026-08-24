@@ -1204,7 +1204,7 @@ class TelethonRunner:
         # Anthropic-API, а роли 'human' там нет -- отправка её сломала бы
         # вызов LLM. С точки зрения лида это и есть Аня (общий аккаунт), так
         # что роль 'assistant' и семантически верна.
-        store.add_message(contact_id, "assistant", text, ts=now)
+        store.add_message(contact_id, "assistant", text, ts=now, author="human")
         store.note_human_out(contact_id, ts=now)
 
         started = store.begin_takeover(
