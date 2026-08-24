@@ -374,6 +374,25 @@ def test_the_watchdog_is_still_stdlib_only():
 
 
 # ── §5.1 спеки: СОСТАВ ПРОБ ИЗ РОСТЕРА, А НЕ ИЗ СПИСКА ИНСТАНСОВ ───────────
+#
+# АМЕНДМЕНТ КОНТРАКТА (24.08). Форму снимка контракт не называл, и первая
+# редакция этих сторожей подавала в `probe_all` словарь, собранный РУКАМИ.
+# Довод, которым форма зафиксирована, не вкусовой: `probe_all` НИГДЕ не ходит
+# по сети — у панели HTTP живёт в `_panel_client_snapshot`, а композитор
+# получает готовый `status`. Значит и здесь сеть — в сборщике:
+#
+#   _attention_snapshot(roster_snapshot, panel_snapshot, *,
+#                       slug=PANEL_CLIENT_SLUG, fetch=None) -> dict | None
+#       -> {"clients": {"<slug>": {<запись одного клиента>}}}
+#       None — когда состав или адрес спросить НЕЧЕМ (ростер не прочитан,
+#              снимка панели нет)
+#   probe_all(..., attention_snapshot=<то, что вернул сборщик>)
+#
+# Сторожа состава теперь гоняются ЧЕРЕЗ настоящий сборщик, а не через словарь
+# из моих рук. Это строже: словарь из рук проверял, что `probe_all` его
+# скопировал; настоящий сборщик проверяет ПРАВИЛО состава — перебор ростера,
+# правило `slug == PANEL_CLIENT_SLUG`, и то, что адрес с портом взяты из
+# готового снимка панели, а не вычислены вторично.
 
 ROSTER_TWO = {"clients": [{"slug": NO_INSTANCE, "enabled": True},
                           {"slug": WITH_INSTANCE, "enabled": True},
@@ -387,6 +406,48 @@ def _chatter(roster=None):
             "roster": ROSTER_TWO if roster is None else roster}
 
 
+def _panel(host=HOST, port=PORT, status=200, problem=None):
+    """Снимок панели — ровно той формы, какую отдаёт `_panel_client_snapshot`."""
+    return {"host": host, "port": port, "status": status, "problem": problem}
+
+
+@pytest.fixture()
+def net(monkeypatch):
+    """Сеть инстанса под контролем — перехват на `urllib`, а не на `fetch`.
+
+    Инъекцию `fetch` амендмент называет, но ФОРМУ её ответа — нет, а угадывать
+    неназванное значит краснеть на законном выборе автора кода. Поэтому
+    сборщик гоняется через СВОЙ настоящий сетевой слой, перехваченный там, где
+    watchdog обязан оставаться stdlib-only, — на `urllib.request.urlopen`.
+    Заодно это доказывает поход целиком: адрес, порт, путь и разбор тела.
+
+    Сам факт инъектируемости `fetch` пиннится отдельно, по подписи.
+    """
+    state = {"status": 200, "silent": False, "urls": [],
+             "body": _payload(open_=2, stale_open=0, age=3600.0, wait=1800.0)}
+
+    def fake_urlopen(url, *a, **k):
+        target = getattr(url, "full_url", url)
+        state["urls"].append(str(target))
+        if state["silent"]:
+            raise OSError("порт молчит (refused)")
+        if state["status"] != 200:
+            raise ow.urllib.error.HTTPError(
+                str(target), state["status"], "nope", {}, None)
+        body = state["body"]
+        text = body if isinstance(body, str) else json.dumps(body)
+        return _FakeResp(200, text)
+
+    monkeypatch.setattr(ow.urllib.request, "urlopen", fake_urlopen)
+    return state
+
+
+def _collect(roster=None, panel=None):
+    """Снимок эскалаций РЕАЛЬНЫМ сборщиком контракта."""
+    roster = ROSTER_TWO if roster is None else roster
+    return ow._attention_snapshot(roster, _panel() if panel is None else panel)
+
+
 def _probes(attention_snapshot, roster=None):
     return ow.probe_all(lambda p: 200,
                         lambda p: (100 * 2 ** 30, 0, 50 * 2 ** 30),
@@ -394,11 +455,38 @@ def _probes(attention_snapshot, roster=None):
                         attention_snapshot=attention_snapshot)
 
 
+def _cycle(roster=None, panel=None):
+    """Полный цикл: ростер -> сборщик -> композитор. Ростер ОДИН объект на
+    обе половины — второго чтения реестра появиться не должно."""
+    roster = ROSTER_TWO if roster is None else roster
+    return _probes(_collect(roster, panel), roster)
+
+
 def _att_keys(probes):
     return sorted(k for k in probes if k.startswith(ATT_PREFIX))
 
 
-def test_the_cycle_probes_every_ENABLED_client_of_the_roster():
+def test_the_collector_takes_the_roster_and_the_panel_snapshot():
+    """Подпись сборщика — часть контракта: ростер приходит ГОТОВЫМ (второго
+    чтения реестра нет), адрес приходит ГОТОВЫМ (второго вызова резолвера
+    нет), а `fetch` инъектируется — иначе «ходит на инстанс» осталось бы
+    утверждением, которое нечем подменить."""
+    sig = inspect.signature(ow._attention_snapshot)
+    params = list(sig.parameters.values())
+    positional = [p for p in params
+                  if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)]
+    assert [p.name for p in positional] == ["roster_snapshot", "panel_snapshot"], (
+        "сборщик принимает %s вместо (roster_snapshot, panel_snapshot)"
+        % ([p.name for p in positional],))
+    kw = {p.name: p for p in params if p.kind == p.KEYWORD_ONLY}
+    assert "fetch" in kw and kw["fetch"].default is None, (
+        "`fetch` не инъектируется: поход на инстанс нечем подменить")
+    assert "slug" in kw and kw["slug"].default == ow.PANEL_CLIENT_SLUG, (
+        "слаг единственного инстанса взят не из `PANEL_CLIENT_SLUG` — это "
+        "лишнее место для имени, которое уже названо константой")
+
+
+def test_the_cycle_probes_every_ENABLED_client_of_the_roster(net):
     """🔴 ГЛАВНАЯ ЛОВУШКА ВСЕЙ РАБОТЫ, и она видна уже сегодня.
 
     Инстанс ОДИН, а из четырёх открытых карточек ТРИ у клиента без инстанса,
@@ -408,7 +496,7 @@ def test_the_cycle_probes_every_ENABLED_client_of_the_roster():
 
     Ростер из двух включённых + инстанс из одного = ДВА ключа.
     """
-    probes = _probes(_snap(payload=_payload(stale_open=0)))
+    probes = _cycle()
     assert _att_keys(probes) == sorted([_ak(NO_INSTANCE), _ak(WITH_INSTANCE)]), (
         "состав проб эскалаций взят не из ростера: %s" % (_att_keys(probes),))
     assert _ak(DISABLED) not in probes, (
@@ -416,14 +504,14 @@ def test_the_cycle_probes_every_ENABLED_client_of_the_roster():
         "вовсе — как и у раннеров")
 
 
-def test_the_client_without_an_instance_is_RED_no_instance():
+def test_the_client_without_an_instance_is_RED_no_instance(net):
     """§9 п. 2: НЕ зелёное и НЕ отсутствие ключа.
 
     Молчать о том, что половина фермы непроверяема, нельзя. Лампа загорится с
-    первого цикла — это правильно, и владелец решит: поднимать инстанс или
-    помечать клиента осознанно непокрытым.
+    первого цикла — это правильно, и владелец должен знать заранее и решить:
+    поднимать инстанс или помечать клиента осознанно непокрытым.
     """
-    probes = _probes(_snap(payload=_payload(stale_open=0)))
+    probes = _cycle()
     p = probes[_ak(NO_INSTANCE)]
     assert p["ok"] is False, (
         "клиент без инстанса позеленел — «не смог спросить» выдано за "
@@ -432,54 +520,119 @@ def test_the_client_without_an_instance_is_RED_no_instance():
     assert (p.get("detail") or "").strip(), p
 
 
-def test_the_client_with_an_instance_is_measured_normally():
+def test_nobody_walks_to_the_network_for_the_client_without_an_instance(net):
+    """🔴 ЛОВУШКА 3 в поведении: карты портов НЕТ.
+
+    Спросить по адресу единственного инстанса ЗА клиента, у которого инстанса
+    нет, значит выдать чужой ответ за его: `volska` получила бы вердикт по
+    карточкам `yarina`, и это было бы зелёное ровно там, где лежит проблема.
+    Правило простое и проверяемое: `slug == PANEL_CLIENT_SLUG` — спрашиваем,
+    иначе не ходим вовсе.
+    """
+    _cycle()
+    assert len(net["urls"]) == 1, (
+        "походов на инстанс %d при ОДНОМ инстансе на ферме: %s"
+        % (len(net["urls"]), net["urls"]))
+
+
+def test_the_client_with_an_instance_is_measured_normally(net):
     """Парная граница: правило `no_instance` не имеет права выключить пробу
     вовсе — иначе всё семейство станет вечно красным фоном."""
-    probes = _probes(_snap(payload=_payload(open_=2, stale_open=0)))
+    net["body"] = _payload(open_=2, stale_open=0, age=3600.0, wait=1800.0)
+    probes = _cycle()
     assert probes[_ak(WITH_INSTANCE)]["ok"] is True, probes[_ak(WITH_INSTANCE)]
 
-    probes = _probes(_snap(payload=_payload(open_=2, stale_open=1)))
+    net["body"] = _payload(open_=2, stale_open=1)
+    probes = _cycle()
     p = probes[_ak(WITH_INSTANCE)]
     assert p["ok"] is False and p["reason"] == "attention_stale", p
 
 
-def test_no_instance_is_not_confused_with_a_dead_one():
+def test_no_instance_is_not_confused_with_a_dead_one(net):
     """«Инстанса нет» чинит владелец (поднять или признать непокрытым),
     «инстанс не отвечает» — гардиан. Один reason на два случая утопил бы
     вторую новость в дедупе первой."""
-    probes = _probes(_snap(status=None, payload=None))
+    net["silent"] = True
+    probes = _cycle()
     absent = probes[_ak(NO_INSTANCE)]["reason"]
     dead = probes[_ak(WITH_INSTANCE)]["reason"]
     assert absent == "no_instance" and dead == "no_response", (absent, dead)
 
 
-def test_without_a_snapshot_the_family_does_not_appear_out_of_nowhere():
+def test_a_missing_handle_reaches_the_verdict_through_the_whole_cycle(net):
+    """Порядок деплоя целиком: ручки ещё нет -> 404 -> «не знаю, читают ли».
+
+    Поштучный сторож на `probe_attention` пинит перевод кода в причину; этот
+    пинит, что код вообще ДОЕЗЖАЕТ от `urlopen` до вердикта цикла. Сборщик,
+    проглотивший `HTTPError`, превратил бы 404 в `no_response`, и владелец
+    пошёл бы поднимать процесс, который жив.
+    """
+    net["status"] = 404
+    p = _cycle()[_ak(WITH_INSTANCE)]
+    assert p["reason"] == "http:404", p
+
+
+def test_without_a_snapshot_the_family_does_not_appear_out_of_nowhere(net):
     """`None` = проб этого семейства в цикле НЕТ вовсе: watchdog не имеет
-    права слать DOWN о том, чего не мерил."""
+    права слать DOWN о том, чего не мерил.
+
+    Пара утверждений, а не одно: без предпосылки «со снимком пробы ЕСТЬ»
+    сторож зелен по построению — ключей могло не оказаться по любой другой
+    причине.
+    """
+    assert _att_keys(_cycle()), "предпосылка: со снимком пробы семейства есть"
     probes = _probes(None)
     assert _att_keys(probes) == [], (
         "проба эскалаций выставлена без снимка: %s" % (_att_keys(probes),))
 
 
-def test_an_unreadable_roster_gives_no_attention_probes_at_all():
+def test_an_unreadable_roster_gives_no_attention_probes_at_all(net):
     """Красный `chatter_roster` означает «состава не знаем». Выставить в этот
     момент пробы «по инстансам» значило бы подменить неизвестный состав
-    известным — и промолчать ровно о тех, кого не увидели."""
-    probes = _probes(_snap(payload=_payload(stale_open=0)),
-                     roster={"error": "битый yaml"})
+    известным — и промолчать ровно о тех, кого не увидели.
+
+    Проверяется В ТРИ ХОДА: сборщик обязан ответить `None` (а не пустым
+    составом, который прочитался бы как «клиентов нет»), цикл на этом `None`
+    обязан остаться без ключей семейства, и на инстанс никто не ходил.
+    """
+    broken = {"error": "битый yaml"}
+    assert _collect(roster=broken) is None, (
+        "сборщик выдал состав там, где реестр не прочитан: пустой состав "
+        "неотличим от «клиентов нет»")
+    probes = _cycle(roster=broken)
     assert probes["chatter_roster"]["ok"] is False
     assert _att_keys(probes) == [], (
         "состава фермы не знаем, а пробы эскалаций выставлены: %s"
         % (_att_keys(probes),))
+    assert net["urls"] == [], (
+        "не зная состава, сборщик всё-таки сходил на инстанс: %s" % (net["urls"],))
 
 
-def test_the_runner_probes_are_untouched_by_the_new_family():
+def test_without_a_panel_snapshot_there_is_nothing_to_measure(net):
+    """Снимка панели нет — адрес спросить нечем, и это НЕ повод для DOWN.
+
+    `None` от `_panel_client_snapshot` означает «watchdog не на деплой-хосте»
+    (нет `run_panel_client.py`). Выдать это за «инстанс мёртв» значило бы
+    поднять тревогу на машине, которой мерить и не положено.
+    """
+    assert ow._attention_snapshot(ROSTER_TWO, None) is None, (
+        "сборщик собрал состав без снимка панели — значит адрес он взял "
+        "откуда-то ещё")
+    assert net["urls"] == [], net["urls"]
+
+
+def test_the_runner_probes_are_untouched_by_the_new_family(net):
     """ГРАНИЦА: новое семейство встаёт РЯДОМ, а не вместо.
 
     Пер-клиентная арка закрыта два часа назад, на ней стоят свои сторожа и
     мутационный гейт; молчаливая подмена её ключей была бы дефектом, который
-    покажет себя только на живой аварии."""
-    probes = _probes(_snap(payload=_payload(stale_open=0)))
+    покажет себя только на живой аварии.
+
+    Предпосылка обязательна: без проб эскалаций в этом же цикле утверждение
+    «раннеры не тронуты» истинно по построению и не охраняет ничего.
+    """
+    probes = _cycle()
+    assert _att_keys(probes), "предпосылка: пробы эскалаций в цикле есть"
     for slug in (NO_INSTANCE, WITH_INSTANCE):
         assert _rk(slug) in probes, (
             "проба раннера %s пропала: %s" % (slug, sorted(probes)))
@@ -487,13 +640,20 @@ def test_the_runner_probes_are_untouched_by_the_new_family():
     assert "chatter_roster" in probes and "chatter_beat_legacy" in probes
 
 
-def test_the_new_keys_do_not_collide_with_the_runner_keys():
+def test_the_new_keys_do_not_collide_with_the_runner_keys(net):
     """Два семейства пер-клиентных ключей на один слаг: `fail`, `alerted` и
     дедуп по причине живут ВНУТРИ записи ключа, и слипшиеся ключи означали бы,
     что мёртвый раннер глушит алерт о непрочитанной карточке."""
-    probes = _probes(_snap(payload=_payload(stale_open=1)))
+    net["body"] = _payload(open_=2, stale_open=1)
+    probes = _cycle()
     assert _ak(WITH_INSTANCE) != _rk(WITH_INSTANCE)
+    assert _ak(WITH_INSTANCE) in probes and _rk(WITH_INSTANCE) in probes, sorted(probes)
     assert probes[_ak(WITH_INSTANCE)] is not probes[_rk(WITH_INSTANCE)]
+    assert probes[_ak(WITH_INSTANCE)]["reason"] == "attention_stale", (
+        "предпосылка: ключ эскалаций несёт СВОЙ вердикт")
+    assert probes[_rk(WITH_INSTANCE)]["reason"] != "attention_stale", (
+        "ключ раннера получил вердикт эскалаций — семейства слиплись")
+
 
 
 # ── §2 спеки / ЛОВУШКА 4: адрес — ОДИН вызов резолвера ─────────────────────
@@ -559,31 +719,18 @@ def resolver(monkeypatch):
     return calls
 
 
-def _build_attention_snapshot(panel_snapshot):
-    """Собрать снимок эскалаций так, как это сделал бы цикл.
-
-    Контракт §4 допускает две формы разделения одного вычисления адреса —
-    «общий снимок или явная передача», — поэтому вызов подстраивается под
-    подпись: обязательный позиционный параметр получает снимок панели, а
-    отсутствие такового означает, что снимок собирается сам.
-    """
-    fn = ow._attention_snapshot
-    sig = inspect.signature(fn)
-    args = []
-    for p in sig.parameters.values():
-        if p.default is inspect.Parameter.empty and p.kind in (
-                p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD):
-            args.append(panel_snapshot)
-    return fn(*args)
-
-
 def test_the_probe_walks_to_the_address_the_resolver_gave(resolver):
     """ПОДМЕНОЙ, а не совпадением чисел: если снимок берёт адрес где-то ещё,
-    он не сдвинется — и сторож покраснеет."""
+    он не сдвинется — и сторож покраснеет.
+
+    Прогулка случается В СБОРЩИКЕ, а не в `probe_all`: композитор нигде не
+    ходит по сети (у панели HTTP тоже живёт в её сборщике, а `probe_all`
+    получает готовый `status`). Сторож ходит тем же путём, каким пойдёт цикл.
+    """
     panel = ow._panel_client_snapshot()
     assert panel["host"] == "100.77.77.77", panel
 
-    _build_attention_snapshot(panel)
+    ow._attention_snapshot(ROSTER_TWO, panel)
     walked = [u for u in resolver["urls"] if ATT_PATH_EXPECTED in u]
     assert walked, (
         "проба не сходила на %s вовсе; ходила по адресам: %s"
@@ -591,7 +738,7 @@ def test_the_probe_walks_to_the_address_the_resolver_gave(resolver):
     assert all("100.77.77.77" in u for u in walked), (
         "проба пошла НЕ на тот адрес, который дал резолвер бинда: %s" % (walked,))
     assert all(str(PORT) in u for u in walked), (
-        "порт взят не из снимка — это четвёртое место для числа 8011: %s"
+        "порт взят не из снимка панели — это лишнее место для числа 8011: %s"
         % (walked,))
 
 
@@ -601,18 +748,27 @@ def test_the_address_is_collected_by_ONE_resolver_call_for_both_probes(resolver)
     Спека §2.1 требует буквально: «сбор адреса для обеих проб — ОДИН вызов,
     результат которого делится, а не два вызова резолвера рядом». Разойдутся
     они ровно в день смены адреса тайнета, и меньшее число погасит большее
-    молча.
+    молча. Снимок панели передаётся сборщику ГОТОВЫМ — ровно затем, чтобы
+    второму вызову неоткуда было взяться.
     """
     panel = ow._panel_client_snapshot()
-    _build_attention_snapshot(panel)
+    ow._attention_snapshot(ROSTER_TWO, panel)
     assert resolver["resolve"] == 1, (
         "резолвер бинда позван %d раз(а) за цикл вместо одного: адрес "
         "собирается ВТОРОЙ раз рядом" % resolver["resolve"])
 
 
 def test_a_refusing_resolver_reaches_the_verdict_as_no_bind_address(resolver, monkeypatch):
-    """Отказ резолвера обязан доехать до вердикта, а не превратиться в пустую
-    строку-адрес, по которой проба сходила бы неизвестно куда."""
+    """Отказ резолвера обязан доехать до ВЕРДИКТА, а не превратиться ни в
+    пустую строку-адрес, по которой проба сходила бы неизвестно куда, ни в
+    отсутствие пробы.
+
+    Различие названо в докстринге `_panel_client_snapshot` дословно: «спросить
+    адрес нечем» (нет `run_panel_client.py`) и «адрес вычислен, но НЕГОДЕН» —
+    разные вещи, и вторую нельзя выдавать за первую. Первая = снимка панели
+    нет вовсе и пробы в цикле нет; вторая = снимок ЕСТЬ, `host` в нём None, и
+    проба обязана стать КРАСНОЙ.
+    """
     import run_panel_client as rpc
     monkeypatch.setattr(rpc, "tailnet_ip", lambda *a, **k: "")
     monkeypatch.setattr(
@@ -621,11 +777,15 @@ def test_a_refusing_resolver_reaches_the_verdict_as_no_bind_address(resolver, mo
 
     panel = ow._panel_client_snapshot()
     assert panel["host"] is None, panel
-    snap = _build_attention_snapshot(panel)
-    assert snap is not None, (
+    probes = _probes(ow._attention_snapshot(ROSTER_TWO, panel), ROSTER_TWO)
+    p = probes.get(_ak(WITH_INSTANCE))
+    assert p is not None, (
         "«не смогли вычислить адрес» подменено на «пробы в этом цикле нет»: "
-        "это тишина там, где договорились говорить вслух")
-    assert ow.probe_attention(snap)["reason"] == "no_bind_address", snap
+        "это тишина там, где договорились говорить вслух; ключи: %s"
+        % (_att_keys(probes),))
+    assert p["reason"] == "no_bind_address", p
+    assert not [u for u in resolver["urls"] if ATT_PATH_EXPECTED in u], (
+        "адреса нет, а проба всё-таки куда-то сходила: %s" % (resolver["urls"],))
 
 
 def test_the_address_is_computed_in_exactly_one_place_in_the_source():
@@ -789,8 +949,14 @@ def test_a_red_guardian_does_NOT_silence_the_new_family():
     дотягивается физически. Смысл он приобретает РОВНО в тот момент, когда
     реализация проведёт новый ключ через `is_client_check` ради ярлыка и
     склейки (§5.2 спеки) — и вместе с этим, если не разделить предикаты,
-    затащит его под подавление. Сторож стоит на ту минуту, а не на эту.
+    затащит его под подавление. Сторож стоит на ту минуту, а не на эту, и
+    предпосылка ниже говорит это ВСЛУХ: пока ключ не клиентский, подавлению
+    просто не за что зацепиться, и зелёный здесь ничего не значит.
     """
+    assert ow.is_client_check(_ak("marina")), (
+        "предпосылка: новое семейство проходит через `is_client_check` — "
+        "без этого подавление до него не дотягивается, и сторож зелен по "
+        "построению")
     prev = {GUARDIAN: {"fail": 0, "alerted": False},
             _rk("volska"): _armed(), _ak("marina"): _armed()}
     probes = {GUARDIAN: _red("dead_pid"),
@@ -902,8 +1068,11 @@ def test_two_and_two_do_not_reach_the_glue_threshold():
     ту самую, из которой не понять, что случилось.
 
     ⚠️ Сегодня зелен случайно (эскалации ещё не клиентские ключи и идут мимо
-    склейки поштучно). Стоит он на день, когда семейство в склейку попадёт.
+    склейки поштучно). Стоит он на день, когда семейство в склейку попадёт, и
+    предпосылка ниже отличает этот день от сегодняшнего.
     """
+    assert ow.is_client_check(_ak("marina")), (
+        "предпосылка: семейство эскалаций вообще участвует в склейке")
     trs = ([_tr(_rk(s), "down", r) for s, r in RUNNERS[:2]]
            + [_tr(_ak(s), "down", r) for s, r in ESCALATIONS[:2]])
     texts = ow.group_alerts(trs)
@@ -915,7 +1084,9 @@ def test_two_and_two_do_not_reach_the_glue_threshold():
 def test_a_lonely_escalation_keeps_its_own_text_next_to_a_glued_runner_group():
     """⚠️ Сегодня зелен случайно, по той же причине, что и сторож выше: его
     предмет — граница между склеенным семейством и одиночкой из другого."""
-    trs =([_tr(_rk(s), "down", r) for s, r in RUNNERS]
+    assert ow.is_client_check(_ak("marina")), (
+        "предпосылка: семейство эскалаций вообще участвует в склейке")
+    trs = ([_tr(_rk(s), "down", r) for s, r in RUNNERS]
            + [_tr(_ak("marina"), "down", "attention_stale")])
     texts = ow.group_alerts(trs)
     assert len(texts) == 2, texts
@@ -981,11 +1152,18 @@ def test_downs_and_recovereds_of_the_new_family_stay_apart():
 
 # ── состояние: чистка не имеет права выключить лампу ───────────────────────
 
-def test_pruning_keeps_the_state_of_a_live_escalation_key():
+def test_pruning_keeps_the_state_of_a_live_escalation_key(net):
     """`prune_client_state` убирает записи слагов, которых больше нет в
     ростере. Задев живой ключ нового семейства, она вымыла бы `alerted` — и
-    владелец получил бы алерт заново КАЖДЫЙ цикл."""
-    probes = _probes(_snap(payload=_payload(stale_open=1)))
+    владелец получил бы алерт заново КАЖДЫЙ цикл.
+
+    Предпосылка обязательна: пока пробы эскалаций в цикле не выставлены,
+    «живой ключ уцелел» истинно по построению — уцелеет что угодно, чего
+    чистка не знает.
+    """
+    net["body"] = _payload(open_=2, stale_open=1)
+    probes = _cycle()
+    assert _att_keys(probes), "предпосылка: пробы эскалаций в цикле есть"
     state = {_ak(WITH_INSTANCE): {"fail": 3, "alerted": True},
              _ak(NO_INSTANCE): {"fail": 3, "alerted": True},
              "backend": {"fail": 0, "alerted": False}}
@@ -994,10 +1172,22 @@ def test_pruning_keeps_the_state_of_a_live_escalation_key():
     assert "backend" in pruned, "вычищено лишнее"
 
 
-def test_pruning_drops_the_escalation_key_of_a_departed_slug():
+def test_pruning_drops_the_escalation_key_of_a_departed_slug(net):
     """Мёртвая запись однажды прочтётся как чья-то."""
-    probes = _probes(_snap(payload=_payload(stale_open=1)))
+    net["body"] = _payload(open_=2, stale_open=1)
+    probes = _cycle()
+    assert _ak("olga") not in probes, "предпосылка: olga из ростера ушла"
     state = {_ak("olga"): {"fail": 3, "alerted": True}}
     pruned = ow.prune_client_state(state, probes)
     assert _ak("olga") not in pruned, (
         "запись ушедшего из ростера клиента осталась: %r" % (pruned,))
+
+
+def test_nothing_of_the_new_family_is_pruned_while_the_roster_is_unknown(net):
+    """Красный `chatter_roster` = «состава не знаем», и чистка в этот момент
+    вымыла бы `alerted` у всех — то есть проглотила бы первый алерт после
+    восстановления чтения. Правило уже стоит на раннерах; новое семейство
+    обязано жить по нему же, а не мимо."""
+    probes = _cycle(roster={"error": "битый yaml"})
+    state = {_ak(WITH_INSTANCE): {"fail": 2, "alerted": True}}
+    assert ow.prune_client_state(state, probes) == state
