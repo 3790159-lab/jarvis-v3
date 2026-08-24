@@ -232,6 +232,11 @@ def test_the_dashboard_still_answers_with_the_key(instance):
 # опечаткой в env.
 EXPECTED_ROUTES = {
     ("/health", ("GET",)),
+    # Вторая немая ручка, арка «карточки эскалации не читают» (спека
+    # 2026-08-24-escalation-seen-probe.md §3, форма 1, ОК владельца). Список
+    # правится РУКАМИ и намеренно: он затем и стоит, чтобы новая
+    # неаутентифицированная поверхность не приезжала на инстанс молча.
+    ("/ops/attention", ("GET",)),
     ("/panel", ("GET",)),
     ("/panel/login", ("GET",)),
     ("/panel/login", ("POST",)),
