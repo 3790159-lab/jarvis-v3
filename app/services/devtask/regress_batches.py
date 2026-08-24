@@ -55,12 +55,29 @@ def plan_batches(test_files: Iterable[str], batch_size: int) -> List[List[str]]:
 
 
 # ── aggregation (pure) ──────────────────────────────────────────────────────
-def aggregate_summaries(summaries: Iterable[dict]) -> Dict[str, int]:
-    """Sum ``failed``/``passed``/``errors`` across per-batch pytest summaries."""
-    agg = {"failed": 0, "passed": 0, "errors": 0}
+def aggregate_summaries(summaries: Iterable[dict]) -> Dict[str, object]:
+    """Сложить ``failed``/``passed``/``errors`` и СОБРАТЬ имена по батчам.
+
+    Имена объединяются, а не суммируются: один и тот же тест не может упасть
+    в двух батчах, но объединение честнее конкатенации, если план батчей
+    когда-нибудь начнёт перекрываться.
+
+    Ключ ``failed_names`` появляется ТОЛЬКО когда хотя бы один батч его
+    принёс. Пустой список означал бы «падений по именам нет», а это не то же
+    самое, что «имён не собирали» — и вердикт эти случаи различает.
+    """
+    agg: Dict[str, object] = {"failed": 0, "passed": 0, "errors": 0}
+    names: set = set()
+    saw_names = False
     for s in summaries:
-        for k in agg:
-            agg[k] += int((s or {}).get(k, 0) or 0)
+        for k in ("failed", "passed", "errors"):
+            agg[k] = int(agg[k]) + int((s or {}).get(k, 0) or 0)
+        got = (s or {}).get("failed_names")
+        if got is not None:
+            saw_names = True
+            names.update(got)
+    if saw_names:
+        agg["failed_names"] = sorted(names)
     return agg
 
 
@@ -189,14 +206,33 @@ def should_update_baseline(status: str, summary: dict,
     return int(summary.get("failed", 0)) <= int(existing_baseline.get("failed", 0))
 
 
-def write_baseline(path, summary: dict) -> Dict[str, int]:
-    """Persist ``{failed,passed,errors}`` counts to the baseline JSON file."""
+def write_baseline(path, summary: dict) -> Dict[str, object]:
+    """Обновить эталон, СОХРАНИВ всё, что в нём уже лежит.
+
+    🔴 Раньше эта функция писала ровно три числа — то есть затирала бы
+    поимённый список и метаданные при первом же зелёном прогоне. Эталон,
+    который сам себя обедняет, хуже отсутствующего: он выглядит свежим.
+
+    Поэтому существующий файл читается, и новые значения ЛОЖАТСЯ ПОВЕРХ него;
+    незнакомые ключи (`taken_at`, `composition`, `note`, `replaces`, …)
+    остаются нетронутыми. Имена пишутся только если прогон их принёс.
+    """
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    data = {"failed": int(summary.get("failed", 0)),
-            "passed": int(summary.get("passed", 0)),
-            "errors": int(summary.get("errors", 0))}
-    p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    data: Dict[str, object] = {}
+    try:
+        existing = json.loads(p.read_text(encoding="utf-8"))
+        if isinstance(existing, dict):
+            data.update(existing)
+    except (OSError, ValueError):
+        pass
+    data["failed"] = int(summary.get("failed", 0))
+    data["passed"] = int(summary.get("passed", 0))
+    data["errors"] = int(summary.get("errors", 0))
+    names = summary.get("failed_names")
+    if names is not None:
+        data["known_failures"] = sorted(names)
+    p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     return data
 
 

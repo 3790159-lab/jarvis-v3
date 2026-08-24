@@ -170,8 +170,36 @@ def parse_pytest_summary(stdout: str) -> dict:
     }
 
 
+def failed_names(stdout: str) -> list[str]:
+    """Имена упавших И сломавшихся тестов из хвоста pytest (нужен ``-rfE``).
+
+    Берём обе категории: ошибка сборки — это тоже «тест не прошёл», и именно
+    из них состоит наш состав среды (15 ошибок там, где нет клиентского
+    конфига). Причина после `` - `` отрезается: она меняется от прогона к
+    прогону (адреса, тайминги, объёмы), а имя — нет, и сверять надо имя.
+
+    Требуем в токене `.py`, иначе сюда попадали бы служебные строки вида
+    ``ERROR: usage`` — а «не тест» в эталоне падений хуже, чем его отсутствие.
+    """
+    out = []
+    for line in (stdout or "").splitlines():
+        m = re.match(r"^(?:FAILED|ERROR)\s+(\S+)", line.strip())
+        if m and ".py" in m.group(1):
+            out.append(m.group(1))
+    return sorted(set(out))
+
+
 def regress_verdict(summary: dict, baseline: dict | None) -> str:
-    """Compare a fresh pytest summary against the stored baseline failed-count."""
+    """Сверить свежий прогон с эталоном — ПО ИМЕНАМ, если они есть.
+
+    Сравнение по числу близоруко по построению: «82 ≤ 82» зелено даже когда
+    упали ДРУГИЕ 82 теста. Поэтому при наличии имён с обеих сторон считается
+    разница МНОЖЕСТВ, а число остаётся только в теле сообщения.
+
+    Если имён нет хотя бы с одной стороны — сверка по числу, и об этом сказано
+    ВСЛУХ: молчаливый откат к близорукому режиму выглядел бы как полноценная
+    проверка.
+    """
     failed = summary.get("failed", 0)
     passed = summary.get("passed", 0)
     errors = summary.get("errors", 0)
@@ -179,9 +207,27 @@ def regress_verdict(summary: dict, baseline: dict | None) -> str:
     if baseline is None:
         return f"⚠️ baseline не задан (обнови вручную)\n{body}"
     base_failed = baseline.get("failed", 0)
-    if failed <= base_failed:
-        return f"✅ не хуже baseline ({failed} ≤ {base_failed})\n{body}"
-    return f"⚠️ регресс: +{failed - base_failed} новых падений (было {base_failed})\n{body}"
+
+    known = baseline.get("known_failures")
+    fresh = summary.get("failed_names")
+    if known is None or fresh is None:
+        head = (f"✅ не хуже baseline ({failed} ≤ {base_failed})"
+                if failed <= base_failed
+                else f"⚠️ регресс: +{failed - base_failed} новых падений "
+                     f"(было {base_failed})")
+        return f"{head} · сверка ТОЛЬКО ПО ЧИСЛУ (имён нет): подмена состава не видна\n{body}"
+
+    new = sorted(set(fresh) - set(known))
+    gone = sorted(set(known) - set(fresh))
+    if new:
+        shown = ", ".join(new[:5])
+        if len(new) > 5:
+            shown += f" и ещё {len(new) - 5}"
+        return f"⚠️ регресс: {len(new)} НОВЫХ падений по именам: {shown}\n{body}"
+    if gone:
+        return (f"✅ новых падений нет; {len(gone)} из эталона починились — "
+                f"эталон пора пересобрать\n{body}")
+    return f"✅ ровно те же {len(known)} падений, что в эталоне\n{body}"
 
 
 def tail_log(path: str, n: int = 40, max_chars: int = 3900) -> str:

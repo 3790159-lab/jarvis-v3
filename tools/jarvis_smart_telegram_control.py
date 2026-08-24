@@ -1710,8 +1710,11 @@ def _run_regress_batched(*, cwd: str, env, timeout_s: int, creationflags: int,
     def _run_batch(batch, label):
         try:
             proc = _regress_watch.run_guarded(
+                # `-rfE` не украшение: без него pytest не печатает строки
+                 # `FAILED <nodeid>` / `ERROR <nodeid>`, и сверять эталон
+                 # становится нечем — остаётся близорукое сравнение по числу.
                 [sys.executable, "-m", "pytest", *batch, "-q", "-p", "no:cacheprovider",
-                 "--continue-on-collection-errors", "--tb=no"],
+                 "--continue-on-collection-errors", "--tb=no", "-rfE"],
                 cwd=cwd, timeout_s=timeout_s, creationflags=creationflags,
                 env=env, state_dir=state_dir, label="%s-%s" % (label_prefix, label),
                 free_gb_fn=_regress_batches.free_gb,
@@ -1727,7 +1730,11 @@ def _run_regress_batched(*, cwd: str, env, timeout_s: int, creationflags: int,
             if "passed" in ln or "failed" in ln or "error" in ln:
                 line = ln.strip()
                 break
-        return _jo.parse_pytest_summary(line)
+        summ = _jo.parse_pytest_summary(line)
+        # Числа берём из ИТОГОВОЙ строки, имена — из ВСЕГО вывода батча:
+        # хвостовая строка их не содержит по определению.
+        summ["failed_names"] = _jo.failed_names(proc.stdout or "")
+        return summ
 
     return _regress_batches.run_batched_regress(
         tests,
