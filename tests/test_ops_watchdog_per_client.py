@@ -284,3 +284,61 @@ def test_nothing_is_pruned_while_the_roster_is_unknown():
     probes = _probes(_snapshot(roster={"error": "битый yaml"}))
 
     assert ow.prune_client_state(state, probes) == state
+
+
+# ── ДОБАВЛЕНО ПРИ ПЕРЕСБОРКЕ ПОД КНОПКУ (24.08) ────────────────────────────
+# Два изъяна, найденных владельцем на разборе ветки. Оба про одно: громкий
+# отказ не должен стоять рядом с успокаивающей лампой, а сам отказ обязан
+# читаться словами. Сторожа писал автор кода — разделения не было, названо
+# в коммите.
+
+
+def test_an_unreadable_roster_leaves_no_soothing_aggregate_lamp():
+    """Нечитаемый ростер: КРАСНОЕ и НИ ОДНОЙ зелёной лампы про раннеров.
+
+    Сторож на СОСЕДА красной пробы, а не на неё саму. Существующий
+    `test_an_unreadable_roster_gives_no_client_probes_at_all` пинит отсутствие
+    пер-слаговых ключей — но НЕ отсутствие агрегатного `chatter_runner`.
+    Разница не теоретическая: агрегат зелен ровно тогда, когда жив ХОТЬ ОДИН
+    раннер, то есть при нечитаемом реестре он сказал бы «раннеры в порядке»
+    рядом с «состава не знаем». Это и есть худший вид тишины: владелец видит
+    зелёное и не идёт смотреть.
+
+    Сегодня ветка `else` агрегат не выставляет по построению. Сторож стоит
+    затем, чтобы возврат агрегата «как запасного варианта при сбое реестра»
+    не прошёл молча — остальные сторожа при такой правке остались бы зелёными.
+    """
+    probes = _probes(_snapshot(roster={"error": "битый yaml"}))
+    assert probes["chatter_roster"]["ok"] is False
+    assert "chatter_runner" not in probes, "агрегат = успокаивающая лампа"
+    assert not [k for k in probes if k.startswith("chatter_runner:")]
+
+
+def test_the_roster_snapshot_never_answers_none(tmp_path):
+    """`None` от снимка = тихий откат в ЛЕГАСИ-ветку, где агрегат живёт.
+
+    `probe_all` различает «ростера нет в снимке» (старое окружение, агрегат
+    остаётся) и «ростер не прочитан» (красная проба). Первое определяется
+    ключом `roster is None`. Значит `_roster_snapshot`, вернув `None` хоть
+    однажды, МОЛЧА вернула бы успокаивающую лампу вместо отказа — и все
+    сторожа выше остались бы зелёными, потому что каждый из них подаёт снимок
+    руками.
+
+    Три способа не прочитать реестр, все обязаны дать `error`, а не `None`.
+    """
+    # 1. файла нет
+    snap = ow._roster_snapshot(root=tmp_path)
+    assert snap is not None and "error" in snap, "нет файла -> error"
+
+    # 2. YAML битый
+    reg = tmp_path / "chatter" / "clients"
+    reg.mkdir(parents=True)
+    (reg / "registry.yaml").write_text("clients: [не словарь]", encoding="utf-8")
+    snap = ow._roster_snapshot(root=tmp_path)
+    assert snap is not None and "error" in snap, "битый yaml -> error"
+
+    # 3. корректный реестр по-прежнему даёт clients, а не error
+    (reg / "registry.yaml").write_text(
+        "clients:\n  volska:\n    enabled: true\n", encoding="utf-8")
+    snap = ow._roster_snapshot(root=tmp_path)
+    assert snap is not None and "clients" in snap and "error" not in snap

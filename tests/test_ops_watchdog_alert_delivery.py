@@ -459,3 +459,116 @@ def test_suppressed_client_downs_never_reach_the_group():
         "уходят вовсе — ни поштучно, ни одной склеенной строкой. Склейка "
         "поверх подавления вернула бы шторм в виде одного сообщения о том, "
         "о чём договорились молчать; получено %r" % (alerts,))
+
+
+# ── ДОБАВЛЕНО ПРИ ПЕРЕСБОРКЕ ПОД КНОПКУ (24.08) ────────────────────────────
+# Изъян, найденный на разборе ветки: `build_alert` брал ярлык из `LABELS`
+# напрямую, а трёх новых видов ключей там нет. Отказ приходил СЫРЫМ КЛЮЧОМ.
+# Путь не запасной: склейка включается лишь при БОЛЬШЕ чем ALERT_GROUP_MIN
+# клиентах, поэтому на сегодняшних двух КАЖДЫЙ пер-клиентный алерт идёт
+# поштучно через `build_alert`. Сторожа писал автор кода — названо в коммите.
+
+
+def test_the_roster_refusal_speaks_words_not_a_variable_name():
+    """Громкий отказ обязан быть ЧИТАЕМЫМ, иначе он громкий только формально."""
+    text = ow.build_alert("chatter_roster", "down", "реестр не прочитан: боль")
+    assert "chatter_roster" not in text, "сырой ключ вместо фразы"
+    assert "СОСТАВ ФЕРМЫ" in text
+    assert text.startswith("🚨 DOWN:")
+
+
+def test_the_legacy_beat_alert_says_what_actually_happened():
+    """«Легаси-отметка» без глагола читается как «легаси сломалось»."""
+    text = ow.build_alert("chatter_beat_legacy", "down", "отметка 12с тому")
+    assert "chatter_beat_legacy" not in text
+    assert "снова обновляется" in text
+
+
+def test_a_single_client_alert_names_the_client_not_the_key():
+    """Двое клиентов -> склейки НЕТ -> этот путь и есть основной."""
+    text = ow.build_alert("chatter_runner:volska", "down",
+                          "процес раннера не знайдено")
+    assert "chatter_runner:volska" not in text, "сырой ключ с префиксом"
+    assert "volska" in text, "слаг обязан остаться — по нему чинят"
+    assert "раннер" in text.lower()
+
+
+def test_an_unlabelled_check_is_shown_as_is_and_not_masked():
+    """Проба без ярлыка обязана быть ВИДНА, а не подменена общей фразой.
+
+    Соблазн вернуть «что-то сломалось» на неизвестном ключе прячет ровно тот
+    факт, который нужен: завели пробу и забыли ярлык.
+    """
+    assert ow.label_for("совершенно_новая_проба") == "совершенно_новая_проба"
+
+
+def test_both_alert_paths_name_the_same_slug():
+    """Поштучный алерт и склейка обязаны называть один и тот же слаг."""
+    assert ow.client_slug_of("chatter_runner:volska") == "volska"
+    assert ow.client_slug_of("backend") == "", "не клиентский ключ -> пусто"
+    assert ow.client_slug_of(None) == ""
+    group = ow.build_client_group_alert("down", [
+        {"check": "chatter_runner:volska", "reason": "no_process"},
+        {"check": "chatter_runner:yarina", "reason": "stale_heartbeat"},
+    ])
+    single = ow.build_alert("chatter_runner:volska", "down", "неважно")
+    assert "volska" in group and "volska" in single
+
+
+def test_the_prefix_is_cut_in_exactly_one_place_in_the_source():
+    """СТРУКТУРНЫЙ пин: ручной срез префикса живёт ровно в одном месте.
+
+    Поведенческим сторожем это не ловится ПО ПОСТРОЕНИЮ — ручной срез и
+    `client_slug_of` дают одинаковую строку, поэтому возврат второго среза
+    оставил бы все тесты выше зелёными. Проверено красной проверкой при
+    заведении сторожа: реверсия склейки на ручной срез не покраснела нигде.
+
+    Считается ИСХОДНИК, а не поведение: предмет защиты — единственность
+    написания, ровно то, о чём предупреждает докстринг `is_client_check`
+    («три независимых написания префикса разъехались бы молча»).
+    """
+    src = (Path(__file__).resolve().parents[1] /
+           "scripts" / "ops_watchdog.py").read_text(encoding="utf-8")
+    manual = src.count("[len(CLIENT_PROBE_PREFIX):]")
+    assert manual == 1, (
+        "ручной срез префикса найден %d раз; он обязан жить только внутри "
+        "client_slug_of" % manual)
+    # И сам срез обязан быть ВНУТРИ client_slug_of, а не где угодно.
+    body = src[src.index("def client_slug_of("):src.index("def label_for(")]
+    assert "[len(CLIENT_PROBE_PREFIX):]" in body
+
+
+def test_labels_table_is_pinned_in_both_directions():
+    """Литеральный список, а не выведенный из кода (правило репы).
+
+    Выведенный согласен с кодом по определению и промолчит там, где ярлык
+    забыли. Пин в ОБЕ стороны: пропажа ярлыка и появление нового без ведома
+    сторожа одинаково красные.
+    """
+    expected = {
+        "backend", "bot_heartbeat", "cloudflared", "restarts", "disk",
+        "chatter_runner", "chatter_guardian", "worktree", "secrets_bundle",
+        "panel_client", "restore_drill",
+        "chatter_roster", "chatter_beat_legacy",
+    }
+    assert set(ow.LABELS) == expected
+
+
+def test_every_static_probe_key_of_a_full_cycle_has_a_label():
+    """Ярлык обязан быть у КАЖДОЙ пробы, которую цикл реально выставляет.
+
+    Таблица выше пинит состав `LABELS`; этот сторож пинит вторую сторону —
+    что цикл не выставляет ключа, которого в таблице нет. Пер-клиентные
+    исключены: их ярлык собирается в рантайме и проверен отдельно.
+    """
+    snap = {
+        "processes": [], "beats": {"volska": 5.0}, "legacy_beat_age": 9e6,
+        "guardian_beat_age": 5.0, "guardian_lock_pid": None, "root": "C:/jarvis",
+        "roster": {"clients": [{"slug": "volska", "enabled": True}]},
+    }
+    probes = ow.probe_all(lambda p: 200,
+                          lambda p: (100 * 2**30, 0, 50 * 2**30),
+                          chatter_snapshot=snap)
+    missing = sorted(k for k in probes
+                     if not ow.is_client_check(k) and k not in ow.LABELS)
+    assert missing == [], "проба без ярлыка: %s" % missing
