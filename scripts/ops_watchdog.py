@@ -117,6 +117,32 @@ BUNDLE_MATERIAL_GLOBS = ("*.session.enc", "*.session", "entropy.bin")
 # заставляла найти второе:
 #   1. `VERDICT_REL` в `app/services/restore_drill_verdict.py` — куда пишет дрил
 #   2. `RESTORE_DRILL_REL` здесь                               — откуда читает проба
+# ── DEV-74: учётные данные, попавшие в ДАННЫЕ ───────────────────────────────
+# Токен бота выглядит как `bot<цифры>:` — и в ссылке файлового API Telegram,
+# и в конфиге. Ссылка вида `/file/bot<ТОКЕН>/<path>` несёт токен по
+# спецификации, поэтому любой код, сохраняющий готовую ссылку, роняет секрет
+# в данные.
+#
+# Почему это ПРОБА, а не тест суиты. Сторож жил в `tests/` и смотрел на
+# `state/` относительно себя. В worktree мерж-гейта `state/` гитигнорен и
+# отсутствует → тест скипался, то есть молчал ПО ПОСТРОЕНИЮ ровно там, где его
+# и запускали. Проба смотрит на LIVE_TREE и видит боевой диск.
+TOKEN_AT_REST_RE = re.compile(rb"bot\d{6,}:")
+# `connect` — там секреты лежат ЗАКОННО и по построению (бандл, сессии).
+# `browser_profile` — кэш Chrome: не наши данные, 300+ МБ бинарного мусора.
+# Исключения НАЗЫВАЮТСЯ в detail: молча суженный охват читается как «всё чисто».
+TOKEN_SCAN_SKIP_DIRS = ("connect", "browser_profile")
+TOKEN_SCAN_SKIP_SUFFIXES = frozenset((
+    ".db", ".png", ".jpg", ".jpeg", ".webp", ".ico", ".npy", ".zip", ".gz",
+    ".7z", ".tar", ".session", ".bin", ".pyc", ".safetensors", ".mp4", ".wav",
+    ".etl",
+))
+# Замер 25.08: после исключений остаётся 1105 файлов / 9.0 МБ, полный скан
+# 413 мс. Порог на файл нужен не ради этих девяти мегабайт, а чтобы одиночный
+# распухший лог не превратил пробу в пожирателя диска. Пропущенные по размеру
+# СЧИТАЮТСЯ и попадают в detail.
+TOKEN_SCAN_MAX_FILE_BYTES = 2 * 1024 * 1024
+
 RESTORE_DRILL_REL = "state/backup/restore_drill.json"
 # Ритм дрила недельный; порог — 10 суток, то есть неделя плюс запас на ОДИН
 # пропуск. Граница строгая (`>`), как у BUNDLE_MAX_LAG_DAYS: сторож,
@@ -1801,6 +1827,111 @@ def probe_secrets_bundle(snapshot: dict, *,
         bundle.get("name"), lag_days, max_lag_days)}
 
 
+def probe_token_at_rest(snapshot: dict) -> dict:
+    """DEV-74: учётные данные не лежат в данных.
+
+    Красное, если под живым `state/` нашёлся хоть один файл с `bot<цифры>:`.
+    Файлы НАЗЫВАЮТСЯ поимённо — «где-то есть токен» не чинится.
+
+    Нечитаемый каталог — тоже красное (`unreadable`), а не зелёное: «не смогли
+    посмотреть» и «посмотрели, чисто» — разные ответы, и подменять первый
+    вторым значит гасить пробу ровно тогда, когда она нужнее всего.
+
+    Охват СУЖЕН осознанно (см. TOKEN_SCAN_SKIP_*), и суженное называется в
+    detail даже на зелёном: проба, молчащая про то, чего не смотрела, врёт
+    объёмом. Сам секрет в detail не попадает НИКОГДА — только путь к файлу:
+    алерт уезжает в Telegram, и сторож, печатающий то, что охраняет, был бы
+    вторым каналом утечки.
+    """
+    if not isinstance(snapshot, dict):
+        return {"ok": False, "reason": "unreadable",
+                "detail": "снимок токенов не собран"}
+    error = snapshot.get("error")
+    if error:
+        return {"ok": False, "reason": "unreadable",
+                "detail": "не удалось просмотреть state/: %s" % error}
+
+    offenders = list(snapshot.get("offenders") or [])
+    scanned = int(snapshot.get("scanned") or 0)
+    oversize = int(snapshot.get("oversize") or 0)
+    unread = int(snapshot.get("unreadable") or 0)
+
+    # Хвост про охват одинаков на красном и на зелёном — иначе зелёное
+    # выглядело бы полнее, чем оно есть.
+    #
+    # 🔴 «Слишком большой» и «не прочитался» считаются ОТДЕЛЬНО. Живой прогон
+    # 25.08 показал цену слияния: проба рапортовала «по размеру пропущено 1»,
+    # хотя файлов свыше порога не было ни одного — пропущен был занятый файл.
+    # Одно число на две разные причины врёт про причину, а чинят их по-разному.
+    tail = "просмотрено %d файлов, пропущено каталогов %s" % (
+        scanned, ", ".join(TOKEN_SCAN_SKIP_DIRS))
+    if oversize:
+        tail += ", по размеру пропущено %d" % oversize
+    if unread:
+        tail += ", не прочиталось %d" % unread
+
+    if offenders:
+        shown = ", ".join(offenders[:5])
+        if len(offenders) > 5:
+            shown += " и ещё %d" % (len(offenders) - 5)
+        return {"ok": False, "reason": "token_at_rest",
+                "detail": "токен бота открытым текстом в данных: %s (%s)" % (shown, tail)}
+
+    return {"ok": True, "detail": "токенов в данных нет (%s)" % tail}
+
+
+def _token_at_rest_snapshot(live_tree: Path = LIVE_TREE) -> dict | None:
+    """Снимок для пробы DEV-74: обход `state/` живого дерева.
+
+    ТОЛЬКО ЧТЕНИЕ. Смотрит на LIVE_TREE, а не на дерево, из которого запущен:
+    в worktree мерж-гейта `state/` гитигнорен и отсутствует, и относительный
+    путь превратил бы пробу в вечное «нечего проверять».
+
+    `None` (пробы в цикле НЕТ вовсе) — только если живого `state/` нет: это
+    чужое окружение, а не авария. Каталог есть, но не читается → `error`,
+    и это красное.
+    """
+    state = live_tree / "state"
+    if not state.is_dir():
+        return None
+    offenders: list[str] = []
+    scanned = 0
+    oversize = 0
+    unreadable = 0
+    try:
+        for p in state.rglob("*"):
+            if not p.is_file():
+                continue
+            if set(TOKEN_SCAN_SKIP_DIRS) & set(p.parts):
+                continue
+            if p.suffix.lower() in TOKEN_SCAN_SKIP_SUFFIXES:
+                continue
+            try:
+                if p.stat().st_size > TOKEN_SCAN_MAX_FILE_BYTES:
+                    oversize += 1
+                    continue
+                blob = p.read_bytes()
+            except OSError:
+                # Одиночный неподатливый файл (занят, гонка) не должен ронять
+                # весь обход — но и молчать о нём нельзя: считаем как
+                # непросмотренный, а не как чистый. И считаем ОТДЕЛЬНО от
+                # «слишком большого»: причины разные и чинятся по-разному.
+                unreadable += 1
+                continue
+            scanned += 1
+            if TOKEN_AT_REST_RE.search(blob):
+                try:
+                    offenders.append(str(p.relative_to(live_tree)))
+                except ValueError:
+                    offenders.append(p.name)
+        return {"offenders": sorted(offenders), "scanned": scanned,
+                "oversize": oversize, "unreadable": unreadable, "error": None}
+    except Exception as exc:
+        return {"offenders": [], "scanned": scanned, "oversize": oversize,
+                "unreadable": unreadable,
+                "error": "%s: %s" % (type(exc).__name__, exc)}
+
+
 def _drill_numbers(values) -> str:
     """Величины §4.3 одной строкой, в порядке ключей — для detail."""
     if not isinstance(values, dict) or not values:
@@ -2141,6 +2272,7 @@ def probe_all(http_get, disk_usage, min_disk_gb: float = MIN_DISK_GB,
               secrets_snapshot: dict | None = None,
               panel_client_snapshot: dict | None = None,
               restore_drill_snapshot: dict | None = None,
+              token_at_rest_snapshot: dict | None = None,
               attention_snapshot: dict | None = None) -> dict:
     """Compose the cycle's probes. ``http_get(path) -> int|None`` (HTTP status,
     or None on connection refused/timeout); ``disk_usage(path) -> (total, used,
@@ -2211,6 +2343,8 @@ def probe_all(http_get, disk_usage, min_disk_gb: float = MIN_DISK_GB,
         probes["panel_client"] = probe_panel_client(panel_client_snapshot)
     if restore_drill_snapshot:
         probes["restore_drill"] = probe_restore_drill(restore_drill_snapshot)
+    if token_at_rest_snapshot:
+        probes["token_at_rest"] = probe_token_at_rest(token_at_rest_snapshot)
     # Снимка нет → проб этого семейства в цикле НЕТ ВОВСЕ, а не ноль штук и не
     # красные: watchdog не имеет права слать DOWN о том, чего он не мерил.
     # Состав берётся ИЗ СНИМКА, а не из ростера здесь: ростер в снимок уже
@@ -2772,6 +2906,7 @@ def main() -> int:
                        secrets_snapshot=_secrets_bundle_snapshot(),
                        panel_client_snapshot=panel_snap,
                        restore_drill_snapshot=_restore_drill_snapshot(),
+                       token_at_rest_snapshot=_token_at_rest_snapshot(),
                        attention_snapshot=_attention_snapshot(
                            (chatter_snap or {}).get("roster"), panel_snap))
     # Ядро зовётся НАПРЯМУЮ, а не через `transitions()` + `evaluate()`: второе

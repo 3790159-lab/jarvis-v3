@@ -205,30 +205,12 @@ def test_saving_prunes_but_keeps_the_file_being_written(ps):
     assert ps.load_conv(CHAT)["step"] == "faceswap_source"
 
 
-# ── 6. Сторож по ФАКТУ: в живом state/ нет токенов ──────────────────────────
-def test_no_bot_token_anywhere_under_state() -> None:
-    """Ловит ЛЮБОГО будущего писателя, а не только починенного здесь.
-
-    Сознательно смотрит на настоящий `state/`, а не на tmp: смысл именно в
-    том, чтобы красное загоралось от реального файла на диске. Каталог
-    `state/connect/` пропускаем — там секреты лежат ЗАКОННО и по построению.
-    """
-    state = ROOT / "state"
-    if not state.exists():
-        pytest.skip("state/ отсутствует")
-    offenders = []
-    for p in state.rglob("*"):
-        if not p.is_file() or "connect" in p.parts:
-            continue
-        if p.suffix.lower() in {".db", ".png", ".jpg", ".npy", ".zip", ".session", ".bin"}:
-            continue
-        try:
-            text = p.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
-            continue
-        if TOKEN_RE.search(text):
-            offenders.append(str(p.relative_to(ROOT)))
-    assert not offenders, (
-        "токен бота лежит открытым текстом в данных (DEV-74): "
-        + ", ".join(sorted(offenders))
-    )
+# ── 6. Сторож по ФАКТУ — ПЕРЕЕХАЛ В ops_watchdog ───────────────
+# Проверка «под живым state/ нет bot<цифры>:» была здесь и смотрела на
+# `state/` относительно себя. В worktree мерж-гейта `state/` гитигнорен и
+# отсутствует → тест скипался, то есть молчал ПО ПОСТРОЕНИЮ ровно там, где его
+# и гоняли. Скип читается как «всё чисто» — это лампа, а не сторож.
+#
+# Теперь это проба `probe_token_at_rest` в `scripts/ops_watchdog.py`: она смотрит
+# на LIVE_TREE и видит боевой диск. Сторожа на неё —
+# `tests/test_ops_watchdog_token_at_rest.py`.
