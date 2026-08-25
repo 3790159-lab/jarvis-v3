@@ -55,6 +55,7 @@ from chatter.core.llm import FakeLLM
 from chatter.notify.base import Action
 from chatter.notify.control_bot import route_callback
 from chatter.run import Deps, process_batch
+import chatter.storage.db as db_mod
 from chatter.storage.db import Store
 from chatter.telethon_run import PersonaBundle, TelethonRunner, decide_outgoing
 from chatter.transport.fake import FakeConsoleTransport
@@ -486,6 +487,201 @@ def test_vozrast_samogo_starogo_zadaniya_rastyot(store):
     assert store.oldest_pending_outgoing_age(now=1000.0 + 2 * DAY) == pytest.approx(2 * DAY), (
         "возраст взят у МОЛОДОГО задания: величина, которая тем меньше, чем "
         "хуже дела, — это сторож, врущий ровно в аварии")
+
+
+# ── СНЯТИЕ ОТКАЗА (дополнение к контракту 25.08) ────────────────────────────
+#
+# 🔴 ЗАЧЕМ ЗАВЕДЕНО СНЯТИЕ. Отказ терминален: строка `refused` не уедет
+# никогда. Значит `refused > 0` в ручке — величина, которая только РАСТЁТ, и
+# лампа, однажды покрасневшая, останется красной навсегда. Красное навсегда —
+# это фон ([[jarvis-loud-failure-next-to-a-soothing-lamp]]), а фон приучает не
+# смотреть, и следующий отказ утонет в нём.
+#
+# 🔴 ЧЕМ СНЯТИЕ ОПАСНО. Оно гасит СИГНАЛ. Ровно поэтому все сторожа ниже —
+# про то, чего снятие делать НЕ имеет права: трогать неотправленное, стирать
+# улику и происходить незаметно.
+
+OUTGOING_STATUSES_EXPECTED = ("pending", "sent", "refused", "dismissed")
+
+
+def _statuses(store: Store) -> dict:
+    """Текущее состояние очереди: `{token: (status, text, last_error, attempts)}`."""
+    rows = store._conn.execute(
+        "SELECT token, status, text, last_error, attempts FROM outgoing_queue"
+    ).fetchall()
+    return {r["token"]: (r["status"], r["text"], r["last_error"], r["attempts"])
+            for r in rows}
+
+
+def test_nabor_statusov_OCHEREDI_literalnyi():
+    """Пин набора статусов в ОБЕ стороны.
+
+    Статус — то, по чему ручка решает, что показать владельцу, а очередь — что
+    отправить. Лишний статус, заведённый «на всякий случай», не попадёт ни в
+    один из этих разборов и станет строкой, которую не отправляют и не
+    показывают: молчаливая потеря сообщения владельца. Пропавший — превратит
+    ветку разбора в мёртвый код ([[jarvis-guard-caught-dead-branch]]).
+
+    Список ЛИТЕРАЛЬНЫЙ, а не выведенный из модуля: выведенный согласен с
+    модулем по определению.
+    """
+    got = getattr(db_mod, "OUTGOING_STATUSES", None)
+    assert got is not None, (
+        "`OUTGOING_STATUSES` не объявлен в `chatter/storage/db.py`: набор "
+        "статусов очереди нигде не назван целиком, и сверить его не с чем")
+    assert tuple(got) == OUTGOING_STATUSES_EXPECTED, (
+        "набор статусов очереди разошёлся с контрактом.\n  лишние: %s\n"
+        "  пропали: %s"
+        % (sorted(set(got) - set(OUTGOING_STATUSES_EXPECTED)),
+           sorted(set(OUTGOING_STATUSES_EXPECTED) - set(got))))
+
+
+def test_snyat_mozhno_TOLKO_OTKAZANNOE(store):
+    """🔴 ГЛАВНЫЙ СТОРОЖ СНЯТИЯ, и опасность у него несимметричная.
+
+    Снять `refused` — вернуть лампе способность гаснуть. Снять `pending` —
+    ТИХО ОТМЕНИТЬ НЕОТПРАВЛЕННОЕ СООБЩЕНИЕ ВЛАДЕЛЬЦА: панель сказала
+    «поставлено», строка исчезла из очереди, лид не получил ничего, и не
+    узнает об этом никто. Снять `sent` — соврать про уже случившееся.
+
+    Три строки в одном стенде намеренно: `dismiss` по `row_id` обязан бить
+    ТОЧЕЧНО, и соседи по таблице — часть проверки, а не декорация.
+    """
+    ref_id, _ = _enqueue(store, A, "отказано", token="tok-ref")
+    store.mark_outgoing_failed(ref_id, error="окно канала закрыто",
+                              now=1100.0, terminal=True)
+    pend_id, _ = _enqueue(store, B, "ещё ждёт отправки", token="tok-pend")
+    sent_id, _ = _enqueue(store, A, "уже уехало", token="tok-sent")
+    store.mark_outgoing_sent(sent_id, msg_id="7001", now=1100.0)
+
+    before = _statuses(store)
+    assert before["tok-ref"][0] == "refused", before
+    assert before["tok-pend"][0] == "pending", before
+    assert before["tok-sent"][0] == "sent", before
+
+    assert store.dismiss_outgoing(ref_id, now=1200.0) is True, (
+        "снятие отказанной строки вернуло не True: владельцу нечем погасить "
+        "лампу, и она останется красной навсегда")
+    assert _statuses(store)["tok-ref"][0] == "dismissed", _statuses(store)
+
+    assert store.dismiss_outgoing(pend_id, now=1200.0) is False, (
+        "снялась строка в статусе `pending` — это ТИХАЯ ОТМЕНА неотправленного "
+        "сообщения владельца: панель сказала «поставлено», лид не получит "
+        "ничего, и не узнает об этом никто")
+    assert store.dismiss_outgoing(sent_id, now=1200.0) is False, (
+        "снялась строка в статусе `sent`: снятие соврало про уже случившуюся "
+        "отправку")
+
+    after = _statuses(store)
+    assert after["tok-pend"] == before["tok-pend"], (
+        "строка `pending` изменилась после отказанной попытки снятия: %r -> %r"
+        % (before["tok-pend"], after["tok-pend"]))
+    assert after["tok-sent"] == before["tok-sent"], (
+        "строка `sent` изменилась после отказанной попытки снятия: %r -> %r"
+        % (before["tok-sent"], after["tok-sent"]))
+    assert [r["token"] for r in store.pending_outgoing()] == ["tok-pend"], (
+        "очередь на отправку изменилась от снятия ЧУЖОЙ строки: %r"
+        % (store.pending_outgoing(),))
+
+
+def test_snyatie_IDEMPOTENTNO_i_ne_padaet_na_nesushchestvuyushchem(store):
+    """Кнопка есть — значит есть двойное нажатие, и есть устаревшая вкладка.
+
+    `False` вместо исключения здесь не вежливость: снятие зовут из ручки,
+    и исключение на повторном нажатии стало бы 500 на действии, которое УЖЕ
+    достигнуто. Владелец увидел бы ошибку там, где всё в порядке, и пошёл бы
+    чинить исправное.
+    """
+    row_id, _ = _enqueue(store, A, "отказано", token="tok-twice")
+    store.mark_outgoing_failed(row_id, error="клиент выключен", now=1100.0,
+                              terminal=True)
+
+    assert store.dismiss_outgoing(row_id, now=1200.0) is True
+    assert store.dismiss_outgoing(row_id, now=1300.0) is False, (
+        "повторное снятие объявило себя успешным: панель покажет владельцу "
+        "два разных действия там, где было одно")
+    assert store.dismiss_outgoing(999999, now=1300.0) is False, (
+        "снятие несуществующей строки объявило себя успешным — событие в "
+        "журнале появится, а гасить было нечего")
+    assert _statuses(store)["tok-twice"][0] == "dismissed", _statuses(store)
+
+
+def test_ULIKA_CELA_posle_snyatiya(store):
+    """🔴 Снятие гасит СИГНАЛ, а не ДОКАЗАТЕЛЬСТВО.
+
+    Отказ разбирают ПОЗЖЕ, чем гасят: владелец жмёт «понятно» на телефоне, а
+    вопрос «почему оно не уехало» задаёт через неделю. Снятие, стирающее текст
+    или причину, превращает разбор в догадку — и ровно та беда, ради которой
+    отказ вообще пишется словами, возвращается через заднюю дверь.
+
+    Число попыток тоже улика: оно отличает «канал моргнул трижды» от «отказано
+    сразу», а это разные диагнозы.
+    """
+    row_id, _ = _enqueue(store, A, "текст, который обязан пережить снятие",
+                         token="tok-eviden")
+    store.mark_outgoing_failed(row_id, error="сеть моргнула", now=1100.0,
+                               terminal=False)
+    store.mark_outgoing_failed(
+        row_id, error="окно канала закрыто: 24 часа с последнего сообщения "
+                      "лида истекли", now=1200.0, terminal=True)
+    before = _statuses(store)["tok-eviden"]
+    assert before[0] == "refused" and before[3] == 1, before
+
+    assert store.dismiss_outgoing(row_id, now=1300.0) is True
+    after = _statuses(store)["tok-eviden"]
+
+    assert after[0] == "dismissed", after
+    assert after[1] == before[1], (
+        "текст задания изменился при снятии: %r -> %r" % (before[1], after[1]))
+    assert after[2] == before[2], (
+        "причина отказа стёрта при снятии (%r -> %r): через неделю на вопрос "
+        "«почему не уехало» ответа не будет" % (before[2], after[2]))
+    assert after[3] == before[3], (
+        "число попыток изменилось при снятии: %r -> %r — «моргало» и "
+        "«отказано сразу» стали неотличимы" % (before[3], after[3]))
+
+
+def test_snyatoe_ne_vozvrashchaetsya_v_ochered_na_otpravku(store):
+    """Снятие — не «попробовать ещё раз».
+
+    Строка, вернувшаяся в `pending`, уедет лиду тем текстом, который владелец
+    уже посчитал закрытым вопросом, — и уедет через неизвестное ему время.
+    Возраст очереди снятое тоже считать не должно: иначе лампа будет краснеть
+    по заданию, которое никто не ждёт.
+    """
+    row_id, _ = _enqueue(store, A, "закрытый вопрос", token="tok-gone",
+                         now=1000.0)
+    store.mark_outgoing_failed(row_id, error="клиент выключен", now=1100.0,
+                               terminal=True)
+    store.dismiss_outgoing(row_id, now=1200.0)
+
+    assert store.pending_outgoing() == [], (
+        "снятая строка вернулась в очередь на отправку: лид получит текст, "
+        "который владелец уже закрыл; %r" % (store.pending_outgoing(),))
+    assert store.oldest_pending_outgoing_age(now=1000.0 + 30 * DAY) is None, (
+        "возраст очереди считает СНЯТУЮ строку: лампа краснеет по заданию, "
+        "которого никто не ждёт")
+
+
+def test_snyatie_odnogo_otkaza_ne_gasit_VTOROI(store):
+    """ДВА отказа, потому что «погасить» легко написать как «погасить все».
+
+    Владелец, разобравший один отказ, не разбирал второй. Лампа, погасшая за
+    оба, скроет тот, о котором он ещё не знает, — а это ровно тот отказ, из-за
+    которого клиент остался без ответа.
+    """
+    first, _ = _enqueue(store, A, "первый отказ", token="tok-r1")
+    second, _ = _enqueue(store, B, "второй отказ", token="tok-r2")
+    for rid in (first, second):
+        store.mark_outgoing_failed(rid, error="канал не подключён", now=1100.0,
+                                   terminal=True)
+
+    assert store.dismiss_outgoing(first, now=1200.0) is True
+    got = _statuses(store)
+    assert got["tok-r1"][0] == "dismissed", got
+    assert got["tok-r2"][0] == "refused", (
+        "снятие одного отказа погасило и ВТОРОЙ, о котором владелец ещё не "
+        "знает: %r" % (got,))
 
 
 # ═══ §2 контракта: ЕДИНАЯ ТОЧКА ПЕРЕХВАТА ═══════════════════════════════════
