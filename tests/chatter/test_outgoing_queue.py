@@ -41,10 +41,9 @@ from __future__ import annotations
 
 import asyncio
 import ast
+import dataclasses
 import random
 from pathlib import Path
-from unittest.mock import MagicMock
-
 import pytest
 
 import chatter.telethon_run as tr
@@ -93,12 +92,46 @@ def _need(name: str):
 
 
 class _Msg:
-    """Ответ Telethon на `send_message`: у него есть `id`, и он строкой НЕ
-    является — контракт требует класть в очередь `sent_msg_id` СТРОКОЙ (§1),
-    а у веба и бизнес-API числовых id не будет вовсе."""
+    """Ответ Telethon на `send_message`: у него есть `id`, и строкой он НЕ
+    является — контракт §1 требует класть в очередь `sent_msg_id` СТРОКОЙ, а у
+    веба и бизнес-API числовых id не будет вовсе."""
 
     def __init__(self, msg_id: int):
         self.id = msg_id
+
+
+class _TypingCtx:
+    """Асинхронный контекстный менеджер `client.action(...)`."""
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_a):
+        return False
+
+
+class _Handle:
+    """Расписка пульта о ДОСТАВЛЕННОЙ карточке.
+
+    Двойник отвечает успехом намеренно: сторож «карточки нет» обязан быть
+    красным на реализации, которая карточку шлёт, а не зелёным на пульте,
+    который её уронил."""
+
+    ref = "saved:4242"
+
+
+class _NotifierDouble:
+    """Пульт, который ЗАПОМИНАЕТ карточки вместо отправки.
+
+    Явный класс, а не `MagicMock`: у автомока `notify` существует всегда и
+    истинен всегда, поэтому «карточка не ушла» на нём доказать нечем."""
+
+    def __init__(self):
+        self.cards: list = []
+
+    def notify(self, card):
+        self.cards.append(card)
+        return _Handle()
 
 
 class Sends:
@@ -124,8 +157,9 @@ class Sends:
     async def __call__(self, chat, text=None, *args, **kwargs):
         self.calls.append((chat, text))
         if chat != "me":
-            row = self.store.get_or_create_contact(_contact_of(chat, text))
-            self.state_at_send.append(dict(row))
+            contact_id = _contact_for_chat(chat)
+            if contact_id is not None:
+                self.state_at_send.append(dict(self.store.get_or_create_contact(contact_id)))
             if self.raises is not None:
                 raise self.raises
         self.next_id += 1
@@ -140,21 +174,62 @@ class Sends:
         return [c for c in self.calls if c[0] == "me"]
 
 
-_CHAT_TO_CONTACT: dict = {}
+class _EventDouble:
+    """Входящее событие Telethon — ЯВНЫМИ значениями, а не автомоком.
+
+    `chat = None` намеренно: `display_name` тогда честно падает на id, тогда
+    как `MagicMock` подсунул бы туда истинный объект и имя лида собралось бы
+    из мусора."""
+
+    def __init__(self, *, raw_text: str, msg_id: int, chat_id: int):
+        self.raw_text = raw_text
+        self.message = _Msg(msg_id)
+        self.chat_id = chat_id
+        self.chat = None
 
 
-def _contact_of(chat, text) -> str:
-    """Какому контакту адресована отправка.
+class _ClientDouble:
+    """Явный двойник Telethon-клиента — НИ ОДНОГО автомока.
 
-    Контракт НЕ называет, чем именно `deliver_outgoing` адресует чат (голым
-    peer_id, `contact_id`, InputPeer'ом) — это законный выбор автора кода, и
-    пинить неназванное значило бы краснеть на здоровой реализации. Поэтому
-    сопоставление идёт по ТЕКСТУ задания, который в каждом сценарии свой, а
-    `chat` служит лишь для отделения карточки владельцу (`"me"`).
+    🔴 ПОВОД НАЗВАН ВСЛУХ, потому что на нём уже обожглись 25.08: `MagicMock`
+    ИСТИНЕН и отвечает «да» на любой вопрос
+    ([[jarvis-magicmock-truthy-spins-the-loop]]). Дубль на автомоке гасит
+    РОВНО те ветки, ради которых сторож писался: `bundle is None` и
+    `settings.telegram is None` не срабатывают никогда, все четыре отказа
+    становятся недостижимы, а `await client.get_input_entity(...)` падает
+    `TypeError: object can't be awaited` — то есть сторожа краснеют по вине
+    сторожей, а не кода.
+
+    Интерфейс — ровно тот, который спрашивает `deliver_outgoing` (дополнение
+    к контракту §3): `send_message`, АСИНХРОННЫЙ `get_input_entity`, `action`.
     """
-    if text in _CHAT_TO_CONTACT:
-        return _CHAT_TO_CONTACT[text]
-    return A
+
+    def __init__(self, sends: Sends):
+        self.send_message = sends
+        self.entity_calls: list = []
+
+    async def get_input_entity(self, peer_id):
+        self.entity_calls.append(peer_id)
+        return "entity:%s" % peer_id
+
+    def action(self, *_a, **_k):
+        return _TypingCtx()
+
+
+# `peer_id -> contact_id`: чем именно адресована отправка, знает только
+# реализация (голым peer, InputPeer'ом, строкой) — контракт называет лишь
+# `get_input_entity(peer_id)`. Поэтому адресат восстанавливается по peer'у,
+# который двойник клиента сам же и выдал.
+_PEER_TO_CONTACT: dict[str, str] = {}
+
+
+def _contact_for_chat(chat) -> str | None:
+    """Какому контакту адресована отправка. None = разобрать нечем."""
+    peer = str(chat)
+    if peer.startswith("entity:"):
+        peer = peer[len("entity:"):]
+    peer = peer.split(":")[0]
+    return _PEER_TO_CONTACT.get(peer)
 
 
 def _persona(slug: str, store: Store, scripted=None) -> PersonaBundle:
@@ -164,41 +239,46 @@ def _persona(slug: str, store: Store, scripted=None) -> PersonaBundle:
     return PersonaBundle(cfg=cfg, deps=deps)
 
 
-def _runner(store: Store, *, funnel_gate: bool = False, scripted=None):
-    """Настоящий `TelethonRunner` на временной базе и моке клиента.
+def _personas(store: Store, scripted=None) -> dict[str, PersonaBundle]:
+    """Персоны стенда, и каждая нужна для СВОЕЙ ветки решения.
 
-    Настоящий, а не двойник: `deliver_outgoing` принимает раннер и вправе
-    спрашивать у него `primary_store()`, `sent_registry`, `client`, `loop`,
-    `funnel_gate` — двойник с тремя атрибутами молча разрешил бы реализации
-    опираться на что угодно ещё.
+    * `demo` — здоровый клиент: канал подключён, отправка обязана пройти;
+    * `mute` — тот же клиент с `settings.telegram = None`, то есть «канал не
+      подключён» (исход `no_transport`);
+    * слага `ghost` здесь НЕТ намеренно: `personas.get("ghost") is None` — это
+      «клиент выключен в ростере либо живёт в другом процессе» (исход
+      `client_disabled`). Отсутствие ключа и есть предмет договора, поэтому
+      оно объявлено вслух, а не получается случайно.
     """
-    client = MagicMock()
+    demo = _persona("demo", store, scripted)
+    assert demo.cfg.settings.telegram is not None, (
+        "предпосылка стенда: у здоровой персоны канал ПОДКЛЮЧЁН, иначе "
+        "«отправка прошла» проверять не на чем")
+    muted = dataclasses.replace(
+        demo.cfg, settings=dataclasses.replace(demo.cfg.settings, telegram=None))
+    return {"demo": demo, "mute": PersonaBundle(cfg=muted, deps=demo.deps)}
+
+
+def _runner(store: Store, *, funnel_gate: bool = False, scripted=None):
+    """Настоящий `TelethonRunner` на временной базе и ЯВНЫХ двойниках.
+
+    Настоящий раннер, а не самодельный объект с тремя атрибутами: двойник,
+    у которого есть ровно то, что я угадал, молча разрешил бы реализации
+    опираться на что угодно ещё. А вот `client` и `notifier` — рукописные
+    классы с ЯВНЫМИ значениями: см. `_ClientDouble` о том, чем кончается
+    автомок.
+    """
     sends = Sends(store)
-    client.send_message = sends
-    action_ctx = MagicMock()
-
-    async def _aenter(*_a, **_k):
-        return action_ctx
-
-    async def _aexit(*_a, **_k):
-        return None
-
-    action_ctx.__aenter__ = _aenter
-    action_ctx.__aexit__ = _aexit
-    client.action = MagicMock(return_value=action_ctx)
+    client = _ClientDouble(sends)
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         loop = asyncio.new_event_loop()
     runner = TelethonRunner(
-        client=client, personas={"demo": _persona("demo", store, scripted)},
+        client=client, personas=_personas(store, scripted),
         primary_slug="demo", allowlist=frozenset({111, 222}), loop=loop,
         funnel_gate=funnel_gate)
-    # Карточка идёт либо через notifier, либо прямым `send_message("me", ...)`.
-    # Обе половины обязаны быть измеримы, иначе «карточки нет» проверялось бы
-    # ровно на том пути, которым реализация не пошла.
-    notifier = MagicMock()
-    notifier.notify = MagicMock(return_value=None)
+    notifier = _NotifierDouble()
     runner.notifier = notifier
     return runner, sends, notifier
 
@@ -206,17 +286,18 @@ def _runner(store: Store, *, funnel_gate: bool = False, scripted=None):
 @pytest.fixture()
 def store(tmp_path):
     """База — файл в `tmp_path`. Живой `.secrets/` не трогается никогда."""
-    _CHAT_TO_CONTACT.clear()
+    _PEER_TO_CONTACT.clear()
     s = Store(str(tmp_path / "outgoing.db"))
-    s.get_or_create_contact(A)
-    s.get_or_create_contact(B)
+    for cid in (A, B):
+        s.get_or_create_contact(cid)
+        _PEER_TO_CONTACT[cid.split(":")[0]] = cid
     yield s
     s.close()
 
 
 def _enqueue(store: Store, contact_id: str, text: str, *, token: str,
              now: float = 1000.0):
-    _CHAT_TO_CONTACT[text] = contact_id
+    _PEER_TO_CONTACT[contact_id.split(":")[0]] = contact_id
     return store.enqueue_outgoing(contact_id, text, token=token, now=now)
 
 
@@ -506,10 +587,7 @@ def test_staryi_put_chuzhogo_ishodyashchego_hodit_cherez_tu_zhe_tochku(store):
         seen.append((contact_id, msg_id))
         return real(st, contact_id, msg_id=msg_id, detail=detail, now=now)
 
-    event = MagicMock()
-    event.raw_text = "я вмешался руками"
-    event.message.id = 555
-    event.chat_id = 111
+    event = _EventDouble(raw_text="я вмешался руками", msg_id=555, chat_id=111)
 
     original = tr.open_human_takeover
     tr.open_human_takeover = spy
@@ -695,10 +773,9 @@ def test_KARTOCHKI_NET_a_SOBYTIE_takeover_EST(store):
 
     assert sends.cards() == [], (
         "владельцу ушла карточка на его же нажатие: %r" % (sends.cards(),))
-    assert notifier.notify.call_count == 0, (
-        "карточка ушла через пульт (%d вызовов notify): владелец получает "
-        "вопрос о действии, которое сам только что совершил"
-        % (notifier.notify.call_count,))
+    assert notifier.cards == [], (
+        "карточка ушла через пульт (%d штук): владелец получает вопрос о "
+        "действии, которое сам только что совершил" % (len(notifier.cards),))
     cards = store._conn.execute("SELECT * FROM console_cards").fetchall()
     assert list(cards) == [], (
         "карточка записана в `console_cards` — значит она была показана; %r"
@@ -809,6 +886,93 @@ def _refusal(reason: str, human: str):
         "`Refusal` не собирается ни как Refusal(reason=..., human=...), ни как "
         "Refusal(%r, %r) с этими же атрибутами: контракт §4 требует у отказа "
         "именно `reason` (ключ) и `human` (текст владельцу)" % (reason, human))
+
+
+def _refuse(store, contact_id: str, text: str, *, token: str,
+            create_contact: bool = True):
+    """Прогнать ОДНО задание до отказа и вернуть (вердикт, строка, отправки)."""
+    if create_contact:
+        store.get_or_create_contact(contact_id)
+    _enqueue(store, contact_id, text, token=token)
+
+    async def scenario():
+        runner, sends, _n = _runner(store)
+        verdict = await _need("deliver_outgoing")(
+            runner, store.pending_outgoing()[0], now=1000.0)
+        return verdict, sends
+
+    verdict, sends = _run(scenario())
+    row = store._conn.execute("SELECT * FROM outgoing_queue").fetchone()
+    return verdict, dict(row), sends
+
+
+def _assert_named_refusal(verdict, row, sends, *, what: str):
+    """Общая половина всех четырёх границ §8: отказ НАЗВАН и ТЕРМИНАЛЕН.
+
+    Собрано в одну функцию не ради краткости, а чтобы четыре границы
+    проверялись ОДНОЙ меркой: разъехавшись, они дали бы владельцу четыре
+    разных представления о том, что значит «не доставлено»."""
+    assert verdict == "refused", (
+        "%s дало вердикт %r вместо 'refused'" % (what, verdict))
+    assert row["status"] == "refused", (
+        "%s оставило строку в статусе %r — повторы пойдут по кругу"
+        % (what, row["status"]))
+    assert row["last_error"] and any(c.isalpha() for c in str(row["last_error"])), (
+        "%s не объяснено словами (last_error=%r): владелец увидит «не "
+        "доставлено» и пойдёт гадать" % (what, row["last_error"]))
+    assert sends.to_lead() == [], (
+        "%s, а сообщение всё-таки ушло лиду: %r" % (what, sends.calls))
+
+
+def test_vyklyuchennyi_klient_otkazyvaet_SLOVAMI(store):
+    """`client_disabled`: клиента нет среди персон процесса.
+
+    Так выглядит выключенный в ростере клиент и клиент, живущий в другом
+    процессе. Граница настоящая: отправлять физически некуда, потому что
+    некому. Молча оставить задание `pending` значило бы копить очередь,
+    которая не уедет никогда, и держать пробу красной без причины, которую
+    можно назвать.
+    """
+    verdict, row, sends = _refuse(store, "333:ghost", "клиенту, которого нет",
+                                  token="tok-disabled")
+    _assert_named_refusal(verdict, row, sends, what="задание выключённому клиенту")
+
+
+def test_nepodklyuchennyi_kanal_otkazyvaet_SLOVAMI(store):
+    """`no_transport`: у клиента нет блока `telegram` — канал не подключён.
+
+    Вторая граница §8 спеки, поверх которой человек НЕ проходит. Её легко
+    спутать с тумблером: и там и там «бот молчит». Разница в том, что тумблер
+    выключил ЧЕЛОВЕК и человек же проходит поверх него, а здесь отправлять
+    физически нечем.
+    """
+    verdict, row, sends = _refuse(store, "444:mute", "в неподключённый канал",
+                                  token="tok-notransport")
+    _assert_named_refusal(verdict, row, sends, what="задание в неподключённый канал")
+
+
+def test_neznakomyi_dialog_otkazyvaet_SLOVAMI(store):
+    """`unknown_contact`: диалога, которому адресовано задание, раннер не знает.
+
+    Отправить «куда-нибудь» здесь опаснее, чем не отправить: это чужой диалог
+    с аккаунта клиента, и вернуть такое сообщение нельзя. Отказ обязан быть
+    громким и терминальным.
+    """
+    verdict, row, sends = _refuse(store, "555:demo", "в незнакомый диалог",
+                                  token="tok-unknown", create_contact=False)
+    _assert_named_refusal(verdict, row, sends, what="задание в незнакомый диалог")
+
+
+def test_nerazbiraemyi_contact_id_eto_tozhe_otkaz_SLOVAMI(store):
+    """`unknown_contact` и для мусора вместо `"<peer_id>:<slug>"`.
+
+    Дополнение к контракту §3 называет формат явно. Мусор в адресате обязан
+    стать НАЗВАННЫМ отказом, а не исключением из цикла: исключение остановило
+    бы доставку ВСЕМ остальным лидам, и остановка была бы молчаливой.
+    """
+    verdict, row, sends = _refuse(store, "bez-dvoetochiya", "адресат — мусор",
+                                  token="tok-garbage", create_contact=False)
+    _assert_named_refusal(verdict, row, sends, what="неразбираемый адресат")
 
 
 @pytest.mark.parametrize("reason", REFUSAL_REASONS)
