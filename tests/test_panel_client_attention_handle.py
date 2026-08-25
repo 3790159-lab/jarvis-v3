@@ -475,6 +475,14 @@ def test_the_counting_call_passes_an_explicit_large_limit():
 EXPECTED_ROUTES = {
     ("/health", ("GET",)),
     (ATTENTION_PATH, ("GET",)),
+    # Третья и четвёртая ручки, арка «панель учится отправлять»
+    # (спека 2026-08-25-panel-sends.md, ОК владельца 25.08). `/ops/outgoing`
+    # — немая, как `/ops/attention`, и по той же причине: у watchdog ключа
+    # клиента нет и быть не должно. `/api/outgoing` — ЗА `require_owner`:
+    # это единственная ручка инстанса, которая ПИШЕТ, и открытой ей быть
+    # нельзя. Список правится РУКАМИ намеренно.
+    ("/api/outgoing", ("POST",)),
+    ("/ops/outgoing", ("GET",)),
     ("/panel", ("GET",)),
     ("/panel/login", ("GET",)),
     ("/panel/login", ("POST",)),

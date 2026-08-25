@@ -137,15 +137,43 @@ def test_probe_attention_takes_one_positional_snapshot():
     assert positional[0].name == "snapshot", positional[0].name
 
 
-def test_probe_all_gained_attention_snapshot_as_its_last_parameter():
+def test_probe_all_gained_attention_snapshot_with_a_none_default():
     """`None` = проб этого семейства в цикле НЕТ вовсе: watchdog не имеет
-    права слать DOWN о том, чего не мерил."""
+    права слать DOWN о том, чего не мерил.
+
+    🔴 ПИН ПЕРЕПИСАН 25.08, и вот почему. Раньше он требовал
+    `attention_snapshot` ПОСЛЕДНИМ параметром. Буква устарела законно: арка
+    «панель учится отправлять» завела второе снимочное семейство
+    (`outgoing_snapshot`) и поставила его ПОСЛЕ, по тому же правилу «новые
+    снимки приезжают в хвост». Требование «последний именно attention» стало
+    ложным, не перестав быть выполненным по СМЫСЛУ.
+
+    Смысл был двойной, и обе половины сохранены ниже: снимок существует под
+    договорным именем И его умолчание `None`. Плюс третья, ради которой
+    «последний» и писалось: ХВОСТ подписи занят снимочным параметром с
+    умолчанием — то есть новое семейство не может вклиниться в середину и
+    сдвинуть позиционных вызывателей.
+
+    Подгонять пин под код нельзя, а обобщать под НАЗВАННУЮ причину — можно:
+    иначе каждое следующее семейство ломало бы сторожа, ничего не сломав в
+    коде ([[jarvis-literal-lists-not-introspection]] — литеральной остаётся
+    ПРОВЕРЯЕМАЯ величина, а не порядковый номер)."""
     params = list(inspect.signature(ow.probe_all).parameters.values())
-    assert params[-1].name == "attention_snapshot", (
-        "последний параметр `probe_all` — %r, а контракт §3 требует "
-        "`attention_snapshot` последним, по образцу `restore_drill_snapshot`"
-        % (params[-1].name,))
-    assert params[-1].default is None, params[-1].default
+    by_name = {p.name: p for p in params}
+
+    assert "attention_snapshot" in by_name, (
+        "`attention_snapshot` пропал из подписи `probe_all` — снимок никуда "
+        "не доезжает, и пробы семейства в цикле нет вовсе")
+    assert by_name["attention_snapshot"].default is None, (
+        "умолчание `attention_snapshot` — %r, а обязано быть None: без него "
+        "«снимка не собрали» и «собрали пустой» перестают различаться"
+        % (by_name["attention_snapshot"].default,))
+
+    tail = params[-1]
+    assert tail.name.endswith("_snapshot"), (
+        "хвост подписи `probe_all` занят %r — новое снимочное семейство "
+        "вклинилось в середину и сдвинуло позиционных вызывателей" % (tail.name,))
+    assert tail.default is None, tail.default
 
 
 def test_the_snapshot_collector_exists_under_its_contract_name():
