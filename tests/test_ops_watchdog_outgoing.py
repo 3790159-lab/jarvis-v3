@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import ast
 import importlib
+import json
 import importlib.util as _ilu
 import inspect
 import time
@@ -98,11 +99,17 @@ def stand(tmp_path, monkeypatch):
 
     Возвращает `(app, db_path)`. Живой `.secrets/` не трогается никогда.
     """
+    built = {"n": 0}
+
     def build(jobs=(), refused=(), sent=(), *, now=None):
         now = time.time() if now is None else now
-        db = tmp_path / "yarina.db"
-        if db.exists():
-            db.unlink()
+        # 🔴 НОВЫЙ ФАЙЛ НА КАЖДЫЙ ВЫЗОВ, а не `unlink` старого. Ручка открывает
+        # свой `Store` внутри запроса, и закрыть его отсюда нечем: на Windows
+        # удаление файла, который держит открытым чужое соединение, — это
+        # `PermissionError [WinError 32]`, то есть падение сторожа по вине
+        # сторожа. Сторож обязан краснеть от кода, а не от собственной уборки.
+        built["n"] += 1
+        db = tmp_path / ("yarina-%d.db" % built["n"])
         s = Store(str(db))
         for i, (cid, age, text) in enumerate(jobs):
             s.get_or_create_contact(cid)
@@ -678,15 +685,354 @@ def test_detail_HRANIT_chisla_i_adres():
         "заданий лежит и сколько они лежат; %r" % detail)
 
 
-def test_detail_govorit_o_zadaniyah_a_ne_o_kartochkah():
-    """Владелец читает ФРАЗУ, а не имя переменной. 18-я проба и 11-я живут
-    рядом, ходят на соседние ручки одного инстанса и по форме — близнецы:
-    текст, скопированный вместе с формой, отправил бы владельца открывать
-    карточки эскалации вместо подъёма раннера."""
+# Слова, любым из которых текст 18-й пробы имеет право назвать свою беду.
+# ЛИТЕРАЛЬНЫЙ список и он РАСШИРЕН 25.08: первая редакция знала только
+# «отправ / задани / очеред» и не приняла формулировку «не уехало из панели»,
+# которая называет беду ничуть не хуже. Расширение названо вслух, потому что
+# молча подогнанный под реализацию список — это сторож, согласный с кодом по
+# определению ([[jarvis-literal-lists-not-introspection]]).
+#
+# Предмет договора здесь — НЕ вокабуляр, а то, что текст говорит про
+# НЕОТПРАВКУ. Поэтому рядом стоит второе утверждение, от слов не зависящее
+# вовсе: текст 18-й пробы обязан отличаться от текста 11-й.
+DEED_WORDS = ("уехал", "отправ", "задани", "очеред", "не ушл", "не дошл")
+
+
+def test_detail_govorit_o_NEOTPRAVKE_a_ne_o_kartochkah():
+    """Владелец читает ФРАЗУ, а не имя переменной.
+
+    18-я проба и 11-я живут рядом, ходят на соседние ручки ОДНОГО инстанса и
+    по форме — близнецы. Текст, скопированный вместе с формой, отправил бы
+    владельца открывать карточки эскалации вместо подъёма раннера — то есть
+    чинить не ту беду, а настоящая осталась бы висеть.
+
+    Два утверждения разной природы, и второе важнее первого: первое зависит от
+    моего списка слов, второе — нет. Совпадение текстов двух семейств было бы
+    доказательством копипасты независимо от того, какие слова я угадал.
+    """
     p = _probe(_snap(payload=_payload(pending=2, stuck=True)))
     detail = str(p.get("detail", "")).lower()
     assert "карточ" not in detail, (
         "текст 18-й пробы говорит о карточках эскалации: %r" % detail)
-    assert any(word in detail for word in ("отправ", "задани", "очеред")), (
-        "в тексте пробы нет ни одного слова про отправку, задание или "
-        "очередь — владелец не поймёт, что именно сломалось: %r" % detail)
+    assert any(word in detail for word in DEED_WORDS), (
+        "в тексте пробы нет ни одного слова про неотправку (искали %s): "
+        "владелец не поймёт, что именно сломалось: %r" % (list(DEED_WORDS), detail))
+
+    twin = ow.probe_attention({
+        "slug": SLUG, "instance": True, "host": HOST, "port": PORT,
+        "status": 200, "problem": None,
+        "payload": {"open": 2, "stale_open": 2, "oldest_age_s": LOUD_AGE,
+                    "oldest_wait_s": LOUD_AGE}})
+    assert detail.strip() != str(twin.get("detail", "")).strip().lower(), (
+        "тексты 18-й и 11-й проб СОВПАЛИ: два разных семейства говорят "
+        "владельцу одно и то же, и одно из них он починит не в том месте")
+
+
+# ═══ §8 контракта: ПРОВОДКА ПРОБЫ В ЦИКЛ ════════════════════════════════════
+#
+# 🔴 ЗАЧЕМ ЭТОТ РАЗДЕЛ. Проба может быть написана верно и не звучать в цикле
+# вовсе — тогда лампы нет, а выглядит это как «лампа зелёная». На этом уже
+# обожглись 25.08: ключ лежал зелёный, а пробы за ним не существовало. Поэтому
+# здесь пиннится не сама проба, а ПУТЬ от ростера до ключа алерта.
+#
+# Имена приехали дополнением к контракту, гадать не надо: `_outgoing_snapshot`,
+# `_client_ops_snapshot`, `SNAPSHOT_FAMILIES`, именованный `outgoing_snapshot`
+# у `probe_all` ПОСЛЕ `attention_snapshot`, префикс семейства `outgoing:`.
+
+OUT_PREFIX = "outgoing:"
+ATT_PREFIX = "escalation:"
+
+WITH_INSTANCE = ow.PANEL_CLIENT_SLUG
+NO_INSTANCE = "volska" if ow.PANEL_CLIENT_SLUG != "volska" else "yarina"
+DISABLED = "demo"
+
+ROSTER_TWO = {"clients": [{"slug": NO_INSTANCE, "enabled": True},
+                          {"slug": WITH_INSTANCE, "enabled": True},
+                          {"slug": DISABLED, "enabled": False}]}
+
+
+class _FakeResp:
+    """Ответ `urlopen`: контекстный менеджер, код и тело. Формы доступа — все
+    расхожие сразу, потому что каким именно способом сборщик читает ответ,
+    контракт не называет."""
+
+    def __init__(self, code, body):
+        self.code = code
+        self.status = code
+        self._body = body if isinstance(body, bytes) else body.encode("utf-8")
+        self.headers = {"Content-Type": "application/json"}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_a):
+        return False
+
+    def getcode(self):
+        return self.code
+
+    def read(self, *_a):
+        return self._body
+
+    def info(self):
+        return self.headers
+
+
+def _chatter(roster=None):
+    return {"processes": [], "beats": {}, "legacy_beat_age": 90 * DAY,
+            "guardian_beat_age": 5.0, "guardian_lock_pid": None,
+            "root": "C:/jarvis",
+            "roster": ROSTER_TWO if roster is None else roster}
+
+
+def _panel(host=HOST, port=PORT, status=200, problem=None):
+    """Снимок панели ровно той формы, какую отдаёт `_panel_client_snapshot`."""
+    return {"host": host, "port": port, "status": status, "problem": problem}
+
+
+@pytest.fixture()
+def net(monkeypatch):
+    """Сеть инстанса под контролем — перехват на `urllib`, а не на `fetch`.
+
+    Инъекцию `fetch` контракт называет, а ФОРМУ её ответа — нет, и угадывать
+    неназванное значит краснеть на законном выборе автора кода. Поэтому
+    сборщик гоняется через СВОЙ настоящий сетевой слой, перехваченный там, где
+    watchdog обязан оставаться stdlib-only. Заодно это доказывает поход
+    целиком: адрес, порт, ПУТЬ и разбор тела.
+    """
+    state = {"status": 200, "silent": False, "urls": [],
+             "body": _payload(pending=1, oldest=42.0, stuck=False, refused=0)}
+
+    def fake_urlopen(url, *_a, **_k):
+        target = getattr(url, "full_url", url)
+        state["urls"].append(str(target))
+        if state["silent"]:
+            raise OSError("порт молчит (refused)")
+        if state["status"] != 200:
+            raise ow.urllib.error.HTTPError(
+                str(target), state["status"], "nope", {}, None)
+        body = state["body"]
+        text = body if isinstance(body, str) else json.dumps(body)
+        return _FakeResp(200, text)
+
+    monkeypatch.setattr(ow.urllib.request, "urlopen", fake_urlopen)
+    return state
+
+
+def _collect(roster=None, panel=None):
+    """Снимок исходящих НАСТОЯЩИМ сборщиком контракта."""
+    collector = getattr(ow, "_outgoing_snapshot", None)
+    assert collector is not None, (
+        "`_outgoing_snapshot` не заведён — снимок для 18-й пробы не собирается "
+        "ничем, и проба в цикле не появится вовсе")
+    return collector(ROSTER_TWO if roster is None else roster,
+                     _panel() if panel is None else panel)
+
+
+def _probes(outgoing_snapshot, roster=None):
+    return ow.probe_all(lambda _p: 200,
+                        lambda _p: (100 * 2 ** 30, 0, 50 * 2 ** 30),
+                        chatter_snapshot=_chatter(roster),
+                        attention_snapshot=None,
+                        outgoing_snapshot=outgoing_snapshot)
+
+
+def _out_keys(probes):
+    return sorted(k for k in probes if k.startswith(OUT_PREFIX))
+
+
+def _ok(slug: str) -> str:
+    return OUT_PREFIX + slug
+
+
+def test_probe_all_poluchil_outgoing_snapshot_POSLE_attention_snapshot():
+    """Порядок параметров назван контрактом, и это не педантизм.
+
+    `probe_all` зовут позиционно в нескольких местах дерева; параметр,
+    вставленный ПЕРЕД `attention_snapshot`, сдвинул бы снимок эскалаций в
+    чужой аргумент — и семейство, которое сегодня работает, потухло бы молча.
+    """
+    params = list(inspect.signature(ow.probe_all).parameters.values())
+    names = [p.name for p in params]
+    assert "outgoing_snapshot" in names, (
+        "у `probe_all` нет параметра `outgoing_snapshot`: снимку 18-й пробы "
+        "некуда доехать, и в цикле её не будет; параметры %s" % (names,))
+    assert "attention_snapshot" in names, names
+    assert names.index("outgoing_snapshot") > names.index("attention_snapshot"), (
+        "`outgoing_snapshot` стоит РАНЬШЕ `attention_snapshot` (%s): "
+        "позиционные вызывающие стороны сдвинут снимок эскалаций в чужой "
+        "аргумент, и работающее сегодня семейство потухнет молча" % (names,))
+    default = {p.name: p for p in params}["outgoing_snapshot"].default
+    assert default is None, (
+        "умолчание `outgoing_snapshot` — %r вместо None: watchdog не имеет "
+        "права слать вердикт о том, чего не мерил" % (default,))
+
+
+def test_sborshchiki_snimka_sushchestvuyut_pod_imenami_kontrakta():
+    """Без сборщика проба — функция, которую никто не зовёт."""
+    assert callable(getattr(ow, "_outgoing_snapshot", None)), (
+        "`_outgoing_snapshot` не заведён")
+    assert callable(getattr(ow, "_client_ops_snapshot", None)), (
+        "`_client_ops_snapshot` не заведён — общий сборщик пер-клиентных "
+        "снимков, названный контрактом")
+
+
+def test_semeistvo_obyavleno_v_SNAPSHOT_FAMILIES_i_ne_vytesnilo_eskalacii():
+    """Реестр семейств — то место, где решается, чьи ключи вообще бывают.
+
+    Проверяются ОБА имени: новое семейство обязано появиться, а старое —
+    остаться. Правка, которая заменяет одно другим, выглядит как успех ровно
+    до первого невзятого алерта об эскалациях.
+
+    Форма реестра контрактом не названа, поэтому строки собираются из объекта
+    рекурсивно: пинить неназванную структуру значило бы краснеть на законном
+    выборе автора кода.
+    """
+    families = getattr(ow, "SNAPSHOT_FAMILIES", None)
+    assert families is not None, "`SNAPSHOT_FAMILIES` не заведён"
+
+    seen: set = set()
+
+    def walk(obj, depth=0):
+        if depth > 4:
+            return
+        if isinstance(obj, str):
+            seen.add(obj)
+        elif isinstance(obj, dict):
+            for k, v in obj.items():
+                walk(k, depth + 1)
+                walk(v, depth + 1)
+        elif isinstance(obj, (list, tuple, set, frozenset)):
+            for v in obj:
+                walk(v, depth + 1)
+
+    walk(families)
+    assert OUT_PREFIX in seen, (
+        "префикса %r нет в `SNAPSHOT_FAMILIES` (%r): ключи 18-й пробы не "
+        "принадлежат ни одному семейству, а значит проедут мимо дедупа, "
+        "склейки и прунинга" % (OUT_PREFIX, sorted(seen)))
+    assert ATT_PREFIX in seen, (
+        "префикс эскалаций %r пропал из `SNAPSHOT_FAMILIES` (%r): новое "
+        "семейство вытеснило работающее" % (ATT_PREFIX, sorted(seen)))
+
+
+def test_cikl_probit_KAZHDOGO_VKLYUCHENNOGO_klienta_ROSTERA(net):
+    """🔴 СОСТАВ БЕРЁТСЯ ИЗ РОСТЕРА, А НЕ ИЗ СПИСКА ИНСТАНСОВ.
+
+    Инстанс сегодня ОДИН, а клиентов больше. Задание из панели может лежать
+    неотправленным у любого из них — проба, построенная «по инстансам», была
+    бы ЗЕЛЁНОЙ ПО ПОСТРОЕНИЮ ровно у тех, о ком спросить некого. Это буквально
+    механизм, который молчит, потому что смотрит не туда.
+
+    Ростер из двух включённых = ДВА ключа. Выключенный клиент пробы не имеет
+    ВОВСЕ — ни красной, ни зелёной: у выключенного очереди нет по определению,
+    и красное на нём приучало бы не смотреть.
+    """
+    probes = _probes(_collect())
+    assert _out_keys(probes) == sorted([_ok(NO_INSTANCE), _ok(WITH_INSTANCE)]), (
+        "состав проб исходящих взят не из ростера: %s" % (_out_keys(probes),))
+    assert _ok(DISABLED) not in probes, (
+        "выключенный клиент получил пробу исходящих: у выключенного очереди "
+        "нет по определению, и красное на нём — чистый фон")
+
+
+def test_klient_bez_instansa_v_CIKLE_krasnyi_no_instance(net):
+    """Тот же вердикт, что и в юните, но добытый ЧЕРЕЗ ВЕСЬ путь.
+
+    Юнит доказывает, что функция умеет сказать `no_instance`; этот сторож — что
+    сказанное доезжает до ключа алерта. Порознь они не заменяют друг друга:
+    верная функция, не подключённая к циклу, — это ровно та беда, ради которой
+    раздел написан.
+    """
+    p = _probes(_collect())[_ok(NO_INSTANCE)]
+    assert p["ok"] is False, (
+        "клиент без инстанса позеленел в цикле: «не смог спросить» выдано за "
+        "«задания уезжают»; %r" % (p,))
+    assert p["reason"] == "no_instance", p
+    assert (p.get("detail") or "").strip(), (
+        "вердикт без текста: владельцу нечего читать; %r" % (p,))
+
+
+def test_klient_s_instansom_meryaetsya_normalno(net):
+    """Предпосылка всех сторожей выше: здоровый клиент даёт ЗЕЛЁНОЕ.
+
+    Без неё «состав из ростера» доказывался бы на пробе, красной всегда, а
+    проба, красная всегда, — не сторож, а фон.
+    """
+    p = _probes(_collect())[_ok(WITH_INSTANCE)]
+    assert p["ok"] is True, (
+        "здоровый инстанс с непустой, но не застрявшей очередью объявлен "
+        "больным: %r" % (p,))
+
+
+def test_proba_hodit_imenno_na_ops_outgoing(net):
+    """Путь доказывается ПОХОДОМ, а не совпадением константы.
+
+    Разъехавшись с ручкой, проба получит 404 на живом инстансе — и лампа
+    станет вечно красной, то есть фоном.
+    """
+    _collect()
+    assert net["urls"], "сборщик не сходил никуда: мерить нечем"
+    assert any(OUTGOING_PATH in u for u in net["urls"]), (
+        "сборщик не ходил на %r: %r" % (OUTGOING_PATH, net["urls"]))
+    assert any(HOST in u for u in net["urls"]), (
+        "сборщик ходил не по адресу из снимка панели: %r" % (net["urls"],))
+
+
+def test_BEZ_SNIMKA_prob_semeistva_NET_a_NE_ZELYONYE(net):
+    """🔴 ГЛАВНЫЙ СТОРОЖ РАЗДЕЛА, и обе половины обязаны стоять рядом.
+
+    `None` вместо снимка означает «спросить было нечем» — watchdog не на
+    деплой-хосте, ростер не прочитан. Вердикт DOWN о том, чего не мерили, —
+    враньё; вердикт OK о том, чего не мерили, — хуже: это зелёная лампа над
+    механизмом, которого не существует. Ровно этот дефект уже стоил дня
+    25.08: ключ лежал зелёный, а пробы за ним не было.
+
+    Половина «со снимком ключи ЕСТЬ» стоит здесь же, потому что без неё
+    сторож зелен по построению: «ключей нет» верно и для реализации, которая
+    не завела семейство вовсе.
+    """
+    without = _probes(None)
+    assert _out_keys(without) == [], (
+        "без снимка в цикле всё-таки появились пробы исходящих: %s — они "
+        "выносят вердикт о том, чего никто не мерил" % (_out_keys(without),))
+
+    with_snapshot = _probes(_collect())
+    assert _out_keys(with_snapshot), (
+        "со снимком ключей семейства тоже нет: снимок до `probe_all` не "
+        "доезжает, и 18-й пробы в цикле не существует")
+
+
+def test_nechitaemyi_roster_ne_daet_prob_semeistva(net):
+    """Ростер не прочитан — состав спросить нечем, и об этом уже краснеет
+    отдельная проба ростера. Второе красное на ту же беду — шум, а шум
+    однажды спрячет настоящее."""
+    snapshot = _collect(roster={"error": "реестр не читается"})
+    assert snapshot is None, (
+        "сборщик собрал снимок на нечитаемом ростере: %r" % (snapshot,))
+    assert _out_keys(_probes(snapshot)) == [], (
+        "на нечитаемом ростере в цикле появились пробы исходящих")
+
+
+def test_bez_snimka_paneli_merit_nechem(net):
+    """Снимка панели нет = watchdog не на деплой-хосте. Проб семейства нет
+    вовсе — как и у эскалаций, и по той же причине."""
+    assert _collect(panel=None) is None, (
+        "сборщик собрал снимок без снимка панели: адрес взялся откуда-то "
+        "ещё, то есть завёлся ВТОРОЙ источник правды об адресе")
+
+
+def test_klyuchi_novogo_semeistva_ne_stalkivayutsya_s_eskalacionnymi(net):
+    """Два пер-клиентных семейства на одном слаге. Столкнувшись ключами, они
+    затрут вердикты друг друга: владелец увидит одну беду вместо двух, и
+    какая именно уцелеет — вопрос порядка сборки словаря."""
+    probes = _probes(_collect())
+    out = set(_out_keys(probes))
+    att = {k for k in probes if k.startswith(ATT_PREFIX)}
+    assert out and not (out & att), (
+        "ключи семейств пересеклись: %s" % sorted(out & att))
+    for key in out:
+        assert key.startswith(OUT_PREFIX), key
+        assert key[len(OUT_PREFIX):], (
+            "ключ %r не несёт слага: пер-клиентная проба без имени клиента "
+            "не говорит, У КОГО лежит задание" % (key,))
