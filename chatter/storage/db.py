@@ -236,7 +236,52 @@ CREATE TABLE IF NOT EXISTS invoice_stages (
     status     TEXT NOT NULL,
     PRIMARY KEY (invoice_id, stage_no)
 );
+
+-- Исходящая очередь: панель КЛАДЁТ задание, раннер ОТПРАВЛЯЕТ (спека
+-- 2026-08-25 §2). Панель отправить не может физически — транспорт привязан к
+-- конкретному чату и живёт внутри раннера, а сессия Telethon это файл, который
+-- держит живой процесс. Поэтому единственный общий язык двух процессов — эта
+-- таблица.
+--
+-- Побочная выгода дороже самой отправки: задание переживает ЛЕЖАЧИЙ раннер, и
+-- «владелец нажал, а оно не ушло» перестаёт быть тишиной — у неотправленного
+-- есть возраст (`oldest_pending_outgoing_age`), и его видно пробой.
+--
+-- `token` UNIQUE — идемпотентность: у панели есть кнопка, а у кнопки есть
+-- двойное нажатие. Второе нажатие обязано дать ТО ЖЕ задание, а не второе
+-- сообщение лиду.
+--
+-- `sent_msg_id` СТРОКОЙ (спека §5): числовой id есть только у Telegram, у веба
+-- и бизнес-API его нет вовсе. Колонка заводится сразу строковой, чтобы второй
+-- канал не потребовал миграции живой очереди.
+--
+-- `attempts` считает НЕУДАЧНЫЕ попытки доставки: успех строку закрывает, и
+-- считать в ней нечего. `last_error` — текст СЛОВАМИ, тот же, что увидит
+-- владелец: «не доставлено» без причины отправляет его гадать.
+CREATE TABLE IF NOT EXISTS outgoing_queue (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    contact_id   TEXT NOT NULL,
+    text         TEXT NOT NULL,
+    author       TEXT NOT NULL DEFAULT 'human',
+    token        TEXT NOT NULL UNIQUE,
+    status       TEXT NOT NULL,
+    created_ts   REAL NOT NULL,
+    sent_ts      REAL,
+    attempts     INTEGER NOT NULL DEFAULT 0,
+    last_error   TEXT,
+    sent_msg_id  TEXT
+);
+-- Раннер спрашивает «что ещё не ушло» каждые 5 секунд весь срок процесса, а
+-- панель — на каждый показ лампы. Без индекса это полный скан таблицы, которая
+-- растёт вперёд и никогда не чистится.
+CREATE INDEX IF NOT EXISTS idx_outgoing_pending
+    ON outgoing_queue(status, created_ts);
 """
+
+# Статусы строки очереди. Литеральным множеством, а не «любая строка»: статус,
+# которого никто не ждёт, — это задание, которое не отправит и не покажет
+# никто, то есть молча потерянное сообщение владельца.
+OUTGOING_STATUSES = ("pending", "sent", "refused")
 
 # Источники паузы уровня КОНТАКТА. Глобальный kill switch живёт в
 # runtime_flags и сюда не входит: он не про конкретный диалог.
@@ -928,6 +973,157 @@ class Store:
                 "INSERT INTO control_events(kind, contact_id, detail, ts) VALUES (?,?,?,?)",
                 (kind, contact_id, detail, ts))
             self._conn.commit()
+
+    # --- исходящая очередь: панель кладёт, раннер отправляет ------------------
+    #
+    # Ни один метод ниже НЕ зовёт другой публичный метод Store: `self._lock` —
+    # обычный `threading.Lock`, не реентерабельный, и такой вызов повесил бы
+    # раннер намертво в первой же строке очереди.
+
+    def enqueue_outgoing(self, contact_id: str, text: str, *, token: str,
+                         now: float, author: str = "human") -> tuple[int, bool]:
+        """Положить задание на отправку. Возвращает (row_id, created).
+
+        Повтор по тому же `token` возвращает ТОТ ЖЕ id и `created=False` —
+        второго сообщения лиду не рождается. Токен приходит от панели
+        (`event_token`, личность нажатия, а не личность текста): два разных
+        нажатия с одинаковым текстом — это два задания, и оба обязаны уйти.
+
+        Пустой текст и пустой токен — `ValueError` ДО записи, а не строка,
+        которая ляжет в очередь и будет вечно отказываться отправляться:
+        пустой текст в `send()` — ошибка API, а задание без токена снимает
+        единственную защиту от двойного нажатия.
+        """
+        clean = (text or "").strip()
+        if not clean:
+            raise ValueError("enqueue_outgoing: пустой текст — отправлять нечего")
+        tok = (token or "").strip()
+        if not tok:
+            raise ValueError(
+                "enqueue_outgoing: пустой token — без него двойное нажатие "
+                "кнопки породило бы второе сообщение лиду")
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT id FROM outgoing_queue WHERE token=?", (tok,)).fetchone()
+            if row is not None:
+                return int(row["id"]), False
+            try:
+                cur = self._conn.execute(
+                    "INSERT INTO outgoing_queue(contact_id, text, author, token, "
+                    "status, created_ts) VALUES (?,?,?,?,'pending',?)",
+                    (contact_id, clean, author, tok, now))
+            except sqlite3.IntegrityError:
+                # Гонка двух запросов панели с одним токеном: UNIQUE поймал
+                # второй. Это НЕ ошибка вызывающего — это ровно тот исход, ради
+                # которого UNIQUE и стоит, поэтому отвечаем как на повтор.
+                # Молча не глотаем чужие IntegrityError: перечитываем строку и,
+                # если её нет, отказ уезжает наружу как есть (DEV-18).
+                self._conn.rollback()
+                row = self._conn.execute(
+                    "SELECT id FROM outgoing_queue WHERE token=?", (tok,)).fetchone()
+                if row is None:
+                    raise
+                return int(row["id"]), False
+            self._conn.commit()
+            return int(cur.lastrowid), True
+
+    def pending_outgoing(self, *, limit: int = 20) -> list[dict]:
+        """Неотправленные задания, САМЫЕ СТАРЫЕ ПЕРВЫМИ.
+
+        Порядок — не украшение: очередь к одному лиду обязана уйти в том
+        порядке, в котором владелец её набирал, иначе он прочитает свой же
+        диалог задом наперёд. `id` вторым ключом — на случай одинакового
+        `created_ts` (две кнопки в одну миллисекунду).
+
+        `limit` ограничивает ОДИН проход раннера, а не очередь: остаток
+        заберёт следующий тик через 5 секунд. Считать по длине этого списка
+        нельзя — для чисел есть `outgoing_counts` (иначе лимит занизил бы
+        счётчик молча).
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM outgoing_queue WHERE status='pending' "
+                "ORDER BY created_ts, id LIMIT ?", (int(limit),)).fetchall()
+        return [dict(r) for r in rows]
+
+    def mark_outgoing_sent(self, row_id: int, *, msg_id: str | None,
+                           now: float) -> None:
+        """Задание ушло. `msg_id` строкой (может быть None: у канала без
+        числовых id его нет вовсе) — но САМ ФАКТ отправки от этого не зависит,
+        поэтому статус ставится в любом случае.
+
+        `last_error` чистится: строка, которая ушла со второй попытки, обязана
+        выглядеть отправленной, а не «отправленной с ошибкой» — иначе владелец
+        пойдёт чинить то, что уже сработало."""
+        with self._lock:
+            self._conn.execute(
+                "UPDATE outgoing_queue SET status='sent', sent_ts=?, sent_msg_id=?, "
+                "last_error=NULL WHERE id=?", (now, msg_id, int(row_id)))
+            self._conn.commit()
+
+    def mark_outgoing_failed(self, row_id: int, *, error: str, now: float,
+                             terminal: bool) -> None:
+        """Попытка не удалась. `terminal=True` — отказ НАВСЕГДА
+        (`status='refused'`, повторов не будет); `terminal=False` — строка
+        остаётся `pending` и уйдёт на следующем тике.
+
+        Разводить обязательно: «лид заблокировал аккаунт» повтором не лечится
+        и повторялось бы каждые 5 секунд до конца времён, а «сеть моргнула»
+        лечится ровно повтором. `attempts` растёт в ОБОИХ случаях: попытка
+        была, и её видно.
+
+        `error` кладётся ДОСЛОВНО, потому что этот же текст читает владелец.
+
+        ⚠️ `now` в строку НЕ ПИШЕТСЯ, и это осознанно. Момента отказа в схеме
+        нет, а положить его в `sent_ts` значило бы назвать неотправленное
+        отправленным — колонка с двумя смыслами врёт молча. Заводить колонку
+        сверх контракта тоже нельзя. Параметр остаётся в сигнатуре, потому что
+        часы обязаны приходить снаружи (их подменяют сторожа), и первая же
+        колонка «когда отказало» получит их без смены сигнатуры.
+        """
+        status = "refused" if terminal else "pending"
+        with self._lock:
+            self._conn.execute(
+                "UPDATE outgoing_queue SET status=?, attempts=attempts+1, "
+                "last_error=? WHERE id=?", (status, error, int(row_id)))
+            self._conn.commit()
+
+    def oldest_pending_outgoing_age(self, *, now: float) -> float | None:
+        """Возраст САМОГО СТАРОГО неотправленного задания в секундах.
+        `None` — очередь пуста (а не «ноль»: ноль означал бы, что задание
+        только что положили, и лампа читалась бы как «всё свежо»).
+
+        Возраст не зажимается снизу: отрицательное значение означает, что часы
+        панели и раннера разошлись, и прятать это за `max(0, ...)` значило бы
+        чинить симптом молча."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT MIN(created_ts) AS oldest FROM outgoing_queue "
+                "WHERE status='pending'").fetchone()
+        oldest = row["oldest"] if row is not None else None
+        return None if oldest is None else float(now - float(oldest))
+
+    def outgoing_counts(self) -> dict[str, int]:
+        """Сколько заданий в каждом статусе. Ключи — ВСЕ статусы
+        (`OUTGOING_STATUSES`), даже с нулями: отсутствующий ключ вызывающий
+        обязан был бы подставлять сам, и первое же место, где он этого не
+        сделает, покажет «отказов нет» вместо «не знаю».
+
+        Отдельный метод, а не `len(pending_outgoing())`: у той есть `limit`, и
+        на 21-м задании счётчик молча занизил бы очередь — ровно ловушка
+        `needs_attention(limit=50)`, которую панель уже один раз ловила.
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT status, COUNT(*) AS n FROM outgoing_queue "
+                "GROUP BY status").fetchall()
+        out = {name: 0 for name in OUTGOING_STATUSES}
+        for r in rows:
+            # Статус вне набора не выбрасывается: он означает, что кто-то
+            # завёл четвёртое состояние, и потерять его тихо — худшее из
+            # решений (задание, которого не видно ни одной лампе).
+            out[str(r["status"])] = int(r["n"])
+        return out
 
     # --- профиль лида (арка «память+стоимость») ------------------------------
     def get_profile(self, contact_id: str) -> str | None:

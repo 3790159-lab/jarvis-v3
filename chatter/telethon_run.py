@@ -11,7 +11,11 @@ from pathlib import Path
 from typing import Awaitable, Callable, Mapping
 
 from telethon import events
-from telethon.errors import AuthKeyError, UnauthorizedError
+from telethon.errors import (
+    AuthKeyError, ChatWriteForbiddenError, InputUserDeactivatedError,
+    PeerIdInvalidError, UnauthorizedError, UserBannedInChannelError,
+    UserIsBlockedError, UserPrivacyRestrictedError, YouBlockedUserError,
+)
 
 from chatter.config.active import ActiveClientsError, resolve_personas
 from chatter.runtime_paths import chatter_beat_path
@@ -253,6 +257,17 @@ AUTORESUME_INTERVAL_SECONDS = 60.0
 # config-арка §5: как часто опрашивать mtime конфига при auto_reload.
 CONFIG_WATCH_INTERVAL_SECONDS = 5.0
 
+# Как часто раннер заглядывает в исходящую очередь (спека 2026-08-25 §3.2).
+# Объявлена ЗДЕСЬ, на уровне модуля и ДО `outgoing_loop`, по той же причине,
+# что и AUTORESUME_INTERVAL_SECONDS выше: она уходит в дефолт параметра, а
+# дефолты вычисляются в момент выполнения `def`.
+#
+# 5 секунд — это ЗАДЕРЖКА, которую владелец видит между нажатием и уходом
+# сообщения, и она сознательно мелкая: человек, ответивший лиду, ждёт у
+# экрана. Своего процесса под это не заводится (спека §3.2) — цикл живёт
+# рядом с `heartbeat_loop`/`config_watch_loop` в том же loop'е.
+OUTGOING_POLL_INTERVAL_SECONDS = 5.0
+
 # Keep-alive кэша (спека 2026-08-09): как часто СПРАШИВАТЬ, не пора ли пинговать.
 # Это не период пинга — период 50 минут и живёт в `keepalive.PING_PERIOD_SEC`.
 # Тик мелкий по двум причинам, и обе названы в §3: он же служит ретраем
@@ -389,6 +404,88 @@ async def decide_outgoing(msg_id: int, *, registry: SentRegistry, grace_seconds:
         return "ours"
     await asyncio.sleep(grace_seconds)
     return "ours" if registry.is_ours(msg_id) else "human"
+
+
+def open_human_takeover(store, contact_id: str, *, msg_id, detail: str,
+                        now: float) -> bool:
+    """Открыть эпизод перехвата человеком. `True` = эпизод НАШ (первый).
+
+    ЕДИНСТВЕННАЯ точка открытия эпизода на всё дерево, и вызывателя у неё два:
+    «владелец написал лиду сам» (`on_human_takeover`) и «владелец нажал
+    отправить в панели» (`deliver_outgoing`). Второго пути быть не должно:
+    сегодня «сообщение не наше» и «человек вмешался» — одно событие, а панель
+    их разводит (по транспорту сообщение НАШЕ, по автору — человеческое), и
+    две реализации разъехались бы ровно в этом месте.
+
+    Внутри РОВНО две вещи: атомарный захват эпизода (`begin_takeover` — один
+    `UPDATE ... WHERE paused=0`, поэтому параллельный залп сообщений владельца
+    даёт один эпизод, а не три) и событие `takeover` в журнал.
+
+    🔴 КАРТОЧКУ НЕ ШЛЁТ. Решение о карточке принимает ВЫЗЫВАТЕЛЬ, потому что
+    ответ у них разный (§9.2, решение владельца 25.08): на сообщение, набранное
+    в Telegram, карточка нужна — владелец мог не заметить, что диалог вёл бот;
+    на СОБСТВЕННОЕ нажатие в панели она лишняя и учит жать «да» не глядя
+    ([[jarvis-ask-bridge-auto-allow-suspect]]).
+
+    `msg_id=None` — законный вход: у отправки из панели id появляется только
+    ПОСЛЕ отправки, а эпизод обязан открыться ДО неё. В журнал тогда уезжает
+    `detail=None` («сообщения ещё нет»), а не выдуманный ноль.
+    """
+    started = store.begin_takeover(contact_id, msg_id=msg_id, detail=detail, now=now)
+    if started:
+        store.add_event("takeover", contact_id=contact_id,
+                        detail=None if msg_id is None else str(msg_id), ts=now)
+    return started
+
+
+# --- 1c. отказ доставки — СЛОВАМИ и по причине (спека §3.4, §8) -------------
+class Refusal(Exception):
+    """Отказ доставки: `reason` — литеральный ключ, `human` — текст владельцу.
+
+    Исключение здесь — способ ВЫЙТИ из середины доставки, а не способ
+    сообщить о беде наружу: `deliver_outgoing` ловит его сам и превращает в
+    СОСТОЯНИЕ СТРОКИ (`status='refused'`, `last_error` = те же слова). Наружу
+    отказ не летит: «не доставлено» без причины отправляет владельца гадать, а
+    исключение из фонового цикла он не увидит вовсе.
+    """
+
+    def __init__(self, reason: str, human: str):
+        super().__init__(f"{reason}: {human}")
+        self.reason = reason
+        self.human = human
+
+
+# Литеральный набор причин отказа. Шире не выдумывать: `reason` — это ключ, по
+# которому владелец однажды спросит «сколько раз и почему», и свободная строка
+# превратила бы этот вопрос в разбор текстов. Каждая причина означает «писать
+# ФИЗИЧЕСКИ НЕКУДА», а не «сейчас не вышло»: временные беды повторяются, эти —
+# нет (см. `mark_outgoing_failed(terminal=)`).
+REFUSAL_REASONS = (
+    # клиент выключен в ростере / этим раннером не обслуживается
+    "client_disabled",
+    # у клиента нет подключённого канала: слать нечем
+    "no_transport",
+    # канал закрыт для нас: лид заблокировал, писать запрещено, окно истекло
+    "channel_window_closed",
+    # адресата нет: id не разбирается, контакта нет, аккаунт удалён
+    "unknown_contact",
+)
+
+# Ошибки Telegram, означающие «окно канала закрыто»: писать в этот диалог
+# нельзя НЕ СЕЙЧАС, а вообще, пока лид не передумает. Повтор такой отправки
+# каждые 5 секунд — это шум в логах и трата лимитов на заведомо мёртвую
+# доставку.
+#
+# 🔴 ЭТО НЕ ЗАГЛУШКА ПОД WhatsApp. В фазе 0 канал ровно один (Telegram), и
+# «окно» у него имеет буквальный смысл: аккаунт лида для нас закрыт. Когда
+# приедет бизнес-API с окном 24 часа (спека §4), причина у отказа уже есть, и
+# заводить вторую не придётся.
+CHANNEL_CLOSED_ERRORS = (
+    UserIsBlockedError, YouBlockedUserError, ChatWriteForbiddenError,
+    UserPrivacyRestrictedError, UserBannedInChannelError,
+)
+# Ошибки Telegram про АДРЕСАТА: его не существует либо аккаунт удалён.
+UNKNOWN_CONTACT_ERRORS = (PeerIdInvalidError, InputUserDeactivatedError)
 
 
 def resolve_numbered_target(
@@ -1207,8 +1304,12 @@ class TelethonRunner:
         store.add_message(contact_id, "assistant", text, ts=now, author="human")
         store.note_human_out(contact_id, ts=now)
 
-        started = store.begin_takeover(
-            contact_id, msg_id=event.message.id, detail=text[:200], now=now)
+        # ОДНА функция на оба пути открытия эпизода (см. `open_human_takeover`):
+        # здесь она вызвана из «владелец написал сам», из `deliver_outgoing` —
+        # из «владелец нажал в панели». Событие `takeover` пишет она же, а
+        # карточку ниже шлёт этот вызыватель и только он (§9.2).
+        started = open_human_takeover(
+            store, contact_id, msg_id=event.message.id, detail=text[:200], now=now)
         if not started:
             row = store.get_or_create_contact(contact_id)
             if row["pause_source"] == "human_takeover":
@@ -1233,7 +1334,6 @@ class TelethonRunner:
 
         log.info("TAKEOVER %s by owner: msg %s %r (новый эпизод)",
                  contact_id, event.message.id, text[:60])
-        store.add_event("takeover", contact_id=contact_id, detail=str(event.message.id), ts=now)
         try:
             await self.post_pause_card(event, contact_id, text)
         except Exception:
@@ -1830,6 +1930,227 @@ async def heartbeat_loop(
     while True:
         write_heartbeat(path)
         await asyncio.sleep(interval)
+
+
+# --- исходящая очередь: панель кладёт, раннер отправляет (спека §2, §3) -----
+async def deliver_outgoing(runner: "TelethonRunner", row: dict, *, now: float) -> str:
+    """Один шаг доставки ОДНОЙ строки очереди. Возвращает РОВНО одно из:
+    `'sent'` | `'refused'` | `'retry'`.
+
+    🔴 ПОРЯДОК ОБЯЗАТЕЛЕН: сначала `open_human_takeover`, ПОТОМ отправка.
+    Обратный порядок оставляет окно, в котором сообщение уже ушло лиду, а бот
+    ещё не знает, что диалог ведёт человек, — и договаривает поверх него. Это
+    тот же класс, что [[jarvis-catchup-reanswers-escalated-dialog]], и он
+    опаснее шумного: он тихий. Цена выбранного порядка названа вслух — если
+    отправка не удастся, эпизод перехвата останется открытым и бот промолчит.
+    Из двух ошибок это дешёвая: лишнее молчание бота владелец видит и снимает
+    `/resume`, лишний ответ бота поверх человека он не видит вовсе.
+
+    🔴 ТУМБЛЕРЫ ЗДЕСЬ НЕ СПРАШИВАЮТСЯ, И ЭТО РЕШЕНИЕ, А НЕ ЗАБЫВЧИВОСТЬ
+    (спека §8). `kill_switch`, `funnel_gate` и пауза по контакту — выключатели
+    БОТА. Человек, нажавший «отправить», проходит поверх них: иначе владелец,
+    выключивший бота, не сможет ответить клиенту сам ровно в тот момент, когда
+    это нужнее всего. В спеке веба §12.2 записано «funnel_gate не обходится» —
+    это про бота, и сторож, написанный по той строке буквально, запретил бы
+    отправку человеку.
+
+    Отказ (`Refusal`) — это состояние строки, а не исключение наружу: наружу
+    оно не летит НИКОГДА, потому что фоновый цикл владелец не читает, а
+    `last_error` он видит в панели дословно.
+
+    Разница `refused` и `retry` — это разница «писать физически некуда» и
+    «сейчас не вышло». Первое повтором не лечится и повторялось бы каждые пять
+    секунд до конца времён; второе лечится ровно повтором.
+    """
+    store = runner.primary_store()
+    row_id = int(row["id"])
+    contact_id = str(row.get("contact_id") or "")
+    text = (row.get("text") or "").strip()
+    try:
+        # contact_id — это "<peer_id>:<slug>" (одна форма на всё дерево, см.
+        # `contact_id_for_chat`). Разбор строгий: битый id означает, что
+        # адресата у задания нет, и отправлять его некуда НИКОГДА.
+        peer_part, _, slug = contact_id.rpartition(":")
+        try:
+            peer_id = int(peer_part)
+        except ValueError:
+            raise Refusal(
+                "unknown_contact",
+                "адресат не определяется: id диалога %r не разбирается на "
+                "«кому» и «какая персона»" % contact_id) from None
+        bundle = runner.personas.get(slug)
+        if bundle is None:
+            # Клиент выключен в ростере либо обслуживается ДРУГИМ процессом:
+            # у этого раннера ни сессии, ни конфига для него нет. Отказ, а не
+            # вечное ожидание: задание, которое ждёт раннер, который его
+            # никогда не возьмёт, — это тишина с возрастом.
+            raise Refusal(
+                "client_disabled",
+                "клиент «%s» этим раннером не обслуживается (выключен в "
+                "ростере или живёт в другом процессе) — отправлять некому"
+                % slug)
+        if bundle.cfg.settings.telegram is None:
+            # Канал не подключён: у персоны нет секции telegram, то есть
+            # транспорта не существует в конфиге, а не «сейчас недоступен».
+            raise Refusal(
+                "no_transport",
+                "у клиента «%s» не подключён канал Telegram — слать нечем"
+                % slug)
+        if not store.has_contact(contact_id):
+            # `get_or_create_contact` здесь НЕЛЬЗЯ: он завёл бы строку под
+            # любую опечатку в id и объявил бы диалогом то, чего нет. Панель
+            # берёт contact_id из ленты, поэтому его отсутствие — это не
+            # «первый ход», а несовпадение баз.
+            raise Refusal(
+                "unknown_contact",
+                "диалога %s нет в базе этого клиента: панель и раннер смотрят "
+                "в разные базы либо контакт удалён" % contact_id)
+        try:
+            # Тот же путь, которым берёт собеседника catch-up: сущность с
+            # access_hash, а не голый int (иначе «Could not find the input
+            # entity» на свежей сессии).
+            peer = await runner.client.get_input_entity(peer_id)
+        except UNKNOWN_CONTACT_ERRORS as exc:
+            raise Refusal(
+                "unknown_contact",
+                "Telegram не знает адресата %s (%s): аккаунт удалён или id "
+                "неверен" % (peer_id, type(exc).__name__)) from exc
+        except ValueError as exc:
+            # Telethon отвечает именно ValueError, когда сущность не
+            # резолвится вовсе. Повтор её не вылечит: без входящего от этого
+            # человека сессия его не узнает ни через пять секунд, ни через
+            # сутки.
+            raise Refusal(
+                "unknown_contact",
+                "Telegram не может опознать адресата %s (%s)" % (peer_id, exc)
+            ) from exc
+
+        # ── СНАЧАЛА ПЕРЕХВАТ ─────────────────────────────────────────────
+        # msg_id=None честно: сообщения ещё нет. Атрибуция наводится на
+        # реальный id ПОСЛЕ отправки (ниже) — выдумывать его сейчас значило бы
+        # положить в `pause_msg_id` число, которого в Telegram не существует.
+        started = open_human_takeover(
+            store, contact_id, msg_id=None, detail=text[:200], now=now)
+        if not started:
+            # Эпизод уже идёт (или диалог заглушён другой причиной) — это НЕ
+            # повод не отправлять: человек проходит поверх любой паузы. Чужую
+            # атрибуцию при этом не трогаем, как и на пути «владелец написал
+            # сам».
+            log.info("outgoing #%s: эпизод перехвата уже открыт для %s",
+                     row_id, contact_id)
+
+        # ── ПОТОМ ОТПРАВКА ───────────────────────────────────────────────
+        # Транспорт тот же, которым отвечает бот, и с тем же `sent_registry`:
+        # отправка из панели по транспорту НАША, и без регистрации раннер
+        # опознал бы её как чужое исходящее — поднял бы вторую атрибуцию и
+        # карточку на сообщение, которое сам же отправил по кнопке владельца.
+        transport = TelethonTransport(
+            runner.client, peer, runner.loop, sent_registry=runner.sent_registry)
+        try:
+            # to_thread по той же причине, что и в `handle_event`: транспорт
+            # синхронный и блокирующий, а мы на event loop.
+            msg_id = await asyncio.to_thread(transport.send_returning_id, text)
+        except CHANNEL_CLOSED_ERRORS as exc:
+            raise Refusal(
+                "channel_window_closed",
+                "канал закрыт для нас (%s): лид заблокировал аккаунт или "
+                "запретил писать — доставить нельзя, пока он не передумает"
+                % type(exc).__name__) from exc
+        except UNKNOWN_CONTACT_ERRORS as exc:
+            raise Refusal(
+                "unknown_contact",
+                "Telegram отказал в адресате %s (%s) при отправке"
+                % (peer_id, type(exc).__name__)) from exc
+    except Refusal as refusal:
+        # Отказ = СОСТОЯНИЕ СТРОКИ. Слова, которые прочитает владелец, и
+        # ключ, по которому это можно посчитать, — обе половины сразу.
+        store.mark_outgoing_failed(
+            row_id, error=refusal.human, now=now, terminal=True)
+        store.add_event("outgoing_refused", contact_id=contact_id,
+                        detail="#%s %s: %s" % (row_id, refusal.reason, refusal.human),
+                        ts=now)
+        log.warning("outgoing #%s ОТКАЗ (%s): %s", row_id, refusal.reason, refusal.human)
+        return "refused"
+    except Exception as exc:   # noqa: BLE001 — DEV-18: громко и с повтором
+        # Всё неназванное — это «сейчас не вышло»: сеть, БД, незнакомая ошибка
+        # Telegram. Строка остаётся в очереди и уйдёт на следующем тике, а
+        # причина видна и в логе, и в `last_error`. Молча проглотить нельзя:
+        # задание, застрявшее без объяснения, — это ровно та тишина, ради
+        # которой очередь и заводилась.
+        log.exception("outgoing #%s: доставка сорвалась, оставляю в очереди", row_id)
+        store.mark_outgoing_failed(
+            row_id, error="%s: %s" % (type(exc).__name__, exc), now=now, terminal=False)
+        return "retry"
+
+    if msg_id is None:
+        # Транспорт сдался после повторного FloodWait: сообщение НЕ ушло.
+        # Считать это отправкой значило бы потерять сообщение владельца молча.
+        store.mark_outgoing_failed(
+            row_id, error="Telegram придержал отправку (FloodWait) — пробую ещё",
+            now=now, terminal=False)
+        log.warning("outgoing #%s: FloodWait, оставляю в очереди", row_id)
+        return "retry"
+
+    # ПЕРВЫМ ДЕЛОМ закрываем строку, и только потом всё остальное: каждое
+    # действие между «ушло» и «закрыто» — это окно, в котором сбой БД оставит
+    # строку `pending`, и следующий тик отправит сообщение ВТОРОЙ раз.
+    # Транзакции поверх сетевого вызова у нас нет и быть не может, поэтому окно
+    # сужается порядком, а не обещанием.
+    store.mark_outgoing_sent(row_id, msg_id=msg_id, now=now)
+    # История и `last_human_out_ts` — ПОСЛЕ отправки, а не до: неотправленного
+    # в истории нет (то же правило, что у бота в `run.process_batch`), иначе
+    # повтор после сбоя удвоил бы ленту. `author='human'` при роли `assistant`
+    # — спека §5: роль уходит в API как есть, а автор живёт рядом.
+    store.add_message(contact_id, "assistant", text, ts=now, author="human")
+    store.note_human_out(contact_id, ts=now)
+    if msg_id.isdigit():
+        # Атрибуция паузы указывает на РЕАЛЬНО отправленное сообщение: по
+        # `pause_msg_id` владелец адресует `/resume` реплаем, и колонка
+        # сравнивается как ЧИСЛО (`update_pause_attribution`). Нечисловой id
+        # (веб, бизнес-API — их время ещё придёт) туда не кладём: он либо
+        # упадёт, либо соврёт про порядок сообщений.
+        store.update_pause_attribution(
+            contact_id, msg_id=int(msg_id), detail=text[:200])
+    store.add_event("outgoing_sent", contact_id=contact_id,
+                    detail="#%s -> msg %s" % (row_id, msg_id), ts=now)
+    log.info("outgoing #%s ОТПРАВЛЕНО в %s (msg %s)", row_id, contact_id, msg_id)
+    return "sent"
+
+
+async def outgoing_loop(
+    runner: "TelethonRunner", *, interval: float = OUTGOING_POLL_INTERVAL_SECONDS,
+    async_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+) -> None:
+    """Вечный фон РЯДОМ с `heartbeat_loop`/`config_watch_loop`: забрать из
+    очереди то, что владелец нажал в панели, и отправить.
+
+    ОТДЕЛЬНОГО ПРОЦЕССА НЕ ЗАВОДИТСЯ (спека §3.2). Причина не в экономии:
+    сессия Telethon — файл, который держит живой процесс, и второй клиент на
+    том же файле это в лучшем случае отказ, в худшем разлогин аккаунта
+    клиентки.
+
+    DEV-18: сбой ОДНОЙ строки не убивает цикл — иначе одно битое задание
+    заперло бы очередь навсегда, и владелец узнал бы об этом только по
+    возрасту самого старого задания (и то, если бы догадался посмотреть).
+    Чтение очереди обёрнуто отдельно по той же причине.
+    """
+    while True:
+        try:
+            rows = runner.primary_store().pending_outgoing()
+        except Exception:
+            log.exception("outgoing: очередь не прочиталась, продолжаю цикл")
+            rows = []
+        for row in rows:
+            try:
+                await deliver_outgoing(runner, row, now=time.time())
+            except Exception:
+                # `deliver_outgoing` свои беды ловит сам и превращает в
+                # состояние строки; сюда долетает только то, что сломалось
+                # ВНЕ её try (например упала сама запись в БД). Вторая линия
+                # обороны: одно задание не имеет права остановить остальные.
+                log.exception("outgoing: строка %s не доставлена, иду дальше",
+                              (row or {}).get("id"))
+        await async_sleep(interval)
 
 
 # --- keep-alive prompt-кэша (спека 2026-08-09) ------------------------------
@@ -2443,6 +2764,12 @@ def main(argv: list[str] | None = None) -> int:
         # весь срок процесса, а не один раз при старте.
         loop.create_task(autoresume_loop(
             runner.primary_store(), auto_resume_hours=runner.control.auto_resume_hours))
+        # Исходящая очередь (спека 2026-08-25 §3.2) — РЯДОМ с ними и по той же
+        # причине: вечный фон на весь срок процесса, отдельного процесса не
+        # заводится. Задача создаётся ВСЕГДА: пустая очередь ничего не стоит
+        # (один SELECT по индексу раз в 5 секунд), а условный запуск означал бы,
+        # что задание, положенное панелью в неудачный момент, не увезёт никто.
+        loop.create_task(outgoing_loop(runner))
         # Keep-alive кэша (спека 2026-08-09) — рядом и по той же причине:
         # вечный фон на весь срок процесса. Задача создаётся всегда, пингует
         # только тех клиентов, у кого тумблер включён И объём выше порога;

@@ -140,6 +140,35 @@ class TelethonTransport(Transport):
         return None
 
     def send(self, text: str) -> None:
+        self._send_and_register(text)
+
+    def send_returning_id(self, text: str) -> str | None:
+        """Как `send()`, но отдаёт id ОТПРАВЛЕННОГО сообщения СТРОКОЙ.
+
+        Нужен исходящей очереди (`telethon_run.deliver_outgoing`): у задания
+        панели своего id нет, а без id нельзя ни записать его в строку
+        очереди, ни навести на него атрибуцию паузы.
+
+        `None` = сообщение НЕ УШЛО (сдались после повторного FloodWait, см.
+        `_call_with_floodwait_retry`). Для очереди это РОВНО «не отправлено» —
+        строка обязана остаться в очереди и уйти на следующем тике. Ради
+        именно этого различия метод отдельный: `send()` возвращает `None`
+        всегда, и по нему «ушло» от «не ушло» не отличить.
+
+        Регистрация в `SentRegistry` — общая с `send()` (одна реализация в
+        `_send_and_register`): отправка из панели по транспорту НАША, и не
+        зарегистрировать её значит поднять перехват «чужого исходящего» на
+        сообщение, которое мы сами же отправили по кнопке владельца.
+        """
+        sent = self._send_and_register(text)
+        msg_id = getattr(sent, "id", None)
+        return None if msg_id is None else str(msg_id)
+
+    def _send_and_register(self, text: str):
+        """ЕДИНСТВЕННЫЙ путь отправки этого транспорта: отправить и запомнить
+        id как СВОЙ. Второй путь означал бы вторую точку, где регистрацию можно
+        забыть, — а забытая регистрация = самозаглушка (см. `decide_outgoing`).
+        Возвращает объект сообщения Telethon либо None."""
         log.info("OUT %s: %s", self._chat, text)
         sent = self._call_with_floodwait_retry(
             lambda: self._client.send_message(self._chat, text),
@@ -165,6 +194,7 @@ class TelethonTransport(Transport):
         # случай, и случай sent_registry=None (не сконфигурирован вызывающим).
         if self._sent is not None and getattr(sent, "id", None) is not None:
             self._sent.add(sent.id)
+        return sent
 
     def send_typing(self, on: bool) -> None:
         if on:

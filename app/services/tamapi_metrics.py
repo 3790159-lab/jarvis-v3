@@ -406,3 +406,48 @@ def dialog_feed(db_path, *, now: float, limit: int = 30, flt: str = "all") -> li
             feed.append(item)
         feed.sort(key=lambda x: x["last_ts"] or 0, reverse=True)
         return feed[:limit]
+
+
+class OutgoingQueueMissing(RuntimeError):
+    """Таблицы `outgoing_queue` в базе клиента НЕТ.
+
+    Громкий тип, а не пустой ответ: отсутствие таблицы означает, что раннер
+    этой базы ещё НЕ ПЕРЕЗАПУЩЕН на код с очередью, — то есть всё, что владелец
+    нажмёт в панели, ляжет в базу и не уедет никому. Ответ «в очереди ноль,
+    всё тихо» на этот вопрос — зелёное по построению, худший из возможных
+    отказов. Мерж без рестарта уже стоил нам эталона регресса
+    ([[jarvis-stale-process-destroys-the-artifact]]), и лампа обязана его
+    видеть."""
+
+
+def outgoing_raw(db_path) -> dict:
+    """ФАКТЫ об исходящей очереди, без единого порога и без единой трактовки:
+
+        {"pending": int, "refused": int, "oldest_created_ts": float | None}
+
+    Порог («застряло или нет») живёт у того, кто ОТВЕЧАЕТ владельцу, — у
+    инстанса панели (`app/panel_client.py`). Здесь его нет намеренно: два числа
+    на одну вещь разъезжаются молча, и меньшее гасит большее.
+
+    Возраст тоже не считается здесь: часы у читателя свои, и `now` обязан быть
+    ОДИН на весь ответ, а не два разных показания в одном теле.
+
+    Счёт идёт по СТАТУСАМ одной группировкой, а не тремя запросами: три запроса
+    к живой базе — это три разных момента времени, и сумма из них не сходится
+    ровно тогда, когда очередь движется.
+    """
+    with _ro(db_path) as conn:
+        if not _table_exists(conn, "outgoing_queue"):
+            raise OutgoingQueueMissing(
+                "в базе %s нет таблицы outgoing_queue: раннер не перезапущен "
+                "на код с очередью — отправка из панели никуда не уедет" % db_path)
+        counts = {r["status"]: int(r["n"]) for r in conn.execute(
+            "SELECT status, COUNT(*) AS n FROM outgoing_queue GROUP BY status")}
+        oldest = conn.execute(
+            "SELECT MIN(created_ts) AS t FROM outgoing_queue "
+            "WHERE status='pending'").fetchone()["t"]
+    return {
+        "pending": counts.get("pending", 0),
+        "refused": counts.get("refused", 0),
+        "oldest_created_ts": None if oldest is None else float(oldest),
+    }

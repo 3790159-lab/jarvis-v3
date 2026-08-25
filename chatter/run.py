@@ -45,7 +45,7 @@ from chatter.core.guardrails import (
     redact_unbacked, within_daily_cap, within_hourly_limit,
 )
 from chatter.core.llm import AnthropicLLM, FakeLLM
-from chatter.core.pause import is_attributed, is_muted
+from chatter.core.pause import human_holds_dialog, is_attributed, is_muted
 from chatter.core.prefix_budget import (
     PrefixGuardRefusal, check_client_prefixes)
 from chatter.notify.base import Card, CardHandle, Notifier
@@ -230,6 +230,22 @@ def _muted_now(deps: Deps, contact_id: str) -> bool:
         print(f"  [BUG] paused without a source: {contact_id}")
     kill = deps.store.get_runtime_flag("kill_switch") == "1"
     return is_muted(row, kill_switch=kill, now=deps.clock())
+
+
+def _human_holds_now(deps: Deps, contact_id: str) -> bool:
+    """Ведёт ли диалог ЧЕЛОВЕК прямо сейчас. Состояние читается ЗАНОВО, как и
+    в `_muted_now`, и по той же причине: между решением ответить и отправкой
+    бот реально спит wall-clock время (пауза чтения+печати), а владелец за это
+    время мог нажать «отправить» в панели.
+
+    🔴 ЭТО НЕ ВТОРОЕ ПРАВИЛО МОЛЧАНИЯ. `_muted_now` ниже поймал бы тот же
+    случай (перехват ставит паузу), но назвал бы его «пауза» — и владелец,
+    разбирая «почему бот замолчал на полуслове», увидел бы причину, которой
+    чинить нечего. Вопрос здесь ДРУГОЙ («кто держит диалог»), ответ на него
+    берётся из ТОГО ЖЕ состояния и той же чистой функции, и стоит он перед
+    общим гейтом только затем, чтобы случай назывался своим именем и
+    считался своим ключом события."""
+    return human_holds_dialog(deps.store.get_or_create_contact(contact_id))
 
 
 def _payment_context(deps: "Deps", contact_id: str, *, text: str) -> PaymentTurn:
@@ -993,6 +1009,24 @@ def process_batch(
         elif isinstance(action, H.Typing):
             transport.send_typing(action.on)
         elif isinstance(action, H.Say):
+            if _human_holds_now(deps, contact_id):
+                # Спека 2026-08-25 §7: владелец нажал «отправить» в панели,
+                # пока бот сочинял и «печатал». Его сообщение УЖЕ ушло лиду
+                # (доставка открывает эпизод перехвата ДО отправки), и наш
+                # сочинённый ответ теперь ляжет поверх человека — тот самый
+                # тихий отказ, который дороже шумного.
+                #
+                # Проверка стоит ЗДЕСЬ, в раннере перед самой отправкой, а не
+                # в панели: между нажатием и этой строкой проходит цикл
+                # поллинга, и состояние успевает измениться.
+                transport.send_typing(False)      # не висеть «печатає» поверх человека
+                deps.store.add_event("bot_yielded_to_human", contact_id=contact_id,
+                                     detail=f"не відправлено {total_bubbles - said} "
+                                            f"з {total_bubbles} бабблів",
+                                     ts=deps.clock())
+                log.info("уступаю человеку в %s: остаток ответа не отправляю", contact_id)
+                print(f"  [human took over] {contact_id}: отменяю остаток ответа")
+                return
             if _muted_now(deps, contact_id):
                 # Позорный сценарий (спека §3): Аня ушла в паузу
                 # чтения+печати, за это время владелец ответил руками — этот

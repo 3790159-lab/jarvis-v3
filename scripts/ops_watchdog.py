@@ -226,6 +226,10 @@ PANEL_CLIENT_HEALTH_PATH = "/health"
 # карточках эскалации и ничего больше (см. `app/panel_client.py`). Ключа она
 # не требует по той же причине, что и `/health`.
 ATTENTION_PATH = "/ops/attention"
+# ТРЕТЬЯ немая ручка того же инстанса: РОВНО четыре числа об исходящей очереди
+# панели («владелец нажал отправить — уехало ли»). Ключа не требует по той же
+# причине, что и две предыдущие.
+OUTGOING_PATH = "/ops/outgoing"
 PANEL_CLIENT_RUNNER = ROOT / "scripts" / "run_panel_client.py"
 
 # Порог тот же, что у гардиана (HeartbeatMaxAgeSec=180). Разные пороги = два
@@ -252,6 +256,10 @@ CLIENT_PROBE_PREFIX = "chatter_runner:"
 # на всю ферму означал бы, что живой сосед перекрывает мёртвого ПО
 # ОПРЕДЕЛЕНИЮ — ровно тот агрегат, который мы только что убрали у раннеров.
 ATTENTION_PROBE_PREFIX = "escalation:"
+# ТРЕТЬЕ семейство пер-клиентных ключей: «задание, которое владелец отправил из
+# панели, не уехало». Пер-слаговое по той же причине, что и два предыдущих:
+# застрявшая очередь у одного клиента не имеет права глушить алерт о другом.
+OUTGOING_PROBE_PREFIX = "outgoing:"
 CHATTER_CLIENT_FLAG = "--client"
 
 # 🔴 СЕМЕЙСТВА ПЕР-КЛИЕНТНЫХ ПРОБ — ОДНА ТАБЛИЦА, И ОНА ЖЕ ЕДИНСТВЕННОЕ МЕСТО,
@@ -284,7 +292,20 @@ CLIENT_FAMILIES = {
         "label": "ЭСКАЛАЦИИ клиента «%s»",
         "group": "эскалации клиентов",
     },
+    OUTGOING_PROBE_PREFIX: {
+        # Ярлык НЕЙТРАЛЕН к исходу по той же причине, что и у эскалаций: из
+        # шести исходов пять говорят «не знаю, уехало ли», и ярлык «не уехало»
+        # соврал бы на каждом из них.
+        "label": "ОТПРАВКА ИЗ ПАНЕЛИ клиента «%s»",
+        "group": "отправка из панели",
+    },
 }
+# Семейства, которых в цикле может не быть ВОВСЕ при зелёном ростере: их состав
+# зависит не от ростера, а от того, есть ли на этом хосте панель (см.
+# `_client_ops_snapshot`). Для них «пусто» означает «не мерили», а не «нет
+# клиентов», и чистка состояния обязана это различать (`prune_client_state`).
+# Раннеры в набор НЕ входят: их состав определяет тот же ростер.
+SNAPSHOT_FAMILIES = frozenset({ATTENTION_PROBE_PREFIX, OUTGOING_PROBE_PREFIX})
 # Ростер читается ОТСЮДА и только отсюда. `import chatter` запрещён: watchdog
 # stdlib-only, чтобы уметь сказать «бэкенд мёртв» тогда, когда мертво всё, что
 # делит с ним окружение. `import yaml` разрешён решением владельца 19.08.
@@ -379,6 +400,8 @@ def client_slug_of(check: str) -> str:
     family = client_family_of(c)
     if family == ATTENTION_PROBE_PREFIX:
         return c[len(ATTENTION_PROBE_PREFIX):]
+    if family == OUTGOING_PROBE_PREFIX:
+        return c[len(OUTGOING_PROBE_PREFIX):]
     return c[len(CLIENT_PROBE_PREFIX):] if family else ""
 
 
@@ -1624,11 +1647,14 @@ def prune_client_state(state: dict, probes: dict) -> dict:
     #   раннеры    — их состав определяет тот же ростер, что и условие выше;
     #                пусто у них означает «включённых клиентов нет», и чистка
     #                верна. Поведение остаётся прежним дословно;
-    #   эскалации  — семейство может отсутствовать ЦЕЛИКОМ при зелёном ростере
-    #                (нет `run_panel_client.py` — watchdog не на деплой-хосте,
-    #                см. `_attention_snapshot`). Пусто у них означает «не
-    #                мерили», и чистка вымыла бы `alerted` у всех — ровно то,
-    #                от чего защищает условие на зелёный ростер выше.
+    #   эскалации  — эти семейства могут отсутствовать ЦЕЛИКОМ при зелёном
+    #   и отправка   ростере (нет `run_panel_client.py` — watchdog не на
+    #                деплой-хосте, см. `_client_ops_snapshot`). Пусто у них
+    #                означает «не мерили», и чистка вымыла бы `alerted` у всех —
+    #                ровно то, от чего защищает условие на зелёный ростер выше.
+    #                Список таких семейств — `SNAPSHOT_FAMILIES`, ОДНО место:
+    #                второе семейство приехало сюда копией условия, третье
+    #                стало бы копией копии, и однажды копию забыли бы.
     families_live = {client_family_of(k) for k in live}
     out = {}
     for key, value in state.items():
@@ -1637,7 +1663,7 @@ def prune_client_state(state: dict, probes: dict) -> dict:
         family = client_family_of(key)
         if family == CLIENT_PROBE_PREFIX and key not in live:
             continue
-        if (family == ATTENTION_PROBE_PREFIX and family in families_live
+        if (family in SNAPSHOT_FAMILIES and family in families_live
                 and key not in live):
             continue
         out[key] = value
@@ -2266,6 +2292,165 @@ def probe_attention(snapshot: dict) -> dict:
                          else " (самой старой %s)" % _fmt_age(age))}
 
 
+def _outgoing_payload_problem(payload) -> str:
+    """Что не так с телом `/ops/outgoing`. Пустая строка = тело годное.
+
+    Требуются ЧЕТЫРЕ ключа контракта и их типы; лишние ключи ошибкой не
+    считаются (проба, краснеющая от расширения ручки, была бы красной на
+    здоровом инстансе, то есть фоном).
+
+    Две сверки СМЫСЛА, а не только типов, и обе ловят ровно то, что иначе
+    прошло бы как осмысленный ответ о неверной величине:
+
+    * `stuck` при пустой очереди — застрять нечему; так выглядит порог,
+      применённый не к тому числу;
+    * `pending > 0` без возраста — возраст самого старого задания обязан
+      существовать, раз задание есть. Иначе лампа «застряло» слепа по
+      построению: `stuck` считается из того самого возраста.
+
+    `stuck` проверяется как BOOL строго: `bool` — подкласс `int`, и обратной
+    ловушки («1» прошло бы как True) тут нет, но ЛЮБОЕ число вместо флага
+    означает, что ручка отдаёт не то поле.
+    """
+    if not isinstance(payload, dict):
+        return "ответ не JSON-объект"
+    for name in ("pending", "refused"):
+        value = payload.get(name)
+        if isinstance(value, bool) or not isinstance(value, int):
+            return "%s не целое" % name
+        if value < 0:
+            return "%s отрицательное" % name
+    if "oldest_age_s" not in payload:
+        return "нет ключа oldest_age_s"
+    age = payload["oldest_age_s"]
+    if age is not None and (isinstance(age, bool) or not isinstance(age, (int, float))):
+        return "oldest_age_s не число и не null"
+    if not isinstance(payload.get("stuck"), bool):
+        return "stuck не булев"
+    if payload["stuck"] and payload["pending"] == 0:
+        return "stuck при пустой очереди"
+    if payload["pending"] > 0 and age is None:
+        return "pending есть, а возраста нет"
+    return ""
+
+
+def probe_outgoing(snapshot: dict) -> dict:
+    """Восемнадцатая проверка (нумерация контракта арки), ПЕР-КЛИЕНТНАЯ:
+    уехало ли то, что владелец отправил из панели.
+
+    Аргумент — СНИМОК, одним позиционным словарём, ФОРМА ТА ЖЕ, что у
+    `probe_attention` (россыпь именованных аргументов уже стоила вердикта
+    `no_bind_address` на здоровой панели: снимок уезжал в первый позиционный):
+
+        {"slug": <str>, "instance": <bool>, "host": <str|None>, "port": <int>,
+         "status": <int|None>, "payload": <dict|None>, "problem": <str|None>}
+
+    ИСХОДОВ ШЕСТЬ, и каждый чинится по-разному:
+
+    * `no_bind_address` — адреса инстанса нет вовсе: мерить нечем;
+    * `no_instance`     — клиент в ростере включён, а инстанса для него нет
+      (сегодня это volska: панели у неё НЕТ, и спросить некого);
+    * `no_response`     — на адресе никто не слушает: работа гардиана;
+    * `http:<код>`      — ответил не 200. **404 = ручки ещё нет** (инстанс не
+      перезапущен после деплоя), **500 = базу не прочитали ИЛИ таблицы очереди
+      в ней нет** (раннер не перезапущен на код с очередью — то есть нажатия
+      владельца ложатся в базу и не уезжают никому);
+    * `bad_payload`     — 200, но тело не той формы;
+    * `outgoing_stuck`  — инстанс ЖИВ, ответил, и `stuck` — задание висит
+      дольше порога инстанса.
+
+    🔴 ПЕРВЫЕ ПЯТЬ — НОВОСТИ ПРО НАБЛЮДЕНИЕ («не знаю, уехало ли»), ШЕСТОЙ —
+    ПРО ДЕЛО («не уехало»). Тексты `detail` различаются СЛОВАМИ, а не только
+    ключом: владелец читает фразу, а не имя переменной.
+
+    🔴 `bad_payload` КРАСНЫЙ, А НЕ ЗЕЛЁНЫЙ — соблазн «не разобрали тело, значит
+    всё тихо» даёт пробу, которая при любой поломке ручки говорит «всё уехало».
+
+    ПОРОГА У ПРОБЫ НЕТ. «Застряло или нет» решает ИНСТАНС своим
+    `OUTGOING_STUCK_AFTER` — тем же числом, которым он ответит и панели.
+    Второго числа на ту же вещь здесь не заводится: меньшее погасило бы большее
+    молча. Ровно поэтому watchdog и остаётся stdlib-only: он спрашивает, а не
+    считает.
+
+    ⚠️ ОТКАЗЫ (`refused`) КРАСНЫМИ НЕ ДЕЛАЮТ, и это решение контракта, а не
+    недосмотр: отказ — законченная история с названной причиной, которую
+    владелец читает словами в самой строке, а исходов у пробы ровно шесть.
+    Число отказов при этом уезжает в `detail` — молчать о нём было бы враньём
+    формой.
+
+    В `reason` не попадает НИ ОДНОГО возраста и НИ ОДНОГО адреса: `reason` —
+    ключ дедупа, возраст растёт каждый цикл, и секунды в нём дали бы алерт раз
+    в 30 секунд.
+
+    ⚠️ `instance` при ОТСУТСТВИИ ключа читается как «инстанс есть» — как и у
+    `probe_attention`, и по той же причине: снимок собирается здесь же и ключ
+    ставит всегда, а умолчание «нет» превратило бы любой недособранный снимок в
+    вердикт о ростере вместо вердикта об инстансе.
+    """
+    snapshot = snapshot or {}
+    host = snapshot.get("host")
+    host = (host or "").strip() if isinstance(host, str) else host
+    port = snapshot.get("port", PANEL_CLIENT_PORT)
+
+    if not snapshot.get("instance", True):
+        return {"ok": False, "reason": "no_instance",
+                "detail": "инстанса панели для этого клиента НЕТ — отправлять "
+                          "из панели некому и спросить некого, уехало ли "
+                          "нажатое, неизвестно"}
+    if not host:
+        return {"ok": False, "reason": "no_bind_address",
+                "detail": (snapshot.get("problem")
+                           or "адрес инстанса не вычислился") +
+                          " — мерить нечем, уехало ли нажатое, неизвестно"}
+
+    where = "%s:%s%s" % (host, port, OUTGOING_PATH)
+    status = snapshot.get("status")
+    if status is None:
+        return {"ok": False, "reason": "no_response",
+                "detail": "%s: нет ответа (refused/timeout) — инстанс молчит, "
+                          "уехало ли нажатое, неизвестно" % where}
+    if status != 200:
+        # 404 и 500 названы вслух разными фразами: первое — порядок деплоя
+        # панели, второе — НЕ перезапущенный раннер (таблицы очереди нет) либо
+        # нечитаемая база. Владелец по этим двум идёт в разные места.
+        if status == 404:
+            hint = "ручки ЕЩЁ НЕТ — инстанс не перезапущен после деплоя"
+        elif status == 500:
+            hint = ("панель не смогла прочитать очередь — базы нет, она "
+                    "нечитаема, ЛИБО раннер не перезапущен на код с очередью")
+        else:
+            hint = "инстанс жив, но ручка очереди не отвечает"
+        return {"ok": False, "reason": "http:%s" % status,
+                "detail": "%s: HTTP %s — %s, уехало ли нажатое, неизвестно"
+                          % (where, status, hint)}
+
+    payload = snapshot.get("payload")
+    problem = _outgoing_payload_problem(payload)
+    if problem:
+        return {"ok": False, "reason": "bad_payload",
+                "detail": "%s: HTTP 200, но тело не той формы (%s) — уехало ли "
+                          "нажатое, неизвестно" % (where, problem)}
+
+    pending = payload["pending"]
+    refused = payload["refused"]
+    # Отказы называются в ОБОИХ исходах: «уехало всё» при трёх отказанных
+    # заданиях — это зелёная лампа рядом с невидимой красной.
+    refused_note = ("" if refused == 0
+                    else "; отказано %d (причина у задания в панели)" % refused)
+    if payload["stuck"]:
+        return {"ok": False, "reason": "outgoing_stuck",
+                "detail": "%s: НЕ УЕХАЛО из панели: %d %s, самому старому %s%s"
+                          % (where, pending,
+                             _plural(pending, "сообщение", "сообщения", "сообщений"),
+                             _fmt_age(payload.get("oldest_age_s")), refused_note)}
+    if pending == 0:
+        return {"ok": True, "detail": "%s: очередь пуста%s" % (where, refused_note)}
+    return {"ok": True,
+            "detail": "%s: в очереди %d, самому старому %s%s"
+                      % (where, pending, _fmt_age(payload.get("oldest_age_s")),
+                         refused_note)}
+
+
 def probe_all(http_get, disk_usage, min_disk_gb: float = MIN_DISK_GB,
               chatter_snapshot: dict | None = None,
               worktree_snapshot: dict | None = None,
@@ -2273,7 +2458,8 @@ def probe_all(http_get, disk_usage, min_disk_gb: float = MIN_DISK_GB,
               panel_client_snapshot: dict | None = None,
               restore_drill_snapshot: dict | None = None,
               token_at_rest_snapshot: dict | None = None,
-              attention_snapshot: dict | None = None) -> dict:
+              attention_snapshot: dict | None = None,
+              outgoing_snapshot: dict | None = None) -> dict:
     """Compose the cycle's probes. ``http_get(path) -> int|None`` (HTTP status,
     or None on connection refused/timeout); ``disk_usage(path) -> (total, used,
     free)`` (shutil.disk_usage-shaped)."""
@@ -2353,6 +2539,11 @@ def probe_all(http_get, disk_usage, min_disk_gb: float = MIN_DISK_GB,
     if attention_snapshot:
         for slug, entry in (attention_snapshot.get("clients") or {}).items():
             probes[ATTENTION_PROBE_PREFIX + str(slug)] = probe_attention(entry)
+    # Третье семейство, собранное ТЕМ ЖЕ снимком-строителем и по тому же
+    # правилу: состав из РОСТЕРА, снимка нет → проб нет вовсе.
+    if outgoing_snapshot:
+        for slug, entry in (outgoing_snapshot.get("clients") or {}).items():
+            probes[OUTGOING_PROBE_PREFIX + str(slug)] = probe_outgoing(entry)
     return probes
 
 
@@ -2532,13 +2723,48 @@ def _attention_snapshot(roster_snapshot: dict | None,
                         panel_snapshot: dict | None,
                         *, slug: str = PANEL_CLIENT_SLUG,
                         fetch=None) -> dict | None:
-    """Снимок для пер-клиентных проб эскалаций: `{"clients": {slug: {...}}}`.
+    """Снимок для пер-клиентных проб ЭСКАЛАЦИЙ: `{"clients": {slug: {...}}}`.
+
+    Тонкая обёртка над `_client_ops_snapshot` с путём `/ops/attention`: состав
+    клиентов, адрес и правило «спрашиваем только там, где есть кого» — общие с
+    семейством отправки, и второй их копии быть не должно (см. `SNAPSHOT_
+    FAMILIES`). Сигнатура сохранена дословно: сторожа этой арки инъектируют
+    `fetch` и `slug` именно так.
+    """
+    return _client_ops_snapshot(roster_snapshot, panel_snapshot,
+                                path=ATTENTION_PATH, slug=slug, fetch=fetch)
+
+
+def _outgoing_snapshot(roster_snapshot: dict | None,
+                       panel_snapshot: dict | None,
+                       *, slug: str = PANEL_CLIENT_SLUG,
+                       fetch=None) -> dict | None:
+    """Снимок для пер-клиентных проб ОТПРАВКИ ИЗ ПАНЕЛИ: та же форма, тот же
+    состав, другой путь (`/ops/outgoing`).
+
+    🔴 СОСТАВ БЕРЁТСЯ ИЗ РОСТЕРА, А НЕ ИЗ СПИСКА ИНСТАНСОВ — та же ловушка, что
+    у эскалаций, и с тем же живым примером: инстанс сегодня ОДИН (`yarina`), а
+    у volska панели нет вовсе. Проба, построенная по инстансам, молчала бы про
+    клиента, которому отправить из панели физически нечем, — то есть была бы
+    зелёной ровно там, где лежит проблема.
+    """
+    return _client_ops_snapshot(roster_snapshot, panel_snapshot,
+                                path=OUTGOING_PATH, slug=slug, fetch=fetch)
+
+
+def _client_ops_snapshot(roster_snapshot: dict | None,
+                         panel_snapshot: dict | None,
+                         *, path: str, slug: str = PANEL_CLIENT_SLUG,
+                         fetch=None) -> dict | None:
+    """Снимок для ЛЮБОГО семейства пер-клиентных проб немых ручек инстанса:
+    `{"clients": {slug: {...}}}`.
 
     🔴 СОСТАВ БЕРЁТСЯ ИЗ РОСТЕРА, А НЕ ИЗ СПИСКА ИНСТАНСОВ — главная ловушка
     всей арки, и она видна уже сегодня. Инстанс СЕЙЧАС ОДИН (`yarina`), а из
-    четырёх открытых карточек ТРИ принадлежат volska, включая самую старую
-    (26.6 суток). Проба, построенная по инстансам, была бы зелёной ПО
-    ПОСТРОЕНИЮ ровно там, где лежит вся проблема. Поэтому перебираются
+    четырёх открытых карточек эскалации ТРИ принадлежат volska, включая самую
+    старую (26.6 суток), и отправить ей из панели тоже нечем. Проба,
+    построенная по инстансам, была бы зелёной ПО ПОСТРОЕНИЮ ровно там, где
+    лежит вся проблема. Поэтому перебираются
     ВКЛЮЧЁННЫЕ клиенты ростера — тем же снимком, каким их берут пер-клиентные
     пробы раннеров, — а слаг без инстанса даёт КРАСНОЕ `no_instance`.
     Выключенный клиент пробы не имеет вовсе (как и у раннеров).
@@ -2590,10 +2816,11 @@ def _attention_snapshot(roster_snapshot: dict | None,
         has_instance = (name == slug)
         status = payload = None
         # Спрашиваем ТОЛЬКО там, где есть кого спрашивать и куда идти. Без
-        # адреса ходить некуда, без инстанса — не к кому; оба случая различает
-        # `probe_attention` отдельными причинами.
+        # адреса ходить некуда, без инстанса — не к кому; оба случая различают
+        # пробы семейства отдельными причинами. Путь приходит аргументом:
+        # семейств два, а правило «кого и куда спрашивать» — одно.
         if has_instance and host and name not in clients:
-            status, payload = fetch(host, port, ATTENTION_PATH)
+            status, payload = fetch(host, port, path)
         clients[name] = {"slug": name, "instance": has_instance,
                          "host": host, "port": port, "problem": problem,
                          "status": status, "payload": payload}
@@ -2908,6 +3135,12 @@ def main() -> int:
                        restore_drill_snapshot=_restore_drill_snapshot(),
                        token_at_rest_snapshot=_token_at_rest_snapshot(),
                        attention_snapshot=_attention_snapshot(
+                           (chatter_snap or {}).get("roster"), panel_snap),
+                       # Тот же ростер и тот же снимок панели: состав фермы и
+                       # адрес инстанса собираются ПО ОДНОМУ разу на цикл, а
+                       # семейства проб их делят. Второй сбор любого из них —
+                       # второй источник правды, и разъедутся они молча.
+                       outgoing_snapshot=_outgoing_snapshot(
                            (chatter_snap or {}).get("roster"), panel_snap))
     # Ядро зовётся НАПРЯМУЮ, а не через `transitions()` + `evaluate()`: второе
     # свернуло бы пробы в состояние ДВАЖДЫ, и владелец получил бы по два 🚨 на
