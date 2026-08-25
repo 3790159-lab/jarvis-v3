@@ -175,10 +175,14 @@ class BackupResult:
     # Второй конец: что реально ВИДНО в бакете листингом после заливки.
     # ``uploaded`` — это лишь «put_object вернул управление».
     verified: list[str] = field(default_factory=list)
+    # DEV-77: объявленное разошлось с диском. НЕ ошибка заливки — объект как
+    # раз уехал, — но вердикт портит намеренно: иначе задача вернёт rc 0 и
+    # владелец о расхождении не узнает.
+    contradictions: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
-        return not self.failed
+        return not self.failed and not self.contradictions
 
 
 def load_backup_config() -> R2Config:
@@ -370,6 +374,49 @@ class ClientSet:
     db: Path | None
     requisites: Path | None
     missing: tuple[str, ...]
+    # DEV-77: файл, которого мы НЕ ждали, а он на диске есть. Не `missing`
+    # наоборот, а расхождение объявленного с диском: объект при этом ЕДЕТ
+    # (см. `client_sets`), но молчать о нём нельзя.
+    undeclared: tuple[str, ...] = ()
+
+
+def expects_requisites(repo_root: Path, slug: str) -> bool:
+    """Ждём ли мы у этого клиента `requisites.yaml`.
+
+    DEV-77, форма B: ожидание НЕ объявляется вторым числом в реестре, а
+    ВЫВОДИТСЯ из того, что уже объявлено, — `payments.enabled` в
+    ``chatter/clients/<slug>/settings.yaml``. Поле в реестре стало бы вторым
+    утверждением о той же вещи и разъехалось бы в день, когда клиенту включат
+    платежи: правят `settings.yaml` (оттуда платежи и работают), про реестр
+    забывают, меньшее число гасит большее молча.
+
+    🔴 НЕИЗВЕСТНОСТЬ ЧИТАЕТСЯ КАК «ЖДЁМ». Нет файла, нет ключа, файл не
+    разобрался — возвращаем True, то есть остаёмся при сегодняшнем громком
+    поведении. Обратное умолчание («не знаем — значит не ждём») выключало бы
+    бэкап реквизитов у любого клиента, чей конфиг просто не дочитался, и
+    делало бы это молча: объект вне отбора не `missing`, он невидим (DEV-70).
+
+    Тумблер обязан быть НАСТОЯЩИМ `bool`: строка ``"false"`` в Python истинна
+    и дала бы обратный смысл, поэтому сравнение строгое (`is True`).
+    """
+    import yaml
+
+    path = Path(repo_root) / "chatter" / "clients" / str(slug) / "settings.yaml"
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, yaml.YAMLError):
+        return True
+    if not isinstance(raw, dict):
+        return True
+    payments = raw.get("payments")
+    if not isinstance(payments, dict):
+        return True
+    if "enabled" not in payments:
+        return True
+    flag = payments["enabled"]
+    if not isinstance(flag, bool):
+        return True
+    return flag
 
 
 def client_sets(
@@ -413,6 +460,11 @@ def client_sets(
             continue
         found: dict[str, Path | None] = {"db": None, "requisites": None}
         missing: list[str] = []
+        undeclared: list[str] = []
+        # DEV-77: ждём реквизиты ровно у тех, у кого включены платежи.
+        # Не «не искать файл», а СВЕРКА ожидания с диском: четыре состояния,
+        # и опасное из них одно — «не ждём, а файл ЕСТЬ».
+        wants_requisites = expects_requisites(repo_root, entry.slug)
         candidates = (
             ("db", str(entry.db)),
             ("requisites", f"chatter/clients/{entry.slug}/requisites.yaml"),
@@ -424,8 +476,19 @@ def client_sets(
                 path = repo_root / raw
             rel = _rel_to_repo(path, repo_root)
             if not path.is_file():
+                # Не ждали и не нашли — ТИХО: у клиента без платежей файла и
+                # не должно быть, а ежедневное красное на законном состоянии
+                # приучает не смотреть на алерты задачи.
+                if kind == "requisites" and not wants_requisites:
+                    continue
                 missing.append(rel)
                 continue
+            if kind == "requisites" and not wants_requisites:
+                # ЧЕТВЁРТОЕ состояние: конфиг говорит «платежей нет», а
+                # реквизиты на диске лежат. Файл ВСЁ РАВНО едет — потерять
+                # сегодняшнюю копию платёжных данных ради чистоты отчёта
+                # нельзя, — но расхождение называется вслух.
+                undeclared.append(rel)
             key = normalize_path(str(path), root=root)
             if key in seen:
                 continue
@@ -437,6 +500,7 @@ def client_sets(
             db=found["db"],
             requisites=found["requisites"],
             missing=tuple(missing),
+            undeclared=tuple(undeclared),
         ))
 
     assert_not_forbidden(selected, repo_root)
@@ -785,6 +849,20 @@ def run_client_backup(
             # только в тексте ошибки: сводку читает владелец на своей
             # машине, где слаги и так лежат открытым текстом в дереве
             # (§9.1, «граница, названная вслух»).
+            # DEV-77: расхождение объявленного с диском. Отдельно от `failed`
+            # намеренно: объект как раз УЕХАЛ, и класть его в «ошибки» значило
+            # бы соврать про доставку. Вердикт при этом портится (см.
+            # `BackupResult.ok`), потому что тихое расхождение — это дорога к
+            # «платежи включили, а реквизиты перестали ездить молча».
+            for extra in cset.undeclared:
+                result.contradictions.append(
+                    f"{cset.slug}: {extra} есть на диске, а payments.enabled "
+                    f"выключён — файл УЕХАЛ, поправьте settings.yaml")
+                logger.warning(
+                    "client backup: у клиента %s есть %s при выключенных "
+                    "платежах — файл сохранён, конфиг разошёлся с диском",
+                    cset.slug, extra)
+
             for miss in cset.missing:
                 kind = "requisites" if miss.endswith("requisites.yaml") else "db"
                 rel_missing = keys[kind][len(day_prefix):]
@@ -910,6 +988,14 @@ def format_client_backup_result(result: BackupResult) -> str:
         lines.append(f"⚠️ Клиентский набор, ошибки: {len(result.failed)}")
         for f in result.failed[:5]:
             lines.append(f"  - {f['rel_path']}: {str(f['error'])[:80]}")
+    if result.contradictions:
+        # Отдельным блоком и другими словами, чем «ошибки»: здесь объект
+        # ДОЕХАЛ, сломан конфиг. Склей их — и владелец прочтёт расхождение
+        # как сбой заливки, то есть пойдёт чинить не то.
+        lines.append(
+            f"\U0001f6a8 Реестр разошёлся с диском: {len(result.contradictions)}")
+        for c in result.contradictions[:5]:
+            lines.append(f"  - {c}")
     return "\n".join(lines)
 
 
