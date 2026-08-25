@@ -75,7 +75,8 @@ EXPECTED_BODY_KEYS = {"pending", "oldest_age_s", "stuck", "refused"}
 
 # Контракт §8: ШЕСТЬ исходов, и каждый чинится по-разному.
 EXPECTED_REASONS = ("no_instance", "no_bind_address", "no_response",
-                    "http:500", "bad_payload", "outgoing_stuck")
+                    "http:500", "bad_payload", "outgoing_stuck",
+                    "outgoing_refused")
 
 KEY = "yarina-panel-key"
 SLUG = "yarina"
@@ -102,6 +103,11 @@ def stand(tmp_path, monkeypatch):
     built = {"n": 0}
 
     def build(jobs=(), refused=(), sent=(), *, now=None):
+        # `None` здесь — единственное умолчание файла, которое ОСТАВЛЕНО
+        # значением, а не сентинелом, и это осознанно: «сейчас по стенным
+        # часам» — не случай, который кто-то проверяет, а `now=None` не несёт
+        # никакого отдельного смысла для стенда. Про остальные помощники см.
+        # `_UNSET` ниже.
         now = time.time() if now is None else now
         # 🔴 НОВЫЙ ФАЙЛ НА КАЖДЫЙ ВЫЗОВ, а не `unlink` старого. Ручка открывает
         # свой `Store` внутри запроса, и закрыть его отсюда нечем: на Windows
@@ -516,7 +522,7 @@ def test_tihaya_ochered_chitaetsya_kak_ok():
 
 
 def test_zastryavshaya_ochered_eto_novost_PRO_DELO():
-    p = _probe(_snap(payload=_payload(pending=2, stuck=True)))
+    p = _probe(_snap(payload=_payload(pending=2, stuck=True, refused=0)))
     assert p["ok"] is False, p
     assert p["reason"] == "outgoing_stuck", (
         "вердикт о застрявшей очереди назван %r вместо 'outgoing_stuck': "
@@ -589,6 +595,10 @@ def test_zhivoi_process_otvechayushchii_ploho_eto_svoya_prichina():
      "`stuck` строкой вместо булева"),
     ({"pending": -1, "oldest_age_s": 1.0, "stuck": False, "refused": 0},
      "отрицательное `pending`"),
+    ({"pending": 1, "oldest_age_s": 1.0, "stuck": False, "refused": -2},
+     "отрицательное `refused`"),
+    ({"pending": 1, "oldest_age_s": 1.0, "stuck": False, "refused": "два"},
+     "`refused` строкой"),
 ])
 def test_telo_ne_toi_formy_eto_KRASNOE(body, why):
     """🔴 `bad_payload` ОБЯЗАН БЫТЬ КРАСНЫМ.
@@ -607,13 +617,13 @@ def test_telo_ne_toi_formy_eto_KRASNOE(body, why):
         "поломка ручки подменилась новостью о деле" % (why, p.get("reason")))
 
 
-def test_ISHODOV_ROVNO_SHEST_i_VSE_SHEST_KRASNYE():
-    """Литеральный пин набора исходов (§8 контракта).
+def test_ISHODOV_ROVNO_SEM_i_VSE_SEM_KRASNYE():
+    """Литеральный пин набора исходов (§8 контракта + дополнение 25.08).
 
-    Исходов ровно шесть, все шесть красные, и ПЯТЬ из них — новости ПРО
-    НАБЛЮДЕНИЕ («не знаю, уезжают ли задания»), а не про дело. «Не знаю»
-    здесь громче, чем «всё хорошо», потому что зелёное по построению — это
-    отказ, которого никто не увидит.
+    Исходов ровно семь, все семь красные, и ПЯТЬ из них — новости ПРО
+    НАБЛЮДЕНИЕ («не знаю, уезжают ли задания»), а два — ПРО ДЕЛО («стоит» и
+    «не уехало»). «Не знаю» здесь громче, чем «всё хорошо», потому что
+    зелёное по построению — это отказ, которого никто не увидит.
 
     Пин ЛИТЕРАЛЬНЫМ списком, а не перебором того, что вернула реализация:
     перебор согласен с реализацией по определению и промолчит ровно про
@@ -626,7 +636,8 @@ def test_ISHODOV_ROVNO_SHEST_i_VSE_SHEST_KRASNYE():
         "no_response": _snap(status=None, payload=None),
         "http:500": _snap(status=500, payload=None),
         "bad_payload": _snap(payload={"pending": 1}),
-        "outgoing_stuck": _snap(payload=_payload(stuck=True)),
+        "outgoing_stuck": _snap(payload=_payload(stuck=True, refused=0)),
+        "outgoing_refused": _snap(payload=_payload(stuck=False, refused=1)),
     }
     assert set(cases) == set(EXPECTED_REASONS), sorted(cases)
     for expected, snapshot in cases.items():
@@ -636,7 +647,8 @@ def test_ISHODOV_ROVNO_SHEST_i_VSE_SHEST_KRASNYE():
         assert p["reason"] == expected, (
             "исход %r назван %r — ключ дедупа не тот, склейка и подавление "
             "алертов пройдут мимо" % (expected, p.get("reason")))
-    green = _probe(_snap(payload=_payload(pending=1, oldest=5.0, stuck=False)))
+    green = _probe(_snap(payload=_payload(pending=1, oldest=5.0, stuck=False,
+                                          refused=0)))
     assert green["ok"] is True, (
         "зелёного исхода нет вовсе: проба, красная всегда, — не сторож, а "
         "фон ([[jarvis-gate-mutates-the-deploy-tree]]); %r" % (green,))
@@ -649,7 +661,10 @@ def test_ISHODOV_ROVNO_SHEST_i_VSE_SHEST_KRASNYE():
     ("no_bind_address", _snap(host=None, status=None, payload=None, problem="нет")),
     ("no_response", _snap(status=None, payload=None)),
     ("bad_payload", _snap(payload={"pending": 1, "oldest_age_s": LOUD_AGE})),
-    ("outgoing_stuck", _snap(payload=_payload(oldest=LOUD_AGE, stuck=True))),
+    ("outgoing_stuck", _snap(payload=_payload(oldest=LOUD_AGE, stuck=True,
+                                              refused=0))),
+    ("outgoing_refused", _snap(payload=_payload(oldest=LOUD_AGE, stuck=False,
+                                                refused=2))),
 ])
 def test_vozrast_ne_popadaet_v_reason_NI_V_ODNOM_ishode(name, snapshot):
     """🔴 `reason` — КЛЮЧ ДЕДУПА, а возраст растёт КАЖДЫЙ цикл.
@@ -728,6 +743,291 @@ def test_detail_govorit_o_NEOTPRAVKE_a_ne_o_kartochkah():
         "владельцу одно и то же, и одно из них он починит не в том месте")
 
 
+# ═══ СНЯТИЕ ОТКАЗА: ручка и седьмой исход (дополнение 25.08) ════════════════
+#
+# 🔴 ЗАЧЕМ. Отказ терминален, поэтому `refused` в ручке — величина, которая
+# только РАСТЁТ. Лампа, покрасневшая один раз, останется красной навсегда, а
+# красное навсегда — это фон, и следующий отказ в нём утонет. Снятие
+# возвращает лампе способность гаснуть.
+#
+# 🔴 ЧЕМ ОПАСНО. Снятие гасит СИГНАЛ. Значит охраняются три вещи: гасится
+# ровно то, что просили; гасится ЗАМЕТНО (событие в журнале); и погасшее не
+# делает вид, что беды не было (`detail` называет оба числа всегда).
+
+DISMISS_PATH = "/api/outgoing/dismiss"
+
+
+def _rows(db: str) -> list[dict]:
+    """Строки очереди прямо из базы. Соединение закрывается сразу: на Windows
+    открытый файл нельзя ни удалить, ни переименовать."""
+    s = Store(db)
+    try:
+        return [dict(r) for r in s._conn.execute(
+            "SELECT * FROM outgoing_queue ORDER BY id")]
+    finally:
+        s.close()
+
+
+def _events(db: str, kind: str) -> list[dict]:
+    s = Store(db)
+    try:
+        return [dict(r) for r in s._conn.execute(
+            "SELECT kind, contact_id, detail, ts FROM control_events "
+            "WHERE kind=? ORDER BY id", (kind,))]
+    finally:
+        s.close()
+
+
+def _dismiss(api, row_id, *, key: str | None = KEY):
+    client = TestClient(api)
+    if key is not None:
+        client.cookies.set("panels_key", key)
+    return client.post(DISMISS_PATH, data={"row_id": row_id})
+
+
+def test_snyatie_uvodit_refused_v_nol_i_NE_SHEVELIT_ozhidayushchie(stand):
+    """Пункт 4 дополнения, обе половины в одном стороже.
+
+    Половина первая: снятое перестало считаться — иначе гасить нечем и вся
+    механика бессмысленна.
+
+    Половина вторая: `pending` и `oldest_age_s` не шевельнулись. Снятие
+    отказа, задевшее ожидающие задания, — это тихая отмена неотправленного
+    сообщения владельца, и заметит её только лид, который ничего не получил.
+    Порознь эти половины разъедутся: «refused упал до нуля» верно и для
+    реализации, которая обнулила очередь целиком.
+    """
+    api, db = stand(jobs=[(A, 3 * DAY, "жду отправки")],
+                    refused=[(A, "первый отказ"), (B, "второй отказ")])
+    before = _body(api)
+    assert before["refused"] == 2, before
+    assert before["pending"] == 1, before
+
+    refused_ids = [r["id"] for r in _rows(db) if r["status"] == "refused"]
+    assert len(refused_ids) == 2, _rows(db)
+    for rid in refused_ids:
+        r = _dismiss(api, rid)
+        assert r.status_code == 200, (r.status_code, r.text[:300])
+        assert r.json() == {"dismissed": True}, r.json()
+
+    after = _body(api)
+    assert after["refused"] == 0, (
+        "после снятия обоих отказов ручка всё ещё показывает %r: гасить "
+        "нечем, лампа останется красной навсегда" % (after["refused"],))
+    assert after["pending"] == before["pending"], (
+        "снятие отказа изменило число ОЖИДАЮЩИХ заданий (%r -> %r): это тихая "
+        "отмена неотправленного сообщения владельца"
+        % (before["pending"], after["pending"]))
+    assert after["oldest_age_s"] == pytest.approx(before["oldest_age_s"], abs=5.0), (
+        "снятие отказа сдвинуло возраст самого старого ОЖИДАЮЩЕГО задания "
+        "(%r -> %r)" % (before["oldest_age_s"], after["oldest_age_s"]))
+
+
+def test_povtornoe_snyatie_otvechaet_dismissed_false(stand):
+    """У кнопки есть двойное нажатие и устаревшая вкладка. `False` — это
+    честное «гасить было нечего», а не ошибка: 500 на действии, которое УЖЕ
+    достигнуто, отправило бы владельца чинить исправное."""
+    api, db = stand(refused=[(A, "отказ")])
+    rid = _rows(db)[0]["id"]
+    assert _dismiss(api, rid).json() == {"dismissed": True}
+    second = _dismiss(api, rid)
+    assert second.status_code == 200, (second.status_code, second.text[:300])
+    assert second.json() == {"dismissed": False}, (
+        "повторное снятие объявило себя успешным: %r" % (second.json(),))
+
+
+def test_snyatie_NESUSHCHESTVUYUSHCHEI_stroki_eto_false_a_ne_avaria(stand):
+    api, _db = stand(refused=[(A, "отказ")])
+    r = _dismiss(api, 999999)
+    assert r.status_code == 200, (r.status_code, r.text[:300])
+    assert r.json() == {"dismissed": False}, r.json()
+
+
+def test_ruchka_snyatiya_ZA_KLYUCHOM(stand):
+    """🔴 Открытая ручка снятия — это возможность ПОГАСИТЬ ЧУЖУЮ ЛАМПУ.
+
+    Она ничего не отдаёт наружу, и потому соблазн оставить её открытой (как
+    `/ops/outgoing`) особенно велик. Но `/ops/*` только ОТВЕЧАЮТ, а эта
+    МЕНЯЕТ состояние: любой, кто дотянулся до порта в тайнете, гасит владельцу
+    сигнал о неотправленных сообщениях — и владелец об этом не узнает, потому
+    что гашение выглядит ровно как его собственное действие.
+    """
+    api, db = stand(refused=[(A, "отказ")])
+    rid = _rows(db)[0]["id"]
+    r = _dismiss(api, rid, key=None)
+    assert r.status_code == 401, (
+        "снятие БЕЗ ключа владельца ответило %s вместо 401: чужую лампу гасит "
+        "кто угодно; %r" % (r.status_code, r.text[:300]))
+    assert _rows(db)[0]["status"] == "refused", (
+        "неавторизованный запрос всё-таки снял отказ: %r" % (_rows(db)[0],))
+
+
+def test_ne_chislo_v_row_id_eto_422(stand):
+    """Мусор в `row_id` обязан отвергаться ФОРМОЙ, а не превращаться в
+    «ничего не нашли». `{"dismissed": false}` на кривом вводе выглядит как
+    законный ответ, и владелец будет жать кнопку, которая не может сработать
+    в принципе."""
+    api, _db = stand(refused=[(A, "отказ")])
+    r = _dismiss(api, "не-число")
+    assert r.status_code == 422, (
+        "нечисловой `row_id` дал %s вместо 422: кривой ввод неотличим от "
+        "«гасить нечего»; %r" % (r.status_code, r.text[:300]))
+
+
+def test_SOBYTIE_o_snyatii_est_v_zhurnale(stand):
+    """🔴 «Кто погасил лампу» не имеет права быть догадкой.
+
+    Снятие — единственное действие арки, которое УБИРАЕТ сигнал. Без записи в
+    журнале след от него не остаётся нигде: строка молча меняет статус,
+    момент снятия в неё не пишется (колонки нет), и восстановить, когда и
+    сколько отказов кто-то закрыл, будет неоткуда.
+
+    Обе половины в одном стороже: событие есть на УСПЕШНОМ снятии и НЕ
+    появляется на неуспешном — журнал, пишущий и о несостоявшемся действии,
+    врёт ровно так же, как молчащий о состоявшемся.
+    """
+    api, db = stand(refused=[(A, "отказ")])
+    rid = _rows(db)[0]["id"]
+    assert _dismiss(api, rid).json() == {"dismissed": True}
+
+    events = _events(db, "outgoing_dismissed")
+    assert len(events) == 1, (
+        "события `outgoing_dismissed` в журнале %d вместо одного: %r"
+        % (len(events), events))
+    assert events[0]["detail"] == "#%d" % rid, (
+        "событие не называет снятую строку (detail=%r, ждали '#%d'): по "
+        "журналу нельзя понять, ЧТО именно погасили"
+        % (events[0]["detail"], rid))
+    assert events[0]["contact_id"] is None, (
+        "событие несёт contact_id %r: снятие — действие над СТРОКОЙ очереди, "
+        "и приписывать его диалогу значит засорять историю контакта"
+        % (events[0]["contact_id"],))
+
+    _dismiss(api, rid)
+    assert len(_events(db, "outgoing_dismissed")) == 1, (
+        "неуспешное снятие тоже записалось в журнал: по нему будет казаться, "
+        "что владелец гасил лампу дважды; %r"
+        % (_events(db, "outgoing_dismissed"),))
+
+
+def test_snyatoe_ne_vidno_v_ruchke_no_ULIKA_v_baze_cela(stand):
+    """Ручка и база отвечают на РАЗНЫЕ вопросы, и это не дублирование.
+
+    Ручка отвечает «есть ли о чём беспокоиться СЕЙЧАС» — снятое там не место.
+    База отвечает «что произошло» — и текст с причиной обязаны там остаться:
+    вопрос «почему оно не уехало» задают через неделю после того, как лампу
+    погасили.
+    """
+    api, db = stand(refused=[(A, "текст, переживающий снятие")])
+    row = _rows(db)[0]
+    assert _dismiss(api, row["id"]).json() == {"dismissed": True}
+
+    assert _body(api)["refused"] == 0, _body(api)
+    after = _rows(db)[0]
+    assert after["status"] == "dismissed", after
+    assert after["text"] == row["text"], (
+        "текст задания стёрт снятием: %r -> %r" % (row["text"], after["text"]))
+    assert after["last_error"] == row["last_error"], (
+        "причина отказа стёрта снятием (%r -> %r): разбор через неделю "
+        "начнётся с догадки" % (row["last_error"], after["last_error"]))
+
+
+# ── СЕДЬМОЙ ИСХОД ПРОБЫ: `outgoing_refused` ────────────────────────────────
+
+def test_otkaz_eto_SEDMOI_ishod_i_on_KRASNYI():
+    """Отказ и застревание чинятся РАЗНЫМИ действиями: застряло — поднять
+    раннера, отказано — прочитать причину и решить. Один вердикт на два случая
+    отправляет владельца делать не то."""
+    p = _probe(_snap(payload=_payload(pending=1, oldest=42.0, stuck=False,
+                                      refused=2)))
+    assert p["ok"] is False, (
+        "неснятые отказы объявлены здоровым состоянием: лампа зелёная над "
+        "сообщениями, которые владелец считает отправленными; %r" % (p,))
+    assert p["reason"] == "outgoing_refused", (
+        "вердикт об отказах назван %r вместо 'outgoing_refused'"
+        % (p.get("reason"),))
+
+
+def test_OTKAZ_STARSHE_ZASTREVANIYA_i_detail_vsyo_ravno_nazyvaet_OBA():
+    """🔴 СТАРШИНСТВО, и рядом с ним — ловушка, которую мы сегодня уже ловили.
+
+    Старшинство: отказ — свершившийся факт («не уехало и не уедет»),
+    застревание — прогноз («пока не уехало»). Показывать прогноз поверх факта
+    значит откладывать разбор того, что уже случилось.
+
+    🔴 Но старшинство — это про ВЕРДИКТ, а не про ТЕКСТ. Одно число,
+    погасившее второе молча, — ровно тот класс, от которого весь
+    [[jarvis-two-numbers-for-one-thing]]: владелец прочтёт «2 отказа», пойдёт
+    их разбирать и не узнает, что рядом ЕЩЁ и очередь стоит. Поэтому `detail`
+    обязан назвать оба числа даже там, где вердикт достался одному из них.
+    """
+    p = _probe(_snap(payload=_payload(pending=3, oldest=LOUD_AGE, stuck=True,
+                                      refused=2)))
+    assert p["ok"] is False, p
+    assert p["reason"] == "outgoing_refused", (
+        "при отказах И застревании победил %r: свершившийся факт заслонён "
+        "прогнозом, и разбор отложится" % (p.get("reason"),))
+    detail = str(p.get("detail", ""))
+    assert "3" in detail and "2" in detail, (
+        "`detail` победившего вердикта не называет ОБА числа (%r): владелец "
+        "разберёт отказы и не узнает, что очередь при этом стоит" % (detail,))
+
+
+@pytest.mark.parametrize("pending, stuck, refused, why", [
+    (3, True, 2, "и застряло, и отказано"),
+    (3, True, 0, "только застряло"),
+    (2, False, 4, "только отказано"),
+    (5, False, 0, "всё в порядке"),
+    (0, False, 0, "очередь пуста — оба числа нули"),
+])
+def test_detail_nazyvaet_OBA_CHISLA_V_KAZHDOM_ishode(pending, stuck, refused, why):
+    """Пункты 5 и 6 дополнения: охват вердикта назван ВСЕГДА.
+
+    Зелёное, молчащее про охват, выглядит полнее, чем оно есть: «всё тихо» без
+    чисел неотличимо от «посмотрели половину». Нули названы вслух по той же
+    причине, по которой возраст пустой очереди — `None`, а не ноль: разница
+    между «мерили и там пусто» и «не мерили» — это вся ценность лампы.
+
+    Проверяются ВСЕ исходы с разобранным телом, а не только победивший:
+    число, выпавшее из текста, выпадает обычно в одной ветке из четырёх — той,
+    которую забыли.
+    """
+    p = _probe(_snap(payload=_payload(pending=pending, oldest=42.0,
+                                      stuck=stuck, refused=refused)))
+    detail = str(p.get("detail", ""))
+    assert str(pending) in detail, (
+        "число ожидающих (%d) не названо в `detail` (%s): %r"
+        % (pending, why, detail))
+    assert str(refused) in detail, (
+        "число неснятых отказов (%d) не названо в `detail` (%s): %r — "
+        "владелец не узнает, что рядом с одной бедой лежит вторая"
+        % (refused, why, detail))
+
+
+def test_vozrast_ne_popadaet_v_reason_i_v_sedmom_ishode():
+    """`reason` — ключ дедупа и у нового исхода тоже. Возраст растёт каждый
+    цикл; секунды в ключе дали бы алерт раз в 30 секунд."""
+    p = _probe(_snap(payload=_payload(pending=1, oldest=LOUD_AGE, stuck=True,
+                                      refused=3)))
+    reason = str(p.get("reason", ""))
+    assert str(int(LOUD_AGE)) not in reason, (
+        "в причине седьмого исхода живёт возраст: %r" % reason)
+    assert HOST not in reason, (
+        "в причине седьмого исхода живёт адрес: %r" % reason)
+
+
+def test_otkaz_ne_zvuchit_kak_zastrevanie():
+    """Владелец читает ФРАЗУ. Два красных исхода одного семейства, различимые
+    только именем переменной, отправят его чинить не ту беду."""
+    stuck = str(_probe(_snap(payload=_payload(pending=2, stuck=True))).get("detail", ""))
+    refused = str(_probe(_snap(
+        payload=_payload(pending=2, stuck=False, refused=2))).get("detail", ""))
+    assert stuck.strip() and refused.strip(), (stuck, refused)
+    assert stuck.strip() != refused.strip(), (
+        "тексты «застряло» и «отказано» СОВПАЛИ: это разные беды с разным "
+        "лечением, а владелец прочтёт одно и то же")
+
+
 # ═══ §8 контракта: ПРОВОДКА ПРОБЫ В ЦИКЛ ════════════════════════════════════
 #
 # 🔴 ЗАЧЕМ ЭТОТ РАЗДЕЛ. Проба может быть написана верно и не звучать в цикле
@@ -778,11 +1078,21 @@ class _FakeResp:
         return self.headers
 
 
-def _chatter(roster=None):
+# 🔴 СЕНТИНЕЛ, А НЕ `None`. Помощники ниже имеют умолчания, и `None` у них
+# означал бы «аргумент не передан» — но `None` здесь ЕСТЬ ЗНАЧЕНИЕ, которое
+# сторожа как раз и проверяют («снимка панели нет», «ростер не прочитан»).
+# Совпав, эти два смысла делают сторож НЕПРОВЕРЯЕМЫМ В ПРИНЦИПЕ: он подставит
+# здоровый объект вместо отсутствующего и померяет не то, что написано в его
+# докстроке, оставшись при этом зелёным. Поймано на третьем заходе:
+# `_collect(panel=None)` молча подсовывал нормальную панель.
+_UNSET = object()
+
+
+def _chatter(roster=_UNSET):
     return {"processes": [], "beats": {}, "legacy_beat_age": 90 * DAY,
             "guardian_beat_age": 5.0, "guardian_lock_pid": None,
             "root": "C:/jarvis",
-            "roster": ROSTER_TWO if roster is None else roster}
+            "roster": ROSTER_TWO if roster is _UNSET else roster}
 
 
 def _panel(host=HOST, port=PORT, status=200, problem=None):
@@ -819,17 +1129,22 @@ def net(monkeypatch):
     return state
 
 
-def _collect(roster=None, panel=None):
-    """Снимок исходящих НАСТОЯЩИМ сборщиком контракта."""
+def _collect(roster=_UNSET, panel=_UNSET):
+    """Снимок исходящих НАСТОЯЩИМ сборщиком контракта.
+
+    Умолчания — `_UNSET`, а не `None`, и это не стиль: `None` в обоих
+    аргументах — законное значение, которое проверяют сторожа «ростера нет» и
+    «снимка панели нет». См. комментарий у `_UNSET`.
+    """
     collector = getattr(ow, "_outgoing_snapshot", None)
     assert collector is not None, (
         "`_outgoing_snapshot` не заведён — снимок для 18-й пробы не собирается "
         "ничем, и проба в цикле не появится вовсе")
-    return collector(ROSTER_TWO if roster is None else roster,
-                     _panel() if panel is None else panel)
+    return collector(ROSTER_TWO if roster is _UNSET else roster,
+                     _panel() if panel is _UNSET else panel)
 
 
-def _probes(outgoing_snapshot, roster=None):
+def _probes(outgoing_snapshot, roster=_UNSET):
     return ow.probe_all(lambda _p: 200,
                         lambda _p: (100 * 2 ** 30, 0, 50 * 2 ** 30),
                         chatter_snapshot=_chatter(roster),
@@ -1003,15 +1318,24 @@ def test_BEZ_SNIMKA_prob_semeistva_NET_a_NE_ZELYONYE(net):
         "доезжает, и 18-й пробы в цикле не существует")
 
 
-def test_nechitaemyi_roster_ne_daet_prob_semeistva(net):
+@pytest.mark.parametrize("roster, why", [
+    ({"error": "реестр не читается"}, "ростер прочитан с ошибкой"),
+    (None, "ростера нет вовсе"),
+])
+def test_nechitaemyi_roster_ne_daet_prob_semeistva(net, roster, why):
     """Ростер не прочитан — состав спросить нечем, и об этом уже краснеет
     отдельная проба ростера. Второе красное на ту же беду — шум, а шум
-    однажды спрячет настоящее."""
-    snapshot = _collect(roster={"error": "реестр не читается"})
+    однажды спрячет настоящее.
+
+    Оба случая передаются БУКВАЛЬНО, включая `None`: до третьего захода
+    помощник подставлял здоровый ростер на месте `None`, и вторая половина
+    правила была непроверяема в принципе.
+    """
+    snapshot = _collect(roster=roster)
     assert snapshot is None, (
-        "сборщик собрал снимок на нечитаемом ростере: %r" % (snapshot,))
+        "сборщик собрал снимок, хотя %s: %r" % (why, snapshot))
     assert _out_keys(_probes(snapshot)) == [], (
-        "на нечитаемом ростере в цикле появились пробы исходящих")
+        "проб исходящих не должно быть вовсе, когда %s" % why)
 
 
 def test_bez_snimka_paneli_merit_nechem(net):
