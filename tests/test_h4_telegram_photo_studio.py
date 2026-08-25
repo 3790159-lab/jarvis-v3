@@ -410,20 +410,26 @@ class TestMeIntoStart:
 
 
 class TestFaceSwapPhotoStep:
+    # DEV-74: шаг хранит file_id, а не готовую ссылку — см.
+    # tests/test_photo_studio_no_token_at_rest.py
     def test_source_step_advances(self):
         save_conv(CHAT, {"step": "faceswap_source", "data": {}})
         s = make_send()
-        consumed = handle_faceswap_photo_step(CHAT, "http://img.test/face.jpg", s, make_photo())
+        consumed = handle_faceswap_photo_step(
+            CHAT, "http://img.test/face.jpg", s, make_photo(), file_id="FID_SRC")
         assert consumed
         assert load_conv(CHAT)["step"] == "faceswap_target"
+        assert load_conv(CHAT)["data"]["source_file_id"] == "FID_SRC"
 
     def test_target_step_advances_to_confirm(self):
-        save_conv(CHAT, {"step": "faceswap_target", "data": {"source_url": "http://src.test"}})
+        save_conv(CHAT, {"step": "faceswap_target", "data": {"source_file_id": "FID_SRC"}})
         s = make_send()
         with patch("tools.jarvis_smart_telegram_control.tg_call"):
-            consumed = handle_faceswap_photo_step(CHAT, "http://img.test/target.jpg", s, make_photo())
+            consumed = handle_faceswap_photo_step(
+                CHAT, "http://img.test/target.jpg", s, make_photo(), file_id="FID_TGT")
         assert consumed
         assert load_conv(CHAT)["step"] == "faceswap_confirm"
+        assert load_conv(CHAT)["data"]["target_file_id"] == "FID_TGT"
 
     def test_no_active_conv_returns_false(self):
         s = make_send()
@@ -440,10 +446,11 @@ class TestFaceSwapPhotoStep:
         p.assert_called_once()
 
     def test_lora_collecting_adds_photo(self):
-        save_conv(CHAT, {"step": "lora_collecting", "data": {"photos": []}})
+        save_conv(CHAT, {"step": "lora_collecting", "data": {"photo_file_ids": []}})
         s = make_send()
-        handle_faceswap_photo_step(CHAT, "http://face.test/1.jpg", s, make_photo())
-        assert len(load_conv(CHAT)["data"]["photos"]) == 1
+        handle_faceswap_photo_step(
+            CHAT, "http://face.test/1.jpg", s, make_photo(), file_id="FID_1")
+        assert load_conv(CHAT)["data"]["photo_file_ids"] == ["FID_1"]
 
 
 class TestFaceSwapCallback:
@@ -454,24 +461,33 @@ class TestFaceSwapCallback:
         assert handled
         assert load_conv(CHAT) == {}
 
+    # DEV-74: в состоянии лежат file_id, ссылка разменивается в момент вызова.
+    # `_resolve_photo_url` подменён, иначе тест пошёл бы в сеть за getFile.
     def test_exec_basic_calls_face_swap(self):
         save_conv(CHAT, {"step": "faceswap_confirm",
-                         "data": {"source_url": "http://src.test", "target_url": "http://tgt.test"}})
+                         "data": {"source_file_id": "S", "target_file_id": "T"}})
         s = make_send()
         p = make_photo()
-        with patch("app.services.face_swap.face_swap_basic", return_value="http://res.test/r.jpg"):
+        with patch("tools.photo_studio_telegram._resolve_photo_url",
+                   side_effect=lambda fid: f"http://res.test/{fid}.jpg"), \
+             patch("app.services.face_swap.face_swap_basic", return_value="http://res.test/r.jpg"):
             handled = handle_faceswap_callback(CHAT, "fs:exec:basic", s, p)
         assert handled
         p.assert_called()
 
     def test_exec_polish_calls_polished_swap(self):
         save_conv(CHAT, {"step": "faceswap_confirm",
-                         "data": {"source_url": "http://src.test", "target_url": "http://tgt.test"}})
+                         "data": {"source_file_id": "S", "target_file_id": "T"}})
         s = make_send()
         p = make_photo()
-        with patch("app.services.face_swap.face_swap_with_polish", return_value="http://pol.test/r.jpg"):
+        with patch("tools.photo_studio_telegram._resolve_photo_url",
+                   side_effect=lambda fid: f"http://res.test/{fid}.jpg"), \
+             patch("app.services.face_swap.face_swap_with_polish", return_value="http://pol.test/r.jpg") as swap:
             handled = handle_faceswap_callback(CHAT, "fs:exec:polish", s, p)
         assert handled
+        # 🔴 Без этой строки тест зеленел ВХОЛОСТУЮ: при пустом состоянии флоу
+        # уходит в «не найдены фото» и тоже возвращает True.
+        swap.assert_called_once()
 
     def test_non_fs_callback_returns_false(self):
         s = make_send()

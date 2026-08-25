@@ -10083,11 +10083,16 @@ def _handle_file_message(chat_id: str, msg: Dict[str, Any], state: Dict[str, Any
                 "faceswap_source", "faceswap_target", "enhance_upload",
                 "meinto_target", "lora_collecting"
             ):
+                # DEV-74: file_id идёт ДАЛЬШЕ и ложится на диск; ссылка нужна
+                # только шагам, потребляющим фото сразу (enhance, me_into), и
+                # дальше вызова не живёт. Раньше `if photo_url` глушил и те
+                # шаги, которым ссылка не нужна вовсе.
                 photo_url = get_telegram_photo_url(file_id, BOT_TOKEN)
-                if photo_url:
-                    consumed = handle_faceswap_photo_step(chat_id, photo_url, send, _send_photo_url)
-                    if consumed:
-                        return
+                consumed = handle_faceswap_photo_step(
+                    chat_id, photo_url or "", send, _send_photo_url, file_id=file_id,
+                )
+                if consumed:
+                    return
         except Exception as _pst_err:
             print(f"[PST] photo step error: {_pst_err}", flush=True)
 

@@ -56,8 +56,45 @@ def load_conv(chat_id: str) -> Dict[str, Any]:
     return {}
 
 
+# DEV-75 (вариант Б владельца): брошенные состояния не храним вовсе.
+# `clear_conv` срабатывает только на УСПЕШНОМ завершении шага, поэтому диалог,
+# оставленный на середине, жил вечно — живой пример пролежал три месяца.
+CONV_TTL_HOURS = 24
+
+
+def prune_abandoned_convs(max_age_hours: int = CONV_TTL_HOURS,
+                          keep: Optional[Path] = None) -> int:
+    """Удалить состояния диалогов старше TTL. Вернуть, сколько удалено.
+
+    🔴 Глоб строго ``*.json``, а НЕ ``*``. В этом же каталоге лежат ``.jsonl``
+    истории разговоров ассистента — другая механика, другой владелец, те же
+    имена файлов. Уборка, промахнувшаяся мимо расширения, стёрла бы переписку
+    вместо служебного состояния.
+    """
+    cutoff = time.time() - max_age_hours * 3600
+    removed = 0
+    try:
+        candidates = list(_CONV_DIR.glob("*.json"))
+    except OSError:
+        return 0
+    for p in candidates:
+        if keep is not None and p == keep:
+            continue
+        try:
+            if p.stat().st_mtime < cutoff:
+                p.unlink()
+                removed += 1
+        except OSError:
+            continue
+    return removed
+
+
 def save_conv(chat_id: str, data: Dict[str, Any]) -> None:
-    _conv_path(chat_id).write_text(
+    path = _conv_path(chat_id)
+    # Уборка ДО записи и с явным исключением того, что пишем: иначе редкий
+    # случай «файл уже был старым» съел бы диалог в момент его продолжения.
+    prune_abandoned_convs(keep=path)
+    path.write_text(
         json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
@@ -66,6 +103,26 @@ def clear_conv(chat_id: str) -> None:
     p = _conv_path(chat_id)
     if p.exists():
         p.unlink()
+
+
+def _resolve_photo_url(file_id: str) -> Optional[str]:
+    """Разменять ``file_id`` на ссылку В МОМЕНТ использования (DEV-74).
+
+    Ссылка Telegram имеет вид ``/file/bot<ТОКЕН>/<file_path>`` — токен является
+    частью пути по спецификации, обойти это на стороне URL нельзя. Поэтому на
+    диск кладётся ``file_id`` (не секрет), а ссылка живёт внутри одного вызова.
+
+    Отдельная причина не хранить ссылку: ``file_path`` протухает примерно через
+    час, то есть сохранённая ссылка — ещё и битый линк. Хранить её нет выгоды,
+    только риск.
+    """
+    if not file_id:
+        return None
+    try:
+        from tools.jarvis_smart_telegram_control import BOT_TOKEN
+    except Exception:
+        return None
+    return get_telegram_photo_url(file_id, BOT_TOKEN)
 
 
 # ── inline keyboard builders ──────────────────────────────────────────────────
@@ -453,20 +510,41 @@ def handle_me_into_start(chat_id: str, send_fn: Callable) -> None:
     ))
 
 
+def _reject_without_file_id(chat_id: str, send_fn: Callable) -> bool:
+    """Громкий отказ вместо молчаливого отката к хранению ссылки (DEV-74).
+
+    Если бы ветка «нет file_id» тихо сохраняла URL как раньше, дефект вернулся
+    бы целиком и выглядел бы как работающая функция.
+    """
+    send_fn(chat_id, (
+        "❌ Не удалось принять фото: Telegram не отдал идентификатор файла.\n"
+        "Отправь фото ещё раз."
+    ))
+    return True
+
+
 def handle_faceswap_photo_step(
     chat_id: str,
     photo_url: str,
     send_fn: Callable,
     send_photo_fn: Callable,
+    file_id: Optional[str] = None,
 ) -> bool:
     """Called when a photo arrives and conversation state is active.
-    Returns True if this photo was consumed by a multi-step flow."""
+    Returns True if this photo was consumed by a multi-step flow.
+
+    DEV-74: шаги, которые ПЕРЕЖИВАЮТ вызов, хранят ``file_id``, а не
+    ``photo_url``. Шаги, потребляющие фото сразу (enhance, me_into), работают
+    с ``photo_url`` как раньше — он не попадает на диск.
+    """
     _add_root()
     conv = load_conv(chat_id)
     step = conv.get("step")
 
     if step == "faceswap_source":
-        conv["data"]["source_url"] = photo_url
+        if not file_id:
+            return _reject_without_file_id(chat_id, send_fn)
+        conv["data"]["source_file_id"] = file_id
         conv["step"] = "faceswap_target"
         save_conv(chat_id, conv)
         send_fn(chat_id, (
@@ -477,7 +555,9 @@ def handle_faceswap_photo_step(
         return True
 
     if step == "faceswap_target":
-        conv["data"]["target_url"] = photo_url
+        if not file_id:
+            return _reject_without_file_id(chat_id, send_fn)
+        conv["data"]["target_file_id"] = file_id
         conv["step"] = "faceswap_confirm"
         save_conv(chat_id, conv)
         from tools.jarvis_smart_telegram_control import tg_call
@@ -515,7 +595,7 @@ def handle_faceswap_photo_step(
     if step == "meinto_target":
         clear_conv(chat_id)
         # Требуется ранее сохранённое лицо (из /faceswap). Проверка бесплатна → ДО гейта.
-        face_path = _ROOT / "state" / "my_face_url.txt"
+        face_path = _ROOT / "state" / "my_face_file_id.txt"
         if not face_path.exists():
             send_fn(chat_id, (
                 "❌ Нет сохранённого лица.\n"
@@ -523,7 +603,14 @@ def handle_faceswap_photo_step(
                 "Оно сохранится для будущих /me_into."
             ))
             return True
-        source_url = face_path.read_text(encoding="utf-8").strip()
+        # DEV-74: на диске лежит file_id, ссылка строится здесь и не переживает вызов.
+        source_url = _resolve_photo_url(face_path.read_text(encoding="utf-8").strip())
+        if not source_url:
+            send_fn(chat_id, (
+                "❌ Сохранённое лицо больше недоступно в Telegram.\n"
+                "Загрузи его заново через /faceswap."
+            ))
+            return True
 
         def _do():
             send_fn(chat_id, "⏳ Вставляю твоё лицо в target фото...")
@@ -543,9 +630,12 @@ def handle_faceswap_photo_step(
         return True
 
     if step == "lora_collecting":
-        photos = conv.get("data", {}).get("photos", [])
-        photos.append(photo_url)
-        conv["data"]["photos"] = photos
+        if not file_id:
+            return _reject_without_file_id(chat_id, send_fn)
+        photos = conv.get("data", {}).get("photo_file_ids", [])
+        photos.append(file_id)
+        conv["data"]["photo_file_ids"] = photos
+        conv["data"].pop("photos", None)   # старый ключ со ссылками не воскрешаем
         save_conv(chat_id, conv)
         send_fn(chat_id, (
             f"✅ Фото {len(photos)} получено. "
@@ -574,12 +664,24 @@ def handle_faceswap_callback(
 
     if data.startswith("fs:exec:"):
         quality = data.split(":")[-1]  # "basic" or "polish"
-        source = conv.get("data", {}).get("source_url", "")
-        target = conv.get("data", {}).get("target_url", "")
+        source_file_id = conv.get("data", {}).get("source_file_id", "")
+        target_file_id = conv.get("data", {}).get("target_file_id", "")
         clear_conv(chat_id)
 
-        if not source or not target:
+        if not source_file_id or not target_file_id:
             send_fn(chat_id, "❌ Не найдены фото. Начни заново с /faceswap")
+            return True
+
+        # DEV-74: ссылки строятся ЗДЕСЬ и дальше этого вызова не живут.
+        source = _resolve_photo_url(source_file_id)
+        target = _resolve_photo_url(target_file_id)
+        if not source or not target:
+            # `file_path` от Telegram протухает примерно через час — это штатный
+            # случай, а не сбой. Отказ обязан быть виден И произойти ДО оплаты.
+            send_fn(chat_id, (
+                "❌ Ссылки на фото устарели (Telegram хранит их около часа).\n"
+                "Начни заново с /faceswap — денег не потрачено."
+            ))
             return True
 
         cost = "$0.005"  # lucataco/faceswap stopgap (uncensored); ComfyUI graph in reserve
@@ -610,9 +712,12 @@ def handle_faceswap_callback(
             return True
         if result_url:
             send_photo_fn(chat_id, result_url, caption="🔄 Face Swap готов!")
-            # Save source as "my face" for future /me_into
-            face_path = _ROOT / "state" / "my_face_url.txt"
-            face_path.write_text(source, encoding="utf-8")
+            # Save source as "my face" for future /me_into.
+            # DEV-74: храним file_id, а не готовую ссылку — она и секрет несёт,
+            # и протухает через час, то есть как «сохранённое лицо» бесполезна.
+            face_path = _ROOT / "state" / "my_face_file_id.txt"
+            face_path.parent.mkdir(parents=True, exist_ok=True)
+            face_path.write_text(source_file_id, encoding="utf-8")
         return True
 
     return False

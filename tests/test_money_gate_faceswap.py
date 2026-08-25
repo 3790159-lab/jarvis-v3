@@ -38,7 +38,8 @@ def test_enhance_success_routes_through_guard(monkeypatch):
 # ── faceswap swap (callback fs:exec) ──────────────────────────────────────────
 
 def test_faceswap_over_limit_never_swaps(monkeypatch):
-    _conv(monkeypatch, {"data": {"source_url": "s", "target_url": "t"}})
+    _conv(monkeypatch, {"data": {"source_file_id": "S", "target_file_id": "T"}})
+    monkeypatch.setattr(ps, "_resolve_photo_url", lambda fid: f"http://{fid}")
     calls = {"n": 0}
     monkeypatch.setattr(ps, "guard_spend", lambda uid, un, est, do: (None, "лимит"))
     monkeypatch.setattr("app.services.face_swap.face_swap_basic",
@@ -50,7 +51,8 @@ def test_faceswap_over_limit_never_swaps(monkeypatch):
 
 
 def test_faceswap_success_routes_through_guard(monkeypatch):
-    _conv(monkeypatch, {"data": {"source_url": "s", "target_url": "t"}})
+    _conv(monkeypatch, {"data": {"source_file_id": "S", "target_file_id": "T"}})
+    monkeypatch.setattr(ps, "_resolve_photo_url", lambda fid: f"http://{fid}")
     seen = {}
     monkeypatch.setattr(ps, "guard_spend", lambda uid, un, est, do: seen.update(est=est) or (do(), None))
     monkeypatch.setattr("app.services.face_swap.face_swap_basic", lambda *a, **k: "http://swap")
@@ -64,11 +66,12 @@ def test_faceswap_success_routes_through_guard(monkeypatch):
 def test_me_into_over_limit_never_swaps(monkeypatch, tmp_path):
     _conv(monkeypatch, {"step": "meinto_target", "data": {}})
     # положить сохранённое лицо, чтобы флоу дошёл до гейта
-    face = ps._ROOT / "state" / "my_face_url.txt"
+    face = ps._ROOT / "state" / "my_face_file_id.txt"
     face.parent.mkdir(parents=True, exist_ok=True)
     existed = face.exists()
     backup = face.read_text(encoding="utf-8") if existed else None
-    face.write_text("http://myface", encoding="utf-8")
+    face.write_text("MYFACE_FID", encoding="utf-8")
+    monkeypatch.setattr(ps, "_resolve_photo_url", lambda fid: f"http://{fid}")
     try:
         calls = {"n": 0}
         monkeypatch.setattr(ps, "guard_spend", lambda uid, un, est, do: (None, "лимит"))
