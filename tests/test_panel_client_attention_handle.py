@@ -482,6 +482,7 @@ EXPECTED_ROUTES = {
     # это единственная ручка инстанса, которая ПИШЕТ, и открытой ей быть
     # нельзя. Список правится РУКАМИ намеренно.
     ("/api/outgoing", ("POST",)),
+    ("/api/outgoing/dismiss", ("POST",)),
     ("/ops/outgoing", ("GET",)),
     ("/panel", ("GET",)),
     ("/panel/login", ("GET",)),
