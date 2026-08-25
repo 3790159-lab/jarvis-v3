@@ -125,12 +125,22 @@ def test_unknown_is_read_as_expected_not_as_absent(tmp_path, what):
         "реквизиты платящего клиента перестанут ездить молча")
 
 
-def test_the_flag_must_be_a_real_boolean(tmp_path):
-    """Строка `"false"` истинна в Python и дала бы ОБРАТНЫЙ смысл."""
+@pytest.mark.parametrize("raw", ['"false"', '""', "0", "null", "[]"])
+def test_the_flag_must_be_a_real_boolean(tmp_path, raw):
+    """Не-`bool` — это НЕИЗВЕСТНОСТЬ, а не значение тумблера.
+
+    🔴 Мутационный гейт вскрыл здесь дыру: сторож проверял только `"false"`, а
+    на ней `bool(flag)` даёт ТОТ ЖЕ ответ, что и правильная ветка, — то есть
+    подмена «не-bool → ждём» на «не-bool → как получится» проходила молча.
+    Опасны как раз ЛОЖНЫЕ не-bool (`""`, `0`, `null`, `[]`): с ними подмена
+    отвечает «не ждём», и реквизиты платящего клиента перестают ездить.
+    Поэтому список значений — литеральный и с обеих сторон истинности.
+    """
     root = _tree(tmp_path, beta_settings=False)
     d = root / "chatter" / "clients" / BETA
+    d.mkdir(parents=True, exist_ok=True)
     (d / "settings.yaml").write_text(
-        'payments:\n  enabled: "false"\n', encoding="utf-8")
+        f"payments:\n  enabled: {raw}\n", encoding="utf-8")
     assert sb.expects_requisites(root, BETA) is True
 
 
