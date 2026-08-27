@@ -13,9 +13,13 @@
   инстанса. Ловушка не теоретическая: `.env` грузится с `override=False`, то
   есть ЗАБЫТАЯ переменная молча заменяется ключом владельца — без единой
   ошибки;
-* пути клиента выводятся из слага (`.secrets/<slug>.db`,
-  `state/chatter_heartbeat_<slug>.txt`), а не берутся из дефолтов дашборда:
-  его дефолты — `volska` и `.secrets/demo.db`, то есть ЧУЖОЙ клиент;
+* БАЗА берётся ИЗ РЕЕСТРА (`db:` записи слага), а НЕ выводится из слага:
+  у volska слаг `volska`, а база `.secrets/demo.db`. Выведенное имя дало бы
+  `.secrets/volska.db`, которого нет, — то есть ПУСТУЮ ленту при зелёной
+  лампе (§3b спеки). Не объявлена в реестре — ОТКАЗ, а не умолчание;
+* остальные пути слаговые (`state/chatter_heartbeat_<slug>.txt`). Дефолты
+  дашборда сюда не годятся вовсе: там `volska` и `.secrets/demo.db`, то есть
+  ЧУЖОЙ клиент для любого другого слага;
 * приложение — `app.panel_client`, а НЕ `app.main`: без фоновых задач и без
   `/panel/jarvis` (см. модуль, там замер).
 """
@@ -65,6 +69,46 @@ def port_from_registry(slug: str, root=None):
     except Exception:
         return None
     return None
+def db_from_registry(slug: str, root=None):
+    """База слага из реестра. `None` — не объявлена либо реестр не читается.
+
+    🔴 ЗДЕСЬ ЖЁСТЧЕ, ЧЕМ С ПОРТОМ, И ЭТО НЕ НЕДОСМОТР. `port_from_registry`
+    к нечитаемому реестру мягок намеренно: ошибка с портом ГРОМКАЯ — инстанс
+    сядет не туда, проба его не найдёт, лампа останется красной. Ошибка с
+    базой ТИХАЯ: панель поднимется, `/health` ответит, гардиан скажет `ok`,
+    лампы ПОГАСНУТ — а лента будет пуста. Тихий отказ дороже громкого,
+    поэтому сомнение здесь трактуется как отсутствие, а отсутствие — как
+    отказ поднимать (§3b спеки).
+
+    Выведенное из слага имя НЕ подставляется даже запасным вариантом:
+    умолчание по слагу — ровно тот путь, которым дефект и приехал.
+    """
+    root = _ROOT if root is None else root
+    try:
+        from chatter.core.client_registry import parse_registry
+        text = (root / "chatter" / "clients" / "registry.yaml").read_text(
+            encoding="utf-8")
+        for entry in parse_registry(text):
+            if entry.slug == slug:
+                return entry.db if entry.db_declared else None
+    except Exception:
+        return None
+    return None
+
+
+def _abs_db(db, root):
+    """Путь реестра -> абсолютный. `None`/пусто -> пустая строка (= отказ).
+
+    Абсолютный нужен потому, что панель поднимается из своего каталога, а
+    относительный `.secrets/demo.db` из другого cwd молча указал бы на
+    несуществующий файл — то есть на ту же пустую ленту, только другим путём.
+    """
+    if not db:
+        return ""
+    path = Path(db)
+    return str(path if path.is_absolute() else root / path)
+
+
 ANY_INTERFACE = "0.0.0.0"
 LOOPBACK = "127.0.0.1"
 HOST_VAR = "PANEL_CLIENT_HOST"
@@ -159,7 +203,14 @@ def build_instance_env(slug: str, environ=None, root: Path = _ROOT) -> dict:
     key = (environ.get(var) or "").strip() or env_file_var(var, root=root)
     return {
         "JARVIS_PANELS_KEY": key,
-        "TAMAPI_DB": str(root / ".secrets" / ("%s.db" % slug)),
+        # База — ИЗ РЕЕСТРА, не из слага (§3b спеки). Не объявлена -> пусто,
+        # и пустое упирается в УЖЕ существующий fail-closed
+        # `instance_env_problems`: «TAMAPI_DB не задан: без него панель
+        # показала бы клиента по умолчанию... то есть ЧУЖУЮ переписку».
+        # Своего отказа здесь не завожу: два отказа на одно условие разойдутся
+        # текстом при первой же правке, и человек прочтёт разные причины у
+        # одного и того же события.
+        "TAMAPI_DB": _abs_db(db_from_registry(slug, root=root), root),
         "TAMAPI_SLUG": slug,
         "TAMAPI_HEARTBEAT": str(chatter_beat_path(slug, root=root)),
         # Каталог конфигов — АБСОЛЮТНЫЙ, как и соседи. Дефолт в панели

@@ -44,6 +44,13 @@ class ClientEntry:
     # До этой правки число 8011 было написано в ТРЁХ местах, и в коде это уже
     # помечено долгом: «меньшее из двух чисел гасит большее МОЛЧА».
     panel_port: int | None = None
+    # Объявлена ли база ЯВНО. Поле `db` выше заполнено ВСЕГДА: нет ключа —
+    # выводится из слага, и для раннера это верно. Для ПАНЕЛИ выведенное имя
+    # опасно ровно тем, что выглядит рабочим: у volska слаг `volska`, а база
+    # `.secrets/demo.db`, и панель на `.secrets/volska.db` показала бы ПУСТУЮ
+    # ленту при зелёной лампе (§3b спеки). Значит «объявлено» и «выведено» —
+    # РАЗНЫЕ состояния, и различить их может только тот, кто читал файл.
+    db_declared: bool = False
 
 
 @dataclass(frozen=True)
@@ -137,6 +144,7 @@ def parse_registry(text: str) -> tuple[ClientEntry, ...]:
             session=str(cfg.get("session") or f"{SECRETS_DIRNAME}/{slug}.session"),
             db=str(cfg.get("db") or f"{SECRETS_DIRNAME}/{slug}.db"),
             panel_port=_panel_port(slug, cfg),
+            db_declared=cfg.get("db") is not None,
         ))
     return tuple(out)
 
