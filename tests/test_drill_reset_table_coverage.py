@@ -215,11 +215,17 @@ def _uncovered(schema: dict, cats: dict) -> dict:
     return out
 
 
-def _run(argv, capsys):
-    """Прогон через ЕДИНСТВЕННУЮ публичную дверь скрипта — `main`."""
-    rc = _mod().main(list(argv))
+def _run_mod(mod, argv, capsys):
+    """Прогон УЖЕ загруженного модуля — единственный способ проверить сверку
+    при ПОДМЕНЕННЫХ категориях: `_mod()` перечитывает файл и подмену бы стёр."""
+    rc = mod.main(list(argv))
     cap = capsys.readouterr()
     return rc, cap.out + cap.err
+
+
+def _run(argv, capsys):
+    """Прогон через ЕДИНСТВЕННУЮ публичную дверь скрипта — `main`."""
+    return _run_mod(_mod(), argv, capsys)
 
 
 # ── §6.1 покрытие в обе стороны ───────────────────────────────────────────
@@ -575,3 +581,201 @@ def test_contacts_row_survives_and_returns_to_the_initial_state(tmp_path, capsys
     assert (state, paused, took) == ("new", 0, 0), (
         f"контакт не приведён к исходному: state={state}, paused={paused}, "
         f"human_took_over={took}. Бот, оставшийся на паузе, промолчит весь прогон")
+
+
+# ── ДЕТЕКТОР двойного имени: сверка на прогоне, а не только по данным ─────
+#
+# `test_no_table_is_named_in_two_categories` выше утверждает про САМИ СПИСКИ и
+# ловит автора, который сегодня положил таблицу в две категории. Сторожа ниже —
+# про ДРУГОЙ случай: база и код разъехались, категории правят руками на живой
+# машине, и сверка ПЕРЕД сбросом обязана сказать об этом словами до того, как
+# что-то тронет. Без них детектор дублей можно молча выкинуть, и суита этого не
+# заметит: проверка по данным осталась бы зелёной, потому что она смотрит на
+# литералы, а не на механизм.
+
+_PATCH_SEAM = (
+    "сторож не смог сделать подмену категорий НАБЛЮДАЕМОЙ: собранный на импорте "
+    "контейнер категорий имеет форму, которую обход по значению не разобрал. "
+    "Это шов ТЕСТА, а не дефект реализации — чинить здесь, в `_force_categories`. "
+    "Зелёным этот случай быть не может: проверять было бы нечего.")
+
+
+def _flat_strings(node) -> list:
+    """Все строки контейнера, какой бы формы он ни был."""
+    if isinstance(node, str):
+        return [node]
+    if isinstance(node, dict):
+        out = []
+        for key, value in node.items():
+            out += _flat_strings(key) + _flat_strings(value)
+        return out
+    if isinstance(node, (list, tuple, set, frozenset)):
+        out = []
+        for value in node:
+            out += _flat_strings(value)
+        return out
+    return []
+
+
+def _substitute(node, pairs):
+    """Замена состава категории ВНУТРИ контейнера — по значению и рекурсивно.
+
+    Форма контейнера сторожу неизвестна и знать её он не должен: словарь
+    «имя → состав», кортеж кортежей, пары «имя, состав» обходятся одинаково.
+    Сверка по форме привязала бы сторожа к устройству реализации, а не к её
+    утверждению."""
+    for old, new in pairs:
+        if type(node) is type(old) and node == old:
+            return new
+    if isinstance(node, dict):
+        return {k: _substitute(v, pairs) for k, v in node.items()}
+    if isinstance(node, (list, tuple, set, frozenset)):
+        return type(node)(_substitute(v, pairs) for v in node)
+    return node
+
+
+def _force_categories(mod, values: dict):
+    """Подменить четыре категории в УЖЕ загруженном модуле.
+
+    Одних модульных имён мало: контейнер, собранный на импорте, держит ССЫЛКИ
+    на старые кортежи, и `setattr` по имени его не задел бы. Возвращает плоский
+    состав контейнера, если контейнер найден, иначе None."""
+    pairs = [(getattr(mod, name), new) for name, new in values.items()]
+    for name, new in values.items():
+        setattr(mod, name, new)
+    for holder in ("_ALL_CATEGORIES",):
+        if hasattr(mod, holder):
+            setattr(mod, holder, _substitute(getattr(mod, holder), pairs))
+            return _flat_strings(getattr(mod, holder))
+    return None
+
+
+def _pick_double(mod, db) -> str:
+    """Какую таблицу назвать дважды — выбирается СЧЁТОМ, а не именем.
+
+    Первая по алфавиту таблица `_KEEP_TABLES`, у которой есть `contact_id`. Она
+    же самый злой случай: «стереть по contact_id» и «не трогать НАМЕРЕННО» об
+    одной строке одновременно — два места, которые уже разошлись."""
+    conn = sqlite3.connect(db)
+    try:
+        schema = _schema(conn)
+    finally:
+        conn.close()
+    picks = sorted(t for t in _categories(mod)["_KEEP_TABLES"]
+                   if "contact_id" in schema.get(t, []))
+    assert picks, "_KEEP_TABLES без таблиц с contact_id — дубль вносить не на чем"
+    return picks[0]
+
+
+def _apply_double(mod, table) -> bool:
+    """Кладёт `table` ВТОРОЙ раз, в `_WIPE_TABLES`. False — подмена не видна."""
+    values = {n: tuple(getattr(mod, n)) for n in _CATEGORY_NAMES}
+    values["_WIPE_TABLES"] = values["_WIPE_TABLES"] + (table,)
+    flat = _force_categories(mod, values)
+    return flat is None or flat.count(table) >= 2
+
+
+def test_patched_categories_without_a_double_run_clean(tmp_path, capsys):
+    """Контроль честности трёх сторожей ниже: та же подмена, но БЕЗ дубля —
+    и прогон зелёный.
+
+    Без него красное на дубле неотличимо от «подмена сама всё сломала», а
+    сторож, который краснеет на чём угодно, не красный, а сломанный."""
+    mod = _mod()
+    drill = _drill_contact(mod)
+    db = _prepare(tmp_path, "nodouble.db")
+    _force_categories(mod, {n: tuple(getattr(mod, n)) for n in _CATEGORY_NAMES})
+    rc, out = _run_mod(mod, [db, "--contact", drill, "--apply"], capsys)
+    assert rc == 0, (
+        f"подмена категорий их же собственным составом сломала прогон — значит "
+        f"красное соседних сторожей ничего не доказывает.\n{out}")
+
+
+def test_table_named_in_two_categories_refuses_before_any_write(tmp_path, capsys):
+    """Сверка ПЕРЕД сбросом ОТКАЗЫВАЕТ на таблице, названной больше чем в одной
+    категории, и до этого не пишет в базу ни строки.
+
+    Проверяется ДЕТЕКТОР на прогоне, а не состав списков. Разница существенная:
+    проверка по данным ловит автора, который положил таблицу в два списка
+    сегодня; детектор нужен для случая, когда база и код разъехались и категории
+    правят руками на живой машине. Сегодня детектор можно выкинуть, и ни один
+    сторож по данным этого не заметит.
+
+    Код отказа сверяется с ЗАМЕРЕННЫМ тут же кодом успеха, а не с числом."""
+    mod = _mod()
+    drill = _drill_contact(mod)
+    clean_db = _prepare(tmp_path, "dbl-clean.db")
+    db = _prepare(tmp_path, "dbl.db")
+    table = _pick_double(mod, db)
+
+    rc_ok, out_ok = _run_mod(mod, [clean_db, "--contact", drill, "--apply"], capsys)
+    assert rc_ok == 0, f"исходные категории уже отказывают — замер испорчен\n{out_ok}"
+
+    assert _apply_double(mod, table), _PATCH_SEAM
+    before = _snapshot(db)
+    rc, out = _run_mod(mod, [db, "--contact", drill, "--apply"], capsys)
+    after = _snapshot(db)
+
+    assert rc != 0, (
+        f"таблица {table} названа И в _WIPE_TABLES, И в _KEEP_TABLES, а сброс "
+        f"пошёл как ни в чём не бывало: «стереть» и «не трогать намеренно» об "
+        f"одной строке — это два места, которые уже разошлись.\n{out}")
+    assert rc != rc_ok, (
+        f"отказ на двойном имени вернул код успеха ({rc}): харнесс не отличит "
+        f"его от сработавшего сброса")
+    assert after == before, (
+        "отказ обязан приходить ДО любой записи, а база изменилась: "
+        + ", ".join(sorted(t for t in before if before[t] != after.get(t))))
+
+
+def test_double_naming_refusal_names_the_table_and_both_categories(tmp_path, capsys):
+    """Отказ называет ТАБЛИЦУ и ОБЕ категории, в которых она нашлась.
+
+    «Где-то дубль» читателю не говорит ничего: чинить придётся сверкой четырёх
+    списков глазами. Сверяются только строки, которых нет в выводе штатного
+    прогона, — иначе сторож зеленел бы за счёт строк плана, где имена таблиц
+    печатаются и без всякого отказа."""
+    mod = _mod()
+    drill = _drill_contact(mod)
+    base_db = _prepare(tmp_path, "dbl-base.db")
+    dup_db = _prepare(tmp_path, "dbl-dup.db")
+    table = _pick_double(mod, base_db)
+
+    _, base = _run_mod(mod, [base_db, "--contact", drill], capsys)
+    assert _apply_double(mod, table), _PATCH_SEAM
+    _, refusal = _run_mod(mod, [dup_db, "--contact", drill], capsys)
+
+    known = {ln.strip() for ln in base.splitlines()}
+    new = "\n".join(ln for ln in refusal.splitlines()
+                    if ln.strip() and ln.strip() not in known)
+    assert new.strip(), f"отказ на двойном имени не сказал НИЧЕГО нового:\n{refusal}"
+    assert table in new, (
+        f"отказ не назвал таблицу {table} — читателю нечего искать:\n{new}")
+    for category in ("_WIPE_TABLES", "_KEEP_TABLES"):
+        assert category in new, (
+            f"отказ не назвал категорию {category}, в которой таблица {table} "
+            f"нашлась: без обеих категорий чинить придётся глазами.\n{new}")
+
+
+def test_double_naming_refuses_in_the_dry_run_too(tmp_path, capsys):
+    """Сухой прогон (без `--apply`) на двойном имени тоже ОТКАЗЫВАЕТ, тем же
+    кодом, что и `--apply`.
+
+    Тот же довод, что и на непокрытой таблице: план, показавший чистоту, — это
+    решение стереть, принятое по вранью."""
+    mod = _mod()
+    drill = _drill_contact(mod)
+    db_apply = _prepare(tmp_path, "dbl-a.db")
+    db_plan = _prepare(tmp_path, "dbl-p.db")
+    table = _pick_double(mod, db_apply)
+
+    assert _apply_double(mod, table), _PATCH_SEAM
+    rc_apply, _ = _run_mod(mod, [db_apply, "--contact", drill, "--apply"], capsys)
+    rc_plan, out = _run_mod(mod, [db_plan, "--contact", drill], capsys)
+
+    assert rc_plan != 0, (
+        f"сухой прогон при двойном имени таблицы {table} отчитался о плане: "
+        f"человек прочтёт чистоту, которой не будет.\n{out}")
+    assert rc_plan == rc_apply, (
+        f"сухой прогон отказал ИНАЧЕ, чем --apply ({rc_plan} против {rc_apply}): "
+        f"предохранитель обязан быть одинаков для плана и для применения")
