@@ -40,6 +40,7 @@ R = "tests/test_ops_watchdog_reachability.py"
 T = "tests/test_ops_watchdog_alert_trace.py"
 H = "tests/test_healthchecks_ping_reachability.py"
 L = "tests/test_ops_watchdog_label_coverage.py"
+R2M = "tests/test_ops_watchdog_reach_measure.py"
 
 MUTATIONS = [
     # ── §5.1: раздельность термов ─────────────────────────────────────────
@@ -53,10 +54,14 @@ MUTATIONS = [
        b'    if reachability_snapshot:\n        probes["network"] = {"ok": True, "detail": ""}\n        for name, entry in')],
      R + "::test_there_is_no_aggregate_verdict_next_to_the_three"),
 
-    ("красный вердикт перестал называть свой провод", OW,
-     [(b'            "detail": "%s: %s" % (entry.get("url", "?"),',
-       b'            "detail": "%s: %s" % ("",')],
-     R + "::test_the_red_verdict_names_its_own_wire"),
+    # Мишень ПЕРЕПИСАНА после первого прогона гейта. Была «убрать имя провода
+    # из detail» — и сторож справедливо остался зелёным: имя по-прежнему несёт
+    # КЛЮЧ `reach:tg_api`, то есть решение выживало. Слабая мутация ничего не
+    # проверяет, поэтому мишенью стало решение, у которого свой сторож есть.
+    ("подмена сертификата названа тем же словом, что «сети нет»", OW,
+     [(b'                "reason": "tls" if _is_tls_failure(exc) else "no_response",',
+       b'                "reason": "no_response",')],
+     R2M + "::test_tls_and_no_response_are_two_different_words"),
 
     ("живой провод объявлен мёртвым (зелёное перестало быть тихим)", OW,
      [(b'    if entry.get("ok"):\n        return {"ok": True,',
@@ -79,9 +84,15 @@ MUTATIONS = [
        b'    if False:\n        record["error"] = error')],
      T + "::test_the_failure_reason_is_written_down"),
 
+    # ДВЕ правки в одной мутации: подменить только `ok` было мало — поле с
+    # причиной провала оставалось на месте и различало записи само.
     ("успех и провал стали неразличимы на диске", OW,
      [(b'record = {"ts": time.time(), "kind": kind, "stage": "result", "ok": ok}',
-       b'record = {"ts": time.time(), "kind": kind, "stage": "result", "ok": True}')],
+       b'record = {"ts": time.time(), "kind": kind, "stage": "result", "ok": True}'),
+      (b'    if error:
+        record["error"] = error',
+       b'    if False:
+        record["error"] = error')],
      T + "::test_success_and_failure_are_distinguishable_on_disk"),
 
     ("немота из-за отсутствия токена не оставляет следа", OW,
@@ -90,8 +101,14 @@ MUTATIONS = [
      T + "::test_a_missing_token_is_also_recorded"),
 
     # ── §5.2: fail-closed в скрипте пинга ─────────────────────────────────
+    # Мишень ПЕРЕПИСАНА: `if ($false)` уводило в else-ветку, где отсутствующий
+    # файл ловился ВТОРЫМ слоем («вердикт не разобрался»), и сторож краснел не
+    # на том. Теперь ломается сама жалоба — ветка отрабатывает и молчит.
     ("отсутствие вердикта перестало быть проблемой", PS,
-     [(b'if (-not (Test-Path $reachFile)) {', b'if ($false) {')],
+     [(b"if (-not (Test-Path $reachFile)) {
+  $problems += ",
+       b"if (-not (Test-Path $reachFile)) {
+  $ignored = ")],
      H + "::test_missing_verdict_is_a_problem_not_a_shrug"),
 
     ("протухший вердикт считается свежим", PS,
