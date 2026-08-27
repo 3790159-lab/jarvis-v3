@@ -569,3 +569,168 @@ def test_the_json_plan_carries_the_panel_port_for_powershell(tmp_path):
         % (VOLSKA_PORT, by_slug["volska"]))
     assert YARINA_PORT in list(_values(by_slug["yarina"])), (
         "в JSON-плане нет порта yarina (%d): %s" % (YARINA_PORT, by_slug["yarina"]))
+
+
+# ── §6.1, ТРЕТЬЯ СТОРОНА: ЗАПУСК обязан СПРОСИТЬ резолвер ──────────────────
+#
+# 🔴 НАЙДЕНО МУТАЦИОННЫМ ГЕЙТОМ, А НЕ РАССУЖДЕНИЕМ. Мишень: в `main()` вместо
+# «спроси реестр, иначе умолчание» остаётся ГОЛОЕ `DEFAULT_PORT`, реестр не
+# спрашивается вовсе. Сторожа выше на эту мутацию НЕ РЕАГИРУЮТ, и они правы:
+# они проверяют РЕЗОЛВЕР, а резолвер цел. Не покрыто было ровно одно —
+# что запуск его СПРАШИВАЕТ. Резолвер может быть безупречен и не вызван;
+# снаружи разницы нет, а панель сядет на литерал.
+#
+# ЦЕНА ИМЕННО ЭТОЙ МУТАЦИИ ИЗМЕРЕНА, И ОНА ВЫСШАЯ ИЗ ВОЗМОЖНЫХ. `DEFAULT_PORT`
+# = 8011 = порт ЖИВОЙ панели yarina (§5.1 отдаёт ей это же число). То есть
+# мутация не «панель не поднялась», а «инстанс volska сел НА ПОРТ ЖИВОЙ ПАНЕЛИ
+# ЯРИНЫ»: два процесса на одном порту, гардианы начинают сносить чужое, и обе
+# пробы видят живой `/health` — просто не тот.
+#
+# ПОЧЕМУ СТОРОЖ НЕ ЗОВЁТ РЕЗОЛВЕР И НЕ ИЩЕТ ЕГО ПО ИМЕНИ. Сторож, зовущий
+# резолвер, эту мутацию не поймает ПО ПОСТРОЕНИЮ, сколько его ни усиливай:
+# мутация не в резолвере. Подмена резолвера шпионом «по имени с `port`» тоже не
+# годится — она краснела бы на законном выборе автора кода, назвавшего функцию
+# иначе, то есть учила бы не смотреть на красное. Поэтому меряется ИСХОД:
+# запускается НАСТОЯЩИЙ `main()`, а число ловится в единственной точке, где оно
+# уже ни от чьих имён не зависит, — в аргументе `uvicorn.run`. Это тот самый
+# порт, который процесс займёт.
+#
+# ПИН СТОИТ НА РАСХОЖДЕНИИ — ровно как у базы в §3b. Объявленный порт обязан
+# ОТЛИЧАТЬСЯ от умолчания, иначе «спросил реестр» и «взял литерал» дают одно и
+# то же число, и сторож слеп. Расхождение живёт у volska (8012 против 8011) и
+# отсутствует у yarina (8011 == 8011), поэтому запуск volska — сердцевина, а
+# yarina годится только в пару к нему.
+#
+# ЖИВОГО ПОСЛЕДСТВИЯ НЕТ НИ ОДНОГО: `uvicorn.run` подменён (ничего не слушает),
+# `build_app` подменён (приложение не собирается), `tailnet_ip` подменён (нет
+# подпроцесса и сети), `os.environ` восстанавливается целиком — `main()` его
+# обновляет.
+def _declared_port(slug: str):
+    """Порт слага ПРЯМО ИЗ ФАЙЛА реестра — независимым чтением.
+
+    Намеренно НЕ через резолвер запускающего: сверять его ответ с его же
+    ответом значит сравнивать значение с самим собой. Здесь нужен ВТОРОЙ,
+    посторонний источник того же числа.
+    """
+    import yaml
+    data = yaml.safe_load((REPO_ROOT / REGISTRY_REL).read_text(encoding="utf-8")) or {}
+    cfg = (data.get("clients") or {}).get(slug) or {}
+    panel = cfg.get("panel") or {}
+    return panel.get("port") if isinstance(panel, dict) else None
+
+
+@pytest.fixture()
+def launch(monkeypatch, capsys):
+    """Настоящий `main()` без единого живого последствия.
+
+    Возвращает `run(argv) -> {"rc", "port", "host", "out"}`, где `port` — число,
+    доехавшее до `uvicorn.run`, то есть тот порт, который процесс займёт.
+    """
+    import os as _os
+    import uvicorn
+
+    import app.panel_client as pc
+    rpc = _launcher()
+
+    saved_env = dict(_os.environ)
+    bound = {}
+
+    def fake_run(app_obj, host=None, port=None, **kw):
+        bound["host"] = host
+        bound["port"] = port
+
+    monkeypatch.setattr(uvicorn, "run", fake_run)
+    monkeypatch.setattr(pc, "build_app", lambda: object())
+    # Без подпроцесса и без сети: живая панель yarina сейчас работает.
+    monkeypatch.setattr(rpc, "tailnet_ip", lambda *a, **k: "")
+    for slug in ("VOLSKA", "YARINA"):
+        monkeypatch.setenv("JARVIS_PANELS_KEY_%s" % slug, "kluch-storozha-%s" % slug)
+
+    def run(argv):
+        bound.clear()
+        rc = rpc.main(list(argv))
+        return {"rc": rc, "port": bound.get("port"),
+                "host": bound.get("host"), "out": capsys.readouterr().out}
+
+    yield run
+    _os.environ.clear()
+    _os.environ.update(saved_env)
+
+
+def test_the_declared_port_of_volska_differs_from_the_default():
+    """ПРЕДУСЛОВИЕ сторожа запуска, названное вслух.
+
+    Пин на «запуск спросил реестр» работает только там, где ответ реестра
+    ОТЛИЧАЕТСЯ от умолчания. Совпади они — и запуск, взявший литерал, дал бы то
+    же число, что запуск, спросивший реестр: сторож зелен по построению. §5.1
+    даёт volska 8012, а `DEFAULT_PORT` остаётся 8011, и это расхождение обязано
+    быть громким, если однажды исчезнет.
+    """
+    mod = _launcher()
+    declared = _declared_port("volska")
+    assert declared is not None, (
+        "в боевом реестре у volska нет секции `panel` — до §5.1 запуску неоткуда "
+        "взять порт, и сторож на «запуск спросил реестр» проверять нечего")
+    assert declared != mod.DEFAULT_PORT, (
+        "объявленный порт volska (%s) СОВПАЛ с умолчанием %s: запуск, вовсе не "
+        "спросивший реестр, дал бы то же число, и сторож ослеп"
+        % (declared, mod.DEFAULT_PORT))
+
+
+def test_the_launch_binds_the_port_the_registry_declares(launch):
+    """🔴 СЕРДЦЕВИНА: `main()` обязан СПРОСИТЬ резолвер, а не только иметь его.
+
+    Мутация «в `main()` осталось голое `DEFAULT_PORT`» видна ровно здесь:
+    процесс займёт 8011 — порт ЖИВОЙ панели yarina — при полностью исправном
+    резолвере, который никто не позвал.
+    """
+    mod = _launcher()
+    declared = _declared_port("volska")
+    assert declared is not None, (
+        "в боевом реестре у volska нет секции `panel`: §5.1 не выполнен, и "
+        "запуску неоткуда взять порт слага")
+
+    got = launch(["--slug", "volska"])
+    assert got["port"] is not None, (
+        "запуск не дошёл до `uvicorn.run` (rc=%s). Вывод:\n%s"
+        % (got["rc"], got["out"]))
+    assert got["port"] != mod.DEFAULT_PORT, (
+        "запуск занял УМОЛЧАНИЕ %s вместо объявленного реестром %s. Резолвер "
+        "при этом может быть безупречен — его просто не спросили; а %s — это "
+        "порт ЖИВОЙ панели yarina, то есть инстанс сел бы поверх неё"
+        % (mod.DEFAULT_PORT, declared, mod.DEFAULT_PORT))
+    assert got["port"] == declared, (
+        "запуск занял порт %s, а реестр объявляет слагу volska %s"
+        % (got["port"], declared))
+
+
+def test_two_slugs_launched_in_turn_bind_two_different_ports(launch):
+    """Второй способ увидеть ту же мутацию, не зная ни одного числа заранее.
+
+    Резолвер, которого не спросили, и резолвер, всегда отдающий умолчание,
+    одинаково дают ОДИН порт на оба слага. Здесь это видно без чтения реестра
+    вовсе — то есть сторож не опирается на то же самое, на что опирается
+    предыдущий.
+    """
+    first = launch(["--slug", "volska"])
+    second = launch(["--slug", "yarina"])
+    assert first["port"] is not None and second["port"] is not None, (
+        "запуск не дошёл до `uvicorn.run`: volska rc=%s, yarina rc=%s\n%s%s"
+        % (first["rc"], second["rc"], first["out"], second["out"]))
+    assert first["port"] != second["port"], (
+        "оба слага заняли ОДИН порт %s: либо резолвер не спрошен, либо он "
+        "отдаёт одно число на всю ферму. Второй инстанс сядет поверх первого"
+        % first["port"])
+
+
+def test_an_explicit_port_argument_still_wins(launch):
+    """ВСТРЕЧНАЯ ПОЛОВИНА, без неё «всегда бери из реестра» прошло бы.
+
+    §5.2 оставляет `--port` ручным переопределением, и приёмка §7 пользуется
+    именно им: панель поднимают руками на стенде. Сторож, запретивший ручной
+    порт, запретил бы то, чем арка проверяется.
+    """
+    got = launch(["--slug", "volska", "--port", "9977"])
+    assert got["port"] == 9977, (
+        "явный `--port 9977` не доехал до запуска: занят %s (rc=%s)\n%s"
+        % (got["port"], got["rc"], got["out"]))
