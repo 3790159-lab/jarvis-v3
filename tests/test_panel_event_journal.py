@@ -1196,7 +1196,13 @@ def _cycle(monkeypatch, tmp_path, probes, *, boot_time=None, prev_state=None,
         json.dumps(prev_state or {})))
     monkeypatch.setattr(ow, "_write_state",
                         lambda st: written.update(json.loads(json.dumps(st))))
-    monkeypatch.setattr(ow, "_send_tg", lambda text: sent.append(text))
+    # `**kw` добавлен 27.08: `_send_tg` теперь принимает `kind=` (повод тревоги
+    # уезжает в журнал доставки §5.3 — «ничего не дошло» и «не дошёл вердикт
+    # журнала» разные аварии). Заглушка на один аргумент роняла ВЕСЬ цикл
+    # `TypeError`-ом; это подмена, а не утверждение, поэтому расширение
+    # сигнатуры ничего здесь не ослабляет.
+    monkeypatch.setattr(ow, "_send_tg",
+                        lambda text, **kw: sent.append(text))
     # Настоящий писатель ВОЗВРАЩАЕТСЯ явно, а не «если не подменяли»: `monkeypatch`
     # откатывается на границе ТЕСТА, а не цикла, и фейк из первого прогона дожил
     # бы до второго — сторож на «журнал снова пишется» был бы зелён на молчании.
