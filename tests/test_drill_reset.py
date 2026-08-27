@@ -80,6 +80,30 @@ def _db(path: Path) -> str:
             TEXT NOT NULL, dedup_key TEXT NOT NULL, invoice_id TEXT, stage_no
             INTEGER, amount_minor INTEGER, currency TEXT, confirmed_by TEXT,
             ts REAL NOT NULL);
+        -- ── Добавлены 27.08 вместе с правкой покрытия сброса ──────────────
+        -- Эта схема собрана РУКАМИ намеренно: тесты ниже хотят маленькую
+        -- управляемую базу, а не всю живую. Цена такого выбора — она отстаёт
+        -- от схемы, и 27.08 отстала: `outgoing_queue` попала в `_WIPE_TABLES`,
+        -- `counts()` пошёл по ней, и 13 тестов из 16 упали на
+        -- `no such table: outgoing_queue`.
+        --
+        -- Почему это чинится дописыванием, а не переходом на живой `Store`:
+        -- отставание здесь ломается ГРОМКО (`no such table` на первом же
+        -- прогоне), а не молчит зелёным. Тихое отставание — то, что чинит сама
+        -- правка, и оно закрыто новым сторожем
+        -- `tests/test_drill_reset_table_coverage.py`, который состав таблиц
+        -- берёт из живого `Store`. Здесь же громкий отказ приемлем, а замена
+        -- продуманной миниатюры на живую схему выбросила бы её замысел.
+        CREATE TABLE outgoing_queue (id INTEGER PRIMARY KEY AUTOINCREMENT,
+            contact_id TEXT NOT NULL, text TEXT NOT NULL, author TEXT,
+            token TEXT, status TEXT NOT NULL, created_ts REAL NOT NULL,
+            sent_ts REAL, attempts INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT, sent_msg_id INTEGER);
+        CREATE TABLE funnel_transitions (id INTEGER PRIMARY KEY AUTOINCREMENT,
+            contact_id TEXT NOT NULL, from_state TEXT, to_state TEXT NOT NULL,
+            ts REAL NOT NULL);
+        CREATE TABLE status_index (contact_id TEXT NOT NULL, idx INTEGER NOT
+            NULL, PRIMARY KEY (contact_id));
     """)
     for contact in (DRILL, CLIENT):
         conn.execute(
