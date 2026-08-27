@@ -143,6 +143,57 @@ TOKEN_SCAN_SKIP_SUFFIXES = frozenset((
 # СЧИТАЮТСЯ и попадают в detail.
 TOKEN_SCAN_MAX_FILE_BYTES = 2 * 1024 * 1024
 
+# ── §5.1/§5.2/§5.3 спеки 27.08 «тревога, которую нельзя не заметить» ───────
+#
+# ПОВОД. 26.08 13:23 → 27.08 14:13 сеть подменяла сертификат. Машина была
+# жива, все heartbeat'ы свежие, все процессы на месте — и ни один провод
+# наружу не работал. Пробы этого не видели ВООБЩЕ: они меряли живость, а не
+# связь.
+#
+# 🔴 ПОЧЕМУ ПРОВЕРЯЕТСЯ ИМЕННО ПРОВОД, А НЕ УСПЕХ ВЫЗОВА. Доказать, что
+# уплотнение цело, достаточно тем, что TLS состоялся и с той стороны ответил
+# НАСТОЯЩИЙ хост. Ответ 401 или 405 — это ЗЕЛЁНОЕ: подменённый сертификат
+# рвёт соединение ДО всякого HTTP-кода. Так проба остаётся бесплатной (ни
+# одного платного вызова LLM за 2880 циклов в сутки) и, что важнее, отвечает
+# ровно на один вопрос. Смешать «провод цел» с «токен верен» значило бы
+# получить пробу, которая краснеет на протухшем ключе и отправляет владельца
+# чинить сеть.
+#
+# Состав ЛИТЕРАЛЬНЫЙ. Провода не появляются в рантайме, и выводить их список
+# из кода нельзя: выведенный согласится с кодом по определению и промолчит
+# ровно там, где код про провод забыл.
+#
+# Адрес R2 НЕ вписан литералом: он живёт в `.env` (`R2_ENDPOINT`), и копия
+# здесь была бы вторым местом на одно значение — меньшее из двух чисел гасит
+# большее молча. Нет переменной → пробы этого провода в цикле НЕТ ВОВСЕ, а не
+# красная и не зелёная: watchdog не имеет права слать DOWN о том, чего не мерил.
+REACH_PROBE_PREFIX = "reach:"
+REACH_WIRES = (
+    {"name": "tg_api", "url": "https://api.telegram.org/"},
+    {"name": "llm_api", "url": "https://api.anthropic.com/v1/messages"},
+    {"name": "r2", "env": "R2_ENDPOINT"},
+)
+# Таймаут МЕНЬШЕ общего HTTP_TIMEOUT_S: проводов три, цикл 30 секунд, и три
+# восьмисекундных ожидания подряд съели бы почти весь цикл. Недостижимый провод
+# обязан отвечать быстро — он и так недостижим.
+REACH_TIMEOUT_S = 4
+# Вердикт кладётся ОТДЕЛЬНЫМ файлом, а не в ops_watchdog_state.json: тот держит
+# счётчики дебаунса, а этот читает PowerShell-скрипт пинга (§5.2). Один файл на
+# две роли означал бы, что формат счётчиков нельзя тронуть, не сломав пинг.
+REACH_VERDICT_REL = "state/reachability_verdict.json"
+# ── §5.3: СЛЕД ТРЕВОГИ НА ДИСКЕ ────────────────────────────────────────────
+# Замер, из которого выросло: `_send_tg` возвращает bool, и ВСЕ ЧЕТЫРЕ вызова
+# в `main()` этот результат ВЫБРАСЫВАЛИ. Доставка алерта не фиксировалась
+# нигде — «отправлено» и «не смогли отправить» на диске были неразличимы, ровно
+# как у бэкапа, чей провал 27.08 не оставил ни одного файла.
+#
+# Формат ДОПИСЫВАЕМЫЙ, две записи на тревогу: `attempt` перед проводом и
+# `result` после. Не одна запись, правимая на месте: правка требует
+# чтения-изменения-записи, и смерть процесса посреди отправки съела бы сам
+# след. Дописывание переживает смерть на любом шаге.
+ALERT_TRACE_REL = "state/alert_delivery.jsonl"
+ALERT_TRACE_MAX_RECORDS = 5000
+
 RESTORE_DRILL_REL = "state/backup/restore_drill.json"
 # Ритм дрила недельный; порог — 10 суток, то есть неделя плюс запас на ОДИН
 # пропуск. Граница строгая (`>`), как у BUNDLE_MAX_LAG_DAYS: сторож,
@@ -200,6 +251,31 @@ LABELS = {
     # прочиталось бы как «легаси сломалось», и владелец пошёл бы чинить то,
     # что чинить не надо.
     "chatter_beat_legacy": "ЛЕГАСИ-ОТМЕТКА chatter_heartbeat.txt снова обновляется",
+    # 🔴 НАЙДЕНО ПОПУТНО 27.08, дефект ПРЕ-СУЩЕСТВУЮЩИЙ. Проба `token_at_rest`
+    # (DEV-74) живёт в цикле с 25.08, а ярлыка у неё не было: `label_for`
+    # отдавал сырой ключ, и владелец получил бы «🚨 DOWN: token_at_rest.» —
+    # имя переменной вместо фразы. Это ровно тот дефект, который закрыл
+    # `e132b707` для других ключей.
+    #
+    # Почему сторож не поймал: `test_every_static_probe_key_of_a_full_cycle_has_a_label`
+    # зовёт `probe_all` ТОЛЬКО с `chatter_snapshot`, поэтому «полный цикл» в нём
+    # неполон, и семейства, приходящие своими снимками, в проверку не попадают.
+    "token_at_rest": "УЧЁТНЫЕ ДАННЫЕ В ДАННЫХ (токен бота открытым текстом в state/)",
+    # ── §5.1 спеки 27.08: СВЯЗЬ НАРУЖУ, ПОПРОВОДНО ─────────────────────────
+    # Ярлыки ЛИТЕРАЛЬНЫЕ, а не собираемые семейством, как у пер-клиентных
+    # ключей. Разница принципиальная: слаг клиента известен только в рантайме,
+    # а список проводов известен АВТОРУ — он не растёт сам по себе. Литерал
+    # здесь и пин состава в сторожах дают проверку в обе стороны: забытый
+    # провод виден как ключ без ярлыка, лишний — как ярлык без провода.
+    #
+    # 🔴 ТРИ КЛЮЧА, А НЕ ОДИН, — это и есть вся правка. Агрегат «сеть жива»
+    # был бы ровно той успокаивающей лампой, которую ловят третью неделю:
+    # 26–27.08 отказали ВСЕ три провода разом, и агрегат в тот раз соврал бы
+    # не сильно. Врёт он в другом случае — когда цел один из трёх, и владелец
+    # читает зелёное там, где бот нем.
+    "reach:tg_api": "СВЯЗЬ: Telegram Bot API недостижим",
+    "reach:llm_api": "СВЯЗЬ: Anthropic API недостижим",
+    "reach:r2": "СВЯЗЬ: хранилище бэкапов R2 недостижимо",
 }
 
 # ── десятая проба: клиентская панель (:8011) ───────────────────────────────
@@ -1474,6 +1550,209 @@ def parse_token(env_text: str) -> str:
     return m.group(1).strip() if m else ""
 
 
+def parse_env_value(env_text: str, name: str) -> str:
+    """Значение одной переменной из текста `.env`. Пусто, если её там нет.
+
+    Отдельно от `parse_token`, а не вместо него: у токена свой набор имён
+    (`TELEGRAM_BOT_TOKEN`|`BOT_TOKEN`), и обобщать его в общий разбор значило бы
+    сделать имена токена данными — то есть местом, где опечатка молчит.
+    """
+    m = re.search(
+        r'^\s*%s\s*=\s*"?([^"\r\n]+)"?' % re.escape(name), env_text, re.M)
+    return m.group(1).strip() if m else ""
+
+
+# ── §5.1: СВЯЗЬ НАРУЖУ, ПОПРОВОДНО ────────────────────────────────────────
+
+def probe_reachability(entry: dict) -> dict:
+    """Вердикт по ОДНОМУ проводу. Чистая функция над снимком.
+
+    Исходы РАЗЛИЧАЮТСЯ ПРИЧИНОЙ, и это не украшение: 26.08 отказ выглядел как
+    успешное TCP-рукопожатие с немедленным разрывом, и «сеть недоступна»
+    отправило бы владельца перезагружать роутер вместо того, чтобы искать
+    подмену сертификата.
+
+      `tls`         — сертификат не проверился. ИМЕННО ЭТО было 26–27.08;
+      `no_response` — не достучались (отказ соединения, таймаут, DNS);
+      ok            — с той стороны ответил настоящий хост. ЛЮБОЙ HTTP-код
+                      зелёный, включая 401/403/405: подменённый сертификат
+                      рвёт связь ДО кода ответа, поэтому наличие кода само по
+                      себе и есть доказательство целого уплотнения.
+    """
+    if not isinstance(entry, dict):
+        return {"ok": False, "reason": "unreadable",
+                "detail": "снимок связи не собран"}
+    if entry.get("ok"):
+        return {"ok": True,
+                "detail": "ответил HTTP %s (%s)" % (entry.get("status"),
+                                                    entry.get("url", "?"))}
+    reason = entry.get("reason") or "no_response"
+    return {"ok": False, "reason": reason,
+            "detail": "%s: %s" % (entry.get("url", "?"),
+                                  entry.get("error") or reason)}
+
+
+def _reach_one(url: str, *, opener=None, timeout: int = REACH_TIMEOUT_S) -> dict:
+    """Одно измерение провода. Возвращает форму, которую читает `probe_reachability`."""
+    opener = opener or urllib.request.urlopen
+    req = urllib.request.Request(url, method="GET")
+    try:
+        with opener(req, timeout=timeout) as r:
+            return {"ok": True, "url": url, "status": getattr(r, "status", 200)}
+    except urllib.error.HTTPError as e:
+        # HTTP-код — это ОТВЕТ, то есть провод цел. Единственный не-успех,
+        # который зелёный: см. докстринг пробы.
+        return {"ok": True, "url": url, "status": e.code}
+    except Exception as exc:                     # noqa: BLE001 — см. ниже
+        # Широкий except намеренный и НЕ является глотанием (DEV-18): исключение
+        # не теряется, а превращается в НАЗВАННЫЙ вердикт пробы. Сузить его
+        # нельзя: подмена сертификата прилетает как `ssl.SSLCertVerificationError`
+        # внутри `URLError`, как `URLError` снаружи и как голый `OSError` на
+        # части путей — перечисление классов молча пропустило бы один из них,
+        # и провод считался бы недостижимым по неизвестной причине.
+        text = "%s: %s" % (type(exc).__name__, exc)
+        low = text.lower()
+        tls = "certificate" in low or "sslcert" in low or "ssl:" in low
+        return {"ok": False, "url": url,
+                "reason": "tls" if tls else "no_response", "error": text}
+
+
+def _reachability_snapshot(env_text: str | None = None, *, opener=None) -> dict | None:
+    """Снимок по всем проводам. `None` — измерить не удалось ВООБЩЕ.
+
+    Провод без адреса (нет переменной в `.env`) в снимок НЕ ПОПАДАЕТ: пробы о
+    нём не будет вовсе. Это то же правило, по которому живут снимки эскалаций и
+    отправки, и оно здесь важнее обычного — «R2 недостижим» на машине, где R2
+    просто не настроен, было бы вечно-красной лампой, то есть фоном.
+    """
+    if env_text is None:
+        try:
+            env_text = ENV_PATH.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            env_text = ""
+    wires = {}
+    for spec in REACH_WIRES:
+        url = spec.get("url") or parse_env_value(env_text, spec.get("env", ""))
+        if not url:
+            continue
+        wires[spec["name"]] = _reach_one(url, opener=opener)
+    return {"wires": wires} if wires else None
+
+
+def reachability_verdict(snapshot: dict | None, *, now: float | None = None) -> dict:
+    """Вердикт для ВНЕШНЕГО читателя — скрипта пинга (§5.2).
+
+    Форма нарочно плоская и самодостаточная: `ts` + `wires{name: ok}` + список
+    красных ИМЕНАМИ. Читатель на PowerShell не должен разбирать вложенность,
+    а «какой именно провод молчит» обязано попасть в текст тревоги — «связи
+    нет» без имени провода не чинится.
+    """
+    now = time.time() if now is None else now
+    wires = (snapshot or {}).get("wires") or {}
+    verdicts = {name: bool(probe_reachability(e).get("ok"))
+                for name, e in wires.items()}
+    return {
+        "ts": now,
+        "wires": verdicts,
+        "down": sorted(n for n, ok in verdicts.items() if not ok),
+        # Пустой снимок и снимок из зелёных проводов — РАЗНЫЕ состояния, и
+        # склеить их в «всё хорошо» значило бы отдать пингу зелёное там, где
+        # не измерено ничего.
+        "measured": bool(verdicts),
+    }
+
+
+def write_reachability_verdict(snapshot: dict | None, *, path=None,
+                               now: float | None = None) -> bool:
+    path = Path(path) if path else (ROOT / REACH_VERDICT_REL)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = reachability_verdict(snapshot, now=now)
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2),
+                        encoding="utf-8")
+        return True
+    except Exception:
+        # Провал записи НЕ гасится тишиной: файла нет → пинг читает это как
+        # ПРОБЛЕМУ (fail-closed, §5.2), то есть отказ показывает себя сам.
+        return False
+
+
+# ── §5.3: СЛЕД ТРЕВОГИ НА ДИСКЕ, ДО ПРОВОДА ───────────────────────────────
+
+def _trace_append(record: dict, *, path=None,
+                  max_records: int = ALERT_TRACE_MAX_RECORDS) -> bool:
+    """Дописать запись следа. Обрезка — ПОСЛЕ записи и только при перерастании.
+
+    Обрезка стоит после дописывания намеренно: сначала улика на диске, потом
+    хозяйство. Обратный порядок означал бы, что провал обрезки съедает саму
+    запись, ради которой всё и затевалось.
+
+    Считать строки на каждом вызове нельзя — это O(n) на файл, который растёт.
+    Поэтому сперва дешёвый `stat`, и только если размер перерос грубую оценку,
+    файл читается и режется. Оценка НАРОЧНО щедрая: лишний проход раз в сотню
+    тревог дешевле, чем нечитаемый журнал доставки.
+    """
+    path = Path(path) if path else (ROOT / ALERT_TRACE_REL)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except Exception:
+        return False
+    try:
+        if path.stat().st_size > max_records * 400:
+            lines = path.read_text(encoding="utf-8").splitlines()
+            if len(lines) > max_records:
+                path.write_text("\n".join(lines[-max_records:]) + "\n",
+                                encoding="utf-8")
+    except Exception:
+        # Обрезка не удалась — запись уже на диске, и это главное. Молчать
+        # здесь можно ровно потому, что потеря не в улике, а в хозяйстве.
+        pass
+    return True
+
+
+def send_with_trace(text: str, *, kind: str = "alert", sender=None,
+                    path=None, now: float | None = None) -> bool:
+    """Отправить тревогу, оставив след НА ДИСКЕ ДО обращения к проводу.
+
+    Порядок операций — это и есть вся правка, и он не переставляется:
+
+      1. `attempt` пишется ПЕРВЫМ, до всякой сети. Смерть процесса, BSOD,
+         немой провод — след уже лежит;
+      2. провод;
+      3. `result` с исходом.
+
+    Отсутствие пары `result` у `attempt` читается как «умерли на отправке» и
+    само по себе является уликой — той самой, которой 27.08 не оказалось у
+    провалившегося бэкапа: он не оставил на диске НИ ОДНОГО файла, и
+    единственным свидетельством был `rc` планировщика, чья история выключена.
+
+    Исход отправки ВОЗВРАЩАЕТСЯ и записывается. До этой правки `_send_tg` тоже
+    возвращал bool, но все четыре вызова в `main()` его выбрасывали — успех и
+    провал были неразличимы не только на диске, но и в коде.
+    """
+    now = time.time() if now is None else now
+    sender = sender or _send_tg
+    # Текст режется: тревога может нести список файлов, а журнал доставки — не
+    # копия алерта, он отвечает на один вопрос «дошло ли».
+    head = (text or "")[:200]
+    _trace_append({"ts": now, "kind": kind, "stage": "attempt", "text": head},
+                  path=path)
+    ok = False
+    error = None
+    try:
+        ok = bool(sender(text))
+    except Exception as exc:                     # noqa: BLE001
+        # Не глотание: исход уезжает в след строкой ниже и возвращается наружу.
+        error = "%s: %s" % (type(exc).__name__, exc)
+    record = {"ts": time.time(), "kind": kind, "stage": "result", "ok": ok}
+    if error:
+        record["error"] = error
+    _trace_append(record, path=path)
+    return ok
+
+
 # ── probe layer (injectable IO -> probes dict; unit-tested via fakes) ──────
 # ── P16-а: chatter под независимым наблюдением ────────────────────────────
 # Мотив: `chatter_watch_check.py` зовёт ЕДИНСТВЕННОЕ место — сам гардиан-скрипт.
@@ -2484,7 +2763,8 @@ def probe_all(http_get, disk_usage, min_disk_gb: float = MIN_DISK_GB,
               restore_drill_snapshot: dict | None = None,
               token_at_rest_snapshot: dict | None = None,
               attention_snapshot: dict | None = None,
-              outgoing_snapshot: dict | None = None) -> dict:
+              outgoing_snapshot: dict | None = None,
+              reachability_snapshot: dict | None = None) -> dict:
     """Compose the cycle's probes. ``http_get(path) -> int|None`` (HTTP status,
     or None on connection refused/timeout); ``disk_usage(path) -> (total, used,
     free)`` (shutil.disk_usage-shaped)."""
@@ -2556,6 +2836,21 @@ def probe_all(http_get, disk_usage, min_disk_gb: float = MIN_DISK_GB,
         probes["restore_drill"] = probe_restore_drill(restore_drill_snapshot)
     if token_at_rest_snapshot:
         probes["token_at_rest"] = probe_token_at_rest(token_at_rest_snapshot)
+    # §5.1: связь наружу — ОТДЕЛЬНЫЙ КЛЮЧ НА КАЖДЫЙ ПРОВОД.
+    #
+    # 🔴 Здесь нет и не может быть агрегирующего ключа вроде `reach` или
+    # `network`. Он бы означал ровно ту лампу, против которой написана вся
+    # спека: «два провода из трёх целы» ушло бы владельцу как ОДИН вердикт, и
+    # любой его цвет был бы враньём — зелёный скрыл бы немого бота, красный
+    # отправил бы чинить работающее. Дебаунс, `alerted` и дедуп по причине тоже
+    # живут внутри записи ключа, поэтому общий ключ означал бы вдобавок, что
+    # авария одного провода глушит алерт о другом.
+    #
+    # Состав — ИЗ СНИМКА, не из `REACH_WIRES` здесь: провод без адреса в снимок
+    # не попал, и второе чтение состава рядом стало бы вторым источником правды.
+    if reachability_snapshot:
+        for name, entry in (reachability_snapshot.get("wires") or {}).items():
+            probes[REACH_PROBE_PREFIX + str(name)] = probe_reachability(entry)
     # Снимка нет → проб этого семейства в цикле НЕТ ВОВСЕ, а не ноль штук и не
     # красные: watchdog не имеет права слать DOWN о том, чего он не мерил.
     # Состав берётся ИЗ СНИМКА, а не из ростера здесь: ростер в снимок уже
@@ -3152,6 +3447,11 @@ def main() -> int:
     # `_roster_snapshot()` — второй состав фермы. Оба разъехались бы молча.
     chatter_snap = _chatter_snapshot()
     panel_snap = _panel_client_snapshot()
+    # §5.1: снимок связи берётся ОДИН раз на цикл и живёт до конца main() — его
+    # читают и пробы, и вердикт для пинга (§5.2). Второе измерение рядом дало бы
+    # два ответа на один вопрос, и разошлись бы они ровно в тот момент, когда
+    # провод мигает.
+    reach_snap = _reachability_snapshot()
     probes = probe_all(_http_get, _disk_usage,
                        chatter_snapshot=chatter_snap,
                        worktree_snapshot=_worktree_snapshot(),
@@ -3166,7 +3466,13 @@ def main() -> int:
                        # семейства проб их делят. Второй сбор любого из них —
                        # второй источник правды, и разъедутся они молча.
                        outgoing_snapshot=_outgoing_snapshot(
-                           (chatter_snap or {}).get("roster"), panel_snap))
+                           (chatter_snap or {}).get("roster"), panel_snap),
+                       reachability_snapshot=reach_snap)
+    # Вердикт связи кладётся на диск СРАЗУ после измерения и ДО всякой отправки:
+    # его читатель — скрипт пинга, и он обязан получить свежий ответ даже если
+    # дальше в цикле всё развалится. Порядок «измерил → записал → потом уже
+    # тревоги» — то же правило, что и у следа §5.3.
+    write_reachability_verdict(reach_snap)
     # Ядро зовётся НАПРЯМУЮ, а не через `transitions()` + `evaluate()`: второе
     # свернуло бы пробы в состояние ДВАЖДЫ, и владелец получил бы по два 🚨 на
     # падение. Тексты берутся из `to_owner`, а не из журнала: единственный
@@ -3191,10 +3497,13 @@ def main() -> int:
         # В НАЧАЛО списка: ребут объясняет всё, что записано следом.
         journal.insert(0, reboot_record(boot_time, time.time()))
 
+    # §5.3: каждая отправка оставляет след НА ДИСКЕ до провода и исход после.
+    # `kind` различает поводы: «ничего не дошло» и «не дошёл конкретно вердикт
+    # журнала» — разные аварии, и по общему следу их не разделить.
     if reboot_text:
-        _send_tg(reboot_text)
+        send_with_trace(reboot_text, kind="reboot")
     for text in alerts:
-        _send_tg(text)
+        send_with_trace(text, kind="alert")
 
     # Маркер живости — В КОНЦЕ и только при успехе: провал записи обязан
     # показывать себя протухающим маркером, а не тонуть в тишине (§2.5).
@@ -3213,7 +3522,7 @@ def main() -> int:
     trim_alerts, state = note_trim_health(state, trim_report,
                                           JOURNAL_TRIM_FAIL_STREAK)
     for text in journal_alerts + trim_alerts:
-        _send_tg(text)
+        send_with_trace(text, kind="journal")
 
     # Стейт пишется ПОСЛЕДНИМ: в нём теперь живёт и дедуп жалобы на журнал,
     # а он обязан пережить цикл, иначе 🚨 повторится через 30 секунд.

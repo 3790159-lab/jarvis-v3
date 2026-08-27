@@ -550,6 +550,15 @@ def test_labels_table_is_pinned_in_both_directions():
         "chatter_runner", "chatter_guardian", "worktree", "secrets_bundle",
         "panel_client", "restore_drill",
         "chatter_roster", "chatter_beat_legacy",
+        # 27.08: ярлык пробы DEV-74. Её саму завели 25.08, а в таблицу не
+        # вписали — `label_for` отдавал сырой ключ. Пин это и поймал.
+        "token_at_rest",
+        # 27.08, §5.1 спеки «тревога, которую нельзя не заметить»: связь наружу
+        # ТРЕМЯ раздельными ключами. Три строки здесь, а не одна с префиксом:
+        # пин обязан ломаться на появлении четвёртого провода, а `startswith`
+        # пропустил бы его молча — то есть проверял бы форму ключа вместо
+        # состава семейства.
+        "reach:tg_api", "reach:llm_api", "reach:r2",
     }
     assert set(ow.LABELS) == expected
 
