@@ -29,7 +29,26 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$TaskName = 'JarvisPanelClientGuardian'
+# ИМЯ ЗАДАЧИ ЕДЕТ ЗА СЛАГОМ. Пока оно было константой, вторая регистрация
+# с другим -Slug ПЕРЕТИРАЛА задачу первого клиента (Register-ScheduledTask
+# -Force), и живая панель оставалась без присмотра -- при полностью зелёном
+# выводе этого самого скрипта. Комментарий выше обещал 'a second client
+# gets its own task', а имя обещание не держало.
+#
+# Базовое имя закреплено за ИСТОРИЧЕСКИМ слагом и переименованию не
+# подлежит: эта задача зарегистрирована в системе и держит живую панель,
+# а §9 спеки живое не трогает. Остальные слаги получают суффикс.
+#
+# Регистр меняется InvariantCulture, а не ToTitleCase: у турецкой локали
+# ToUpper('i') даёт 'I' с точкой, и имя задачи разошлось бы с ожиданием
+# на машине с другой культурой.
+$BaseTaskName   = 'JarvisPanelClientGuardian'
+$HistoricalSlug = 'yarina'
+if ($Slug -eq $HistoricalSlug) {
+    $TaskName = $BaseTaskName
+} else {
+    $TaskName = $BaseTaskName + $Slug.Substring(0,1).ToUpperInvariant() + $Slug.Substring(1)
+}
 $Root     = 'C:\jarvis'
 $Script   = Join-Path (Join-Path $Root 'scripts') 'panel_client_guardian_detached.ps1'
 

@@ -44,8 +44,13 @@ def _need(name):
 # кодом по определению и промолчит ровно там, где код забыл.
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Контракт §7 — решение владельца 24.08. Ровно 13 имён, ровно эти значения.
-EXPECTED_TABLE_13 = {
+# Контракт §7 — решение владельца 24.08. Ровно 14 имён, ровно эти значения.
+# 🔢 14, А НЕ 13, С 28.08: арка volska-panel завела ВТОРУЮ панельную задачу
+# (§5.5). Число правится ТЕМ ЖЕ коммитом, что и сама задача, намеренно:
+# контракт парка задач — решение владельца, и он обязан узнать о
+# четырнадцатой ЗДЕСЬ, на суите, а не найти её в ночном отчёте как
+# `unexpected`.
+EXPECTED_TABLE_14 = {
     "JarvisStateBackup": "x_utf8",
     "JarvisRestoreDrill": "x_utf8",
     "JarvisChatterCacheDigest": "x_utf8",
@@ -58,6 +63,7 @@ EXPECTED_TABLE_13 = {
     "JarvisInfraRestartCloudflared": "ps_console",
     "JarvisOpsWatchdog": "ps_console",
     "JarvisPanelClientGuardian": "ps_console",
+    "JarvisPanelClientGuardianVolska": "ps_console",
     "JarvisSniperDetached": "ps_console",
 }
 
@@ -176,24 +182,24 @@ def _one(snapshot, name, **kw):
 # §7 — ЛИТЕРАЛЬНАЯ ТАБЛИЦА, в ОБЕ стороны
 # ─────────────────────────────────────────────────────────────────────────────
 
-def test_table_has_exactly_the_thirteen_names_and_values():
+def test_table_has_exactly_the_fourteen_names_and_values():
     table = _need("TASK_ENCODING_EXPECTATION")
-    assert dict(table) == EXPECTED_TABLE_13
+    assert dict(table) == EXPECTED_TABLE_14
 
 
-def test_table_has_no_fourteenth_name():
+def test_table_has_no_fifteenth_name():
     """Вторая сторона: имя, заведённое и забытое, обязано быть видно как
     расхождение с ЛИТЕРАЛЬНЫМ списком, а не раствориться в нём."""
     table = _need("TASK_ENCODING_EXPECTATION")
-    assert len(table) == 13
-    extra = set(table) - set(EXPECTED_TABLE_13)
-    missing = set(EXPECTED_TABLE_13) - set(table)
+    assert len(table) == 14
+    extra = set(table) - set(EXPECTED_TABLE_14)
+    missing = set(EXPECTED_TABLE_14) - set(table)
     assert not extra, "в таблице лишние имена: %r" % (sorted(extra),)
     assert not missing, "из таблицы пропали имена: %r" % (sorted(missing),)
 
 
-@pytest.mark.parametrize("name,protection", sorted(EXPECTED_TABLE_13.items()))
-def test_each_of_the_thirteen_names_carries_its_own_value(name, protection):
+@pytest.mark.parametrize("name,protection", sorted(EXPECTED_TABLE_14.items()))
+def test_each_of_the_fourteen_names_carries_its_own_value(name, protection):
     table = _need("TASK_ENCODING_EXPECTATION")
     assert table.get(name) == protection
 

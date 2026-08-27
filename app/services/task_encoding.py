@@ -67,6 +67,10 @@ TASK_ENCODING_EXPECTATION: dict = {
     "JarvisInfraRestartCloudflared": PROTECTION_PS_CONSOLE,
     "JarvisOpsWatchdog": PROTECTION_PS_CONSOLE,
     "JarvisPanelClientGuardian": PROTECTION_PS_CONSOLE,
+    # Вторая панельная задача (volska, §5.5 спеки volska-panel). Скрипт у
+    # них ОДИН, значит и защита обязана быть одна — разные виды защиты у
+    # одного скрипта означали бы, что одна из двух не проверена.
+    "JarvisPanelClientGuardianVolska": PROTECTION_PS_CONSOLE,
     "JarvisSniperDetached": PROTECTION_PS_CONSOLE,
 }
 

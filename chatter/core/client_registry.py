@@ -144,7 +144,7 @@ def parse_registry(text: str) -> tuple[ClientEntry, ...]:
             session=str(cfg.get("session") or f"{SECRETS_DIRNAME}/{slug}.session"),
             db=str(cfg.get("db") or f"{SECRETS_DIRNAME}/{slug}.db"),
             panel_port=_panel_port(slug, cfg),
-            db_declared=cfg.get("db") is not None,
+            db_declared=bool(str(cfg.get("db") or "").strip()),
         ))
     return tuple(out)
 
@@ -177,6 +177,31 @@ def validate(
                     f"registry conflict: {field} {getattr(e, field)!r} shared "
                     f"with enabled client(s) {others}")))
                 bad.add(e.slug)
+
+    # Конфликт ПОРТА ПАНЕЛИ — отдельной причиной, а не через цикл выше.
+    # Там поле строковое и нормализуется как ПУТЬ; порт — число, и общий
+    # код сравнивал бы его как строку. Отдельный блок ещё и потому, что
+    # жалоба обязана назвать САМ ПОРТ: три запрета — три разные причины,
+    # и владелец чинит по фразе, а не по имени переменной. Жалоба про
+    # сессию отправила бы его чинить `.secrets` там, где надо поправить
+    # одно число.
+    #
+    # Цена пропуска: два гардиана начнут сносить панели друг друга, и обе
+    # пробы при этом увидят живой `/health` — просто не тот.
+    port_groups: dict[int, list[ClientEntry]] = {}
+    for e in enabled:
+        if e.panel_port is not None:
+            port_groups.setdefault(e.panel_port, []).append(e)
+    for port, group in port_groups.items():
+        if len(group) < 2:
+            continue
+        names = sorted(x.slug for x in group)
+        for e in group:
+            others = ", ".join(n for n in names if n != e.slug)
+            issues.append(ClientIssue(e.slug, (
+                f"registry conflict: panel port {port} shared with "
+                f"enabled client(s) {others}")))
+            bad.add(e.slug)
 
     for e in enabled:
         if e.slug in bad:
