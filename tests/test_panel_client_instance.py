@@ -187,17 +187,101 @@ def _launcher(tmp_path):
     return run_panel_client
 
 
-def test_paths_are_derived_from_the_slug_not_from_dashboard_defaults(tmp_path):
-    """Дефолты дашборда — `volska` и `.secrets/demo.db`. Запускающий обязан
-    задать всё явно, иначе инстанс Ярины покажет Ольгу."""
+# Две записи реестра: у yarina слаг и база СОВПАДАЮТ, у volska — РАСХОДЯТСЯ
+# (`.secrets/demo.db`, «volska живёт на сессии demo-аккаунта» — пин в самом
+# реестре). Обе объявлены в одном файле намеренно: разделение клиентов
+# доказывается ДВУМЯ ответами одного кода, а не отсутствием чужого имени.
+DECLARED_DBS = {"yarina": ".secrets/yarina.db", "volska": ".secrets/demo.db"}
+
+
+def _declare(tmp_path, dbs=None):
+    """Положить в корень МИНИМАЛЬНЫЙ реестр и вернуть тот же корень.
+
+    Нужен с ПОПРАВКОЙ 1 (§3b спеки `2026-08-27-volska-panel-instance`): база
+    инстанса берётся из реестра, а слаг без `db:` — ОТКАЗ поднимать. Корень
+    без реестра стал «клиент не объявлен», то есть состоянием отказа, и
+    соседние сторожа этого файла — про ключ, про каталог конфигов — покраснели
+    бы НЕ ПО СВОЕМУ предмету. Реестр кладётся в сам `tmp_path`, чтобы корень
+    остался прежним и сверки вида `got == tmp_path / "chatter" / "clients"`
+    продолжали значить ровно то же.
+    """
+    dbs = DECLARED_DBS if dbs is None else dbs
+    lines = ["clients:"]
+    for slug, db in dbs.items():
+        lines.append("  %s:" % slug)
+        lines.append("    enabled: true")
+        lines.append("    personas: [%s]" % slug)
+        lines.append("    session: .secrets/%s.session" % slug)
+        if db is not None:
+            lines.append("    db: %s" % db)
+    path = tmp_path / "chatter" / "clients" / "registry.yaml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return tmp_path
+
+
+@pytest.mark.parametrize("slug", sorted(DECLARED_DBS))
+def test_each_slug_gets_the_db_its_own_registry_entry_declares(tmp_path, slug):
+    """Инстанс Ярины не имеет права показать Ольгу — и наоборот.
+
+    ЧТО ИЗМЕНИЛОСЬ ПРОТИВ ПРЕЖНЕЙ РЕДАКЦИИ. Сторож стерёг «пути ВЫВОДЯТСЯ ИЗ
+    СЛАГА» и запрещал `demo.db` в базе инстанса. ПОПРАВКА 1 (§3b) это допущение
+    отменяет: у volska база `.secrets/demo.db` ЗАКОННО, так объявлено в
+    реестре, и «demo.db не должно встречаться» верно ровно для клиента, у
+    которого слаг и база случайно совпали. Прежнее правило запрещало бы
+    правильный ответ для volska и разрешало бы неправильный (`.secrets/
+    volska.db` — файла, которого нет вовсе).
+
+    НАМЕРЕНИЕ ЖЕ ОСТАЛОСЬ ТЕМ ЖЕ И ГЛАВНЫМ: разделение клиентов. Оно
+    доказывается сильнее прежнего — ОДИН код на ДВУХ слагах даёт ДВА разных
+    ответа, и каждый равен тому, что объявила ЕГО запись реестра.
+    """
     rpc = _launcher(tmp_path)
-    env = rpc.build_instance_env("yarina", {"JARVIS_PANELS_KEY_YARINA": KEY},
-                                 root=tmp_path)
-    assert env["TAMAPI_SLUG"] == "yarina"
-    assert env["TAMAPI_DB"].endswith("yarina.db"), env["TAMAPI_DB"]
-    assert "demo.db" not in env["TAMAPI_DB"]
-    assert env["TAMAPI_HEARTBEAT"].endswith("chatter_heartbeat_yarina.txt")
+    root = _declare(tmp_path)
+    env = rpc.build_instance_env(
+        slug, {"JARVIS_PANELS_KEY_%s" % slug.upper(): KEY}, root=root)
+
+    assert env["TAMAPI_SLUG"] == slug, (
+        "инстанс %s объявил себя %r: имя клиента поехало за именем базы"
+        % (slug, env["TAMAPI_SLUG"]))
+    assert Path(env["TAMAPI_DB"]) == root / DECLARED_DBS[slug], (
+        "инстанс %s получил базу %r, а его запись реестра объявляет %s"
+        % (slug, env["TAMAPI_DB"], DECLARED_DBS[slug]))
+
+    foreign = {s: db for s, db in DECLARED_DBS.items() if s != slug}
+    for other, other_db in foreign.items():
+        assert Path(env["TAMAPI_DB"]) != root / other_db, (
+            "инстанс %s получил базу клиента %s (%s): панель показала бы "
+            "ЧУЖУЮ переписку" % (slug, other, other_db))
+
+    # Отметка живости остаётся выведенной ИЗ СЛАГА — её по слагу пишет раннер.
+    # Поправка касается ровно базы, и распространять её сюда было бы разрывом
+    # согласия с раннером.
+    assert env["TAMAPI_HEARTBEAT"].endswith("chatter_heartbeat_%s.txt" % slug)
     assert env["JARVIS_PANELS_KEY"] == KEY
+
+
+def test_a_root_without_a_registry_is_a_refusal_not_a_slug_derived_default(tmp_path):
+    """§6.9: корень, в котором клиент НЕ ОБЪЯВЛЕН, — отказ, а не умолчание.
+
+    Названо здесь же, потому что это ровно то состояние, в котором соседние
+    сторожа файла звали запускающий раньше: пустой `tmp_path`. Молчаливое
+    умолчание в нём и есть запрещённый §3b путь — `.secrets/<slug>.db` для
+    клиента, о котором реестр ничего не знает.
+
+    Форма отказа не пинится (исключение или пустой `TAMAPI_DB` — оба доезжают
+    до печатного «ОТКАЗ, инстанс не поднят»); запрещён ровно один исход.
+    """
+    rpc = _launcher(tmp_path)
+    try:
+        env = rpc.build_instance_env("yarina", {}, root=tmp_path)
+    except Exception:
+        return  # исключение — законная форма отказа
+    got = (env.get("TAMAPI_DB") or "").strip()
+    assert got != str(tmp_path / ".secrets" / "yarina.db"), (
+        "клиента в корне нет вовсе, а база выведена из слага (%r): опечатка в "
+        "`--slug` подняла бы панель на пустой базе и выглядела бы как здоровый "
+        "старт" % (got,))
 
 
 def test_the_clients_dir_is_absolute_like_its_neighbours(tmp_path):
@@ -209,7 +293,7 @@ def test_the_clients_dir_is_absolute_like_its_neighbours(tmp_path):
     клиента в шапке, и запуск не из корня репо дал бы клиенту экран без имени
     при ВЕРНО заполненном конфиге."""
     rpc = _launcher(tmp_path)
-    env = rpc.build_instance_env("yarina", {}, root=tmp_path)
+    env = rpc.build_instance_env("yarina", {}, root=_declare(tmp_path))
     got = Path(env["CHATTER_CLIENTS_DIR"])
     assert got.is_absolute(), "каталог клиентов относительный: %s" % (got,)
     assert got == tmp_path / "chatter" / "clients", got
@@ -335,7 +419,7 @@ def test_the_client_key_is_found_when_it_lives_in_the_env_file(tmp_path):
     (tmp_path / ".env").write_text(
         "JARVIS_PANELS_KEY=" + OWNER_KEY + chr(10)
         + "JARVIS_PANELS_KEY_YARINA=" + KEY + chr(10), encoding="utf-8")
-    env = rpc.build_instance_env("yarina", {}, root=tmp_path)
+    env = rpc.build_instance_env("yarina", {}, root=_declare(tmp_path))
     assert env["JARVIS_PANELS_KEY"] == KEY, (
         "ключ настроен в .env, но запускающий его не нашёл: %r"
         % (env["JARVIS_PANELS_KEY"],))
@@ -360,7 +444,7 @@ def test_reading_the_env_file_does_not_open_a_door_to_the_owner_key(tmp_path):
     rpc = _launcher(tmp_path)
     (tmp_path / ".env").write_text(
         "JARVIS_PANELS_KEY=" + OWNER_KEY + chr(10), encoding="utf-8")
-    env = rpc.build_instance_env("yarina", {}, root=tmp_path)
+    env = rpc.build_instance_env("yarina", {}, root=_declare(tmp_path))
     assert env["JARVIS_PANELS_KEY"] == "", (
         "запускающий подобрал ключ владельца из файла: %r"
         % (env["JARVIS_PANELS_KEY"],))
@@ -374,7 +458,7 @@ def test_the_owner_key_is_still_refused_when_it_comes_from_the_file(tmp_path):
     (tmp_path / ".env").write_text(
         "JARVIS_PANELS_KEY=" + OWNER_KEY + chr(10)
         + "JARVIS_PANELS_KEY_YARINA=" + OWNER_KEY + chr(10), encoding="utf-8")
-    env = rpc.build_instance_env("yarina", {}, root=tmp_path)
+    env = rpc.build_instance_env("yarina", {}, root=_declare(tmp_path))
     problems = pc.instance_env_problems(env, owner_key=OWNER_KEY)
     assert problems, "ключ владельца из файла проехал молча"
     assert any("владельца" in p for p in problems), problems
