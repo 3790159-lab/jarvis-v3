@@ -353,30 +353,54 @@ class Store:
         # по-прежнему получает in-memory базу, а не создаёт файл на диске.
         pre_existing = path.exists()
         self._conn = sqlite3.connect(str(path), check_same_thread=False)
-        self._conn.row_factory = sqlite3.Row
-        self._lock = threading.Lock()
-        with self._lock:
-            # Перестройка payments проверяется ДО любого DDL: отказ обязан
-            # оставить базу нетронутой, а не «почти мигрированной».
-            legacy = self._payments_is_legacy()
-            if legacy:
-                self._assert_payments_rebuild_window(path)
-                if pre_existing:
-                    self._backup(path, tag="payments")
-                # Снести ДО executescript: индекс по invoice_id не создастся на
-                # старой таблице, где такой колонки нет.
-                self._conn.execute("DROP TABLE payments")
-            self._conn.executescript(_SCHEMA)
-            self._conn.commit()
-            if legacy:
-                self._assert_payments_rebuilt()
-            missing = self._missing_columns()
-            if missing:
-                # Бэкап ТОЛЬКО когда реально мигрируем существующую базу:
-                # иначе каждый рестарт раннера сыпал бы .bak-файлы клиенту.
-                if pre_existing:
-                    self._backup(path)
-                self._apply_migration(missing)
+        # ВСЁ, что ниже, — под try: конструктор, бросивший на полпути, не
+        # возвращает объект, и закрыть соединение становится НЕКОМУ. Ссылка
+        # остаётся жить в кадре `__init__`, который держит трассировка
+        # исключения, и на Windows это запирает сам ФАЙЛ базы: «база побилась»
+        # превращается в «побилась И теперь её не удалить и не заменить»
+        # (DEV-48, замер 22.08: rmtree даёт WinError 32).
+        #
+        # Это НЕ только про поломку. `_assert_payments_rebuild_window` бросает
+        # НАМЕРЕННО — отказ конвертировать чужие деньги вне окна, — то есть
+        # штатный, спроектированный путь запирал файл ровно так же.
+        try:
+            self._conn.row_factory = sqlite3.Row
+            self._lock = threading.Lock()
+            with self._lock:
+                # Перестройка payments проверяется ДО любого DDL: отказ обязан
+                # оставить базу нетронутой, а не «почти мигрированной».
+                legacy = self._payments_is_legacy()
+                if legacy:
+                    self._assert_payments_rebuild_window(path)
+                    if pre_existing:
+                        self._backup(path, tag="payments")
+                    # Снести ДО executescript: индекс по invoice_id не создастся
+                    # на старой таблице, где такой колонки нет.
+                    self._conn.execute("DROP TABLE payments")
+                self._conn.executescript(_SCHEMA)
+                self._conn.commit()
+                if legacy:
+                    self._assert_payments_rebuilt()
+                missing = self._missing_columns()
+                if missing:
+                    # Бэкап ТОЛЬКО когда реально мигрируем существующую базу:
+                    # иначе каждый рестарт раннера сыпал бы .bak-файлы клиенту.
+                    if pre_existing:
+                        self._backup(path)
+                    self._apply_migration(missing)
+        except BaseException:
+            # BaseException, а не Exception: `KeyboardInterrupt` посреди
+            # миграции запирает файл точно так же, а прерывают тут руками.
+            #
+            # Закрываем СЫРОЕ соединение, а не через self.close(): тот берёт
+            # self._lock, а до его создания мы могли не дойти. Клинча при этом
+            # нет и с ним (замер 28.08: `with lock` отпускает замок ДО того,
+            # как исключение уходит наружу), но зависимость лишняя.
+            self._conn.close()
+            # Голый raise: тип, сообщение и трассировка обязаны дойти до
+            # вызывающего неизменными. Лечение владения ресурсом не имеет
+            # права превращаться в проглатывание ошибки.
+            raise
 
     def _missing_columns(self) -> dict[str, dict[str, str]]:
         out: dict[str, dict[str, str]] = {}

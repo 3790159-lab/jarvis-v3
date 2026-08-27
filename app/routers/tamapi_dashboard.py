@@ -142,9 +142,11 @@ def _status() -> dict:
     age, beat_src = _heartbeat()
     killed = False
     try:
-        s = Store(_db_path())
-        killed = (s.get_runtime_flag("kill_switch") or "0").strip() == "1"
-        del s
+        # `with`, а не `Store(...)` плюс `del`: `del` снимает ОДНУ ссылку и
+        # надеется на счётчик, а до него не доходит вовсе, если что-то бросит
+        # выше. Процесс панели живёт неделями, а лампу зовут на каждый показ.
+        with Store(_db_path()) as s:
+            killed = (s.get_runtime_flag("kill_switch") or "0").strip() == "1"
     except Exception:
         pass
     # Точка красится по СМЫСЛУ: красный — только «зламано» (связи нет), янтарь —
@@ -696,35 +698,40 @@ async def action(request: Request, data: str = Form(...),
     cfg = _cfg()
     lang = cfg.settings.language if cfg else "uk"
     snooze = float(getattr(getattr(cfg, "settings", None), "snooze_seconds", 3600.0) or 3600.0)
-    store = Store(_db_path())
-    now = time.time()
+    # ВСЯ ручка внутри `with`: `return` из блока проходит через `__exit__`, то
+    # есть соединение закрывается и на РАННИХ возвратах. Их тут четыре, и
+    # самый частый — `stop_all`, который не мутирует ничего, но базу уже
+    # открыл. Без `with` каждое нажатие оставляло хэндл в процессе, живущем
+    # неделями (DEV-48 §1.2).
+    with Store(_db_path()) as store:
+        now = time.time()
 
-    # Глобальная заглушка требует ВТОРОГО осознанного действия, и проверка эта
-    # СЕРВЕРНАЯ. Модалка в вебе защищает только от промаха пальцем по экрану;
-    # одиночный POST мимо неё взводил флаг, от которого «бот молчит на всех»
-    # (P15). Идиома «подтверждение последним токеном» взята у пульта.
-    if data == "stop_all":
-        return JSONResponse({
-            "confirm": True,
-            "feedback": "Зупинити бота ВСІМ лідам? Підтвердіть ще раз.",
-        })
-    if data == "stop_all confirm":
-        store.set_runtime_flag("kill_switch", "1", ts=now)
-        store.add_event("kill_on", ts=now)
-        return JSONResponse({"feedback": "Бота зупинено"})
-    if data == "resume_all":
-        # Симметрия: снятие паузы обязано работать из веба без Telegram —
-        # иначе владелец заперт в TG (инцидент P15: kill_off только /start).
-        store.set_runtime_flag("kill_switch", "0", ts=now)
-        store.add_event("kill_off", ts=now)
-        return JSONResponse({"feedback": "Бота увімкнено"})
+        # Глобальная заглушка требует ВТОРОГО осознанного действия, и проверка
+        # эта СЕРВЕРНАЯ. Модалка в вебе защищает только от промаха пальцем по
+        # экрану; одиночный POST мимо неё взводил флаг, от которого «бот молчит
+        # на всех» (P15). Идиома «подтверждение последним токеном» — у пульта.
+        if data == "stop_all":
+            return JSONResponse({
+                "confirm": True,
+                "feedback": "Зупинити бота ВСІМ лідам? Підтвердіть ще раз.",
+            })
+        if data == "stop_all confirm":
+            store.set_runtime_flag("kill_switch", "1", ts=now)
+            store.add_event("kill_on", ts=now)
+            return JSONResponse({"feedback": "Бота зупинено"})
+        if data == "resume_all":
+            # Симметрия: снятие паузы обязано работать из веба без Telegram —
+            # иначе владелец заперт в TG (инцидент P15: kill_off только /start).
+            store.set_runtime_flag("kill_switch", "0", ts=now)
+            store.add_event("kill_off", ts=now)
+            return JSONResponse({"feedback": "Бота увімкнено"})
 
-    # event_token — личность события, сгенерированная браузером в момент клика.
-    # Без неё оплата будет отвергнута: панель не имеет права писать деньги,
-    # которые нельзя отличить от следующей такой же (сентинел `0` снят).
-    res = route_callback(data, store=store, now=now, language=lang,
-                         snooze_seconds=snooze, event_token=event_token)
-    return JSONResponse({"feedback": res.answer})
+        # event_token — личность события, сгенерированная браузером в момент
+        # клика. Без неё оплата будет отвергнута: панель не имеет права писать
+        # деньги, которые нельзя отличить от следующей такой же (сентинел `0`).
+        res = route_callback(data, store=store, now=now, language=lang,
+                             snooze_seconds=snooze, event_token=event_token)
+        return JSONResponse({"feedback": res.answer})
 
 
 @router.get("/api/summary")
