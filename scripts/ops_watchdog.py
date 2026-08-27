@@ -67,6 +67,7 @@ disk, restart-storm), the cases the bot itself cannot report because it is dead.
 import json
 import os
 import re
+import ssl
 import sys
 import time
 import urllib.request
@@ -180,7 +181,7 @@ REACH_TIMEOUT_S = 4
 # Вердикт кладётся ОТДЕЛЬНЫМ файлом, а не в ops_watchdog_state.json: тот держит
 # счётчики дебаунса, а этот читает PowerShell-скрипт пинга (§5.2). Один файл на
 # две роли означал бы, что формат счётчиков нельзя тронуть, не сломав пинг.
-REACH_VERDICT_REL = "state/reachability_verdict.json"
+REACH_VERDICT_PATH = ROOT / "state" / "reachability_verdict.json"
 # ── §5.3: СЛЕД ТРЕВОГИ НА ДИСКЕ ────────────────────────────────────────────
 # Замер, из которого выросло: `_send_tg` возвращает bool, и ВСЕ ЧЕТЫРЕ вызова
 # в `main()` этот результат ВЫБРАСЫВАЛИ. Доставка алерта не фиксировалась
@@ -191,7 +192,7 @@ REACH_VERDICT_REL = "state/reachability_verdict.json"
 # `result` после. Не одна запись, правимая на месте: правка требует
 # чтения-изменения-записи, и смерть процесса посреди отправки съела бы сам
 # след. Дописывание переживает смерть на любом шаге.
-ALERT_TRACE_REL = "state/alert_delivery.jsonl"
+ALERT_TRACE_PATH = ROOT / "state" / "alert_delivery.jsonl"
 ALERT_TRACE_MAX_RECORDS = 5000
 
 RESTORE_DRILL_REL = "state/backup/restore_drill.json"
@@ -1589,7 +1590,39 @@ def probe_reachability(entry: dict) -> dict:
     reason = entry.get("reason") or "no_response"
     return {"ok": False, "reason": reason,
             "detail": "%s: %s" % (entry.get("url", "?"),
-                                  entry.get("error") or reason)}
+                                  entry.get("detail") or reason)}
+
+
+def _is_tls_failure(exc: BaseException) -> bool:
+    """Отказ ли это УПЛОТНЕНИЯ, а не отсутствие сети.
+
+    По ТИПУ, а не по подстроке. Первая редакция искала в тексте слово
+    `certificate` — и это ловило только один сорт беды. `SSLError` бывает
+    и без него (`WRONG_VERSION_NUMBER`, сбой рукопожатия), а такой отказ —
+    по-прежнему «на том конце не тот, кем притворяется», а не «сети нет».
+    Разница не косметическая: владелец, прочитавший «сети нет», идёт
+    перезагружать роутер, и назначенное окно в 30 минут уходит впустую.
+
+    Цепочка разворачивается, потому что живой `urlopen` отдаёт ошибку
+    сертификата ЗАВЁРНУТОЙ в `URLError`: реализация, смотрящая только на
+    верхний тип, не поймала бы подмену НИ РАЗУ — оставаясь зелёной ровно в
+    ту аварию, ради которой написана.
+
+    Текстовая проверка осталась ПОСЛЕДНИМ рубежом: часть путей отдаёт голый
+    `OSError`, у которого от TLS остаётся только сообщение.
+    """
+    seen = set()
+    cur: BaseException | None = exc
+    while isinstance(cur, BaseException) and id(cur) not in seen:
+        seen.add(id(cur))
+        if isinstance(cur, ssl.SSLError):
+            return True
+        nxt = getattr(cur, "reason", None)
+        if not isinstance(nxt, BaseException):
+            nxt = cur.__cause__ or cur.__context__
+        cur = nxt
+    low = ("%s %s" % (type(exc).__name__, exc)).lower()
+    return "certificate" in low or "ssl" in low
 
 
 def _reach_one(url: str, *, opener=None, timeout: int = REACH_TIMEOUT_S) -> dict:
@@ -1611,10 +1644,9 @@ def _reach_one(url: str, *, opener=None, timeout: int = REACH_TIMEOUT_S) -> dict
         # части путей — перечисление классов молча пропустило бы один из них,
         # и провод считался бы недостижимым по неизвестной причине.
         text = "%s: %s" % (type(exc).__name__, exc)
-        low = text.lower()
-        tls = "certificate" in low or "sslcert" in low or "ssl:" in low
         return {"ok": False, "url": url,
-                "reason": "tls" if tls else "no_response", "error": text}
+                "reason": "tls" if _is_tls_failure(exc) else "no_response",
+                "detail": text}
 
 
 def _reachability_snapshot(env_text: str | None = None, *, opener=None) -> dict | None:
@@ -1630,44 +1662,91 @@ def _reachability_snapshot(env_text: str | None = None, *, opener=None) -> dict 
             env_text = ENV_PATH.read_text(encoding="utf-8", errors="replace")
         except Exception:
             env_text = ""
-    wires = {}
+    terms = {}
     for spec in REACH_WIRES:
         url = spec.get("url") or parse_env_value(env_text, spec.get("env", ""))
         if not url:
             continue
-        wires[spec["name"]] = _reach_one(url, opener=opener)
-    return {"wires": wires} if wires else None
+        terms[spec["name"]] = _reach_one(url, opener=opener)
+    return {"terms": terms} if terms else None
 
 
-def reachability_verdict(snapshot: dict | None, *, now: float | None = None) -> dict:
+def reachability_verdict(snapshot: dict | None, state: dict | None = None, *,
+                         debounce: int = DEBOUNCE,
+                         now: float | None = None) -> dict:
     """Вердикт для ВНЕШНЕГО читателя — скрипта пинга (§5.2).
 
     Форма нарочно плоская и самодостаточная: `ts` + `wires{name: ok}` + список
     красных ИМЕНАМИ. Читатель на PowerShell не должен разбирать вложенность,
     а «какой именно провод молчит» обязано попасть в текст тревоги — «связи
     нет» без имени провода не чинится.
+
+    🔴 `down` ЗАПОЛНЯЕТСЯ ПО ДЕБАУНСУ, А НЕ ПО МГНОВЕННОМУ ЗАМЕРУ, и это не
+    придирка. Владелец включает Pushover с приоритетом Emergency — он повторяет
+    сигнал каждые пять минут ДО ПОДТВЕРЖДЕНИЯ, до трёх часов. Мгновенный `down`
+    означал бы, что одна пятисекундная сетевая заминка будит человека три часа
+    подряд. Через неделю такой сторож выключают, и мы возвращаемся ровно туда,
+    откуда вышли: тревога есть, её не читают.
+
+    Дебаунс берётся ТОТ ЖЕ, что у всех остальных проб (`DEBOUNCE`), и второго
+    числа тут не заводится: два числа на одну вещь — и меньшее гасит большее
+    молча.
+
+    `state=None` (снимка состояния нет) → откат на МГНОВЕННЫЙ замер, то есть
+    в сторону тревоги. «Не знаем, сколько циклов подряд» не имеет права
+    превращаться в «значит, всё хорошо».
     """
     now = time.time() if now is None else now
-    wires = (snapshot or {}).get("wires") or {}
+    terms = (snapshot or {}).get("terms") or {}
     verdicts = {name: bool(probe_reachability(e).get("ok"))
-                for name, e in wires.items()}
+                for name, e in terms.items()}
+
+    def _confirmed(name: str) -> bool:
+        if verdicts[name]:
+            return False
+        if state is None:
+            return True
+        entry = state.get(REACH_PROBE_PREFIX + name) or {}
+        return int(entry.get("fail") or 0) >= debounce
+
+    out = {}
+    for name, entry in terms.items():
+        streak = 0
+        if state is not None:
+            streak = int((state.get(REACH_PROBE_PREFIX + name) or {}).get("fail") or 0)
+        out[name] = {
+            # `ok` — ВЕРДИКТ, то есть обдуманный ответ, а не сырой отсчёт.
+            # Файл называется `reachability_verdict.json` именно поэтому:
+            # его читатель (скрипт пинга) обязан действовать по вердикту, и
+            # подсовывать ему одиночную заминку под видом аварии значит
+            # разбудить человека на пять секунд сетевой ряби.
+            "ok": not _confirmed(name),
+            # Сырой отсчёт РЯДОМ и под своим именем. Прятать его нельзя:
+            # «мигает, но ещё не авария» — состояние, которое человек обязан
+            # уметь увидеть, а одно поле на два смысла было бы ровно тем
+            # враньём по названию, против которого написана вся арка.
+            "ok_now": verdicts[name],
+            "fail_streak": streak,
+            "detail": probe_reachability(entry).get("detail", ""),
+        }
     return {
         "ts": now,
-        "wires": verdicts,
-        "down": sorted(n for n, ok in verdicts.items() if not ok),
+        "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
         # Пустой снимок и снимок из зелёных проводов — РАЗНЫЕ состояния, и
         # склеить их в «всё хорошо» значило бы отдать пингу зелёное там, где
-        # не измерено ничего.
-        "measured": bool(verdicts),
+        # не измерено ничего. Различает их сам ЧИТАТЕЛЬ по пустоте `terms`:
+        # отдельного флага `measured` тут нет намеренно — он был бы вторым
+        # источником правды о том же факте и разошёлся бы с `terms` молча.
+        "terms": out,
     }
 
 
-def write_reachability_verdict(snapshot: dict | None, *, path=None,
-                               now: float | None = None) -> bool:
-    path = Path(path) if path else (ROOT / REACH_VERDICT_REL)
+def write_reachability_verdict(snapshot: dict | None, state: dict | None = None,
+                               *, path=None, now: float | None = None) -> bool:
+    path = Path(path) if path else REACH_VERDICT_PATH
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        payload = reachability_verdict(snapshot, now=now)
+        payload = reachability_verdict(snapshot, state, now=now)
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2),
                         encoding="utf-8")
         return True
@@ -1692,7 +1771,7 @@ def _trace_append(record: dict, *, path=None,
     файл читается и режется. Оценка НАРОЧНО щедрая: лишний проход раз в сотню
     тревог дешевле, чем нечитаемый журнал доставки.
     """
-    path = Path(path) if path else (ROOT / ALERT_TRACE_REL)
+    path = Path(path) if path else ALERT_TRACE_PATH
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as fh:
@@ -1712,9 +1791,32 @@ def _trace_append(record: dict, *, path=None,
     return True
 
 
-def send_with_trace(text: str, *, kind: str = "alert", sender=None,
-                    path=None, now: float | None = None) -> bool:
+def _send_tg_raw(text: str) -> bool:
+    """Голая отправка. Зовётся ТОЛЬКО из `_send_tg` — см. там, почему."""
+    token = _bot_token()
+    if not token:
+        return False
+    payload = json.dumps({"chat_id": ADMIN_CHAT_ID, "text": text}).encode()
+    req = urllib.request.Request(
+        "https://api.telegram.org/bot%s/sendMessage" % token,
+        data=payload, headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        return json.loads(r.read()).get("ok", False)
+
+
+def _send_tg(text: str, *, kind: str = "alert", sender=None,
+             path=None, now: float | None = None) -> bool:
     """Отправить тревогу, оставив след НА ДИСКЕ ДО обращения к проводу.
+
+    🔴 СЛЕД ЖИВЁТ ЗДЕСЬ, А НЕ В ОБЁРТКЕ НАД ЭТОЙ ФУНКЦИЕЙ. Первая редакция
+    правки завела отдельную `send_with_trace`, которую звал `main()`, — и это
+    было ошибкой ровно того класса, против которого написана вся арка:
+    обёртку можно обойти, позвав `_send_tg` напрямую, и пятый вызов, добавленный
+    через полгода, тихо остался бы без следа. `_send_tg` — ЕДИНСТВЕННАЯ воронка
+    всех отправок, поэтому след обязан стоять в ней.
+
+    Сама отправка вынесена в `_send_tg_raw`: разделены РОЛИ, а не воронки —
+    снаружи по-прежнему одна дверь.
 
     Порядок операций — это и есть вся правка, и он не переставляется:
 
@@ -1733,7 +1835,7 @@ def send_with_trace(text: str, *, kind: str = "alert", sender=None,
     провал были неразличимы не только на диске, но и в коде.
     """
     now = time.time() if now is None else now
-    sender = sender or _send_tg
+    sender = sender or _send_tg_raw
     # Текст режется: тревога может нести список файлов, а журнал доставки — не
     # копия алерта, он отвечает на один вопрос «дошло ли».
     head = (text or "")[:200]
@@ -2849,7 +2951,7 @@ def probe_all(http_get, disk_usage, min_disk_gb: float = MIN_DISK_GB,
     # Состав — ИЗ СНИМКА, не из `REACH_WIRES` здесь: провод без адреса в снимок
     # не попал, и второе чтение состава рядом стало бы вторым источником правды.
     if reachability_snapshot:
-        for name, entry in (reachability_snapshot.get("wires") or {}).items():
+        for name, entry in (reachability_snapshot.get("terms") or {}).items():
             probes[REACH_PROBE_PREFIX + str(name)] = probe_reachability(entry)
     # Снимка нет → проб этого семейства в цикле НЕТ ВОВСЕ, а не ноль штук и не
     # красные: watchdog не имеет права слать DOWN о том, чего он не мерил.
@@ -3159,21 +3261,6 @@ def _bot_token() -> str:
         return ""
 
 
-def _send_tg(text: str) -> bool:
-    token = _bot_token()
-    if not token:
-        return False
-    payload = json.dumps({"chat_id": ADMIN_CHAT_ID, "text": text}).encode()
-    req = urllib.request.Request(
-        "https://api.telegram.org/bot%s/sendMessage" % token,
-        data=payload, headers={"Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(req, timeout=15) as r:
-            return json.loads(r.read()).get("ok", False)
-    except Exception:
-        return False
-
-
 def _read_state() -> dict:
     try:
         return json.loads(STATE_PATH.read_text(encoding="utf-8"))
@@ -3468,11 +3555,6 @@ def main() -> int:
                        outgoing_snapshot=_outgoing_snapshot(
                            (chatter_snap or {}).get("roster"), panel_snap),
                        reachability_snapshot=reach_snap)
-    # Вердикт связи кладётся на диск СРАЗУ после измерения и ДО всякой отправки:
-    # его читатель — скрипт пинга, и он обязан получить свежий ответ даже если
-    # дальше в цикле всё развалится. Порядок «измерил → записал → потом уже
-    # тревоги» — то же правило, что и у следа §5.3.
-    write_reachability_verdict(reach_snap)
     # Ядро зовётся НАПРЯМУЮ, а не через `transitions()` + `evaluate()`: второе
     # свернуло бы пробы в состояние ДВАЖДЫ, и владелец получил бы по два 🚨 на
     # падение. Тексты берутся из `to_owner`, а не из журнала: единственный
@@ -3485,6 +3567,17 @@ def main() -> int:
     # запись однажды прочитается как чья-то. Чистка молчит, когда ростер
     # неизвестен, — см. `prune_client_state`.
     state = prune_client_state(state, probes)
+    # Вердикт связи кладётся на диск ПОСЛЕ переходов и ДО всякой отправки.
+    #
+    # ПОСЛЕ — потому что дебаунс живёт в `state`, и вердикт обязан считаться по
+    # тому же счётчику, что и все прочие пробы. Считать его до переходов значило
+    # бы завести ВТОРОЙ дебаунс, а два числа на одну вещь всегда кончаются тем,
+    # что меньшее гасит большее молча.
+    #
+    # ДО отправки — потому что читатель вердикта (скрипт пинга) обязан получить
+    # свежий ответ, даже если дальше в цикле всё развалится. То же правило, что
+    # и у следа §5.3: сперва улика на диск, потом провод.
+    write_reachability_verdict(reach_snap, state)
     # Тексты собирает `group_alerts` — тот же сборщик, что и у `evaluate()`.
     # Здесь стояла своя сборка, и она уже разошлась с той: фильтра по
     # `ALERTING_KINDS` в ней не было, поэтому падение в загрузочном окне
@@ -3501,9 +3594,9 @@ def main() -> int:
     # `kind` различает поводы: «ничего не дошло» и «не дошёл конкретно вердикт
     # журнала» — разные аварии, и по общему следу их не разделить.
     if reboot_text:
-        send_with_trace(reboot_text, kind="reboot")
+        _send_tg(reboot_text, kind="reboot")
     for text in alerts:
-        send_with_trace(text, kind="alert")
+        _send_tg(text, kind="alert")
 
     # Маркер живости — В КОНЦЕ и только при успехе: провал записи обязан
     # показывать себя протухающим маркером, а не тонуть в тишине (§2.5).
@@ -3522,7 +3615,7 @@ def main() -> int:
     trim_alerts, state = note_trim_health(state, trim_report,
                                           JOURNAL_TRIM_FAIL_STREAK)
     for text in journal_alerts + trim_alerts:
-        send_with_trace(text, kind="journal")
+        _send_tg(text, kind="journal")
 
     # Стейт пишется ПОСЛЕДНИМ: в нём теперь живёт и дедуп жалобы на журнал,
     # а он обязан пережить цикл, иначе 🚨 повторится через 30 секунд.

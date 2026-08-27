@@ -121,23 +121,42 @@ if (-not (Test-Path $reachFile)) {
   try { $reach = Get-Content $reachFile -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { $reach = $null }
   if ($null -eq $reach) {
     $problems += 'связь наружу : вердикт не разобрался (битый reachability_verdict.json)'
-  } elseif (-not $reach.measured) {
-    # Пустой снимок и снимок из зелёных проводов — РАЗНЫЕ состояния. Склеить их
-    # в «всё хорошо» значило бы отдать зелёное там, где не измерено ничего.
-    $problems += 'связь наружу : не измерено ни одного провода'
   } else {
-    # Возраст считается в UNIX-времени с обеих сторон: `ts` пишет python
-    # через `time.time()`, и переводить его в локальное время значило бы
-    # завести часовой пояс третьим участником сверки.
-    $reachAge = ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()) - [double]$reach.ts
-    if ($reachAge -gt $FreshSeconds) {
-      $problems += ("связь наружу : вердикт устарел, {0:N0} с тому (порог {1} с)" -f $reachAge, $FreshSeconds)
-    }
-    # Красные провода НАЗЫВАЮТСЯ ПОИМЁННО. «Связи нет» без имени провода не
-    # чинится: чинить api.telegram.org и чинить R2 — разные действия.
-    $down = @($reach.down)
-    if ($down.Count -gt 0) {
-      $problems += ('связь наружу : не отвечают провода — ' + ($down -join ', '))
+    # СОСТАВ ПРОВОДОВ БЕРЁТСЯ ИЗ `terms`, а не из готового списка красных.
+    # Готовый список был бы вторым источником правды о том же факте, и разошёлся
+    # бы он с `terms` молча — ровно в тот день, когда добавят четвёртый провод.
+    $terms = $null
+    if ($null -ne $reach.terms) { $terms = $reach.terms }
+    $names = @()
+    if ($null -ne $terms) { $names = @($terms.PSObject.Properties.Name) }
+
+    if ($names.Count -eq 0) {
+      # Пустой вердикт и вердикт из зелёных проводов — РАЗНЫЕ состояния.
+      # Склеить их в «всё хорошо» значило бы отдать зелёное там, где не
+      # измерено ничего.
+      $problems += 'связь наружу : не измерено ни одного провода'
+    } else {
+      # Возраст считается в UNIX-времени с обеих сторон: `ts` пишет python
+      # через `time.time()`, и переводить его в локальное время значило бы
+      # завести часовой пояс третьим участником сверки.
+      $reachAge = ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()) - [double]$reach.ts
+      if ($reachAge -gt $FreshSeconds) {
+        $problems += ("связь наружу : вердикт устарел, {0:N0} с тому (порог {1} с)" -f $reachAge, $FreshSeconds)
+      }
+      # Красные провода НАЗЫВАЮТСЯ ПОИМЁННО, каждый своей строкой. «Связи нет»
+      # без имени не чинится: чинить api.telegram.org и чинить R2 — разные
+      # действия. Одной строкой со списком тоже нельзя: склейка N проводов в
+      # одно сообщение — тот же агрегат, только на стороне текста.
+      foreach ($n in $names) {
+        $t = $terms.$n
+        # `ok` отсутствует → провод считается МЁРТВЫМ. Отсутствие поля это
+        # «не знаем», а «не знаем» здесь обязано читаться в сторону тревоги.
+        $wireOk = $false
+        if ($null -ne $t -and $null -ne $t.ok) { $wireOk = [bool]$t.ok }
+        if (-not $wireOk) {
+          $problems += ("связь наружу : провод {0} не отвечает" -f $n)
+        }
+      }
     }
   }
 }
