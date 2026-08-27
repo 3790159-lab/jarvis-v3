@@ -89,10 +89,8 @@ MUTATIONS = [
     ("успех и провал стали неразличимы на диске", OW,
      [(b'record = {"ts": time.time(), "kind": kind, "stage": "result", "ok": ok}',
        b'record = {"ts": time.time(), "kind": kind, "stage": "result", "ok": True}'),
-      (b'    if error:
-        record["error"] = error',
-       b'    if False:
-        record["error"] = error')],
+      (b'    if error:\n        record["error"] = error',
+       b'    if False:\n        record["error"] = error')],
      T + "::test_success_and_failure_are_distinguishable_on_disk"),
 
     ("немота из-за отсутствия токена не оставляет следа", OW,
@@ -105,10 +103,8 @@ MUTATIONS = [
     # файл ловился ВТОРЫМ слоем («вердикт не разобрался»), и сторож краснел не
     # на том. Теперь ломается сама жалоба — ветка отрабатывает и молчит.
     ("отсутствие вердикта перестало быть проблемой", PS,
-     [(b"if (-not (Test-Path $reachFile)) {
-  $problems += ",
-       b"if (-not (Test-Path $reachFile)) {
-  $ignored = ")],
+     [(b"if (-not (Test-Path $reachFile)) {\n  $problems += ",
+       b"if (-not (Test-Path $reachFile)) {\n  $ignored = ")],
      H + "::test_missing_verdict_is_a_problem_not_a_shrug"),
 
     ("протухший вердикт считается свежим", PS,
