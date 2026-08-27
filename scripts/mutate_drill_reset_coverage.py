@@ -80,8 +80,13 @@ MUTATIONS = [
      G + "::test_dry_run_also_refuses_on_unknown_table"),
 
     # ── правило «ровно одна категория» в ОБЕ стороны (§6.1) ──────────────
-    ("таблица в ДВУХ категориях перестала быть красной", DR,
-     [(b'        if len(cats) > 1:', b'        if False:')],
+    # Мишень ПЕРЕЦЕЛЕНА после первого прогона. Была «отключить runtime-детектор
+    # дублей» — и сторож справедливо остался зелёным: он утверждает про САМИ
+    # КАТЕГОРИИ (ни одна таблица не названа дважды), а не про детектор. Ломать
+    # надо то, о чём сторож говорит, — данные.
+    ("таблица названа СРАЗУ В ДВУХ категориях", DR,
+     [(b'_RESET_IN_PLACE = ("contacts",)',
+       b'_RESET_IN_PLACE = ("contacts", "messages")')],
      G + "::test_no_table_is_named_in_two_categories"),
 
     ("сверка перестала смотреть на contact_id (краснеет на глобальных)", DR,
@@ -89,12 +94,17 @@ MUTATIONS = [
      G + "::test_the_live_schema_alone_does_not_trigger_the_refusal"),
 
     # ── состав берётся из СХЕМЫ, а не из литерала (§6.2) ─────────────────
+    # Мишень ПЕРЕЦЕЛЕНА: `test_coverage_rule_reacts_to_a_table_that_no_literal_knows`
+    # — САМОПРОВЕРКА сторожевого файла (он честно пишет это в докстринге): она
+    # зовёт собственные помощники `_schema`/`_uncovered`, а не код реализации, и
+    # покраснеть на мутации кода не может В ПРИНЦИПЕ. Ту же беду ловит сторож,
+    # который реально зовёт `main()` на базе с незнакомой таблицей.
     ("состав таблиц взят из списков вместо живой схемы", DR,
      [(b'    names = [r[0] for r in conn.execute(\n'
        b'        "SELECT name FROM sqlite_master WHERE type=\'table\'"\n'
        b'        " AND name NOT LIKE \'sqlite_%\'")]',
        b'    names = [t for tables in _ALL_CATEGORIES.values() for t in tables]')],
-     G + "::test_coverage_rule_reacts_to_a_table_that_no_literal_knows"),
+     G + "::test_unknown_table_refuses_with_its_own_code_and_changes_nothing"),
 ]
 
 
