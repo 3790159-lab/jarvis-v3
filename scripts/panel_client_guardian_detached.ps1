@@ -76,7 +76,17 @@ param(
     #   3. scripts/ops_watchdog.py PANEL_CLIENT_PORT  — куда ходит проба
     # Четвёртое место (дефолт в регистраторе) убрано намеренно: задача зовёт
     # этот скрипт без -Port, то есть значение объявлено здесь ОДИН раз.
-    [int]$Port = 8011,
+    # 🔢 ДОЛГ ТРЁХ НАПИСАНИЙ ЗАКРЫТ 27.08. Порт слага объявлен ОДИН раз — в
+    # `chatter/clients/registry.yaml`, секция `panel: {port: N}`. Сюда он
+    # приезжает ТЕМ ЖЕ мостом, каким chatter-гардиан берёт состав фермы:
+    # `python -m chatter.registry_cli`. Своего числа этот скрипт больше не
+    # держит, и комментарий про «три места» снят — мест больше не три.
+    #
+    # `-Port` остался РУЧНЫМ переопределением (стенд, отладка): 0 значит «не
+    # переопределяли, спроси реестр». Ноль, а не $null, потому что тип
+    # параметра [int] и $null в нём стал бы нулём МОЛЧА — лучше объявить это
+    # значением, чем ловить неявное приведение.
+    [int]$Port = 0,
     [int]$IntervalSeconds = 15,
     # Пауза после осознанного отказа старта (rc 1). 300 с, ОК владельца 20.08.
     [int]$BackoffSeconds = 300,
@@ -148,6 +158,32 @@ New-Item -ItemType Directory -Force -Path $stateLogs, $panelLogs, $lockDir | Out
 #   * присматривающий пишет в state/logs/panel_client_guardian.stdout.log —
 #     рядом с соседями-гардианами. Смешать их значит потерять границу между
 #     «что сказала панель» и «что решил гардиан».
+function Get-PanelPortFromRegistry {
+    <#
+      Порт панели слага из реестра — ТЕМ ЖЕ мостом, что и состав фермы у
+      chatter-гардиана: `python -m chatter.registry_cli`. Второго разбора YAML
+      в PowerShell не заводим: он стал бы вторым источником правды о реестре.
+
+      Ноль означает «порта нет»: секции `panel` у слага нет, реестр не
+      прочитался, или python не ответил. Гардиан тогда панель НЕ поднимает и
+      говорит об этом словами — панель, севшая не на тот порт, невидима пробе,
+      и лампа осталась бы красной без объяснения.
+    #>
+    param([string]$ForSlug)
+    try {
+        $raw = & $py -m chatter.registry_cli --root $Root 2>$null
+        if (-not $raw) { return 0 }
+        $plan = ($raw | ConvertFrom-Json)
+        foreach ($c in $plan.clients) {
+            if ($c.slug -eq $ForSlug) {
+                if ($null -eq $c.panel_port) { return 0 }
+                return [int]$c.panel_port
+            }
+        }
+    } catch { return 0 }
+    return 0
+}
+
 $lockFile = Join-Path $lockDir   ('panel_client_guardian_{0}.pid' -f $Slug)
 $gOut     = Join-Path $stateLogs 'panel_client_guardian.stdout.log'
 $pOut     = Join-Path $panelLogs ('panel_{0}.stdout.log' -f $Slug)
@@ -828,6 +864,17 @@ if (-not $NoLoop) {
         }
     }
     $PID | Out-File -FilePath $lockFile -Encoding ascii -Force
+
+    # ПОРТ РАЗРЕШАЕТСЯ ЗДЕСЬ, после лока и ДО первого шага цикла.
+    # 0 = `-Port` не передавали, значит спрашиваем реестр.
+    if ($Port -eq 0) { $Port = Get-PanelPortFromRegistry -ForSlug $Slug }
+    if ($Port -eq 0) {
+        # ОТКАЗ, а не умолчание. Панель, севшая на угаданный порт, невидима
+        # пробе ops_watchdog: лампа осталась бы красной, а в логе стояло бы
+        # «панель жива» — тихое расхождение, которое дороже громкого отказа.
+        Write-G "ОТКАЗ: у слага '$Slug' нет panel.port в chatter/clients/registry.yaml. Впиши секцию panel: { port: N } либо передай -Port явно. Панель НЕ поднимаю."
+        return
+    }
     Write-G "гардиан стартовал (PID $PID), порт $Port, интервал ${IntervalSeconds}с, пауза после отказа ${BackoffSeconds}с, предел отказов $MaxRefusals, длинный интервал ${LongRetrySeconds}с"
 }
 

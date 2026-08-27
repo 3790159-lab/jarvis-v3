@@ -34,6 +34,16 @@ class ClientEntry:
     personas: tuple[str, ...]
     session: str
     db: str
+    # Порт клиентской ПАНЕЛИ этого слага. `None` — панели у клиента нет, и это
+    # ЗАКОННОЕ состояние настройки, а не ошибка: раннер живёт и без панели.
+    #
+    # 🔴 ПОЧЕМУ ПОРТ ЖИВЁТ В РЕЕСТРЕ, А НЕ КОНСТАНТОЙ. Его обязаны знать ТРОЕ:
+    # запуск панели (python), гардиан панели (PowerShell) и проба watchdog
+    # (python, stdlib-only). Общей константы у python с PowerShell быть не
+    # может, а реестр они уже читают все — гардиан через `chatter.registry_cli`.
+    # До этой правки число 8011 было написано в ТРЁХ местах, и в коде это уже
+    # помечено долгом: «меньшее из двух чисел гасит большее МОЛЧА».
+    panel_port: int | None = None
 
 
 @dataclass(frozen=True)
@@ -55,6 +65,37 @@ def normalize_path(path: str, *, root: str) -> str:
     if not ntpath.isabs(path):
         path = ntpath.join(root, path)
     return ntpath.normcase(ntpath.normpath(path))
+
+
+def _panel_port(slug: str, cfg: dict) -> int | None:
+    """Порт панели из секции `panel:` записи клиента. Нет секции — `None`.
+
+    Битое значение — ОШИБКА, а не тихий `None`: «панели нет» и «панель описана
+    неправильно» — разные состояния, и подменять второе первым значит гасить
+    красную лампу опечаткой в реестре.
+    """
+    panel = cfg.get("panel")
+    if panel is None:
+        return None
+    if not isinstance(panel, dict):
+        raise RegistryError(
+            f"registry.yaml: клиент {slug!r}, секция 'panel' должна быть "
+            f"словарём, а не {type(panel).__name__}")
+    port = panel.get("port")
+    if port is None:
+        raise RegistryError(
+            f"registry.yaml: клиент {slug!r}, в секции 'panel' нет 'port' — "
+            f"панель без порта поднять некуда")
+    try:
+        port = int(port)
+    except (TypeError, ValueError):
+        raise RegistryError(
+            f"registry.yaml: клиент {slug!r}, panel.port не число: {port!r}"
+        ) from None
+    if not (1 <= port <= 65535):
+        raise RegistryError(
+            f"registry.yaml: клиент {slug!r}, panel.port вне диапазона: {port}")
+    return port
 
 
 def parse_registry(text: str) -> tuple[ClientEntry, ...]:
@@ -95,6 +136,7 @@ def parse_registry(text: str) -> tuple[ClientEntry, ...]:
             personas=tuple(str(p) for p in personas),
             session=str(cfg.get("session") or f"{SECRETS_DIRNAME}/{slug}.session"),
             db=str(cfg.get("db") or f"{SECRETS_DIRNAME}/{slug}.db"),
+            panel_port=_panel_port(slug, cfg),
         ))
     return tuple(out)
 

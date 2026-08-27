@@ -68,6 +68,10 @@ def build_plan(
                 "personas": list(e.personas),
                 "session": e.session,
                 "db": e.db,
+                # Порт панели едет ТЕМ ЖЕ мостом, что и остальной план:
+                # PowerShell-гардиан панели читает его отсюда и своего числа
+                # не заводит.
+                "panel_port": e.panel_port,
             }
             for e in entries
         ],

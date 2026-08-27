@@ -1047,7 +1047,12 @@ NO_INSTANCE = "volska" if ow.PANEL_CLIENT_SLUG != "volska" else "yarina"
 DISABLED = "demo"
 
 ROSTER_TWO = {"clients": [{"slug": NO_INSTANCE, "enabled": True},
-                          {"slug": WITH_INSTANCE, "enabled": True},
+                          # 27.08: «инстанс есть» выражается ПОРТОМ в реестре,
+                          # а не совпадением слага с константой. Намерение
+                          # фикстуры прежнее: один с панелью, один без,
+                          # один выключен.
+                          {"slug": WITH_INSTANCE, "enabled": True,
+                           "panel_port": PORT},
                           {"slug": DISABLED, "enabled": False}]}
 
 

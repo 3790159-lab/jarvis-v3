@@ -502,7 +502,12 @@ def test_the_watchdog_is_still_stdlib_only():
 # готового снимка панели, а не вычислены вторично.
 
 ROSTER_TWO = {"clients": [{"slug": NO_INSTANCE, "enabled": True},
-                          {"slug": WITH_INSTANCE, "enabled": True},
+                          # 27.08: «инстанс есть» выражается ПОРТОМ в реестре,
+                          # а не совпадением слага с константой. Намерение
+                          # фикстуры прежнее: один с панелью, один без,
+                          # один выключен.
+                          {"slug": WITH_INSTANCE, "enabled": True,
+                           "panel_port": PORT},
                           {"slug": DISABLED, "enabled": False}]}
 
 

@@ -32,14 +32,39 @@ sys.path.insert(0, str(_ROOT))
 from chatter.runtime_paths import chatter_beat_path  # noqa: E402
 
 OWNER_KEY_VAR = "JARVIS_PANELS_KEY"
-# 🔢 ПОРТ 8011 НАЗВАН В ТРЁХ МЕСТАХ. Общей константы у python с PowerShell
-# быть не может, поэтому места перечислены поимённо — правка одного обязана
-# заставить найти остальные:
-#   1. DEFAULT_PORT здесь                                — на чём поднимается панель
-#   2. scripts/panel_client_guardian_detached.ps1 -Port  — на что смотрит гардиан
-#   3. scripts/ops_watchdog.py PANEL_CLIENT_PORT         — куда ходит проба
-# Регистратор задачи четвёртой копии НЕ держит: он зовёт гардиан без `-Port`.
+# 🔢 ДОЛГ ТРЁХ НАПИСАНИЙ ЗАКРЫТ 27.08. Порт слага теперь объявлен ОДИН раз —
+# в `chatter/clients/registry.yaml`, секция `panel: {port: N}`. Его читают все
+# трое: этот запуск, гардиан панели (через `chatter.registry_cli`) и проба
+# `ops_watchdog` (через свой разбор ростера). Общей константы у python с
+# PowerShell быть не может, а реестр они уже читают все — это единственное
+# место с таким свойством.
+#
+# Константа ниже осталась как умолчание ПОСЛЕДНЕЙ НАДЕЖДЫ: слаг, у которого в
+# реестре секции `panel` нет вовсе, и явного `--port` не передали. Поднимать
+# такой инстанс — законное ручное действие (стенд, отладка), и отказывать тут
+# значило бы запретить то, чем арка сама пользуется на приёмке.
 DEFAULT_PORT = 8011
+
+
+def port_from_registry(slug: str, root=None):
+    """Порт панели слага из реестра. `None` — секции нет либо реестр не читается.
+
+    Мягко к нечитаемому реестру НАМЕРЕННО: запуск панели не обязан падать из-за
+    чужой опечатки в чужой записи. Отсутствие порта проявит себя громко — на
+    умолчании инстанс сядет не на тот порт, проба его не найдёт и лампа
+    останется красной.
+    """
+    root = _ROOT if root is None else root
+    try:
+        from chatter.core.client_registry import parse_registry
+        text = (root / "chatter" / "clients" / "registry.yaml").read_text(
+            encoding="utf-8")
+        for entry in parse_registry(text):
+            if entry.slug == slug:
+                return entry.panel_port
+    except Exception:
+        return None
+    return None
 ANY_INTERFACE = "0.0.0.0"
 LOOPBACK = "127.0.0.1"
 HOST_VAR = "PANEL_CLIENT_HOST"
@@ -149,12 +174,18 @@ def build_instance_env(slug: str, environ=None, root: Path = _ROOT) -> dict:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--slug", required=True, help="слаг клиента (yarina, volska, ...)")
-    ap.add_argument("--port", type=int, default=DEFAULT_PORT)
+    # Умолчания у флага НЕТ: `None` отличает «порт не назвали» от «назвали
+    # число, совпавшее с умолчанием». Разница нужна, чтобы реестр не молчал в
+    # пользу константы.
+    ap.add_argument("--port", type=int, default=None,
+                    help="порт; по умолчанию из registry.yaml (panel.port)")
     ap.add_argument("--host", default=None,
                     help="адрес бинда; по умолчанию тайнет, иначе петля")
     ap.add_argument("--allow-any-interface", action="store_true",
                     help="разрешить 0.0.0.0 ОСОЗНАННО (панель увидит вся сеть)")
     a = ap.parse_args(argv)
+    if a.port is None:
+        a.port = port_from_registry(a.slug) or DEFAULT_PORT
 
     owner_key = owner_key_from_env_file()
     # Собираем ДО bootstrap'а: иначе `.env` уже подмешался и сверка ослепла.

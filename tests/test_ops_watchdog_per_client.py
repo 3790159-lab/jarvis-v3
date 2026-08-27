@@ -73,7 +73,11 @@ def test_a_client_without_enabled_is_not_assumed_running():
     Обратное умолчание дало бы алерт о клиенте, которого никто не поднимает.
     """
     roster = ow.read_roster("clients:\n  ghost:\n    personas: [ghost]\n")
-    assert roster == [{"slug": "ghost", "enabled": False}]
+    # `panel_port` добавлен 27.08: порт клиентской панели живёт в реестре, и
+    # его отсутствие — законное состояние (панели у клиента нет). Пин
+    # РАВЕНСТВОМ оставлен намеренно: он ловит появление нового поля, и сегодня
+    # он это и поймал — ровно то, чего от него ждут.
+    assert roster == [{"slug": "ghost", "enabled": False, "panel_port": None}]
 
 
 def test_a_broken_registry_raises_instead_of_reading_as_empty():

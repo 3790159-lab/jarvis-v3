@@ -1917,8 +1917,36 @@ def read_roster(text):
     out = []
     for slug, cfg in clients.items():
         cfg = cfg if isinstance(cfg, dict) else {}
-        out.append({"slug": str(slug), "enabled": bool(cfg.get("enabled", False))})
+        out.append({"slug": str(slug),
+                    "enabled": bool(cfg.get("enabled", False)),
+                    # Порт клиентской панели этого слага; `None` — панели нет.
+                    # Разбор ЗЕРКАЛИТ боевой `_panel_port` в
+                    # `chatter/core/client_registry.py`: `import chatter` тут
+                    # запрещён (watchdog stdlib-only, чтобы уметь сказать
+                    # «бэкенд мёртв» тогда, когда мертво всё, что делит с ним
+                    # окружение), поэтому парсера ДВА — и их согласие предмет
+                    # отдельного сторожа, а не внимательности.
+                    "panel_port": _roster_panel_port(cfg)})
     return out
+
+
+def _roster_panel_port(cfg: dict):
+    """Порт панели из записи реестра. Битое значение — `None`, а не бросок.
+
+    Здесь умолчание МЯГЧЕ, чем у боевого парсера, и это осознанно: боевой
+    отвергает битую секцию, потому что по ней поднимают процесс. Watchdog
+    только НАБЛЮДАЕТ, и падение всего цикла из-за опечатки в чужой секции
+    погасило бы двадцать две пробы ради одной. Опечатка проявит себя тем, что
+    панель не поднимется, а лампа останется красной, — то есть громко.
+    """
+    panel = cfg.get("panel")
+    if not isinstance(panel, dict):
+        return None
+    try:
+        port = int(panel.get("port"))
+    except (TypeError, ValueError):
+        return None
+    return port if 1 <= port <= 65535 else None
 
 
 def probe_roster(snapshot: dict) -> dict:
@@ -3235,16 +3263,37 @@ def _client_ops_snapshot(roster_snapshot: dict | None,
         if not entry.get("enabled"):
             continue
         name = str(entry.get("slug"))
-        has_instance = (name == slug)
+        # 🔴 ПРАВИЛО ПОМЕНЯЛОСЬ 27.08. Было `name == PANEL_CLIENT_SLUG` —
+        # единственный инстанс был вписан константой. Стало: инстанс есть у
+        # того, у кого в РЕЕСТРЕ объявлен порт панели.
+        #
+        # Карты портов `{slug: port}` здесь по-прежнему НЕТ и не заводится —
+        # запрет из прежней редакции остаётся в силе и именно поэтому порт
+        # приезжает СНИМКОМ РОСТЕРА, а не собирается тут. Источник правды об
+        # адресах один, и он в `registry.yaml`.
+        #
+        # Слаг без секции `panel` даёт `no_instance`, то есть КРАСНОЕ. Это не
+        # смягчается: проба «по инстансам» была бы зелёной ПО ПОСТРОЕНИЮ ровно
+        # там, где лежит проблема — три из четырёх непрочитанных карточек
+        # эскалации принадлежат клиенту БЕЗ панели.
+        slug_port = entry.get("panel_port")
+        has_instance = slug_port is not None
+        # ⚠️ ЛОКАЛЬНАЯ, а не переприсваивание внешнего `port`. Первая редакция
+        # писала `port = slug_port if ... else port`, и клиент БЕЗ панели
+        # получал в снимок порт ПРЕДЫДУЩЕГО клиента — цикл переносил значение
+        # между итерациями. Проба от этого не покраснела бы (без инстанса
+        # спрашивать всё равно некого), но в снимке лежало бы число, которое
+        # человек прочтёт как адрес несуществующей панели.
+        entry_port = slug_port if has_instance else port
         status = payload = None
         # Спрашиваем ТОЛЬКО там, где есть кого спрашивать и куда идти. Без
         # адреса ходить некуда, без инстанса — не к кому; оба случая различают
         # пробы семейства отдельными причинами. Путь приходит аргументом:
         # семейств два, а правило «кого и куда спрашивать» — одно.
         if has_instance and host and name not in clients:
-            status, payload = fetch(host, port, path)
+            status, payload = fetch(host, entry_port, path)
         clients[name] = {"slug": name, "instance": has_instance,
-                         "host": host, "port": port, "problem": problem,
+                         "host": host, "port": entry_port, "problem": problem,
                          "status": status, "payload": payload}
     return {"clients": clients}
 
