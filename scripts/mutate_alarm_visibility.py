@@ -52,7 +52,7 @@ MUTATIONS = [
     ("агрегат ПОЯВИЛСЯ РЯДОМ с тремя термами", OW,
      [(b'    if reachability_snapshot:\n        for name, entry in',
        b'    if reachability_snapshot:\n        probes["network"] = {"ok": True, "detail": ""}\n        for name, entry in')],
-     R + "::test_there_is_no_aggregate_verdict_next_to_the_three"),
+     R + "::test_the_snapshot_yields_one_key_per_term_and_nothing_besides"),
 
     # Мишень ПЕРЕПИСАНА после первого прогона гейта. Была «убрать имя провода
     # из detail» — и сторож справедливо остался зелёным: имя по-прежнему несёт
