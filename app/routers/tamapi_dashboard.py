@@ -722,6 +722,35 @@ def _form_token() -> str:
     return secrets.token_urlsafe(_FORM_TOKEN_BYTES)
 
 
+# 🔴 ПОВТОР НАЗЫВАЕТСЯ СЛОВАМИ (§2.5 п.3). `duplicate: true` — это НОРМА
+# (кнопку нажали дважды), но показать его как успех значит соврать, а как
+# ошибку — напугать. Молчание здесь хуже обоих: это человек, жмущий третий
+# раз.
+#
+# Успешная постановка ГАСИТ ТОКЕН В ФОРМЕ и рождает следующий (§2.5 п.2) —
+# перезагрузкой страницы, а не правкой поля на месте: токен рождает СЕРВЕР,
+# и второй его источник в браузере стал бы вторым числом на ту же вещь. Заодно
+# лента показывает только что отправленное.
+#
+# Без JS форма остаётся рабочей: обычный POST уедет тем же телом, просто
+# ответом будет JSON. То есть скрипт улучшает показ, а не держит отправку.
+_DIALOG_JS = """
+document.querySelector('form').addEventListener('submit', async function (e) {
+  e.preventDefault();
+  var note = document.getElementById('send-note');
+  note.textContent = 'надсилаю…';
+  try {
+    var r = await fetch(e.target.action, {method: 'POST',
+                                          body: new FormData(e.target)});
+    var d = await r.json();
+    if (!r.ok) { note.textContent = 'не поставлено: ' + (d.detail || r.status); return; }
+    if (d.duplicate) { note.textContent = 'вже поставлено, другого не буде'; return; }
+    location.reload();
+  } catch (err) { note.textContent = 'не поставлено: ' + err; }
+});
+"""
+
+
 def _dialog_line_html(m: dict) -> str:
     """Одна реплика ленты. `author` живёт РЯДОМ с ролью, а не вместо неё."""
     role = m.get("role") or ""
@@ -752,6 +781,19 @@ async def dialog_screen(contact_id: str):
     from chatter.core.channel_ref import slug_of
     from chatter.core.contact_ref import ContactRefError
     from chatter.storage.db import Store
+
+    # 🔴 РЕЕСТР ДОСТАВЩИКОВ НАСЕЛЯЕТ ТОТ, КТО УМЕЕТ СЛАТЬ, а панель — ДРУГОЙ
+    # процесс: до этого импорта `deliverer_for` здесь пуст, и `can_send_now`
+    # честно ответила бы «канал не обслуживается» про КАЖДЫЙ диалог, включая
+    # телеграмный. Предупреждение, которое горит всегда, — это не сторож, а
+    # фон ([[jarvis-loud-failure-next-to-a-soothing-lamp]]), и владелец
+    # перестал бы читать его ровно к тому дню, когда писать правда нельзя.
+    #
+    # Список каналов лежит ЗДЕСЬ, а не в ядре: ядро не имеет права знать имена
+    # каналов ни в каком виде (§2.1), а панель — знает, что именно она
+    # разворачивает. Второй канал добавит сюда вторую строку, и это тот же
+    # «один шов на канал», только со стороны потребителя.
+    import chatter.telethon_run  # noqa: F401 — регистрирует доставщика Telegram
 
     def _closed() -> HTTPException:
         # Одна и та же формулировка на все три причины: «не ваш диалог»
@@ -804,12 +846,14 @@ async def dialog_screen(contact_id: str):
         "<input type='hidden' name='event_token' value='%s'>"
         "<textarea name='text' rows='3' style='width:100%%'></textarea>"
         "<button type='submit'%s>Надіслати</button>"
+        "<div class='sub' id='send-note'></div>"
         "</form></div></div>"
         % (esc(contact_id), warn_html,
            "".join(_dialog_line_html(m) for m in lenta) or
            "<div class='sub'>поки порожньо</div>",
            esc(contact_id), esc(token), disabled))
-    return HTMLResponse(page("TAMAPI — діалог", body, lang=lang))
+    return HTMLResponse(page("TAMAPI — діалог", body, extra_js=_DIALOG_JS,
+                             lang=lang))
 
 
 # ------------------------------------------------------------------ действия
