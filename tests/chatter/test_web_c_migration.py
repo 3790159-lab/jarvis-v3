@@ -406,12 +406,13 @@ def test_guard25_nechislovaya_golova_OSTANAVLIVAET_migratsiyu(tmp_path):
     db = tmp_path / "refuse.db"
     _seed_old(db, contacts=("console-user:demo",))
     before = _sha(db)
-    with pytest.raises(Exception) as ei:
+    with pytest.raises(RuntimeError):
+        # РОВНО `RuntimeError`, а не любое исключение (решение владельца
+        # 28.08): миграция отказывает по СОСТОЯНИЮ базы, а не по значению
+        # аргумента, и ловят эти два разные обработчики. `ValueError` здесь
+        # проехал бы мимо того, кто ждёт отказа состояния, — и наоборот.
         with Store(db):
             pass
-    assert not isinstance(ei.value, AssertionError), (
-        "миграция приняла контакт с нечисловой головой без отказа: "
-        "правило §4.1 расширено догадкой.")
     assert _sha(db) == before, (
         "после отказа база изменилась побайтово. §4.1: «Всё остальное — СТОП, "
         "база не тронута». Наполовину переписанная база хуже непереписанной: "
@@ -435,7 +436,7 @@ def test_guard26_otkaz_na_seredine_ostavlyaet_bazu_v_sostoyanii_DO(tmp_path):
     db = tmp_path / "half.db"
     _seed_old(db, contacts=(OLD_A, "console-user:demo"))
     before = _sha(db)
-    with pytest.raises(Exception):
+    with pytest.raises(RuntimeError):       # отказ СОСТОЯНИЯ, см. сторож 25
         with Store(db):
             pass
     assert _sha(db) == before, (
