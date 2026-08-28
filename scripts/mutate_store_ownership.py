@@ -88,7 +88,15 @@ MUTATIONS = [
 ]
 
 
-def write_mutant(path: Path, blob: bytes) -> None:
+def write_mutant(path: Path, text) -> None:
+    """Записать мутанта с УНИКАЛЬНЫМ mtime. Всегда `write_bytes`.
+
+    Принимает И байты, И строку: сторож на гейты (`test_mutation_gate_bytecode`)
+    зовёт этот метод строкой, и суженная до байтов сигнатура ломала ЗАМЕР
+    гейта, а не сам гейт. То есть выглядело бы это как «гейт не проверен», что
+    в этом доме опаснее красного.
+    """
+    blob = text if isinstance(text, (bytes, bytearray)) else str(text).encode("utf-8")
     path.write_bytes(blob)
     stamp = _MTIME_BASE + next(_mtime_seq)
     os.utime(path, (stamp, stamp))
