@@ -20,8 +20,8 @@ from chatter.payments.tier_texts import (
     resolve_tier_text,
 )
 
-DRILL = "8849893367:volska"
-LIVE = "777000:volska"
+DRILL = "telegram:8849893367:volska"
+LIVE = "telegram:777000:volska"
 
 KNOWLEDGE = "- Створення логотипа — 300 $ або 400 $ залежно від обсягу"
 RAW = {

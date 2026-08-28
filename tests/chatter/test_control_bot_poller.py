@@ -55,15 +55,15 @@ def _callback_update(uid, *, data, from_id, chat_id=237616472, message_id=555):
 
 def test_owner_callback_routes_edits_answers_and_advances_offset():
     store = Store(":memory:")
-    store.get_or_create_contact("42:demo")
-    store.mute("42:demo", source="human_takeover", now=1.0)
+    store.get_or_create_contact("telegram:42:demo")
+    store.mute("telegram:42:demo", source="human_takeover", now=1.0)
     api = FakeApi([[_callback_update(10, data="resume:42:demo", from_id=237616472)]])
     poller = _poller(api, store=store)
 
     asyncio.run(poller.poll_once())
 
     # действие исполнено
-    assert store.get_or_create_contact("42:demo")["paused"] == 0
+    assert store.get_or_create_contact("telegram:42:demo")["paused"] == 0
     # мгновенная обратная связь: карточка отредактирована + тост
     assert "editMessageText" in api.methods()
     assert "answerCallbackQuery" in api.methods()
@@ -82,7 +82,7 @@ def test_poller_passes_the_card_message_id_into_the_payment_key():
     приходить из события; этот тест держит проводку поллера, а не только
     чистую функцию."""
     store = Store(":memory:")
-    store.get_or_create_contact("42:demo")
+    store.get_or_create_contact("telegram:42:demo")
     api = FakeApi([[_callback_update(10, data="paidamt:900:42:demo",
                                      from_id=237616472, message_id=777)]])
 
@@ -98,7 +98,7 @@ def test_repeated_delivery_of_the_same_tap_does_not_double_the_payment():
     """Telegram переспрашивает неподтверждённые апдейты. Повторная доставка
     ОДНОГО тапа обязана дать одну оплату, а не две."""
     store = Store(":memory:")
-    store.get_or_create_contact("42:demo")
+    store.get_or_create_contact("telegram:42:demo")
     store.set_runtime_flag("esc_active:42:demo", "bot:1:777", ts=1.0)
     tap = dict(data="paidamt:900:42:demo", from_id=237616472, message_id=777)
     api = FakeApi([[_callback_update(10, **tap)], [_callback_update(11, **tap)]])
@@ -118,14 +118,14 @@ def test_repeated_delivery_of_the_same_tap_does_not_double_the_payment():
 
 def test_non_owner_callback_is_rejected_without_mutation():
     store = Store(":memory:")
-    store.get_or_create_contact("42:demo")
-    store.mute("42:demo", source="human_takeover", now=1.0)
+    store.get_or_create_contact("telegram:42:demo")
+    store.mute("telegram:42:demo", source="human_takeover", now=1.0)
     api = FakeApi([[_callback_update(10, data="resume:42:demo", from_id=999999)]])
     poller = _poller(api, store=store)
 
     asyncio.run(poller.poll_once())
 
-    assert store.get_or_create_contact("42:demo")["paused"] == 1   # НЕ размучен
+    assert store.get_or_create_contact("telegram:42:demo")["paused"] == 1   # НЕ размучен
     assert "answerCallbackQuery" in api.methods()
     assert "editMessageText" not in api.methods()                  # чужому карточку не правим
 
@@ -416,7 +416,7 @@ def test_open_tap_keeps_card_buttons_alive():
     промах уже нечем.
     """
     store = Store(":memory:")
-    store.get_or_create_contact("42:demo")
+    store.get_or_create_contact("telegram:42:demo")
     api = FakeApi([[_callback_update_with_kb(10, data="open:42:demo")]])
 
     asyncio.run(_poller(api, store=store).poll_once())
@@ -428,13 +428,13 @@ def test_open_tap_keeps_card_buttons_alive():
 def test_open_tap_mutates_nothing():
     # Стоп-гард к фиксу выше: open остаётся чистой навигацией.
     store = Store(":memory:")
-    store.get_or_create_contact("42:demo")
+    store.get_or_create_contact("telegram:42:demo")
     store.set_runtime_flag("esc_active:42:demo", "bot:1:25", ts=1.0)
     api = FakeApi([[_callback_update_with_kb(11, data="open:42:demo")]])
 
     asyncio.run(_poller(api, store=store).poll_once())
 
-    assert store.get_or_create_contact("42:demo")["paused"] == 0
+    assert store.get_or_create_contact("telegram:42:demo")["paused"] == 0
     assert store.get_runtime_flag("esc_active:42:demo") == "bot:1:25"
 
 

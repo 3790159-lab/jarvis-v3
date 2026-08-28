@@ -9,6 +9,13 @@ from chatter.core.obligations_slot import Obligation
 from chatter.payments.model import PaymentRecord, project_status, validate_dedup_key
 from chatter.payments.statuses import assert_transition
 from chatter.payments.money import Money
+from chatter.core.contact_ref import (
+    SEPARATOR,
+    TELEGRAM_CHANNEL,
+    ContactRefError,
+    slug_of,
+    upgrade_legacy_callback_contact,
+)
 
 
 class PaymentsMigrationBlocked(RuntimeError):
@@ -17,6 +24,17 @@ class PaymentsMigrationBlocked(RuntimeError):
     Отдельный громкий тип, а не тихий пропуск: база с двумя разными схемами
     денег хуже, чем не поднявшийся раннер, — второе видно сразу, первое
     обнаружится враньём в отчётности через месяц."""
+
+
+class ContactIdMigrationBlocked(RuntimeError):
+    """Перепись `contact_id` на форму с каналом невозможна или не удалась.
+
+    `RuntimeError`, а НЕ `ValueError` (§13.2), и это не педантизм. Отказ
+    РАЗБОРА — плохое значение, его уместно поймать и ответить лиду. Отказ
+    МИГРАЦИИ — плохое СОСТОЯНИЕ базы, и ловить его нельзя вовсе: он обязан
+    остановить подъём. Один тип на оба означал бы, что первый же
+    `except ValueError` вокруг разбора однажды проглотит несостоявшуюся
+    перепись живых данных."""
 
 
 _SCHEMA = """
@@ -176,6 +194,17 @@ CREATE INDEX IF NOT EXISTS idx_payments_invoice ON payments(invoice_id);
 -- Котировка: что назвали лиду. APPEND-ONLY — каждая уступка это новая строка,
 -- предыдущая становится `superseded`. Без истории торга бот на повторный заход
 -- назовёт другую цену тому же лиду (§2.3).
+--
+-- `tier_id` — выбранная ПУБЛИЧНАЯ ступень объёма (решение владельца 12.08).
+-- NULL — объём не назван, сумма по политике price_upper. Идентификатор, а не
+-- текст: по нему счёт узнаёт, за какой объём он выставлен. Комментарий стоит
+-- НАД оператором, а не внутри него: SQLite пересобирает исходный текст DDL, и
+-- `--` внутри CREATE TABLE ломает перестройку таблицы (та самая, что ниже).
+--
+-- `origin_msg_id` объявлен TEXT, а не INTEGER: INTEGER-аффинность приведёт
+-- '007' к числу 7, и '007' с '7' станут ОДНИМ ключом идемпотентности — два
+-- разных сообщения канала схлопнутся, второй счёт будет молча подавлен как
+-- дубль (§5.1).
 CREATE TABLE IF NOT EXISTS quotes (
     quote_id          TEXT PRIMARY KEY,
     contact_id        TEXT NOT NULL,
@@ -185,13 +214,10 @@ CREATE TABLE IF NOT EXISTS quotes (
     currency          TEXT NOT NULL,
     scope_key         TEXT NOT NULL,
     amount_source     TEXT NOT NULL,
-    -- Выбранная ПУБЛИЧНАЯ ступень объёма (решение владельца 12.08). NULL —
-    -- объём не назван, сумма по политике price_upper. Идентификатор, а не
-    -- текст: по нему счёт узнаёт, за какой объём он выставлен.
     tier_id           TEXT,
     knowledge_version TEXT,
     status            TEXT NOT NULL,
-    origin_msg_id     INTEGER,
+    origin_msg_id     TEXT,
     created_ts        REAL NOT NULL,
     UNIQUE (contact_id, origin_msg_id)
 );
@@ -212,7 +238,7 @@ CREATE TABLE IF NOT EXISTS invoices (
     status               TEXT NOT NULL,
     created_ts           REAL NOT NULL,
     created_by           TEXT NOT NULL,
-    origin_msg_id        INTEGER,
+    origin_msg_id        TEXT,
     issued_ts            REAL,
     due_ts               REAL,
     price_source         TEXT,
@@ -334,6 +360,100 @@ _ADDED_COLUMNS = {
     },
 }
 
+# ЛИТЕРАЛЬНЫЙ список из 13 таблиц СО СХЕМЫ (§4.1), а не «те таблицы, где
+# сегодня есть строки»: данные живут в 9 из них, и список, выведенный из
+# наличия строк, промолчит в день, когда наполнится десятая
+# (jarvis-literal-lists-not-introspection).
+_CONTACT_ID_TABLES: tuple[str, ...] = (
+    "contacts", "messages", "facts", "console_cards", "control_events",
+    "status_index", "contact_profile", "contact_obligations",
+    "funnel_transitions", "payments", "quotes", "invoices", "outgoing_queue",
+)
+
+# `contact_id` живёт НЕ ТОЛЬКО в колонках: три префикса вшивают его в КЛЮЧ
+# `runtime_flags` (`core/escalation.py`, `core/classifier.py`). Перепись,
+# написанная как `UPDATE ... SET contact_id=...`, не тронет ни одного из них:
+# каждая живая карточка эскалации и каждая серия промахов профиля осиротеет
+# МОЛЧА.
+_CONTACT_ID_FLAG_PREFIXES: tuple[str, ...] = (
+    "esc_active:", "profile_miss:", "profile_miss_alerted:",
+)
+
+# Таблицы, у которых ключ идемпотентности выставления переезжает в TEXT (§5).
+_ORIGIN_KEY_TABLES: tuple[str, ...] = ("quotes", "invoices")
+
+# SQL переписи живёт КОНСТАНТАМИ МОДУЛЯ намеренно: `contact_id NOT LIKE
+# '%:%:%'` — это разбор структуры contact_id средствами SQL, то есть место
+# разбора, ВВЕДЁННОЕ переписью и живущее ровно до её конца. Оно названо вслух
+# (§13.5), а не спрятано по методам, чтобы перепись мест разбора оставалась
+# правдой.
+#
+# СТАРАЯ ФОРМА — ЭТО РОВНО ОДНО ДВОЕТОЧИЕ, и `LIKE '%:%'` в запросе стоит
+# именно поэтому. Строка БЕЗ двоеточия вовсе (`console-user` из
+# `chatter/run.py --contact`, формы `demo_switch`) contact_id этого формата
+# никогда не была: переписывать в ней нечего, а СТОП на ней означал бы, что
+# база, однажды видевшая консольный контакт, больше не открывается НИКОГДА.
+# Дом уже принял это решение для `peer_label_of` (односегментный вход
+# деградирует, а не роняет карточку) — два ответа на один вопрос здесь были бы
+# несогласованностью, а не выбором. СТОП остаётся там, где он и задуман §4.1:
+# на строке, которая ВЫГЛЯДИТ старой формой (одно двоеточие), но головы, по
+# которой её переписать, у неё нет.
+_SQL_LEGACY_CONTACT_IDS = (
+    "SELECT DISTINCT contact_id FROM {table} WHERE contact_id LIKE '%:%' "
+    "AND contact_id NOT LIKE '%:%:%'")
+_SQL_SET_CONTACT_ID = "UPDATE {table} SET contact_id=? WHERE contact_id=?"
+_SQL_FLAG_KEYS_BY_PREFIX = "SELECT key FROM runtime_flags WHERE key LIKE ?"
+_SQL_SET_FLAG_KEY = "UPDATE runtime_flags SET key=? WHERE key=?"
+
+
+def _schema_create_table(table: str) -> str:
+    """`CREATE TABLE` нужной таблицы, вырезанный из `_SCHEMA`.
+
+    Из `_SCHEMA`, а НЕ из `sqlite_master`: перестройка обязана строить НОВУЮ
+    схему, а не копировать старую с её же дефектом. Побочная выгода — текст
+    DDL наш, без комментариев внутри оператора.
+    """
+    head = "CREATE TABLE IF NOT EXISTS " + table + " ("
+    start = _SCHEMA.index(head)
+    end = _SCHEMA.index("\n);", start)
+    return _SCHEMA[start:end + 3]
+
+
+def _origin_key(value):
+    """Ключ идемпотентности выставления — на ГРАНИЦЕ `Store`, в одном месте.
+
+    §5.3: `create_invoice` ищет дубль как `WHERE contact_id=? AND
+    origin_msg_id=?`, а в SQLite целое `7` и строка `'7'` НЕ РАВНЫ НИКОГДА.
+    Значит вызыватель, продолжающий передавать `int`, существующего счёта не
+    найдёт и выставит ВТОРОЙ: идемпотентность не сломается заметно, она
+    перестанет существовать молча.
+
+    §13.3, решение владельца: `int` приводим — приведение ОБРАТИМО и ключа не
+    меняет (законный вызыватель `payments/dialogue.py` шлёт `msg_id: int`).
+    `REAL`, `BLOB`, всё прочее — ОТКАЗ: `7.0` привелось бы в `'7.0'`, то есть
+    в ДРУГОЙ ключ, и тихо сломало бы ровно ту идемпотентность, ради которой
+    колонка существует.
+
+    Отказ — `ValueError`: это плохое ЗНАЧЕНИЕ аргумента, а не состояние базы
+    (состояние отказывает `RuntimeError`). И он случается ДО записи: счёт с
+    неверным ключом, уже лежащий в таблице, убирать придётся человеку.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bool):
+        raise ValueError(
+            "origin_msg_id=%r: булево не ключ сообщения" % (value,))
+    if isinstance(value, int):
+        return str(value)
+    raise ValueError(
+        "origin_msg_id=%r (%s): ключ идемпотентности выставления принимает "
+        "строку либо целое. Приведение целого обратимо ('7' и 7 — один ключ), "
+        "приведение %s — нет: оно тихо создаёт ВТОРОЙ ключ на то же сообщение"
+        % (value, type(value).__name__, type(value).__name__))
+
+
 class Store:
     """One SQLite file, safe to use across threads.
 
@@ -372,6 +492,27 @@ class Store:
                 legacy = self._payments_is_legacy()
                 if legacy:
                     self._assert_payments_rebuild_window(path)
+                # Перепись личности (§4) и переезд ключа выставления в TEXT
+                # (§5) замеряются ЗДЕСЬ ЖЕ, до любого DDL и до любой записи:
+                # отказ обязан оставить базу ПОБАЙТОВО той же. Наполовину
+                # переписанная база хуже непереписанной — откатить её можно
+                # только из `.bak`, а `.bak` при отказе не снимается.
+                #
+                # Идемпотентность по ФАКТУ (`contact_id NOT LIKE '%:%:%'`), а
+                # не по файлу-маркеру: маркер переживает откат базы и после
+                # восстановления из `.bak` соврал бы «уже мигрировано». И не
+                # по ловле исключения: гардиан перезапускает раннер постоянно,
+                # и перепись, падающая на втором прогоне, — краш-петля,
+                # которую он будет вечно поддерживать.
+                legacy_ids = self._legacy_contact_ids()
+                legacy_keys = self._legacy_flag_keys()
+                if legacy_ids or legacy_keys:
+                    self._assert_contact_ids_migratable(path, legacy_ids,
+                                                        legacy_keys)
+                rebuild = self._origin_key_legacy_tables()
+                if rebuild:
+                    self._assert_origin_rebuild_window(path, rebuild)
+                if legacy:
                     if pre_existing:
                         self._backup(path, tag="payments")
                     # Снести ДО executescript: индекс по invoice_id не создастся
@@ -388,6 +529,16 @@ class Store:
                     if pre_existing:
                         self._backup(path)
                     self._apply_migration(missing)
+                if legacy_ids or legacy_keys or rebuild:
+                    # Бэкап ТОЛЬКО при РЕАЛЬНОЙ переписи существующей базы:
+                    # `.bak` — это полная переписка лидов открытым файлом, и
+                    # сыпать её на каждый рестарт значит плодить то, что никто
+                    # не удаляет.
+                    if pre_existing:
+                        self._backup(path, tag="web-c")
+                    self._apply_identity_migration(legacy_ids, legacy_keys,
+                                                   rebuild)
+                    self._assert_identity_migrated()
         except BaseException:
             # BaseException, а не Exception: `KeyboardInterrupt` посреди
             # миграции запирает файл точно так же, а прерывают тут руками.
@@ -410,6 +561,234 @@ class Store:
             if gap:
                 out[table] = gap
         return out
+
+    # ── перепись личности: канал в contact_id (пара C, §4) ────────────────
+
+    def _has_table(self, name: str) -> bool:
+        return self._conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            (name,)).fetchone() is not None
+
+    def _has_column(self, table: str, column: str) -> bool:
+        return any(r["name"] == column
+                   for r in self._conn.execute(f"PRAGMA table_info({table})"))
+
+    def _legacy_contact_ids(self) -> dict[str, set[str]]:
+        """Что осталось в форме БЕЗ головы канала — по 13 таблицам §4.1.
+
+        🔴 УСЛОВИЕ — НАЛИЧИЕ КОЛОНКИ, А НЕ ТАБЛИЦЫ. Литеральный список §4.1
+        описывает схему СЕГОДНЯШНЮЮ, а перепись бежит по базе ВЧЕРАШНЕЙ и
+        бежит ДО того, как схему подняли: замер обязан оставить базу побайтово
+        той же, значит он стоит раньше любого DDL. В окне между этими двумя
+        фактами живёт `payments` СТАРОЙ схемы — таблица есть, колонки
+        `contact_id` в ней нет вовсе, и `SELECT ... WHERE contact_id LIKE` по
+        ней роняет `OperationalError` ещё до первой правки.
+
+        Роняет он при этом не только перепись: исключение уходит из
+        КОНСТРУКТОРА, а конструктор, бросивший на полпути, объекта не
+        возвращает — закрыть соединение становится некому, и на Windows это
+        запирает сам ФАЙЛ базы (DEV-48). То есть цена пропущенной проверки —
+        не «миграция не прошла», а «база не открывается и не удаляется».
+        Поймали сторожа `test_store_ownership.py`, и поймали правильно.
+
+        Пропуск безопасен ровно потому, что таблица без колонки не может
+        хранить старую форму: переписывать в ней нечего. `payments`, дойдя до
+        своей перестройки ниже, приедет уже с колонкой и пустая.
+        """
+        out: dict[str, set[str]] = {}
+        for table in _CONTACT_ID_TABLES:
+            if not self._has_table(table):
+                continue
+            if not self._has_column(table, "contact_id"):
+                continue
+            rows = self._conn.execute(
+                _SQL_LEGACY_CONTACT_IDS.format(table=table)).fetchall()
+            values = {r[0] for r in rows if r[0] is not None}
+            if values:
+                out[table] = values
+        return out
+
+    def _legacy_flag_keys(self) -> dict[str, str]:
+        """Ключи `runtime_flags` старой формы: ключ -> его хвост-contact_id."""
+        out: dict[str, str] = {}
+        if not self._has_table("runtime_flags"):
+            return out
+        for prefix in _CONTACT_ID_FLAG_PREFIXES:
+            rows = self._conn.execute(
+                _SQL_FLAG_KEYS_BY_PREFIX, (prefix + "%",)).fetchall()
+            for r in rows:
+                key = r[0]
+                tail = key[len(prefix):]
+                if tail.count(SEPARATOR) == 1:
+                    out[key] = tail
+        return out
+
+    def _assert_contact_ids_migratable(self, path: Path, legacy_ids, legacy_keys) -> None:
+        """Правило замены одно (§4.1): `<peer>:<slug>` -> `telegram:<peer>:<slug>`,
+        и только если голова числовая (с допуском `-`). ВСЁ ОСТАЛЬНОЕ — СТОП.
+
+        Почему стоп, а не «пропустить эту строку»: нечисловая голова означает,
+        что в базе лежит форма, которой по замеру там быть не может (12 из 12
+        контактов телеграмные, голова числовая у всех). Домигрировать вокруг
+        неё — значит УГАДАТЬ, чем она была; а угадывать в необратимой правке
+        живых данных нельзя.
+        """
+        bad: list[str] = []
+        for table, values in sorted(legacy_ids.items()):
+            for value in sorted(values):
+                if upgrade_legacy_callback_contact(value) is None:
+                    bad.append("%s.contact_id=%r" % (table, value))
+        for key, tail in sorted(legacy_keys.items()):
+            if upgrade_legacy_callback_contact(tail) is None:
+                bad.append("runtime_flags.key=%r" % (key,))
+        if bad:
+            raise ContactIdMigrationBlocked(
+                "%s: перепись contact_id остановлена, база НЕ ТРОНУТА. Формы, "
+                "которых правило §4.1 не знает (%d): %s. Правило узкое — ровно "
+                "два сегмента и числовая голова; всё прочее пришлось бы "
+                "угадывать, а угадывать в необратимой правке живых данных "
+                "нельзя" % (path, len(bad), ", ".join(bad[:20])))
+
+    def _origin_key_legacy_tables(self) -> tuple[str, ...]:
+        """Таблицы, где `origin_msg_id` ещё не TEXT."""
+        out = []
+        for table in _ORIGIN_KEY_TABLES:
+            if not self._has_table(table):
+                continue
+            if self._declared_type(table, "origin_msg_id") not in ("TEXT", ""):
+                out.append(table)
+        return tuple(out)
+
+    def _declared_type(self, table: str, column: str) -> str:
+        for r in self._conn.execute(f"PRAGMA table_info({table})"):
+            if r["name"] == column:
+                return (r["type"] or "").upper()
+        return ""
+
+    def _assert_origin_rebuild_window(self, path: Path, tables) -> None:
+        """Окно перестройки закрыто НЕПРИВОДИМЫМ значением (образец
+        `_assert_payments_rebuild_window`).
+
+        Неприводимое — то, у которого текстового ключа либо нет вовсе (`BLOB`),
+        либо он не равен исходному номеру (`REAL`: 7.0 -> '7.0'). Оба хранимы
+        в INTEGER-аффинной колонке сегодня, и оба меняют ключ идемпотентности
+        МОЛЧА. `int` в этот список не входит: его приведение обратимо.
+        """
+        for table in tables:
+            rows = self._conn.execute(
+                "SELECT typeof(origin_msg_id) AS t, COUNT(*) AS n FROM "
+                + table + " WHERE origin_msg_id IS NOT NULL GROUP BY 1"
+            ).fetchall()
+            bad = {r["t"]: r["n"] for r in rows
+                   if r["t"] not in ("integer", "text")}
+            if bad:
+                raise ContactIdMigrationBlocked(
+                    f"{path}: в {table}.origin_msg_id лежат значения, которые "
+                    f"перестройка не может перенести без потери смысла ({bad}). "
+                    f"Перестройка остановлена, база не тронута: значение, "
+                    f"меняющее ключ идемпотентности, обязано остановить её "
+                    f"громко, а не проехать CAST-ом")
+
+    def _row_counts(self) -> dict[str, int]:
+        out: dict[str, int] = {}
+        for table in _CONTACT_ID_TABLES + ("runtime_flags",):
+            if self._has_table(table):
+                out[table] = self._conn.execute(
+                    "SELECT COUNT(*) FROM " + table).fetchone()[0]
+        return out
+
+    def _apply_identity_migration(self, legacy_ids, legacy_keys, rebuild) -> None:
+        """ОДНА транзакция на всё: колонки, ключи флагов и перестройка таблиц.
+
+        Причина конкретная и она про людей: панель читает ту же базу
+        ОДНОВРЕМЕННО (`file:...?mode=ro`) и обязана увидеть состояние ДО или
+        ПОСЛЕ, но никогда МЕЖДУ — иначе владелец получает ленту, где половина
+        контактов осиротела.
+
+        Транзакцией управляем САМИ: драйвер по умолчанию открывает её только
+        на DML, а DDL (`DROP`/`ALTER` перестройки) исполняет в автокоммите —
+        то есть половина работы закоммитилась бы посреди неё.
+        """
+        self._conn.commit()
+        self._conn.isolation_level = None
+        self._conn.execute("BEGIN")
+        try:
+            before = self._row_counts()
+            for table, values in sorted(legacy_ids.items()):
+                for old in sorted(values):
+                    self._conn.execute(
+                        _SQL_SET_CONTACT_ID.format(table=table),
+                        (upgrade_legacy_callback_contact(old), old))
+            for key, tail in sorted(legacy_keys.items()):
+                prefix = key[:len(key) - len(tail)]
+                self._conn.execute(
+                    _SQL_SET_FLAG_KEY,
+                    (prefix + upgrade_legacy_callback_contact(tail), key))
+            for table in rebuild:
+                self._rebuild_origin_key(table)
+            after = self._row_counts()
+            lost = {t: (before[t], after[t]) for t in before
+                    if before.get(t) != after.get(t)}
+            if lost:
+                raise ContactIdMigrationBlocked(
+                    "перепись потеряла строки (таблица: было -> стало): %r. "
+                    "Строка, потерянная при замене, — это переписка лида, "
+                    "которой больше нет; замена, потерявшая строку, иначе "
+                    "выглядит как успех" % (lost,))
+            self._conn.execute("COMMIT")
+        except BaseException:
+            self._conn.execute("ROLLBACK")
+            raise
+        finally:
+            self._conn.isolation_level = ""
+
+    def _rebuild_origin_key(self, table: str) -> None:
+        """`ALTER COLUMN` в SQLite нет — таблица перестраивается целиком (§5.2).
+
+        UNIQUE (contact_id, origin_msg_id) не «сохраняется», а ОБЪЯВЛЯЕТСЯ
+        ЗАНОВО вместе с таблицей: это единственный способ не потерять его
+        молча. Индексы уходят вместе с таблицей и создаются заново отдельным
+        шагом — перестройка, забывшая их, ничего не ломает, она просто делает
+        ленту панели медленнее с каждым месяцем.
+        """
+        ddl = _schema_create_table(table).replace(
+            "CREATE TABLE IF NOT EXISTS " + table + " (",
+            "CREATE TABLE " + table + "__new (")
+        self._conn.execute(ddl)
+        fresh = [r["name"] for r in
+                 self._conn.execute(f"PRAGMA table_info({table}__new)")]
+        old = {r["name"] for r in
+               self._conn.execute(f"PRAGMA table_info({table})")}
+        cols = [c for c in fresh if c in old]
+        exprs = ["CAST(origin_msg_id AS TEXT)" if c == "origin_msg_id" else c
+                 for c in cols]
+        self._conn.execute(
+            "INSERT INTO %s__new (%s) SELECT %s FROM %s"
+            % (table, ", ".join(cols), ", ".join(exprs), table))
+        self._conn.execute("DROP TABLE " + table)
+        self._conn.execute(
+            "ALTER TABLE %s__new RENAME TO %s" % (table, table))
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_%s_contact ON %s(contact_id)"
+            % (table, table))
+
+    def _assert_identity_migrated(self) -> None:
+        """Проверка ПОСЛЕ. Миграция, о результате которой не спросили, — это
+        надежда, а не миграция (`_assert_payments_rebuilt`, дословно)."""
+        left = self._legacy_contact_ids()
+        keys = self._legacy_flag_keys()
+        if left or keys:
+            raise ContactIdMigrationBlocked(
+                "после переписи старая форма осталась: колонки=%r, ключи=%r"
+                % (left, sorted(keys)))
+        for table in _ORIGIN_KEY_TABLES:
+            if not self._has_table(table):
+                continue
+            got = self._declared_type(table, "origin_msg_id")
+            if got != "TEXT":
+                raise ContactIdMigrationBlocked(
+                    "%s.origin_msg_id объявлен %r, а не TEXT: перестройка не "
+                    "состоялась" % (table, got))
 
     def _backup(self, path: Path, *, tag: str = "3a") -> None:
         dest = path.with_name(f"{path.name}.pre-{tag}-{int(time.time())}.bak")
@@ -659,8 +1038,16 @@ class Store:
 
     @staticmethod
     def _slug(contact_id: str) -> str:
-        _, _, slug = (contact_id or "").partition(":")
-        return slug or "unknown"
+        """СЛУГ для PRIMARY KEY счёта — через владельца разбора.
+
+        Свой `partition(":")` брал хвост ПОСЛЕ ПЕРВОГО двоеточия и на форме с
+        каналом дал бы `Q-8849893367:volska-000001`. Молча и НАВСЕГДА: id
+        счёта не переписывают, и увидят дефект в отчёте, а не в логе.
+        """
+        try:
+            return slug_of(contact_id)
+        except ContactRefError:
+            return "unknown"
 
     def create_quote(self, *, contact_id: str, position_id: str, step_idx: int,
                      amount: Money, scope_key: str, amount_source: str,
@@ -669,6 +1056,7 @@ class Store:
         """Новая котировка. Прежние по контакту становятся `superseded`:
         активной может быть только одна, иначе «что мы ему называли» перестаёт
         иметь ответ."""
+        origin_msg_id = _origin_key(origin_msg_id)
         with self._lock:
             qid = self._next_seq("quotes", "quote_id", f"Q-{self._slug(contact_id)}-")
             self._conn.execute(
@@ -709,6 +1097,9 @@ class Store:
         владелец руками), но тогда идемпотентности нет — и это осознанно.
 
         Ф0 пишет РОВНО ОДНУ ступень: Ф1 — это «строк больше одной»."""
+        # Приведение ключа — в ОДНОМ месте, на границе `Store`, и ДО любой
+        # записи: два приведения в двух местах это два числа на одну вещь.
+        origin_msg_id = _origin_key(origin_msg_id)
         ccy = amount.ccy if amount is not None else currency
         total = amount.minor if amount is not None else None
         if total is None and status not in ("draft", "awaiting_owner"):

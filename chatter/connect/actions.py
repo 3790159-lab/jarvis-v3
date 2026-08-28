@@ -65,6 +65,7 @@ from chatter.connect.model import (
     repo_tree, script_path)
 from chatter.core.client_registry import (
     RegistryError, normalize_path, parse_registry)
+from chatter.core.contact_ref import ContactRefError, slug_of, telegram_peer_of
 from chatter.payments.drill_gate import DRILL_CONTACTS
 # `session_available` зеркалит контракт `telethon_run.build_session` (сначала
 # `.enc`, потом legacy plaintext). Своя проверка «файл на месте» после cutover
@@ -307,9 +308,14 @@ def _drill_ids(slug: str) -> list[int]:
     """
     out: set[int] = set()
     for entry in DRILL_CONTACTS:
-        peer, _, persona = str(entry).partition(":")
-        if persona == slug and peer.strip().lstrip("-").isdigit():
-            out.add(int(peer))
+        try:
+            if slug_of(entry) != slug:
+                continue
+            out.add(telegram_peer_of(entry))
+        except ContactRefError:
+            # Запись канона, которой владелец формы не знает, — это не
+            # «наверное свой»: тестовые активы живым лидам не выдаются.
+            continue
     return sorted(out)
 
 

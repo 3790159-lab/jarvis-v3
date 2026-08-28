@@ -281,7 +281,7 @@ clients: [demo]
 DRILL_SCENARIO = "|".join([
     "name: Ярина стенд (цена)",
     "client: " + SLUG,
-    'contact: "8849893367:yarina"',
+    'contact: "telegram:8849893367:yarina"',
     "steps:",
     '  - say: "Скільки коштує керамічне покриття?"',
     "    expect:",

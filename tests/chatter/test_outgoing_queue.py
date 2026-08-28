@@ -67,8 +67,8 @@ RUNNER_SRC = REPO_ROOT / "chatter" / "telethon_run.py"
 
 # ДВА контакта во всех сценариях, где реализация может оказаться верной для
 # одного и слепой для второго (очередь, перехват, тумблеры, снятие паузы).
-A = "111:demo"
-B = "222:demo"
+A = "telegram:111:demo"
+B = "telegram:222:demo"
 
 # §4 контракта: литеральный набор причин отказа. Выведенный из кода список
 # согласен с кодом по определению ([[jarvis-literal-lists-not-introspection]]).
@@ -291,14 +291,18 @@ def store(tmp_path):
     s = Store(str(tmp_path / "outgoing.db"))
     for cid in (A, B):
         s.get_or_create_contact(cid)
-        _PEER_TO_CONTACT[cid.split(":")[0]] = cid
+        # СЕРЕДИНА, а не голова: голова трёхсегментной формы — это КАНАЛ.
+        _PEER_TO_CONTACT[cid.split(":")[1]] = cid
     yield s
     s.close()
 
 
 def _enqueue(store: Store, contact_id: str, text: str, *, token: str,
              now: float = 1000.0):
-    _PEER_TO_CONTACT[contact_id.split(":")[0]] = contact_id
+    parts = contact_id.split(":")
+    # СЕРЕДИНА трёхсегментной формы — это собеседник; у заведомо мусорного
+    # адресата середины нет, и стенд обязан пережить это, а не упасть сам.
+    _PEER_TO_CONTACT[parts[1] if len(parts) > 2 else parts[0]] = contact_id
     return store.enqueue_outgoing(contact_id, text, token=token, now=now)
 
 
@@ -1315,7 +1319,7 @@ def test_vyklyuchennyi_klient_otkazyvaet_SLOVAMI(store):
     которая не уедет никогда, и держать пробу красной без причины, которую
     можно назвать.
     """
-    verdict, row, sends = _refuse(store, "333:ghost", "клиенту, которого нет",
+    verdict, row, sends = _refuse(store, "telegram:333:ghost", "клиенту, которого нет",
                                   token="tok-disabled")
     _assert_named_refusal(verdict, row, sends, what="задание выключённому клиенту")
 
@@ -1340,7 +1344,7 @@ def test_neznakomyi_dialog_otkazyvaet_SLOVAMI(store):
     с аккаунта клиента, и вернуть такое сообщение нельзя. Отказ обязан быть
     громким и терминальным.
     """
-    verdict, row, sends = _refuse(store, "555:demo", "в незнакомый диалог",
+    verdict, row, sends = _refuse(store, "telegram:555:demo", "в незнакомый диалог",
                                   token="tok-unknown", create_contact=False)
     _assert_named_refusal(verdict, row, sends, what="задание в незнакомый диалог")
 

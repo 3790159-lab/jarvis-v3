@@ -97,9 +97,9 @@ def test_card_maps_saved_message_to_contact_and_survives_restart(tmp_path):
     # Saved Messages, и владелец ответит на неё через час.
     db = tmp_path / "s.db"
     with Store(db) as s:
-        s.add_card(msg_id=555, contact_id="237616472:demo", kind="pause", ts=100.0)
+        s.add_card(msg_id=555, contact_id="telegram:237616472:demo", kind="pause", ts=100.0)
     with Store(db) as s2:
-        assert s2.card_contact(555) == "237616472:demo"
+        assert s2.card_contact(555) == "telegram:237616472:demo"
         assert s2.card_contact(999) is None
 
 
@@ -376,13 +376,13 @@ def test_delete_command_messages_purges_recorded_commands():
     # которые владелец набрал прямо в диалоге лида.
     from chatter.storage.db import Store
     s = Store(":memory:")
-    s.get_or_create_contact("42:demo")
-    s.add_message("42:demo", "user", "привет", ts=1.0)
-    s.add_message("42:demo", "assistant", "Здравствуйте!", ts=2.0)
-    s.add_message("42:demo", "assistant", "/resume", ts=3.0)          # команда в диалоге
-    s.add_message("42:demo", "assistant", "  /pause 1h ", ts=4.0)     # с пробелами
-    s.add_message("42:demo", "assistant", "оплата по ссылке", ts=5.0) # НЕ команда
+    s.get_or_create_contact("telegram:42:demo")
+    s.add_message("telegram:42:demo", "user", "привет", ts=1.0)
+    s.add_message("telegram:42:demo", "assistant", "Здравствуйте!", ts=2.0)
+    s.add_message("telegram:42:demo", "assistant", "/resume", ts=3.0)          # команда в диалоге
+    s.add_message("telegram:42:demo", "assistant", "  /pause 1h ", ts=4.0)     # с пробелами
+    s.add_message("telegram:42:demo", "assistant", "оплата по ссылке", ts=5.0) # НЕ команда
     n = s.delete_command_messages(["/resume", "/pause", "/stop", "/start", "/status", "/help"])
     assert n == 2
-    texts = [m["text"] for m in s.history("42:demo")]
+    texts = [m["text"] for m in s.history("telegram:42:demo")]
     assert texts == ["привет", "Здравствуйте!", "оплата по ссылке"]

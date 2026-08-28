@@ -59,13 +59,13 @@ def test_a_dialog_whose_last_word_is_the_clients_is_named(tmp_path):
     """Ловит: рестарт вслепую. Один диалог, последнее слово клиента — его и
     переответят, и человек обязан узнать об этом ДО подъёма, а не из истории."""
     db = make_db(tmp_path / "c.db", [
-        ("111:yarina", "assistant", 7200, "Зв'яжу вас зі старшим майстром"),
-        ("111:yarina", "user", 3600, "Покажіть договір, будь ласка"),
-    ], contacts=[("111:yarina", "escalated", 0, 0)])
+        ("telegram:111:yarina", "assistant", 7200, "Зв'яжу вас зі старшим майстром"),
+        ("telegram:111:yarina", "user", 3600, "Покажіть договір, будь ласка"),
+    ], contacts=[("telegram:111:yarina", "escalated", 0, 0)])
 
     rows = radius.dialogs_at_risk(db, now=NOW)
 
-    assert [r["contact_id"] for r in rows] == ["111:yarina"], rows
+    assert [r["contact_id"] for r in rows] == ["telegram:111:yarina"], rows
     assert rows[0]["deliberate_silence"] is True, (
         "эскалированный диалог не помечен как молчание ПО РЕШЕНИЮ — а именно "
         "он и стоит дороже всего: ответ идёт поверх человека")
@@ -79,9 +79,9 @@ def test_a_dialog_the_bot_already_answered_is_not_a_risk(tmp_path):
     работающим ровно до первого рестарта, который из-за него не сделали.
     """
     db = make_db(tmp_path / "c.db", [
-        ("222:volska", "user", 5400, "Скільки коштує полірування?"),
-        ("222:volska", "assistant", 5000, "5 000–8 000 грн"),
-    ], contacts=[("222:volska", "active", 0, 0)])
+        ("telegram:222:volska", "user", 5400, "Скільки коштує полірування?"),
+        ("telegram:222:volska", "assistant", 5000, "5 000–8 000 грн"),
+    ], contacts=[("telegram:222:volska", "active", 0, 0)])
 
     assert radius.dialogs_at_risk(db, now=NOW) == []
 
@@ -94,13 +94,13 @@ def test_a_message_older_than_the_catchup_cap_is_not_a_risk(tmp_path):
     меньшее погасит большее молча.
     """
     db = make_db(tmp_path / "c.db", [
-        ("333:yarina", "user", CATCHUP_MAX_AGE_SECONDS + 60, "давнє питання"),
-    ], contacts=[("333:yarina", "escalated", 0, 0)])
+        ("telegram:333:yarina", "user", CATCHUP_MAX_AGE_SECONDS + 60, "давнє питання"),
+    ], contacts=[("telegram:333:yarina", "escalated", 0, 0)])
     assert radius.dialogs_at_risk(db, now=NOW) == []
 
     fresh = make_db(tmp_path / "d.db", [
-        ("333:yarina", "user", CATCHUP_MAX_AGE_SECONDS - 60, "свіже питання"),
-    ], contacts=[("333:yarina", "escalated", 0, 0)])
+        ("telegram:333:yarina", "user", CATCHUP_MAX_AGE_SECONDS - 60, "свіже питання"),
+    ], contacts=[("telegram:333:yarina", "escalated", 0, 0)])
     assert len(radius.dialogs_at_risk(fresh, now=NOW)) == 1
 
 
@@ -145,14 +145,14 @@ def test_paused_and_human_took_over_count_as_deliberate_silence(tmp_path):
     обязано попадать сюда вместе с кодом.
     """
     db = make_db(tmp_path / "c.db", [
-        ("444:yarina", "user", 600, "Ви ще тут?"),
-        ("555:yarina", "user", 600, "Чекаю відповіді"),
-    ], contacts=[("444:yarina", "active", 1, 0), ("555:yarina", "active", 0, 1)])
+        ("telegram:444:yarina", "user", 600, "Ви ще тут?"),
+        ("telegram:555:yarina", "user", 600, "Чекаю відповіді"),
+    ], contacts=[("telegram:444:yarina", "active", 1, 0), ("telegram:555:yarina", "active", 0, 1)])
 
     rows = {r["contact_id"]: r for r in radius.dialogs_at_risk(db, now=NOW)}
 
-    assert rows["444:yarina"]["deliberate_silence"] is True, "пауза не учтена"
-    assert rows["555:yarina"]["deliberate_silence"] is True, "human_took_over не учтён"
+    assert rows["telegram:444:yarina"]["deliberate_silence"] is True, "пауза не учтена"
+    assert rows["telegram:555:yarina"]["deliberate_silence"] is True, "human_took_over не учтён"
 
 
 def test_a_registry_without_an_explicit_db_falls_back_like_the_runner(tmp_path):
@@ -182,8 +182,8 @@ def test_an_unexpired_snooze_is_deliberate_silence(tmp_path):
     поверх снуза, ломает ровно то решение, ради которого кнопку и нажали.
     """
     db = make_db(tmp_path / "c.db", [
-        ("888:yarina", "user", 600, "то що по ціні?"),
-    ], contacts=[("888:yarina", "active", 1, 0, NOW + 1800)])
+        ("telegram:888:yarina", "user", 600, "то що по ціні?"),
+    ], contacts=[("telegram:888:yarina", "active", 1, 0, NOW + 1800)])
 
     rows = radius.dialogs_at_risk(db, now=NOW)
 
@@ -199,8 +199,8 @@ def test_an_expired_snooze_is_not_deliberate_silence(tmp_path):
     для раннера — а это две правды об одном.
     """
     db = make_db(tmp_path / "c.db", [
-        ("999:yarina", "user", 600, "ще актуально?"),
-    ], contacts=[("999:yarina", "active", 1, 0, NOW - 60)])
+        ("telegram:999:yarina", "user", 600, "ще актуально?"),
+    ], contacts=[("telegram:999:yarina", "active", 1, 0, NOW - 60)])
 
     rows = radius.dialogs_at_risk(db, now=NOW)
 
@@ -226,9 +226,9 @@ def test_the_riskiest_dialogs_are_printed_first(tmp_path):
     обязан стоять выше того, где клиент просто ждёт бота.
     """
     db = make_db(tmp_path / "c.db", [
-        ("666:yarina", "user", 300, "просто чекаю"),
-        ("777:yarina", "user", 7200, "передали старшому майстру?"),
-    ], contacts=[("666:yarina", "active", 0, 0), ("777:yarina", "escalated", 0, 0)])
+        ("telegram:666:yarina", "user", 300, "просто чекаю"),
+        ("telegram:777:yarina", "user", 7200, "передали старшому майстру?"),
+    ], contacts=[("telegram:666:yarina", "active", 0, 0), ("telegram:777:yarina", "escalated", 0, 0)])
 
     rows = radius.dialogs_at_risk(db, now=NOW)
-    assert rows[0]["contact_id"] == "777:yarina", [r["contact_id"] for r in rows]
+    assert rows[0]["contact_id"] == "telegram:777:yarina", [r["contact_id"] for r in rows]

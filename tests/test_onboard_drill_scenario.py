@@ -98,7 +98,7 @@ def _canon_contacts() -> frozenset[str]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 SLUG = "yarina"
-CONTACT = "8849893367:yarina"
+CONTACT = "telegram:8849893367:yarina"
 
 OWNER_ID = "Старший майстер"          # именительный: стоит подлежащим
 OWNER_REF = "нашим старшим майстром"  # орудный: только после предлога
@@ -622,7 +622,7 @@ def test_contact_outside_the_drill_lists_is_refused(tmp_path):
     исход, против которого написан `drill_gate.guard_test_asset`. Тихо
     вернуть сценарий с чужим контактом нельзя ни при каких условиях.
     """
-    alien = "237616472:someliveclient"
+    alien = "telegram:237616472:someliveclient"
     assert alien not in DRILL_CONTACTS
     with pytest.raises(Exception) as exc:
         build(tmp_path, contact=alien)

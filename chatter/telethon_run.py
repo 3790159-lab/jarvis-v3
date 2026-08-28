@@ -25,7 +25,13 @@ from chatter.config.yaml_edit import (
 from chatter.config.config_commit import commit_config_file
 from chatter.core import humanizer as H
 from chatter.core.admission import admission_decision
-from chatter.core.contact_ref import telegram_peer_of
+from chatter.core.contact_ref import (
+    TELEGRAM_CHANNEL,
+    ContactRefError,
+    build as build_contact_id,
+    slug_of,
+    telegram_peer_of,
+)
 from chatter.core.brain import Brain
 from chatter.core.config_versions import (
     CONFIG_FILES, latest_version, previous_version, restore, snapshot,
@@ -405,6 +411,18 @@ async def decide_outgoing(msg_id: int, *, registry: SentRegistry, grace_seconds:
         return "ours"
     await asyncio.sleep(grace_seconds)
     return "ours" if registry.is_ours(msg_id) else "human"
+
+
+def _telegram_contact_id(peer_id, persona_slug: str) -> str:
+    """`contact_id` телеграмного диалога — через ЕДИНСТВЕННОГО владельца
+    сборки (`contact_ref.build`), а не f-строкой на месте.
+
+    Семь f-строк этого файла знали форму наизусть. f-строка не бросает
+    никогда, значит в день смены формата они разъехались бы МОЛЧА — и
+    разъехались бы на адресации, то есть на «сообщение не тому человеку».
+    """
+    return build_contact_id(channel=TELEGRAM_CHANNEL,
+                            external_id=str(peer_id), persona=persona_slug)
 
 
 def open_human_takeover(store, contact_id: str, *, msg_id, detail: str,
@@ -1264,10 +1282,10 @@ class TelethonRunner:
         мусоре (спека §3)."""
         peer_id = event.chat_id
         if peer_id in self.allowlist:
-            return f"{peer_id}:{self.persona_for(peer_id)}"
+            return _telegram_contact_id(peer_id, self.persona_for(peer_id))
         store = self.primary_store()
         for slug in self.personas:
-            cid = f"{peer_id}:{slug}"
+            cid = _telegram_contact_id(peer_id, slug)
             if store.has_contact(cid):
                 return cid
         return None
@@ -1554,7 +1572,7 @@ class TelethonRunner:
             # видно только в логе.
             log.warning("resolve_target: не смог разрешить %r", cmd.target, exc_info=True)
             return None, None
-        return f"{entity.id}:{self.persona_for(entity.id)}", None
+        return _telegram_contact_id(entity.id, self.persona_for(entity.id)), None
 
     async def render_status(self) -> str:
         """Собрать PauseView-ы (единственное место, где для /status нужен
@@ -1687,7 +1705,8 @@ class TelethonRunner:
         # нет. Пишем ДО дебаунсера, чтобы имя было уже на первом ходу.
         remember_display_name(
             self.personas[persona_slug].deps.store,
-            f"{sender_id}:{persona_slug}", getattr(event, "sender", None),
+            _telegram_contact_id(sender_id, persona_slug),
+            getattr(event, "sender", None),
             user_id=sender_id)
         deb = self._debouncers.get(chat_id)
         if deb is None or deb.task is None or deb.task.done():
@@ -1700,7 +1719,7 @@ class TelethonRunner:
         t = bundle.cfg.settings.timings
 
         async def _on_ready(batch: list[str]) -> None:
-            contact_id = f"{sender_id}:{persona_slug}"
+            contact_id = _telegram_contact_id(sender_id, persona_slug)
             transport = TelethonTransport(self.client, peer, self.loop, sent_registry=self.sent_registry)
             bundle.deps.store.get_or_create_contact(contact_id)  # process_batch assumes the row exists
             log.info("process START %s batch=%r", contact_id, batch)
@@ -1783,7 +1802,8 @@ class TelethonRunner:
         try:
             persona_slug = self.persona_for(sender_id)
             store = self.personas[persona_slug].deps.store
-            row = store.get_or_create_contact(f"{sender_id}:{persona_slug}")
+            row = store.get_or_create_contact(
+                _telegram_contact_id(sender_id, persona_slug))
         except Exception:
             log.exception("catch-up: состояние контакта %s не прочиталось — "
                           "считаю диалог обычным", sender_id)
@@ -1853,7 +1873,7 @@ class TelethonRunner:
     async def _process_missed(self, mm: MissedMessage) -> None:
         persona_slug = self.persona_for(mm.sender_id)
         bundle = self.personas[persona_slug]
-        contact_id = f"{mm.sender_id}:{persona_slug}"
+        contact_id = _telegram_contact_id(mm.sender_id, persona_slug)
         peer = await self.client.get_input_entity(mm.sender_id)
         transport = TelethonTransport(self.client, peer, self.loop, sent_registry=self.sent_registry)
         bundle.deps.store.get_or_create_contact(contact_id)
@@ -1968,13 +1988,15 @@ async def deliver_outgoing(runner: "TelethonRunner", row: dict, *, now: float) -
     contact_id = str(row.get("contact_id") or "")
     text = (row.get("text") or "").strip()
     try:
-        # contact_id — это "<peer_id>:<slug>" (одна форма на всё дерево, см.
-        # `contact_id_for_chat`). Разбор строгий: битый id означает, что
-        # адресата у задания нет, и отправлять его некуда НИКОГДА.
-        peer_part, _, slug = contact_id.rpartition(":")
+        # Разбор — через ЕДИНСТВЕННОГО владельца формы (`contact_ref`), а
+        # не своим `rpartition`: на трёхсегментной форме голова — это
+        # КАНАЛ, и `int("telegram:111")` бросал бы всегда. Отказ остаётся
+        # fail-closed: битый id означает, что адресата у задания нет, и
+        # отправлять его некуда НИКОГДА.
         try:
-            peer_id = int(peer_part)
-        except ValueError:
+            peer_id = telegram_peer_of(contact_id)
+            slug = slug_of(contact_id)
+        except ContactRefError:
             raise Refusal(
                 "unknown_contact",
                 "адресат не определяется: id диалога %r не разбирается на "
@@ -2045,8 +2067,16 @@ async def deliver_outgoing(runner: "TelethonRunner", row: dict, *, now: float) -
         # отправка из панели по транспорту НАША, и без регистрации раннер
         # опознал бы её как чужое исходящее — поднял бы вторую атрибуцию и
         # карточку на сообщение, которое сам же отправил по кнопке владельца.
+        # Петля ЖИВОГО цикла, а не `runner.loop`: транспорт синхронный и
+        # маршалит вызов обратно через `run_coroutine_threadsafe`, а тот на
+        # НЕ ЗАПУЩЕННОЙ петле ждёт вечно и БЕЗ таймаута. `deliver_outgoing`
+        # исполняется задачей той самой петли, на которой живёт клиент, —
+        # значит спросить её у рантайма и вернее, и безопаснее: атрибут,
+        # разошедшийся с реальной петлёй, дал бы вечное зависание доставки,
+        # то есть тишину с возрастом вместо отказа.
         transport = TelethonTransport(
-            runner.client, peer, runner.loop, sent_registry=runner.sent_registry)
+            runner.client, peer, asyncio.get_running_loop(),
+            sent_registry=runner.sent_registry)
         try:
             # to_thread по той же причине, что и в `handle_event`: транспорт
             # синхронный и блокирующий, а мы на event loop.

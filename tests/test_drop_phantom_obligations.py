@@ -151,13 +151,13 @@ def test_delete_refuses_a_contact_outside_the_drill_allowlist(tmp_path, capsys):
     """Жёсткое удаление — только на дрил-контакте. На живом клиенте это стирание
     его истории обязательств, и такого рычага у скрипта быть не должно."""
     mod = _load()
-    db = _db(tmp_path / "d.db", [("777:realclient", "recalc", "recalc", "bot",
+    db = _db(tmp_path / "d.db", [("telegram:777:realclient", "recalc", "recalc", "bot",
                                   "open", "прорахунок")])
-    rc = mod.main([db, "--contact", "777:realclient", "--apply", "--delete",
+    rc = mod.main([db, "--contact", "telegram:777:realclient", "--apply", "--delete",
                    "--okey", "recalc"])
     out = capsys.readouterr().out
     assert rc == 2, "удаление на чужом контакте обязано быть отказано"
-    assert "recalc" in _statuses(db, "777:realclient"), "строка обязана уцелеть"
+    assert "recalc" in _statuses(db, "telegram:777:realclient"), "строка обязана уцелеть"
     assert "дрил" in out.lower()
 
 

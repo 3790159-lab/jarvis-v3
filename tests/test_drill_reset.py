@@ -17,8 +17,8 @@ from pathlib import Path
 _SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 _SCRIPT = _SCRIPTS / "drill_reset.py"
 
-DRILL = "237616472:volska"
-CLIENT = "999:acme"
+DRILL = "telegram:237616472:volska"
+CLIENT = "telegram:999:acme"
 
 
 def _load(path: Path, name: str):

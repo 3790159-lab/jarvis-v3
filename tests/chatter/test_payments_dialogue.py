@@ -20,8 +20,8 @@ from chatter.storage.db import Store
 
 KYIV = ZoneInfo("Europe/Kyiv")
 NOW = 1_786_000_000.0                     # чт 2026-08-06 10:06 Киев
-LIVE = "555000111:volska"
-DRILL = "237616472:volska"                # из DRILL_CONTACTS
+LIVE = "telegram:555000111:volska"
+DRILL = "telegram:237616472:volska"                # из DRILL_CONTACTS
 KNOWLEDGE = "Логотип: $300–$400."
 IBAN = "IBAN UA00 1111 2222"
 

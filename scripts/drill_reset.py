@@ -42,8 +42,9 @@ import sys
 # Суффикс — ПЕРСОНА, а не аккаунт: тот же тестовый аккаунт под демо-составом
 # yarina даёт другой contact_id, и без него авто-лид отказывается работать
 # (`drill_runner.py:507`). Добавлено 14.08 под демо третьего клиента.
-DRILL_CONTACTS = frozenset({"237616472:volska", "8849893367:volska",
-                            "8849893367:yarina"})
+DRILL_CONTACTS = frozenset({"telegram:237616472:volska",
+                            "telegram:8849893367:volska",
+                            "telegram:8849893367:yarina"})
 
 # Что стирается. `facts` и `contact_profile` — то, из-за чего `profile_contains`
 # зеленеет за счёт прошлых прогонов; `console_cards` — карточки, чьи msg_id

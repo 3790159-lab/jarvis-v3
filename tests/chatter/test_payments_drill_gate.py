@@ -17,8 +17,8 @@ import pytest
 
 from chatter.payments.drill_gate import DRILL_CONTACTS, NotForProduction, guard_test_asset
 
-LIVE = "555000111:volska"          # живой лид, не дрил
-DRILL = "8849893367:volska"        # дрил-контакт из канона
+LIVE = "telegram:555000111:volska"          # живой лид, не дрил
+DRILL = "telegram:8849893367:volska"        # дрил-контакт из канона
 
 
 def test_drill_set_is_explicit_and_small():
@@ -54,7 +54,7 @@ def test_gate_refuses_live_contact_loudly():
 
 def test_gate_refuses_empty_or_unknown_contact():
     """Пустой contact_id не должен считаться «ну наверное дрил»."""
-    for cid in ("", None, "8849893367", "8849893367:demo"):
+    for cid in ("", None, "8849893367", "telegram:8849893367:demo"):
         with pytest.raises(NotForProduction):
             guard_test_asset(contact_id=cid, what="заглушка объёма")
 

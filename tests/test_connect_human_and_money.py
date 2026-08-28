@@ -98,6 +98,7 @@ import yaml
 # вторая копия разъехалась бы с первой, и сторож зеленел бы на своей копии —
 # ровно то, что уже месяц ловил `tests/test_drill_contacts_sync.py`.
 from chatter.core import drill
+from chatter.core.contact_ref import telegram_peer_of
 from chatter.payments.drill_gate import DRILL_CONTACTS
 
 # Каталог клиента берётся у сторожей T4, а не пишется заново, по той же причине.
@@ -138,9 +139,13 @@ NEIGHBOUR_SLUG = "volska"
 FOREIGN_SLUG = "demo"                # третий слаг: только для «чужого» маркера
 
 OWNER_CHAT_ID = 700000001            # владелец: синтетический id, не живой
-DRILL_IDS = frozenset(int(c.split(":", 1)[0]) for c in DRILL_CONTACTS)
+# Голова contact_id берётся ВЛАДЕЛЬЦЕМ, а не срезом: на форме
+# `telegram:<id>:<persona>` срез по первому двоеточию даёт "telegram", и
+# `int()` от него роняет модуль НА СБОРЕ — то есть уносит с собой всю суиту,
+# а не свой файл (замер 28.08: одна эта строка обрывала прогон целиком).
+DRILL_IDS = frozenset(telegram_peer_of(c) for c in DRILL_CONTACTS)
 CLIENT_DRILL_IDS = frozenset(
-    int(c.split(":", 1)[0]) for c in DRILL_CONTACTS if c.endswith(f":{SLUG}"))
+    telegram_peer_of(c) for c in DRILL_CONTACTS if c.endswith(f":{SLUG}"))
 
 
 def client_drill_contact(slug: str = SLUG) -> str:
@@ -559,7 +564,7 @@ def write_lead_peers(root: Path, peer: int | None = None) -> Path:
     необратимо. Тот же id лежит в allowlist мира: два числа на одну вещь
     разъехались бы молча.
     """
-    peer = int(client_drill_contact().split(":", 1)[0]) if peer is None else peer
+    peer = telegram_peer_of(client_drill_contact()) if peer is None else peer
     path = root / ".secrets" / "drill_lead_peers.txt"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(f"# дрил-контакт стенда, единственный разрешённый получатель\n"

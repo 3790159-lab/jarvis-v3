@@ -80,8 +80,8 @@ EXPECTED_REASONS = ("no_instance", "no_bind_address", "no_response",
 
 KEY = "yarina-panel-key"
 SLUG = "yarina"
-A = "111:yarina"
-B = "222:yarina"
+A = "telegram:111:yarina"
+B = "telegram:222:yarina"
 HOST = "100.102.179.47"
 PORT = ow.PANEL_CLIENT_PORT
 DAY = 86400.0

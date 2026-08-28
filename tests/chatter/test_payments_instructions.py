@@ -20,8 +20,8 @@ from chatter.payments.instructions import (
     load_requisites, resolve_instruction,
 )
 
-LIVE = "555000111:volska"
-DRILL = "8849893367:volska"
+LIVE = "telegram:555000111:volska"
+DRILL = "telegram:8849893367:volska"
 
 IBAN = Channel(id="iban_eur", kind="bank_transfer", mode="manual", currency="EUR",
                requisites_template="iban_eur", display="Банківський переказ (EUR)")
@@ -107,7 +107,7 @@ def test_unknown_template_key_is_a_config_error_not_a_silent_skip():
 
 # ── инвариант, который должен пережить любые правки ────────────────────────
 
-@pytest.mark.parametrize("contact_id", [LIVE, DRILL, "237616472:volska", "1:volska"])
+@pytest.mark.parametrize("contact_id", [LIVE, DRILL, "telegram:237616472:volska", "telegram:1:volska"])
 @pytest.mark.parametrize("book", [BOOK_BOTH, BOOK_TEST_ONLY, BOOK_CLIENT_ONLY, BOOK_EMPTY])
 def test_source_test_implies_drill_contact(contact_id, book):
     """Перебор всех сочетаний: если инструкция подписана как тестовая, контакт

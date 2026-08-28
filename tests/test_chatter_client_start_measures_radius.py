@@ -72,7 +72,7 @@ def _enabled(root: Path) -> str:
 
 def test_start_refuses_when_catchup_would_answer_over_a_human(tmp_path):
     """Ловит: подъём вслепую поверх диалога, который ведёт человек."""
-    root = _root(tmp_path, [("42:demoklient", "user", 3600, "Покажіть договір", "escalated")])
+    root = _root(tmp_path, [("telegram:42:demoklient", "user", 3600, "Покажіть договір", "escalated")])
 
     run = _run(root, "-Slug", "demoklient", "-Action", "start")
 
@@ -86,7 +86,7 @@ def test_start_refuses_when_catchup_would_answer_over_a_human(tmp_path):
 
 def test_start_goes_through_when_there_is_nothing_to_re_answer(tmp_path):
     """Парная: замер, который запрещает ВСЁ, будет обойден в первый же вечер."""
-    root = _root(tmp_path, [("42:demoklient", "assistant", 3600, "5 000 грн", "active")])
+    root = _root(tmp_path, [("telegram:42:demoklient", "assistant", 3600, "5 000 грн", "active")])
 
     run = _run(root, "-Slug", "demoklient", "-Action", "start")
 
@@ -96,7 +96,7 @@ def test_start_goes_through_when_there_is_nothing_to_re_answer(tmp_path):
 
 def test_force_lifts_the_refusal_and_says_so(tmp_path):
     """Ловит: тихий обход. -Force обязан оставлять след в выводе."""
-    root = _root(tmp_path, [("42:demoklient", "user", 60, "алло?", "escalated")])
+    root = _root(tmp_path, [("telegram:42:demoklient", "user", 60, "алло?", "escalated")])
 
     run = _run(root, "-Slug", "demoklient", "-Action", "start", "-Force")
 
@@ -141,7 +141,7 @@ def test_stop_does_not_measure_anything(tmp_path):
     никого, и запрет на неё означал бы, что клиента нельзя выключить, пока
     кто-то ждёт ответа. Это ровно наоборот тому, что нужно.
     """
-    root = _root(tmp_path, [("42:demoklient", "user", 600, "алло?", "escalated")])
+    root = _root(tmp_path, [("telegram:42:demoklient", "user", 600, "алло?", "escalated")])
 
     run = _run(root, "-Slug", "demoklient", "-Action", "stop")
 
