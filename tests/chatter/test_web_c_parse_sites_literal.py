@@ -392,6 +392,34 @@ def _colon_parse_hits() -> dict[str, list[str]]:
     """
     hits: dict[str, list[str]] = {}
 
+    def _docstrings(tree):
+        """`id()` узлов-ДОКСТРИНГОВ модуля, классов и функций.
+
+        Форма (4) ловит любую строковую константу, где рядом стоят
+        `contact_id` и слово LIKE, — то есть ловит и ПРОЗУ. Замер 29.08:
+        комментарий, объясняющий, почему запрос по старой таблице роняет
+        миграцию, был засчитан ТРИНАДЦАТЫМ местом разбора.
+
+        Докстринг не исполняется никогда и SQL-ом не бывает. Сторож,
+        краснеющий на объяснении самого себя, учит ровно одному — не
+        объяснять ([[jarvis-checks-that-answer-the-wrong-question]]).
+        Исключается РОВНО докстринг (первый оператор модуля, класса или
+        функции); любая другая строковая константа судится как прежде.
+        """
+        out = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.Module, ast.ClassDef,
+                                     ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            body = getattr(node, 'body', None)
+            if not body:
+                continue
+            first = body[0]
+            if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant):
+                if isinstance(first.value.value, str):
+                    out.add(id(first.value))
+        return out
+
     def add(rel, funcs, node, receiver: str, what: str):
         key = "%s || %s" % (_site(rel, funcs, node.lineno), receiver)
         hits.setdefault(key, []).append("%s L%d" % (what, node.lineno))
@@ -400,6 +428,7 @@ def _colon_parse_hits() -> dict[str, list[str]]:
         rel = path.relative_to(REPO_ROOT).as_posix()
         tree = _parse(path)
         funcs = _enclosing(tree)
+        docs = _docstrings(tree)
         for n in ast.walk(tree):
             # (1) строковые формы с разделителем-двоеточием
             if (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
@@ -426,7 +455,8 @@ def _colon_parse_hits() -> dict[str, list[str]]:
                         add(rel, funcs, n, ast.unparse(subj),
                             "регулярка .%s" % n.func.attr)
             # (4) SQL LIKE по contact_id
-            if isinstance(n, ast.Constant) and isinstance(n.value, str):
+            if isinstance(n, ast.Constant) and isinstance(n.value, str) \
+                    and id(n) not in docs:
                 if "contact_id" in n.value and re.search(r"\bLIKE\b", n.value, re.I):
                     add(rel, funcs, n, "SQL", "SQL LIKE")
     return hits
