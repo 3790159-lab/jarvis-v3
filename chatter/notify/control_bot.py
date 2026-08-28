@@ -20,7 +20,8 @@ import logging
 from dataclasses import dataclass
 
 from chatter.core.console import (
-    cfg_text, console_text, contact_link, parse_allow_command, parse_config_command,
+    cfg_text, console_text, contact_link, dialog_link, parse_allow_command,
+    parse_config_command,
 )
 from chatter.core.escalation import esc_active_key
 from chatter.core.obligations_slot import invoice_slug, merge_obligations
@@ -198,7 +199,12 @@ def route_callback(data: str, *, store, now: float, language: str, snooze_second
         store.add_event("escalation_kept", contact_id=contact_id, ts=now)
         fb = console_text("fb_kept", language, persona=persona)
     elif action is Action.OPEN:
-        link = contact_link(user_id=_peer_of(contact_id))
+        # Ссылку строит ОДНО место на дерево (`console.dialog_link`): для
+        # телеграмного контакта она остаётся телеграмной, для любого другого
+        # канала ведёт на страницу диалога в панели. Прежний прямой
+        # `contact_link` отправлял бы владельца в `tg://` из веб-диалога —
+        # спека 2026-08-28 §5 п.15.
+        link = dialog_link(contact_id)
         fb = console_text("fb_open", language, link=link)
     else:  # pragma: no cover - Action исчерпан выше
         fb = console_text("fb_unknown", language)

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import html
 import re
+from urllib.parse import quote
 from dataclasses import dataclass
 
 GLOBAL_COMMANDS = frozenset({"status", "stop", "start", "help"})
@@ -158,6 +159,53 @@ def display_name(
     if username:
         return f"@{escape_html(username)}"
     return escape_html(str(user_id))
+
+
+# Адрес страницы диалога в клиентской панели (спека 2026-08-28 §2.7).
+# ОДНО место на дерево: и роутер, который эту страницу отдаёт, и ссылка ниже,
+# которая на неё ведёт, собираются из этой константы. Два адреса на одну
+# страницу разъезжаются в день переименования, и ссылка ведёт в 404 молча.
+DIALOG_PATH_PREFIX = "/panel/tamapi/d/"
+
+
+def dialog_path(contact_id: str) -> str:
+    """Адрес диалога в панели. Канало-независим по построению."""
+    return DIALOG_PATH_PREFIX + quote(str(contact_id), safe="")
+
+
+def dialog_link(contact_id: str, *, username: str | None = None) -> str:
+    """Ссылка «открыть диалог» — та, по которой владелец действительно попадёт
+    в переписку (спека 2026-08-28 §5 п.15).
+
+    🔴 ТЕЛЕГРАМНАЯ ССЫЛКА — ТОЛЬКО ДЛЯ ТЕЛЕГРАМНОГО КАНАЛА. `t.me/<username>`
+    и `tg://user?id=` адресуют аккаунт в Telegram; для контакта любого другого
+    канала они ведут в никуда, а разбираться владелец пойдёт с Telegram —
+    то есть ошибка ещё и уводит в сторону.
+
+    §2.7 отложила правку самой карточки пульта, и обоснование отсрочки —
+    условие, а не «потом»: сегодня ссылка врёт ТОЛЬКО для не-телеграмных
+    контактов, а их в базах не существует до волны 3. Эта функция и есть тот
+    день, когда отсрочка кончается: как только контакт с другим каналом
+    появился, ссылка ведёт в панель, где страница диалога уже построена.
+
+    Сравнение с названием канала живёт ЗДЕСЬ, а не в ядре доставки, и это
+    граница по смыслу: ссылка — вещь по определению канальная (у Telegram своя
+    схема URL), а доставка — нет. В ядре такое сравнение было бы признаком
+    провала (§2.1); здесь его отсутствие означало бы, что мы шлём владельца в
+    `tg://` из веб-диалога.
+    """
+    from chatter.core.channel_ref import TELEGRAM, channel_of
+    from chatter.core.contact_ref import ContactRefError, peer_label_of
+    try:
+        channel = channel_of(contact_id)
+    except ContactRefError:
+        # Форму, которой не знаем, телеграмной НЕ объявляем: молчаливое
+        # «наверное, это telegram» — ровно тот правдоподобный мусор, ради
+        # которого писался `contact_ref`. Адрес панели честно покажет отказ.
+        return dialog_path(contact_id)
+    if channel != TELEGRAM:
+        return dialog_path(contact_id)
+    return contact_link(username=username, user_id=peer_label_of(contact_id))
 
 
 def contact_link(*, username: str | None = None, user_id: int | str | None = None) -> str:

@@ -13,13 +13,14 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Form, Query, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from app.routers.panels_auth import require_owner
 from app.routers.panels_ui import (ago, delta_html, esc, leads_waiting,
                                    line_chart, page, plural_dialogs)
 from app.services import tamapi_metrics as M
+from chatter.core.console import DIALOG_PATH_PREFIX as console_dialog_prefix
 
 router = APIRouter(prefix="/panel/tamapi", tags=["tamapi-dashboard"],
                    dependencies=[Depends(require_owner)])
@@ -683,6 +684,132 @@ async def dynamics(request: Request,
 <div style='margin-top:16px'><a href='/panel/tamapi'>← Головний</a></div>
 """
     return HTMLResponse(page("TAMAPI — динаміка", body))
+
+
+# ------------------------------------------------- страница ОДНОГО диалога
+#
+# Спека 2026-08-28 §2.7: адрес диалога создаёт пара D. Ручка `POST
+# /api/outgoing` живёт в дереве с 25.08 и до сих пор осталась без кнопки
+# ровно потому, что кнопке негде было находиться: у дашборда четыре ручки и
+# ни одной страницы разговора. Пульт — ПОТРЕБИТЕЛЬ этого адреса
+# (`console.dialog_link`), а не его предусловие.
+
+# Личность НАЖАТИЯ (§2.5). Рождается на СОСТАВЛЕНИЕ сообщения — то есть на
+# рендер формы, а не на страницу и не на контакт: очистил поле, набрал заново
+# — новый токен. Текст в ключ не входит намеренно: два одинаковых «Добрый
+# день» — это два сообщения, и оба обязаны уйти.
+#
+# 🔴 СЛУЧАЙНЫЙ, А НЕ СЧЁТЧИК И НЕ ВРЕМЯ. Строка очереди НЕ УДАЛЯЕТСЯ НИКОГДА
+# (§2.5 п.4), значит и токен живёт вечно: счётчик или время с секундной
+# точностью через месяц молча «продублируют» чужое задание, и панель ответит
+# «уже поставлено» на сообщение, которого владелец не отправлял.
+_FORM_TOKEN_BYTES = 18
+
+# Адрес страницы — ОДИН на дерево и лежит он в `chatter/core/console.py`,
+# потому что оттуда же на него ссылается пульт. Здесь он не переписывается, а
+# вычитается: два литерала «/d/» разъехались бы в день переименования, и
+# ссылка владельца вела бы в 404 молча ([[jarvis-two-numbers-for-one-thing]]).
+if not console_dialog_prefix.startswith(router.prefix + "/"):
+    raise RuntimeError(
+        "адрес диалога %r больше не лежит под префиксом роутера %r: ссылка "
+        "пульта и страница разъехались"
+        % (console_dialog_prefix, router.prefix))
+_DIALOG_ROUTE = console_dialog_prefix[len(router.prefix):] + "{contact_id}"
+
+
+def _form_token() -> str:
+    import secrets
+    return secrets.token_urlsafe(_FORM_TOKEN_BYTES)
+
+
+def _dialog_line_html(m: dict) -> str:
+    """Одна реплика ленты. `author` живёт РЯДОМ с ролью, а не вместо неё."""
+    role = m.get("role") or ""
+    author = m.get("author") or ""
+    who = "Ви" if author == "human" else ("Лід" if role == "user" else "Бот")
+    tone = "wait" if role == "user" else ""
+    return ("<div class='row %s'><b>%s</b> <span class='sub'>%s</span>"
+            "<div>%s</div></div>"
+            % (tone, esc(who), esc(ago(m.get("ts"))), esc(m.get("text"))))
+
+
+@router.get(_DIALOG_ROUTE, response_class=HTMLResponse)
+async def dialog_screen(contact_id: str):
+    """Лента ОДНОГО разговора и поле ввода под ней.
+
+    🔴 FAIL-CLOSED ПО АДРЕСУ (§5 п.13). Чужой `contact_id` — чужой слуг либо
+    контакт, которого в этой базе нет, — получает ОТКАЗ, а не пустую ленту.
+    Пустая лента здесь хуже отказа вдвойне: она выглядит как «диалог пуст», то
+    есть врёт молча и приглашает написать в него из формы. Цена ошибки —
+    показ чужой переписки, и она та же, что в §3.1 спеки веба.
+
+    Слуг сверяется с `TAMAPI_SLUG` этого инстанса, а не с «каким-нибудь
+    известным»: ключ от клиентской панели у клиентки, и адресная строка — это
+    ровно тот способ увидеть чужое, который не требует ни ключа соседа, ни
+    ошибки в коде.
+    """
+    from chatter.core import outgoing as delivery
+    from chatter.core.channel_ref import slug_of
+    from chatter.core.contact_ref import ContactRefError
+    from chatter.storage.db import Store
+
+    def _closed() -> HTTPException:
+        # Одна и та же формулировка на все три причины: «не ваш диалог»
+        # НАМЕРЕННО не рассказывает, существует ли такой контакт у соседа.
+        return HTTPException(404, "діалог не знайдено")
+
+    try:
+        slug = slug_of(contact_id)
+    except ContactRefError:
+        raise _closed() from None
+    if slug != _slug():
+        raise _closed()
+
+    # `with`, а не голый `Store(...)`: панель живёт неделями, и открытие
+    # страницы не имеет права оставлять за собой хэндл файла БД (DEV-48 §1.2).
+    with Store(_db_path()) as store:
+        if not store.has_contact(contact_id):
+            raise _closed()
+        lenta = store.history(contact_id, limit=200)
+
+    cfg = _cfg()
+    lang = cfg.settings.language if cfg else "uk"
+
+    # ТА ЖЕ функция, которой спрашивает ядро доставки ПЕРЕД отправкой (§2.6).
+    # Зовётся через модуль, а не импортированным именем: подмена `can_send_now`
+    # обязана менять ОБА ответа — и предупреждение здесь, и слова отказа в
+    # строке очереди. Иначе это две реализации одного вопроса, и меньшая
+    # погасит большую молча.
+    refusal = delivery.can_send_now(contact_id)
+    if refusal is None:
+        warn_html = ""
+        disabled = ""
+    else:
+        # Fail-closed на доставке — это ПОЗДНО: человек уже набрал текст.
+        # Поэтому причина называется ДО поля ввода и ТЕМИ ЖЕ словами.
+        warn_html = ("<div class='card'><div class='k'>Написати не можна</div>"
+                     "<div class='sub'>%s</div></div>" % esc(refusal.human))
+        disabled = " disabled"
+
+    token = _form_token()
+    body = (
+        "<div class='wrap'>"
+        "<h1>Діалог %s</h1>"
+        "<div class='sub'><a href='/panel/tamapi'>← до головного</a></div>"
+        "%s"
+        "<div class='card'>%s</div>"
+        "<div class='card'>"
+        "<form method='post' action='/api/outgoing'>"
+        "<input type='hidden' name='contact_id' value='%s'>"
+        "<input type='hidden' name='event_token' value='%s'>"
+        "<textarea name='text' rows='3' style='width:100%%'></textarea>"
+        "<button type='submit'%s>Надіслати</button>"
+        "</form></div></div>"
+        % (esc(contact_id), warn_html,
+           "".join(_dialog_line_html(m) for m in lenta) or
+           "<div class='sub'>поки порожньо</div>",
+           esc(contact_id), esc(token), disabled))
+    return HTMLResponse(page("TAMAPI — діалог", body, lang=lang))
 
 
 # ------------------------------------------------------------------ действия
