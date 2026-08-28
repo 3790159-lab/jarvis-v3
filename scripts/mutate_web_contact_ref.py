@@ -44,7 +44,7 @@ RUN = "chatter/run.py"
 TR = "chatter/telethon_run.py"
 
 G = "tests/test_contact_ref.py"
-GA = "tests/test_contact_ref_no_raw_split.py"
+GA = "tests/test_no_raw_contact_id_split.py"
 
 MUTATIONS = [
     # ── §2.5 форма опознаётся по ЧИСЛУ сегментов, лишнее ОТВЕРГАЕТСЯ ──────
