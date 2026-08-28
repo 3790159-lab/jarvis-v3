@@ -2743,6 +2743,56 @@ def _outgoing_payload_problem(payload) -> str:
     return ""
 
 
+def probe_public_door(snapshot: dict) -> dict:
+    """Публичная дверь: жива ли, и — главное — ОТКАЗЫВАЕТ ли чужому.
+
+    Аргумент — СНИМОК, одним позиционным словарём (форма та же, что у
+    `probe_outgoing`: россыпь именованных уже стоила ложного вердикта на
+    здоровой панели):
+
+        {"enabled": <bool>, "host": <str|None>, "port": <int|None>,
+         "no_token_status": <int|None>}
+
+    `no_token_status` — код, которым дверь ответила на запрос БЕЗ токена.
+
+    🔴 ГЛАВНОЕ ПРО ЭТУ ПРОБУ. Проверять «дверь отвечает» здесь недостаточно:
+    такая лампа зелена и у РАСПАХНУТОЙ двери. Поэтому меряем не живость, а
+    отказ: дверь обязана ответить чужому `401`.
+
+    Исходов пять:
+
+    * `off` — ключа нет, двери не существует. Это НОРМАЛЬНОЕ состояние, а не
+      красное: до включения владельцем дверь и не должна существовать. Зелёное
+      с причиной — тот же приём, что у `drill_ok`;
+    * `no_address` — дверь объявлена включённой, а адреса нет: мерить нечем;
+    * `no_response` — на адресе никто не слушает;
+    * `door_refuses_strangers` — ответила `401`. ЕДИНСТВЕННОЕ зелёное «по делу»;
+    * `door_accepts_without_token` — ответила `2xx` на запрос БЕЗ токена.
+      Это не «лампа покраснела», это чужой уже может писать в диалоги клиента.
+      Отдельной причиной от `http:<код>` намеренно: у них разная срочность и
+      разный первый шаг.
+    """
+    if not snapshot.get("enabled"):
+        return {"ok": True, "reason": "off"}
+    if not snapshot.get("host") or not snapshot.get("port"):
+        return {"ok": False, "reason": "no_address",
+                "detail": "дверь включена, а адреса для проверки нет"}
+    status = snapshot.get("no_token_status")
+    if status is None:
+        return {"ok": False, "reason": "no_response",
+                "detail": "дверь включена, на %s:%s никто не слушает"
+                          % (snapshot.get("host"), snapshot.get("port"))}
+    status = int(status)
+    if status == 401:
+        return {"ok": True, "reason": "door_refuses_strangers"}
+    if 200 <= status < 300:
+        return {"ok": False, "reason": "door_accepts_without_token",
+                "detail": "дверь приняла запрос БЕЗ токена (ответ %d): чужой "
+                          "может писать в диалоги клиента ПРЯМО СЕЙЧАС" % status}
+    return {"ok": False, "reason": "http:%d" % status,
+            "detail": "дверь ответила %d там, где ждали 401" % status}
+
+
 def probe_outgoing(snapshot: dict) -> dict:
     """Восемнадцатая проверка (нумерация контракта арки), ПЕР-КЛИЕНТНАЯ:
     уехало ли то, что владелец отправил из панели.
