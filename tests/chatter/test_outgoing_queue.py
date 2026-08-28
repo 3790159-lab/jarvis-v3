@@ -64,6 +64,9 @@ from chatter.transport.telethon_tg import SentRegistry
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CLIENTS_DIR = REPO_ROOT / "chatter" / "clients"
 RUNNER_SRC = REPO_ROOT / "chatter" / "telethon_run.py"
+# Второй владелец договора после пары D (28.08): ядро доставки. Оба
+# AST-сторожа ниже считают радиус по ОБОИМ файлам — см. их докстринги.
+CORE_OUTGOING_SRC = REPO_ROOT / "chatter" / "core" / "outgoing.py"
 
 # ДВА контакта во всех сценариях, где реализация может оказаться верной для
 # одного и слепой для второго (очередь, перехват, тумблеры, снятие паузы).
@@ -759,16 +762,25 @@ def test_begin_takeover_zovyotsya_ROVNO_IZ_ODNOGO_MESTA():
     быть не должно (буква «И» в комментарии уже делала пойманную мутацию
     слепой, [[jarvis-mutation-gate-lies-third-way-cp1251]]).
     """
-    tree = ast.parse(RUNNER_SRC.read_text(encoding="utf-8"))
     callers: set[str] = set()
-    for node in ast.walk(tree):
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
-        for inner in ast.walk(node):
-            if (isinstance(inner, ast.Call)
-                    and isinstance(inner.func, ast.Attribute)
-                    and inner.func.attr == "begin_takeover"):
-                callers.add(node.name)
+    # 🔴 РАДИУС СЧИТАЕТСЯ ПО ДЕРЕВУ, А НЕ ПО ОДНОМУ ФАЙЛУ (правка 28.08, пара
+    # D). `open_human_takeover` переехала в `chatter/core/outgoing.py`: внутри
+    # неё ровно две операции над `Store` и ни строки транспорта, а ядру
+    # доставки, которое Telethon не импортирует, звать её из телеграмного
+    # раннера было бы нечем. Сторож, оставшийся смотреть ТОЛЬКО в раннер,
+    # покраснел бы на переезде («зовут ниоткуда») — то есть проверял бы
+    # адрес, а не договор. Договор прежний и здесь усилен: точка на дерево
+    # ОДНА, и неважно, в каком из двух файлов она живёт.
+    for src_path in (RUNNER_SRC, CORE_OUTGOING_SRC):
+        tree = ast.parse(src_path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for inner in ast.walk(node):
+                if (isinstance(inner, ast.Call)
+                        and isinstance(inner.func, ast.Attribute)
+                        and inner.func.attr == "begin_takeover"):
+                    callers.add(node.name)
     assert callers == {"open_human_takeover"}, (
         "`begin_takeover` зовут из %s, а контракт §2 требует РОВНО одну точку "
         "`open_human_takeover`: второй путь получит свой набор побочных "
@@ -1457,21 +1469,29 @@ def test_prichiny_otkaza_ne_pridumyvayutsya_shire_kontrakta():
     «есть все четыре» проверить нечем, пока не все четыре достижимы в фазе 0
     (§«Границы фазы 0» контракта: канал один).
     """
-    tree = ast.parse(RUNNER_SRC.read_text(encoding="utf-8"))
+    # 🔴 СЧИТАЕТСЯ ПО ОБОИМ ВЛАДЕЛЬЦАМ ОТКАЗА (правка 28.08, пара D). Половина
+    # причин переехала в ядро доставки вместе с решением («адресат не
+    # разбирается», «канал этим процессом не обслуживается»), половина
+    # осталась у доставщика Telegram («клиент выключен», «окно закрыто»).
+    # Сторож, оставшийся смотреть в ОДИН файл, стерёг бы половину набора и
+    # молчал бы ровно про ту половину, которая новая.
     used: set[str] = set()
-    for node in ast.walk(tree):
-        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-                and node.func.id == "Refusal"):
-            continue
-        literals = [a.value for a in node.args
-                    if isinstance(a, ast.Constant) and isinstance(a.value, str)]
-        literals += [kw.value.value for kw in node.keywords
-                     if kw.arg == "reason" and isinstance(kw.value, ast.Constant)]
-        if literals:
-            used.add(literals[0])
+    for src_path in (RUNNER_SRC, CORE_OUTGOING_SRC):
+        tree = ast.parse(src_path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                    and node.func.id == "Refusal"):
+                continue
+            literals = [a.value for a in node.args
+                        if isinstance(a, ast.Constant) and isinstance(a.value, str)]
+            literals += [kw.value.value for kw in node.keywords
+                         if kw.arg == "reason" and isinstance(kw.value, ast.Constant)]
+            if literals:
+                used.add(literals[0])
     assert used, (
-        "в `telethon_run.py` не поднимается ни одного `Refusal` с литеральной "
-        "причиной — отказы либо безымянны, либо их нет вовсе")
+        "ни в `telethon_run.py`, ни в ядре доставки не поднимается ни одного "
+        "`Refusal` с литеральной причиной — отказы либо безымянны, либо их "
+        "нет вовсе")
     assert used <= set(REFUSAL_REASONS), (
         "заведены причины вне контракта §4: %s. `reason` — ключ дедупа, и "
         "непредусмотренный ключ проедет мимо всех правил склейки алертов"
