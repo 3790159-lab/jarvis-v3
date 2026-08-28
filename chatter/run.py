@@ -14,7 +14,7 @@ from typing import Callable
 from chatter.config.loader import HONESTY_HONEST, Config, ControlConfig, load_config
 from chatter.core import humanizer as H
 from chatter.core.brain import Brain
-from chatter.core.contact_ref import peer_of
+from chatter.core.contact_ref import peer_label_of
 from chatter.core.window import estimate_tokens, select_window
 from chatter.core.obligations_slot import (
     filter_model_updates, merge_obligations, render_current_for_classifier,
@@ -285,7 +285,7 @@ def _post_invoice_card(deps: "Deps", contact_id: str, note: OwnerNote, *,
     if deps.notifier is None:
         return
     language = deps.cfg.settings.language
-    peer = peer_of(contact_id)
+    peer = peer_label_of(contact_id)
     why = ", ".join(note.reasons) or "причина не названа"
     if note.kind == "invoice_change_needs_owner":
         # Другой повод — другой текст. Прежний («лід готовий платити, але суму
@@ -717,7 +717,7 @@ def _post_escalation_card(deps: "Deps", contact_id: str, *, det, cr, now: float)
         if deps.escalation_card is not None:
             card = deps.escalation_card(contact_id, summary, why, recent)
         else:
-            peer = peer_of(contact_id)
+            peer = peer_label_of(contact_id)
             # Fix 5a: имя лида — «777» через display_name (как no-entity fallback
             # раннера), а НЕ сырой composite key «777:demo». Имени в Store нет
             # (Telethon-entity недоступен на этом пути), голый id — честный минимум.
@@ -813,7 +813,7 @@ def _note_profile_miss(deps: "Deps", contact_id: str, *, now: float, why: str) -
         return
     if deps.notifier is None:
         return
-    peer = peer_of(contact_id)
+    peer = peer_label_of(contact_id)
     text = console_text(
         "profile_stale_alert", deps.cfg.settings.language,
         count=streak, name=display_name(user_id=peer),
@@ -851,7 +851,7 @@ def _maybe_stale_card_notice(deps: "Deps", contact_id: str, *, now: float,
     предупреждать не о чем, а лишний пуш обесценивает карточки."""
     if not card_posted or deps.notifier is None:
         return
-    peer = peer_of(contact_id)
+    peer = peer_label_of(contact_id)
     text = console_text(
         "stale_card_notice", deps.cfg.settings.language,
         name=display_name(user_id=peer), link=contact_link(user_id=peer))
