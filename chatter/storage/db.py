@@ -798,7 +798,8 @@ class Store:
             self._conn.commit()
 
     def begin_takeover(self, contact_id: str, *, msg_id: int | None = None,
-                        detail: str | None = None, now: float) -> bool:
+                        detail: str | None = None, now: float,
+                        escalate: bool = False) -> bool:
         """Атомарно попытаться начать НОВЫЙ эпизод перехвата человеком.
 
         Telethon без `sequential_updates=True` диспетчеризует каждый
@@ -816,12 +817,36 @@ class Store:
         стоит по другой причине) -- эпизод не наш.
 
         Контакт обязан существовать (`get_or_create_contact` до этого вызова)
-        — как и `mute()`, эта операция не создаёт строк сама."""
+        — как и `mute()`, эта операция не создаёт строк сама.
+
+        🔴 `escalate=True` — У ПАУЗЫ ПОЯВЛЯЕТСЯ СИЛА (спека 2026-08-28 §2.4,
+        [[jarvis-snooze-eats-the-takeover]]). Источники паузы упорядочены
+        ЛИТЕРАЛЬНО и их ровно два: `'command'`-со-сроком (снуз из карточки)
+        слабее, `'human_takeover'` сильнее. Без повышения живой путь
+        воспроизводит аварию целиком: владелец жмёт «⏸ Ще 1год», через десять
+        минут отвечает из панели, `WHERE paused=0` даёт 0 строк, эпизод «не
+        наш», источник остаётся `'command'`, срок доживает до истечения — и
+        бот заговаривает поверх человека.
+
+        Повышение — ТОТ ЖЕ ОДИН `UPDATE`, только с более широким условием:
+        строка захватывается и когда она свободна, и когда её держит ЛЮБАЯ
+        причина слабее перехвата. `pause_until=NULL` при этом не «сбрасывает
+        таймер», а снимает чужой срок с диалога, который теперь ведёт человек;
+        бессрочная команда владельца срока при этом НЕ ПРИОБРЕТАЕТ — у неё
+        `pause_until` и так `NULL`, а источник становится сильнее, не слабее.
+
+        Возвращаемое значение по-прежнему различает «эпизод НОВЫЙ» и «эпизод
+        уже шёл»: условие не совпадает ровно тогда, когда перехват уже идёт.
+        Терять эту разницу нельзя — от неё зависит событие `takeover` в
+        журнале, и она защищает от трёх эпизодов на один залп сообщений."""
+        where = ("contact_id=? AND paused=0" if not escalate else
+                 "contact_id=? AND (paused=0 OR pause_source IS NULL "
+                 "OR pause_source<>'human_takeover')")
         with self._lock:
             cur = self._conn.execute(
                 "UPDATE contacts SET paused=1, pause_source='human_takeover', "
                 "pause_msg_id=?, pause_detail=?, pause_until=NULL, paused_at=? "
-                "WHERE contact_id=? AND paused=0",
+                "WHERE " + where,
                 (msg_id, detail, now, contact_id))
             self._conn.commit()
             return cur.rowcount == 1
@@ -1062,7 +1087,8 @@ class Store:
             self._conn.commit()
             return int(cur.lastrowid), True
 
-    def pending_outgoing(self, *, limit: int = 20) -> list[dict]:
+    def pending_outgoing(self, *, limit: int = 20,
+                         channels=None) -> list[dict]:
         """Неотправленные задания, САМЫЕ СТАРЫЕ ПЕРВЫМИ.
 
         Порядок — не украшение: очередь к одному лиду обязана уйти в том
@@ -1074,12 +1100,56 @@ class Store:
         заберёт следующий тик через 5 секунд. Считать по длине этого списка
         нельзя — для чисел есть `outgoing_counts` (иначе лимит занизил бы
         счётчик молча).
+
+        🔴 `channels` — ЧЬЯ ЭТО ОЧЕРЕДЬ (спека 2026-08-28 §2.8). Сливает тот
+        процесс, который ВЛАДЕЕТ каналом, и таблица делится по каналу задания.
+        Альтернатива «кто первый взял» требует аренды строки и блокировки, то
+        есть второго механизма на ту же вещь; фильтр по каналу — то же
+        свойство даром, и он уже есть в самом `contact_id`. Без него два
+        процесса, читающих `pending` без блокировки, отправят задание ДВАЖДЫ.
+
+        `channels=None` — прежнее поведение «всё, что лежит»: им пользуются
+        панель, лампа и стенды, которым делить нечего.
+
+        ⚠️ ЛИМИТ ПРИМЕНЯЕТСЯ ПОСЛЕ ФИЛЬТРА, и это не мелочь: срезав сначала
+        двадцать самых старых строк, процесс второго канала не увидел бы своё
+        задание, пока не разгребут чужое, — то есть голодал бы тем сильнее,
+        чем занятее сосед. Цена названа: при фильтре читается вся `pending`
+        (очередь — это набранные руками сообщения, не поток).
+
+        ⚠️ Задание, чей канал НЕ ОПРЕДЕЛЯЕТСЯ вовсе (мусор в `contact_id`),
+        видно ЛЮБОМУ фильтру. Оно не принадлежит никакому каналу, и оставить
+        его вне всех выборок значило бы завести вечно `pending` строку, о
+        которой никто не отказывает словами; забрать его может кто угодно —
+        отправить его всё равно нельзя, а отказ обязан прозвучать.
         """
+        if channels is None:
+            with self._lock:
+                rows = self._conn.execute(
+                    "SELECT * FROM outgoing_queue WHERE status='pending' "
+                    "ORDER BY created_ts, id LIMIT ?", (int(limit),)).fetchall()
+            return [dict(r) for r in rows]
+
+        from chatter.core.channel_ref import channel_of
+        from chatter.core.contact_ref import ContactRefError
+
+        wanted = frozenset(channels)
         with self._lock:
             rows = self._conn.execute(
                 "SELECT * FROM outgoing_queue WHERE status='pending' "
-                "ORDER BY created_ts, id LIMIT ?", (int(limit),)).fetchall()
-        return [dict(r) for r in rows]
+                "ORDER BY created_ts, id").fetchall()
+        out: list[dict] = []
+        for r in rows:
+            row = dict(r)
+            try:
+                mine = channel_of(str(row.get("contact_id") or "")) in wanted
+            except ContactRefError:
+                mine = True
+            if mine:
+                out.append(row)
+                if len(out) >= int(limit):
+                    break
+        return out
 
     def mark_outgoing_sent(self, row_id: int, *, msg_id: str | None,
                            now: float) -> None:
