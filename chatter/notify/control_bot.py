@@ -48,8 +48,12 @@ class CallbackResult:
     keep_buttons: bool = False
 
 
+from chatter.core.contact_ref import peer_of
+
+
 def _peer_of(contact_id: str) -> str:
-    return contact_id.split(":", 1)[0]
+    # Обёртка оставлена: её зовут по имени в этом модуле. Разбор — общий.
+    return peer_of(contact_id)
 
 
 def _close_funnel_as_bought(store, contact_id: str, *, now: float) -> None:

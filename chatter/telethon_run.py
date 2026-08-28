@@ -25,6 +25,7 @@ from chatter.config.yaml_edit import (
 from chatter.config.config_commit import commit_config_file
 from chatter.core import humanizer as H
 from chatter.core.admission import admission_decision
+from chatter.core.contact_ref import telegram_peer_of
 from chatter.core.brain import Brain
 from chatter.core.config_versions import (
     CONFIG_FILES, latest_version, previous_version, restore, snapshot,
@@ -1213,7 +1214,7 @@ class TelethonRunner:
         """Билдер карточки эскалации с КЛИКАБЕЛЬНЫМ именем/ссылкой (§3). Вызывается
         из process_batch (worker-поток) — резолв entity маршалим на loop через
         run_coroutine_threadsafe (как транспорт). Инъектится в Deps.escalation_card."""
-        peer = int(contact_id.split(":", 1)[0])
+        peer = telegram_peer_of(contact_id)
         settings = self._persona_settings(contact_id)
         language = settings.language
         try:
@@ -1577,7 +1578,7 @@ class TelethonRunner:
         store.issue_status_index([row["contact_id"] for row in rows], now=now)
         views: list[PauseView] = []
         for n, row in enumerate(rows, start=1):
-            peer_id = int(row["contact_id"].split(":")[0])
+            peer_id = telegram_peer_of(row["contact_id"])
             try:
                 entity = await self.client.get_entity(peer_id)
                 name = display_name(

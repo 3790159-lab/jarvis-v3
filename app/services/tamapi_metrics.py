@@ -18,6 +18,8 @@ import statistics
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from chatter.core.contact_ref import peer_of
+
 # Периоды: диапазон И шаг агрегации меняются вместе — 30 дней по часам это
 # 720 точек на телефоне, то есть шум вместо графика (спека §6.3).
 PERIODS = {
@@ -71,7 +73,7 @@ def _peer(contact_id: str, display_name) -> str:
     Голый id — признак того, что о человеке НЕ известно ничего, а не нормальный
     вид карточки: на живом дриле оператор не смог возобновить диалог, увидев
     одно число. Fallback при этом остаётся — пустоту показывать нельзя."""
-    return (display_name or "").strip() or contact_id.split(":", 1)[0]
+    return (display_name or "").strip() or peer_of(contact_id)
 
 
 def _ro(db_path: str | Path) -> sqlite3.Connection:
