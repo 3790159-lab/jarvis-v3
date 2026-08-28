@@ -45,6 +45,7 @@ TR = "chatter/telethon_run.py"
 
 G = "tests/test_contact_ref.py"
 GA = "tests/test_no_raw_contact_id_split.py"
+GD = "tests/test_contact_ref_degrades_for_cards.py"
 
 MUTATIONS = [
     # ── §2.5 форма опознаётся по ЧИСЛУ сегментов, лишнее ОТВЕРГАЕТСЯ ──────
@@ -83,9 +84,13 @@ MUTATIONS = [
      G + "::test_todays_two_segment_form_still_yields_the_bare_peer"),
 
     # ── §5.8 AST-сторож смотрит в ЖИВОЕ дерево ───────────────────────────
+    # ЯКОРЬ ЕДЕТ ЗА ИМЕНЕМ: он был `import peer_of`, правка «подпись
+    # деградирует» переименовала импорт, и мишень перестала находиться.
+    # Гейт отказал ГРОМКО («фрагмент не найден»), а не зачёл мутацию
+    # пойманной — ровно так якорь и обязан рваться: в день изменения.
     ("ручной разбор вернулся в chatter/run.py — скан обязан увидеть", RUN,
-     [(b"from chatter.core.contact_ref import peer_of",
-       b"from chatter.core.contact_ref import peer_of\n\n\n"
+     [(b"from chatter.core.contact_ref import peer_label_of",
+       b"from chatter.core.contact_ref import peer_label_of\n\n\n"
        b"def _gate_probe_never_called(contact_id):\n"
        b'    return contact_id.split(":")[0]')],
      GA + "::test_no_raw_contact_id_split_is_left_in_chatter_or_app"),
@@ -99,6 +104,40 @@ MUTATIONS = [
      GA + "::test_the_slug_tail_rsplit_survived_the_cleanup"),
 
     # ── §5 исключение владельца обязано ОСТАВАТЬСЯ заработанным ───────────
+    # ── вариант 2: ДЕГРАДАЦИЯ подписи и обе её встречные половины ────────
+    #
+    # Без этих трёх мишеней 19 сторожей варианта 2 уехали бы НЕПРОВЕРЕННЫМИ.
+    # В этом доме гейт врал уже пятью способами, и «сторож написан» здесь не
+    # значит «сторож видит».
+
+    # Самая правдоподобная неверная деградация: отдать ГОЛОВУ, раз форма
+    # неизвестна. На трёхсегментном формате следующей арки это "instagram"
+    # вместо собеседника — тот молчаливый мусор, против которого написан весь
+    # модуль. Деградация обязана ломаться ЗАМЕТНО, а не правдоподобно.
+    ("деградация УГАДЫВАЕТ голову вместо целого contact_id", CR,
+     [(b"        return text or UNKNOWN_LABEL",
+       b"        return str(contact_id).split(SEPARATOR)[0]")],
+     GD + "::test_unknown_form_returns_the_whole_id_not_a_plausible_head"),
+
+    # ВСТРЕЧНАЯ ПОЛОВИНА: смягчение не имеет права протечь на путь, по которому
+    # ШЛЮТ. Самая дешёвая «уборка» — переиспользовать терпимую функцию внутри
+    # peer_of; тогда адресация молча примет console-user, и сообщение уедет НЕ
+    # ТОМУ человеку. Отступ 4 — тело peer_of (у peer_label_of та же строка с
+    # отступом 8), а replace(..., 1) берёт первое вхождение.
+    ("деградация ПРОТЕКЛА в адресацию: peer_of стал терпимым", CR,
+     [(b"    return _parts(contact_id)[0]",
+       b"    return peer_label_of(contact_id)")],
+     GD + "::test_addressing_path_stays_fail_closed"),
+
+    # Откат подписывающего места к бросающей функции — то, с чего дефект и
+    # начался. Правится одним словом, значит и вернуться может одним словом.
+    ("подписывающее место вернулось к бросающему peer_of", RUN,
+     [(b"from chatter.core.contact_ref import peer_label_of",
+       b"from chatter.core.contact_ref import peer_label_of, peer_of"),
+      (b"    peer = peer_label_of(contact_id)",
+       b"    peer = peer_of(contact_id)")],
+     GD + "::test_label_sites_call_the_degrading_function"),
+
     ("владелец разбора перестал определять slug_of — исключение не заработано", CR,
      [(b"def slug_of(contact_id: str) -> str:",
        b"def slug_of_renamed(contact_id: str) -> str:")],
