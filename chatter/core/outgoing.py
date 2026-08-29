@@ -39,7 +39,7 @@ import logging
 from dataclasses import dataclass
 from typing import Callable
 
-from chatter.core import channel_ref, contact_ref
+from chatter.core import contact_ref
 
 log = logging.getLogger("chatter.core.outgoing")
 
@@ -192,7 +192,7 @@ def can_send_now(contact_id: str, ctx=None) -> Refusal | None:
     поимённо (§4 спеки).
     """
     try:
-        channel = channel_ref.channel_of(contact_id)
+        channel = contact_ref.channel_of(contact_id)
     except contact_ref.ContactRefError as exc:
         return Refusal(
             "unknown_contact",
@@ -316,7 +316,7 @@ async def deliver(ctx, row: dict, *, now: float) -> str:
                 "unknown_contact",
                 "диалога %s нет в базе этого клиента: панель и раннер смотрят "
                 "в разные базы либо контакт удалён" % contact_id)
-        channel = channel_ref.channel_of(contact_id)
+        channel = contact_ref.channel_of(contact_id)
         deliverer = deliverer_for(channel)
 
         # ── СНАЧАЛА ПЕРЕХВАТ ─────────────────────────────────────────────

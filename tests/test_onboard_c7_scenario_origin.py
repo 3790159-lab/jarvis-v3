@@ -84,7 +84,7 @@ def _run_c7(client_dir: Path, repo_root: Path, monkeypatch):
 def _scenario_text(contact: str | None = None) -> str:
     text = MANUAL.read_text(encoding="utf-8")
     if contact is not None:
-        text = text.replace('contact: "8849893367:yarina"', f'contact: "{contact}"')
+        text = text.replace('contact: "telegram:8849893367:yarina"', f'contact: "{contact}"')
     return text
 
 
@@ -142,7 +142,7 @@ def test_a_real_defect_in_a_foreign_file_stays_red(tmp_path, monkeypatch):
     заметит: флаг вердикт не роняет."""
     root = _fake_repo(tmp_path)
     (root / "docs" / "chatter" / "drills" / "yarina-onboarding-1-6.yaml").write_text(
-        _scenario_text(contact="8849893367:volska"), encoding="utf-8")
+        _scenario_text(contact="telegram:8849893367:volska"), encoding="utf-8")
     client = _client(tmp_path)
 
     c7 = _run_c7(client, root, monkeypatch)
@@ -215,6 +215,6 @@ def test_the_manual_scenario_fixture_is_a_real_one(tmp_path):
     from chatter.core.drill import parse_scenario, vacuous_expectations
 
     scenario = parse_scenario(_scenario_text())
-    assert scenario.contact == "8849893367:yarina"
+    assert scenario.contact == "telegram:8849893367:yarina"
     assert not vacuous_expectations(scenario, {}), (
         "ожидания живого сценария вакуумны — фикстура не кусается")

@@ -778,7 +778,7 @@ async def dialog_screen(contact_id: str):
     ошибки в коде.
     """
     from chatter.core import outgoing as delivery
-    from chatter.core.channel_ref import slug_of
+    from chatter.core.contact_ref import slug_of
     from chatter.core.contact_ref import ContactRefError
     from chatter.storage.db import Store
 

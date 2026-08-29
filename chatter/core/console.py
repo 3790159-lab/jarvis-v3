@@ -194,7 +194,7 @@ def dialog_link(contact_id: str, *, username: str | None = None) -> str:
     провала (§2.1); здесь его отсутствие означало бы, что мы шлём владельца в
     `tg://` из веб-диалога.
     """
-    from chatter.core.channel_ref import TELEGRAM, channel_of
+    from chatter.core.contact_ref import TELEGRAM_CHANNEL as TELEGRAM, channel_of
     from chatter.core.contact_ref import ContactRefError, peer_label_of
     try:
         channel = channel_of(contact_id)

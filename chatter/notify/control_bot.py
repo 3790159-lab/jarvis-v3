@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from chatter.core.console import (
     cfg_text, console_text, contact_link, dialog_link, parse_allow_command,
@@ -49,7 +49,10 @@ class CallbackResult:
     keep_buttons: bool = False
 
 
-from chatter.core.contact_ref import peer_label_of
+from chatter.core.contact_ref import (
+    peer_label_of,
+    upgrade_legacy_callback_contact,
+)
 
 
 def _peer_of(contact_id: str) -> str:
@@ -159,6 +162,14 @@ def route_callback(data: str, *, store, now: float, language: str, snooze_second
     # через месяцы и legacy-форму придётся понимать всегда.
     money = parse_callback(data)
     if isinstance(money, PaidAction):
+        # §3.4: ЕДИНСТВЕННАЯ дверь для старой формы, и она стоит ПОСЛЕ
+        # обоих путей разбора — денежного кодека и `partition` ниже.
+        # Кнопка, улетевшая владельцу ДО переписи баз, тапабельна
+        # месяцами; без перевода такой тап немой — «без мутаций», то
+        # есть отказ БЕЗ следа для того, кто жмёт.
+        upgraded = upgrade_legacy_callback_contact(money.contact_id)
+        if upgraded is not None:
+            money = replace(money, contact_id=upgraded)
         return _route_payment(money, store=store, now=now, language=language,
                               card_msg_id=card_msg_id, event_token=event_token)
     if isinstance(money, InvoiceAction):
@@ -169,6 +180,12 @@ def route_callback(data: str, *, store, now: float, language: str, snooze_second
             answer=console_text("fb_unknown", language))
 
     action_raw, sep, contact_id = (data or "").partition(":")
+    # Вторая половина того же шва §3.4: старая кнопка несёт
+    # `<action>:<peer>:<persona>` без головы канала. Правило узкое (ровно
+    # два сегмента И числовая голова), всё прочее — отказ, а не догадка.
+    legacy = upgrade_legacy_callback_contact(contact_id)
+    if legacy is not None:
+        contact_id = legacy
     if not sep or not contact_id:
         return CallbackResult(
             feedback_html=console_text("fb_unknown", language),

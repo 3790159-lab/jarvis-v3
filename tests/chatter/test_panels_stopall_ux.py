@@ -35,11 +35,11 @@ def _mk_db(tmp_path):
     """Пять контактов, покрывающих каждое исключение счётчика."""
     db = tmp_path / "p.db"
     s = Store(str(db))
-    for cid, state in (("1:volska", "qualifying"),   # ведёт бот  → считается
-                       ("2:volska", "hot"),          # ведёт бот  → считается
-                       ("3:volska", "dead"),         # терминальный → нет
-                       ("4:volska", "closed"),       # терминальный → нет
-                       ("5:volska", "escalated")):   # уже у человека → нет
+    for cid, state in (("telegram:1:volska", "qualifying"),   # ведёт бот  → считается
+                       ("telegram:2:volska", "hot"),          # ведёт бот  → считается
+                       ("telegram:3:volska", "dead"),         # терминальный → нет
+                       ("telegram:4:volska", "closed"),       # терминальный → нет
+                       ("telegram:5:volska", "escalated")):   # уже у человека → нет
         s.get_or_create_contact(cid)
         s.set_state(cid, state)
         s.add_message(cid, "user", "текст", ts=NOW - DAY)
@@ -48,12 +48,12 @@ def _mk_db(tmp_path):
     del s
     # 6-й на паузе поимённо — бот его и так не ведёт
     s2 = Store(str(db))
-    s2.get_or_create_contact("6:volska")
-    s2.set_state("6:volska", "qualifying")
-    s2.add_message("6:volska", "user", "текст", ts=NOW - DAY)
+    s2.get_or_create_contact("telegram:6:volska")
+    s2.set_state("telegram:6:volska", "qualifying")
+    s2.add_message("telegram:6:volska", "user", "текст", ts=NOW - DAY)
     del s2
     con = sqlite3.connect(str(db))
-    con.execute("UPDATE contacts SET paused=1 WHERE contact_id='6:volska'")
+    con.execute("UPDATE contacts SET paused=1 WHERE contact_id='telegram:6:volska'")
     con.commit()
     con.close()
     return db
@@ -155,7 +155,7 @@ def test_modal_shows_live_dialog_count(client):
 def test_count_reflects_data_not_a_constant(client, tmp_path):
     c, db = client
     s = Store(db)
-    s.set_state("3:volska", "qualifying")     # был dead → стал ведомым
+    s.set_state("telegram:3:volska", "qualifying")     # был dead → стал ведомым
     del s
     m = " ".join(_modal(_html(c)).split())
     assert "Зараз у роботі: 3 діалоги." in m
@@ -165,7 +165,7 @@ def test_zero_dialogs_is_its_own_sentence(client, tmp_path):
     """Ноль — не «0 діалогів», а полезный факт: пауза никого не заденет."""
     c, db = client
     s = Store(db)
-    for cid in ("1:volska", "2:volska"):
+    for cid in ("telegram:1:volska", "telegram:2:volska"):
         s.set_state(cid, "dead")
     del s
     m = " ".join(_modal(_html(c)).split())

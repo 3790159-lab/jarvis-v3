@@ -47,8 +47,8 @@ def instance(tmp_path, monkeypatch):
     """Инстанс Ярины: своя БД, свой слаг, свой ключ, НАСТОЯЩИЙ конфиг."""
     db = tmp_path / "yarina.db"
     s = Store(str(db))
-    s.get_or_create_contact("111:yarina")
-    s.add_message("111:yarina", "user", "скільки коштує манікюр", ts=NOW - DAY)
+    s.get_or_create_contact("telegram:111:yarina")
+    s.add_message("telegram:111:yarina", "user", "скільки коштує манікюр", ts=NOW - DAY)
     del s
 
     beat = tmp_path / "state" / "chatter_heartbeat_yarina.txt"

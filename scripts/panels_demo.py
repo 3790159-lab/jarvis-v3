@@ -23,6 +23,8 @@ from pathlib import Path
 # Скрипт лежит в scripts/, а импортирует app/ и chatter/ из корня репозитория.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from chatter.core.contact_ref import TELEGRAM_CHANNEL  # noqa: E402
+from chatter.core.contact_ref import build as build_contact_id  # noqa: E402
 from chatter.runtime_paths import chatter_beat_path  # noqa: E402
 
 DAY = 86400.0
@@ -62,7 +64,8 @@ def seed(path: str, *, now: float | None = None) -> None:
 
     total = 47
     for i in range(total):
-        cid = f"{500000 + i}:volska"
+        cid = build_contact_id(channel=TELEGRAM_CHANNEL,
+                               external_id=str(500000 + i), persona="volska")
         s.get_or_create_contact(cid)
         # Первые двое пишут СЕГОДНЯ: без свежей эскалации блок «Требує вас»
         # состоит из одной свёртки застарелых, и главную карточку экрана на
@@ -119,12 +122,13 @@ def seed(path: str, *, now: float | None = None) -> None:
          "ответ обрезан (stop_reason=max_tokens при лимите 500) — "
          "поднимите _CLASSIFIER_MAX_TOKENS"),
         ("stale_reply_cancelled", "не відправлено 1 з 2 бабблів"),
-        ("auto_resume", "8849893367:volska"),
+        ("auto_resume", "telegram:8849893367:volska"),
         ("takeover", "447"),
     ]
     for k, detail in EVENTS:
-        s.add_event(k, contact_id=f"{500001}:volska", detail=detail,
-                    ts=now - rnd.uniform(60, 5000))
+        s.add_event(k, contact_id=build_contact_id(
+            channel=TELEGRAM_CHANNEL, external_id="500001", persona="volska"),
+            detail=detail, ts=now - rnd.uniform(60, 5000))
     del s
     print(f"[seed] синтетична БД готова: {p}  ({total} діалогів, 3 оплати)")
 

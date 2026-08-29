@@ -14,7 +14,7 @@ from chatter.payments.prompt import find_placeholders, has_disclaimer
 from chatter.payments.settings import load_payments
 from chatter.storage.db import Store
 
-DRILL = "8849893367:volska"
+DRILL = "telegram:8849893367:volska"
 NOW = 1_786_500_000.0
 KNOWLEDGE = "- Створення логотипа — 300 $ або 400 $ залежно від обсягу"
 

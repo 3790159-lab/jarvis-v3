@@ -189,7 +189,7 @@ def _loop_for_test() -> asyncio.AbstractEventLoop:
 def _runner(*, personas=None, allowlist=frozenset({ALLOWED}), client=None):
     if personas is None:
         # One shared Store across personas, matching production (build_runner /
-        # load_personas): the composite contact key f"{sender_id}:{persona}"
+        # load_personas): the composite contact key f"telegram:{sender_id}:{persona}"
         # is what keeps dialogues separate, not separate databases.
         shared_store = Store(":memory:")
         personas = {
@@ -232,7 +232,7 @@ def test_non_allowlisted_sender_is_ignored_no_reply_no_storage():
 
         client.send_message.assert_not_called()
         bundle = runner.personas["demo"]
-        assert bundle.deps.store.history(f"{stranger}:demo") == []
+        assert bundle.deps.store.history(f"telegram:{stranger}:demo") == []
 
     asyncio.run(scenario())
 
@@ -272,8 +272,8 @@ def test_switch_toggles_persona_and_sends_plain_ack_not_via_llm():
         # No dialogue was touched by /switch -- it never goes through process_batch.
         demo_bundle = runner.personas["demo"]
         demo2_bundle = runner.personas["demo2"]
-        assert demo_bundle.deps.store.history(f"{ALLOWED}:demo") == []
-        assert demo2_bundle.deps.store.history(f"{ALLOWED}:demo2") == []
+        assert demo_bundle.deps.store.history(f"telegram:{ALLOWED}:demo") == []
+        assert demo2_bundle.deps.store.history(f"telegram:{ALLOWED}:demo2") == []
 
     asyncio.run(scenario())
 
@@ -339,7 +339,7 @@ def test_next_message_after_switch_is_processed_under_the_new_persona(monkeypatc
         deb = runner._debouncers[ALLOWED]
         await deb.task
 
-        assert calls == [(f"{ALLOWED}:demo2", "demo2")]
+        assert calls == [(f"telegram:{ALLOWED}:demo2", "demo2")]
 
     asyncio.run(scenario())
 
@@ -364,7 +364,7 @@ def test_coalesced_batch_invokes_process_batch_with_right_contact_and_cfg(monkey
         deb = runner._debouncers[ALLOWED]
         await deb.task
 
-        assert calls == [(f"{ALLOWED}:demo", ["привет", "как дела?"], "demo", True)]
+        assert calls == [(f"telegram:{ALLOWED}:demo", ["привет", "как дела?"], "demo", True)]
 
     asyncio.run(scenario())
 
@@ -515,7 +515,7 @@ def test_catch_up_answers_messages_that_arrived_while_offline(monkeypatch):
 
         assert len(calls) == 1
         contact_id, batch, slug, age = calls[0]
-        assert contact_id == f"{ALLOWED}:demo"
+        assert contact_id == f"telegram:{ALLOWED}:demo"
         assert batch == ["вы тут?"]
         assert slug == "demo"
         assert 1199 < age < 1201
@@ -603,7 +603,7 @@ def test_C3_C4_the_collector_marks_escalated_takeover_and_pause():
     """Три состояния означают одно: этим диалогом занимается человек."""
     runner, _ = _runner()
     store = runner.personas["demo"].deps.store
-    contact_id = f"{ALLOWED}:demo"
+    contact_id = f"telegram:{ALLOWED}:demo"
     store.get_or_create_contact(contact_id)
 
     assert runner._silence_by_decision(ALLOWED) == (False, "")
@@ -625,7 +625,7 @@ def test_C5_an_expired_snooze_is_answered_again():
     """
     runner, _ = _runner()
     store = runner.personas["demo"].deps.store
-    contact_id = f"{ALLOWED}:demo"
+    contact_id = f"telegram:{ALLOWED}:demo"
     store.get_or_create_contact(contact_id)
     store.mute(contact_id, source="command", until=time.time() - 60, now=time.time() - 3600)
 

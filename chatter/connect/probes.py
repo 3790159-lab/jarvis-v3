@@ -65,6 +65,7 @@ from chatter.core.client_registry import (
     validate,
 )
 from chatter.core.drill import DrillScenarioError, Scenario, parse_scenario
+from chatter.core.contact_ref import ContactRefError, slug_of, telegram_peer_of
 from chatter.payments.drill_gate import DRILL_CONTACTS
 from chatter.registry_cli import session_available
 from chatter.runtime_paths import chatter_beat_path
@@ -502,12 +503,11 @@ def _drill_contact_ids(slug: str) -> list[int]:
     """
     ids: list[int] = []
     for contact in sorted(DRILL_CONTACTS):
-        head, _, tail = contact.partition(":")
-        if tail != slug:
-            continue
         try:
-            ids.append(int(head))
-        except ValueError:
+            if slug_of(contact) != slug:
+                continue
+            ids.append(telegram_peer_of(contact))
+        except ContactRefError:
             continue
     return ids
 

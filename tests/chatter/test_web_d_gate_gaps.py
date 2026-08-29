@@ -26,7 +26,7 @@ import pytest
 
 from tests.chatter.test_web_d_panel_send import (  # noqa: F401 — фикстура
     MOON, MOON_CHANNEL, WEB, _core, _core_attr, _Ctx, _Deliverer, _deliver,
-    _enqueue, _personas, _register, _row, store)
+    _enqueue, _moon_channel_exists, _personas, _register, _row, store)
 
 
 # ═══ дыра 1: повторная регистрация доставщика ═══════════════════════════════

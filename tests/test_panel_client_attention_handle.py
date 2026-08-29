@@ -133,7 +133,7 @@ def _body(api):
 
 def test_the_stand_really_carries_the_clients_identity(stand):
     """Без этого сторожа проверки на утечку ничего не доказывают."""
-    api, db, _now = stand([("111:yarina", 3 * DAY, 2 * DAY)])
+    api, db, _now = stand([("telegram:111:yarina", 3 * DAY, 2 * DAY)])
     c = TestClient(api)
     c.cookies.set("panels_key", KEY)
     body = c.get("/panel/tamapi").text
@@ -149,8 +149,8 @@ def test_the_stand_really_has_open_escalation_cards(stand):
     «Требує вас»: иначе «ручка отдала 0» и «карточек нет» неотличимы, и все
     сторожа ниже зелены по построению.
     """
-    api, db, now = stand([("111:yarina", 3 * DAY, 2 * DAY),
-                          ("222:yarina", 5 * HOUR, 1 * HOUR)])
+    api, db, now = stand([("telegram:111:yarina", 3 * DAY, 2 * DAY),
+                          ("telegram:222:yarina", 5 * HOUR, 1 * HOUR)])
     del api
     items = M.needs_attention(db, now=now)
     assert len(items) == 2, items
@@ -161,7 +161,7 @@ def test_the_stand_really_has_open_escalation_cards(stand):
 
 def test_the_handle_answers_without_any_key(stand):
     """У watchdog'а ключа клиента нет и быть не должно (§3 спеки)."""
-    api, _db, _now = stand([("111:yarina", 3 * DAY, 2 * DAY)])
+    api, _db, _now = stand([("telegram:111:yarina", 3 * DAY, 2 * DAY)])
     r = TestClient(api).get(ATTENTION_PATH)
     assert r.status_code == 200, (r.status_code, r.text[:400])
 
@@ -169,7 +169,7 @@ def test_the_handle_answers_without_any_key(stand):
 def test_the_handle_is_not_a_redirect_to_the_login_form(stand):
     """Если ручка попадёт под `install_panel_auth_redirect`, проба увидит 200
     от СТРАНИЦЫ ЛОГИНА — то есть позеленеет на панели, которая мертва."""
-    api, _db, _now = stand([("111:yarina", 3 * DAY, 2 * DAY)])
+    api, _db, _now = stand([("telegram:111:yarina", 3 * DAY, 2 * DAY)])
     r = TestClient(api).get(ATTENTION_PATH, follow_redirects=False)
     assert r.status_code == 200, (r.status_code, r.headers.get("location"))
     assert "location" not in {k.lower() for k in r.headers}, dict(r.headers)
@@ -198,7 +198,7 @@ def test_the_body_has_exactly_these_four_keys(stand):
     заметить это будет некому. «Нет пропавших» — это граница наблюдаемости:
     проба объявит `bad_payload`, и лампа станет вечно красной, то есть фоном.
     """
-    api, _db, _now = stand([("111:yarina", 3 * DAY, 2 * DAY)])
+    api, _db, _now = stand([("telegram:111:yarina", 3 * DAY, 2 * DAY)])
     body = _body(api)
     assert isinstance(body, dict), body
     got = set(body)
@@ -208,7 +208,7 @@ def test_the_body_has_exactly_these_four_keys(stand):
 
 
 @pytest.mark.parametrize("secret", [
-    SLUG, PERSONA, "yarina.db", ".secrets", "111:yarina", "текст ліда",
+    SLUG, PERSONA, "yarina.db", ".secrets", "telegram:111:yarina", "текст ліда",
     "esc_active",
 ])
 def test_the_handle_leaks_nothing_about_the_client(stand, secret):
@@ -222,7 +222,7 @@ def test_the_handle_leaks_nothing_about_the_client(stand, secret):
     той простой причине, что там нет ничего. Зелёный сторож на отсутствующей
     реализации почти всегда проверяет не то.
     """
-    api, _db, _now = stand([("111:yarina", 3 * DAY, 2 * DAY)])
+    api, _db, _now = stand([("telegram:111:yarina", 3 * DAY, 2 * DAY)])
     r = TestClient(api).get(ATTENTION_PATH)
     assert r.status_code == 200, (
         "ручка не отвечает 200 — проверять на утечку нечего: %s %r"
@@ -238,7 +238,7 @@ def test_the_numbers_are_plain_json_types(stand):
     Строка вместо числа («3 карточки») прочтётся пробой как `bad_payload`, и
     новость «не читают» подменится новостью «ручка сломалась».
     """
-    api, _db, _now = stand([("111:yarina", 3 * DAY, 2 * DAY)])
+    api, _db, _now = stand([("telegram:111:yarina", 3 * DAY, 2 * DAY)])
     body = _body(api)
     assert isinstance(body["open"], int) and not isinstance(body["open"], bool)
     assert isinstance(body["stale_open"], int)
@@ -249,9 +249,9 @@ def test_the_numbers_are_plain_json_types(stand):
 # ── §4: числа не пересчитываются заново ────────────────────────────────────
 
 def test_open_counts_every_open_card(stand):
-    api, _db, _now = stand([("111:yarina", 3 * DAY, 2 * DAY),
-                            ("222:yarina", 5 * HOUR, 1 * HOUR),
-                            ("333:yarina", 1 * HOUR, 0.5 * HOUR)])
+    api, _db, _now = stand([("telegram:111:yarina", 3 * DAY, 2 * DAY),
+                            ("telegram:222:yarina", 5 * HOUR, 1 * HOUR),
+                            ("telegram:333:yarina", 1 * HOUR, 0.5 * HOUR)])
     assert _body(api)["open"] == 3, _body(api)
 
 
@@ -259,11 +259,16 @@ def test_a_closed_card_is_not_counted(stand):
     """Флаг снят (`value` пуст) — карточка закрыта. Это ровно то определение
     открытости, по которому дедуплицируются карточки в пульте: веб, пульт и
     проба обязаны показывать ОДНО множество."""
-    api, db, _now = stand([("111:yarina", 3 * DAY, 2 * DAY),
-                           ("222:yarina", 5 * HOUR, 1 * HOUR)])
+    api, db, _now = stand([("telegram:111:yarina", 3 * DAY, 2 * DAY),
+                           ("telegram:222:yarina", 5 * HOUR, 1 * HOUR)])
     del api
     s = Store(db)
-    s.set_runtime_flag("esc_active:111:yarina", "", ts=time.time())
+    # Ключ несёт contact_id ЦЕЛИКОМ, вместе с головой канала: `contact_id`
+    # живёт не только в колонках — три префикса вшивают его в КЛЮЧ
+    # `runtime_flags` (спека web-c §1.1). Стенд, переехавший контактами, но не
+    # ключами, снимает флаг с карточки, которой нет, — и «закрытая» карточка
+    # остаётся открытой, а тест винит в этом код панели.
+    s.set_runtime_flag("esc_active:telegram:111:yarina", "", ts=time.time())
     del s
 
     import app.panel_client as pc
@@ -273,9 +278,9 @@ def test_a_closed_card_is_not_counted(stand):
 
 def test_stale_open_counts_only_the_stale_ones(stand):
     """Порог сегодня 48 ч: одна карточка старше, две моложе."""
-    api, _db, _now = stand([("111:yarina", 3 * DAY, 2 * DAY),
-                            ("222:yarina", 5 * HOUR, 1 * HOUR),
-                            ("333:yarina", 47 * HOUR, 1 * HOUR)])
+    api, _db, _now = stand([("telegram:111:yarina", 3 * DAY, 2 * DAY),
+                            ("telegram:222:yarina", 5 * HOUR, 1 * HOUR),
+                            ("telegram:333:yarina", 47 * HOUR, 1 * HOUR)])
     body = _body(api)
     assert body["open"] == 3, body
     assert body["stale_open"] == 1, body
@@ -297,7 +302,7 @@ def test_a_card_without_a_console_row_is_open_but_has_no_invented_age(stand):
     Возраст в этом случае неоткуда взять, и придумать его (например, из `ts`
     флага) значило бы отдать число, за которым ничего не стоит.
     """
-    api, _db, _now = stand([("111:yarina", None, 2 * HOUR)])
+    api, _db, _now = stand([("telegram:111:yarina", None, 2 * HOUR)])
     body = _body(api)
     assert body["open"] == 1, body
     assert body["oldest_age_s"] is None, body
@@ -389,7 +394,7 @@ def test_the_verdict_moves_with_the_STALE_AFTER_constant(stand, monkeypatch):
     вердикт; если не поедет — порог вписан ВТОРЫМ числом, и разъедутся они в
     день, когда владелец попросит «не двое суток, а сутки».
     """
-    api, _db, _now = stand([("111:yarina", 10 * HOUR, 1 * HOUR)])
+    api, _db, _now = stand([("telegram:111:yarina", 10 * HOUR, 1 * HOUR)])
 
     before = _body(api)
     assert before["open"] == 1 and before["stale_open"] == 0, (
@@ -516,7 +521,7 @@ def test_the_app_offers_exactly_these_routes(stand):
     """В ОБЕ стороны: «нет лишних» ловит ручку, приехавшую попутно с новой
     (состав приложения — граница безопасности, ключ уходит стороннему
     человеку); «нет пропавших» ловит починку, сделанную сносом дашборда."""
-    api, _db, _now = stand([("111:yarina", 3 * DAY, 2 * DAY)])
+    api, _db, _now = stand([("telegram:111:yarina", 3 * DAY, 2 * DAY)])
     got = _routes(api)
     assert got == EXPECTED_ROUTES, (
         "состав маршрутов инстанса разошёлся с контрактом.\n"
@@ -545,13 +550,13 @@ def test_the_dashboard_is_still_closed_without_the_key(stand):
     """ГРАНИЦА. Немую ручку можно «сделать», сняв авторизацию со всего
     приложения — и все сторожа выше позеленеют, отдав переписку клиента
     любому, кто дотянулся до порта."""
-    api, _db, _now = stand([("111:yarina", 3 * DAY, 2 * DAY)])
+    api, _db, _now = stand([("telegram:111:yarina", 3 * DAY, 2 * DAY)])
     assert TestClient(api).get("/panel/tamapi").status_code == 401
 
 
 def test_the_dashboard_still_answers_with_the_key(stand):
     """Парная граница: авторизация не имеет права сломаться от новой ручки."""
-    api, _db, _now = stand([("111:yarina", 3 * DAY, 2 * DAY)])
+    api, _db, _now = stand([("telegram:111:yarina", 3 * DAY, 2 * DAY)])
     c = TestClient(api)
     c.cookies.set("panels_key", KEY)
     assert c.get("/panel/tamapi").status_code == 200
@@ -561,14 +566,14 @@ def test_health_still_says_exactly_one_thing(stand):
     """Соседняя ручка не имеет права поехать за компанию: на её форме стоит
     отдельный сторож соседней арки, и молчаливое расширение `/health` было бы
     той же утечкой, только в другом файле."""
-    api, _db, _now = stand([("111:yarina", 3 * DAY, 2 * DAY)])
+    api, _db, _now = stand([("telegram:111:yarina", 3 * DAY, 2 * DAY)])
     assert TestClient(api).get("/health").json() == {"ok": True}
 
 
 def test_the_handle_did_not_drag_in_background_tasks(stand):
     """Ни одного startup-обработчика: второй `_watchdog_loop` — это второй
     хозяин у живого бота (DEV-38, 13 ч 42 мин простоя Ольги 16.08)."""
-    api, _db, _now = stand([("111:yarina", 3 * DAY, 2 * DAY)])
+    api, _db, _now = stand([("telegram:111:yarina", 3 * DAY, 2 * DAY)])
     assert not api.router.on_startup, api.router.on_startup
     assert not api.router.on_shutdown, api.router.on_shutdown
 
@@ -576,6 +581,6 @@ def test_the_handle_did_not_drag_in_background_tasks(stand):
 def test_the_api_schema_is_still_closed(stand):
     """Карта ручек закрыта (`openapi_url=None`): новая неаутентифицированная
     ручка не имеет права приоткрыть перечень остальных."""
-    api, _db, _now = stand([("111:yarina", 3 * DAY, 2 * DAY)])
+    api, _db, _now = stand([("telegram:111:yarina", 3 * DAY, 2 * DAY)])
     assert api.openapi_url is None, api.openapi_url
     assert TestClient(api).get("/openapi.json").status_code != 200

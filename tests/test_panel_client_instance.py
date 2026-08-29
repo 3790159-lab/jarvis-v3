@@ -38,8 +38,8 @@ def instance(tmp_path, monkeypatch):
     """Инстанс Ярины: своя БД, свой слаг, свой пульс, СВОЙ ключ."""
     db = tmp_path / "yarina.db"
     s = Store(str(db))
-    s.get_or_create_contact("111:yarina")
-    s.add_message("111:yarina", "user", "скільки коштує манікюр", ts=NOW - DAY)
+    s.get_or_create_contact("telegram:111:yarina")
+    s.add_message("telegram:111:yarina", "user", "скільки коштує манікюр", ts=NOW - DAY)
     del s
 
     beat = tmp_path / "state" / "chatter_heartbeat_yarina.txt"
@@ -122,8 +122,8 @@ def test_the_instance_shows_only_its_own_client(instance, tmp_path):
     api, _ = instance
     foreign = tmp_path / "volska.db"
     s = Store(str(foreign))
-    s.get_or_create_contact("999:volska")
-    s.add_message("999:volska", "user", "СЕКРЕТНА РЕПЛІКА ОЛЬГИ", ts=NOW - DAY)
+    s.get_or_create_contact("telegram:999:volska")
+    s.add_message("telegram:999:volska", "user", "СЕКРЕТНА РЕПЛІКА ОЛЬГИ", ts=NOW - DAY)
     del s
 
     c = TestClient(api)

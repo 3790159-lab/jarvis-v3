@@ -20,12 +20,12 @@ DAY = 86400.0
 def client(tmp_path, monkeypatch):
     db = tmp_path / "p.db"
     s = Store(str(db))
-    s.get_or_create_contact("777:volska")
-    s.add_message("777:volska", "user", "скільки коштує SMM?", ts=NOW - DAY)
-    s.add_message("777:volska", "assistant", "750–900 $ за місяць", ts=NOW - DAY + 60)
-    s.add_card(msg_id=5, contact_id="777:volska", kind="escalation", ts=NOW - DAY)
+    s.get_or_create_contact("telegram:777:volska")
+    s.add_message("telegram:777:volska", "user", "скільки коштує SMM?", ts=NOW - DAY)
+    s.add_message("telegram:777:volska", "assistant", "750–900 $ за місяць", ts=NOW - DAY + 60)
+    s.add_card(msg_id=5, contact_id="telegram:777:volska", kind="escalation", ts=NOW - DAY)
     s.set_runtime_flag("esc_active:777:volska", "bot:1:5", ts=NOW - DAY)
-    s.record_transition("777:volska", from_state="qualifying", to_state="hot",
+    s.record_transition("telegram:777:volska", from_state="qualifying", to_state="hot",
                         signal="interested", ts=NOW - DAY)
     del s
 
@@ -118,7 +118,7 @@ def test_action_goes_through_shared_command_layer(client):
     pays = s.payments_between(0.0, 1e12)
     assert len(pays) == 1 and pays[0]["amount_minor"] == 75000
     assert pays[0]["dedup_key"] == "panel:tok-web-1"
-    assert s.get_or_create_contact("777:volska")["state"] == "closed"
+    assert s.get_or_create_contact("telegram:777:volska")["state"] == "closed"
 
 
 def test_panel_payment_without_a_token_is_refused(client):
@@ -132,7 +132,7 @@ def test_panel_payment_without_a_token_is_refused(client):
 
     s = Store(db)
     assert s.payments_between(0.0, 1e12) == []
-    assert s.get_or_create_contact("777:volska")["state"] != "closed", (
+    assert s.get_or_create_contact("telegram:777:volska")["state"] != "closed", (
         "воронка закрыта оплатой, которой не было")
 
 
@@ -350,7 +350,7 @@ def test_resume_needs_no_confirmation(client):
 def test_the_feed_shows_the_name_when_it_is_known(client):
     c, db = client
     s = Store(db)
-    s.set_display_name("777:volska", "Олена Ковальчук")
+    s.set_display_name("telegram:777:volska", "Олена Ковальчук")
     del s
     body = c.get("/panel/tamapi", headers={"X-Panels-Key": KEY}).text
     assert "Олена Ковальчук" in body
@@ -367,7 +367,7 @@ def test_a_name_is_escaped_before_it_reaches_the_page(client):
     """Имя — ПОЛЬЗОВАТЕЛЬСКИЙ текст: человек вписывает в профиль что угодно."""
     c, db = client
     s = Store(db)
-    s.set_display_name("777:volska", "<script>alert(1)</script>")
+    s.set_display_name("telegram:777:volska", "<script>alert(1)</script>")
     del s
     body = c.get("/panel/tamapi", headers={"X-Panels-Key": KEY}).text
     assert "<script>alert(1)</script>" not in body
@@ -383,9 +383,9 @@ def test_the_runner_remembers_the_name_on_first_contact(tmp_path):
         first_name, last_name, username = "Олена", "Ковальчук", "olena"
 
     s = Store(str(tmp_path / "r.db"))
-    s.get_or_create_contact("777:volska")
-    remember_display_name(s, "777:volska", _Sender(), user_id=777)
-    assert "Олена" in s.get_or_create_contact("777:volska")["display_name"]
+    s.get_or_create_contact("telegram:777:volska")
+    remember_display_name(s, "telegram:777:volska", _Sender(), user_id=777)
+    assert "Олена" in s.get_or_create_contact("telegram:777:volska")["display_name"]
 
 
 def test_an_unknown_sender_does_not_erase_a_known_name(tmp_path):
@@ -395,10 +395,10 @@ def test_an_unknown_sender_does_not_erase_a_known_name(tmp_path):
         first_name = last_name = username = None
 
     s = Store(str(tmp_path / "r2.db"))
-    s.get_or_create_contact("777:volska")
-    s.set_display_name("777:volska", "Олена")
-    remember_display_name(s, "777:volska", _Blank(), user_id=777)
-    assert s.get_or_create_contact("777:volska")["display_name"] == "Олена"
+    s.get_or_create_contact("telegram:777:volska")
+    s.set_display_name("telegram:777:volska", "Олена")
+    remember_display_name(s, "telegram:777:volska", _Blank(), user_id=777)
+    assert s.get_or_create_contact("telegram:777:volska")["display_name"] == "Олена"
 
 
 def test_remembering_the_name_never_breaks_the_turn(tmp_path):
@@ -412,8 +412,8 @@ def test_remembering_the_name_never_breaks_the_turn(tmp_path):
             raise RuntimeError("телетон моргнул")
 
     s = Store(str(tmp_path / "r3.db"))
-    s.get_or_create_contact("777:volska")
-    remember_display_name(s, "777:volska", _Boom(), user_id=777)   # не бросает
+    s.get_or_create_contact("telegram:777:volska")
+    remember_display_name(s, "telegram:777:volska", _Boom(), user_id=777)   # не бросает
 
 
 # ── два решения владельца, сделанные видимыми на экране ───────────────────

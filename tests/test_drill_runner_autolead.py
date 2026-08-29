@@ -19,7 +19,7 @@ from pathlib import Path
 _SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "drill_runner.py"
 _SCRIPTS = _SCRIPT.parent
 
-DRILL = "237616472:volska"
+DRILL = "telegram:237616472:volska"
 
 
 def _load():
@@ -114,7 +114,7 @@ def test_auto_lead_refuses_non_drill_contact(tmp_path):
     """Автолид САМ шлёт сообщения. Направить его на контакт живого клиента —
     это разговор с клиентом от имени стенда, необратимо."""
     mod = _load()
-    rc, lead, _ = _run(mod, tmp_path, ["привіт"], contact="999999999:volska")
+    rc, lead, _ = _run(mod, tmp_path, ["привіт"], contact="telegram:999999999:volska")
     assert rc == 2
     assert lead.said == [], "на чужом контакте лид не должен быть даже поднят"
 
@@ -389,7 +389,7 @@ def test_traffic_in_a_non_drill_contact_does_not_raise_the_alarm(tmp_path):
     доверие к вердикту так же надёжно."""
     mod = _load()
     rc, lead, report = _run(mod, tmp_path, ["крок 1", "крок 2"],
-                            contact=DRILL, lead_contact="999999999:volska")
+                            contact=DRILL, lead_contact="telegram:999999999:volska")
     assert rc == 2
     assert "сигнала не было" in report, report
     assert "ждал" not in report, report

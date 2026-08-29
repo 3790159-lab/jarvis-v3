@@ -77,11 +77,11 @@ def _process(deps, contact, text):
 def test_keyword_incoming_posts_escalation_card_and_escalates_state():
     n = FakeNotifier()
     deps = _deps(notifier=n)
-    _process(deps, "42:demo", "Можно позови владельца?")
+    _process(deps, "telegram:42:demo", "Можно позови владельца?")
     assert len(n.cards) == 1
     assert n.cards[0].kind == "escalation"
-    assert n.cards[0].contact_id == "42:demo"
-    assert deps.store.get_or_create_contact("42:demo")["state"] == "escalated"
+    assert n.cards[0].contact_id == "telegram:42:demo"
+    assert deps.store.get_or_create_contact("telegram:42:demo")["state"] == "escalated"
 
 
 def test_clean_conversation_no_card_but_funnel_advances():
@@ -91,10 +91,10 @@ def test_clean_conversation_no_card_but_funnel_advances():
         classify=lambda history, profile=None: ClassifierResult(
             escalate=False, reason="", stage_signal="engaged"),
     )
-    _process(deps, "42:demo", "привет, расскажите про съёмку")
+    _process(deps, "telegram:42:demo", "привет, расскажите про съёмку")
     assert n.cards == []
     # воронка ожила: new -> qualifying по сигналу engaged
-    assert deps.store.get_or_create_contact("42:demo")["state"] == "qualifying"
+    assert deps.store.get_or_create_contact("telegram:42:demo")["state"] == "qualifying"
 
 
 def test_classifier_hot_lead_escalates():
@@ -104,10 +104,10 @@ def test_classifier_hot_lead_escalates():
         classify=lambda history, profile=None: ClassifierResult(
             escalate=True, reason="готов внести предоплату", stage_signal="interested"),
     )
-    _process(deps, "42:demo", "хочу забронировать на субботу")
+    _process(deps, "telegram:42:demo", "хочу забронировать на субботу")
     assert len(n.cards) == 1
     assert "предоплат" in n.cards[0].text_html
-    assert deps.store.get_or_create_contact("42:demo")["state"] == "escalated"
+    assert deps.store.get_or_create_contact("telegram:42:demo")["state"] == "escalated"
 
 
 def test_degraded_classifier_no_escalation_but_counted():
@@ -117,7 +117,7 @@ def test_degraded_classifier_no_escalation_but_counted():
         classify=lambda history, profile=None: ClassifierResult(
             escalate=False, reason="", stage_signal=None, degraded=True),
     )
-    _process(deps, "42:demo", "обычное сообщение без триггеров")
+    _process(deps, "telegram:42:demo", "обычное сообщение без триггеров")
     assert n.cards == []                                     # деградация не эскалирует
     assert deps.store.count_events("classifier_error", since_ts=0.0) == 1  # но посчитана
 
@@ -127,13 +127,13 @@ def test_no_notifier_does_not_crash_arc3a_path():
     # работает, эскалация просто не шлёт карточку.
     deps = _deps(notifier=None, classify=None, keywords=[], brain_reply="Всего 999 руб со скидкой!")
     transport = RecordingTransport()
-    deps.store.get_or_create_contact("42:demo")
-    process_batch("42:demo", ["сколько стоит?"], transport, deps)
+    deps.store.get_or_create_contact("telegram:42:demo")
+    process_batch("telegram:42:demo", ["сколько стоит?"], transport, deps)
     # необеспеченное обещание переписано в честную «уточню и вернусь»
     assert transport.sent
     joined = " ".join(transport.sent)
     assert "999" not in joined
-    assert deps.store.get_or_create_contact("42:demo")["state"] == "escalated"
+    assert deps.store.get_or_create_contact("telegram:42:demo")["state"] == "escalated"
 
 
 def test_demo_playbook_has_escalation_keywords():
@@ -175,8 +175,8 @@ def test_reescalation_edits_existing_card_not_duplicate():
     # РЕДАКТИРУЕТ существующую карточку, а не плодит новую.
     n = FakeNotifier()
     deps = _deps(notifier=n)
-    _process(deps, "42:demo", "позови человека")
-    _process(deps, "42:demo", "это жалоба, верните деньги")
+    _process(deps, "telegram:42:demo", "позови человека")
+    _process(deps, "telegram:42:demo", "это жалоба, верните деньги")
     assert len(n.cards) == 1        # только одна отправка
     assert len(n.updates) == 1      # вторая эскалация = правка
     assert n.updates[0][0] == n.card_handles[0]   # правится ТА ЖЕ карточка
@@ -186,11 +186,11 @@ def test_new_card_after_owner_acted():
     # После действия владельца (active-card очищен) новая эскалация = новая карточка.
     n = FakeNotifier()
     deps = _deps(notifier=n)
-    _process(deps, "42:demo", "позови человека")
+    _process(deps, "telegram:42:demo", "позови человека")
     assert len(n.cards) == 1
     # владелец нажал кнопку -> active-card очищен (эмулируем то, что делает route_callback)
-    deps.store.set_runtime_flag("esc_active:42:demo", "", ts=1000.0)
-    _process(deps, "42:demo", "снова жалоба")
+    deps.store.set_runtime_flag("esc_active:telegram:42:demo", "", ts=1000.0)
+    _process(deps, "telegram:42:demo", "снова жалоба")
     assert len(n.cards) == 2        # новая карточка, не правка
 
 
@@ -210,20 +210,20 @@ def test_forbidden_reply_suppressed_and_escalated():
     n = FakeNotifier()
     deps = _deps(notifier=n, keywords=[], brain_reply="Да, можно картой Сбербанка в рублях.")
     transport = RecordingTransport()
-    deps.store.get_or_create_contact("42:demo")
-    process_batch("42:demo", ["как оплатить?"], transport, deps)
+    deps.store.get_or_create_contact("telegram:42:demo")
+    process_batch("telegram:42:demo", ["как оплатить?"], transport, deps)
     joined = " ".join(transport.sent).casefold()
     assert "сбербанк" not in joined and "рубл" not in joined   # подавлено
     assert len(n.cards) == 1                                    # эскалация владельцу
-    assert deps.store.get_or_create_contact("42:demo")["state"] == "escalated"
+    assert deps.store.get_or_create_contact("telegram:42:demo")["state"] == "escalated"
 
 
 def test_lead_asks_about_sberbank_escalates():
     n = FakeNotifier()
     deps = _deps(notifier=n, keywords=[], brain_reply="Уточню способы оплаты и вернусь.")
-    process_batch("42:demo", ["можно оплатить картой Сбербанка?"], RecordingTransport(), deps)
+    process_batch("telegram:42:demo", ["можно оплатить картой Сбербанка?"], RecordingTransport(), deps)
     assert len(n.cards) == 1                                    # лид про росбанк → эскалация
-    assert deps.store.get_or_create_contact("42:demo")["state"] == "escalated"
+    assert deps.store.get_or_create_contact("telegram:42:demo")["state"] == "escalated"
 
 
 def test_suppressed_payment_reply_is_helpful_not_silence_not_stall():
@@ -234,7 +234,7 @@ def test_suppressed_payment_reply_is_helpful_not_silence_not_stall():
     deps = _deps(notifier=n, keywords=[],
                  brain_reply="Сбербанком не принимаем, только Monobank.")
     t = RecordingTransport()
-    process_batch("42:demo", ["можно картой Сбербанка?"], t, deps)
+    process_batch("telegram:42:demo", ["можно картой Сбербанка?"], t, deps)
     got = " ".join(t.sent)
     assert got.strip()                                  # НЕ тишина
     assert "сбербанк" not in got.casefold() and "рубл" not in got.casefold()  # подавлено
@@ -249,13 +249,13 @@ def test_unbacked_promise_reply_suppressed_and_escalated():
     n = FakeNotifier()
     deps = _deps(notifier=n, keywords=[], brain_reply="Конечно, могу сделать скидку при заказе.")
     t = RecordingTransport()
-    deps.store.get_or_create_contact("42:demo")
-    process_batch("42:demo", ["а можно скидку?"], t, deps)
+    deps.store.get_or_create_contact("telegram:42:demo")
+    process_batch("telegram:42:demo", ["а можно скидку?"], t, deps)
     joined = " ".join(t.sent)
     assert joined.strip()                          # НЕ тишина
     assert "скидк" not in joined.casefold()        # обещание подавлено
     assert len(n.cards) == 1                        # эскалация владельцу
-    assert deps.store.get_or_create_contact("42:demo")["state"] == "escalated"
+    assert deps.store.get_or_create_contact("telegram:42:demo")["state"] == "escalated"
 
 
 def test_honest_refusal_reply_not_suppressed_not_escalated():
@@ -264,8 +264,8 @@ def test_honest_refusal_reply_not_suppressed_not_escalated():
     n = FakeNotifier()
     deps = _deps(notifier=n, keywords=[], brain_reply="Скидок нет, цена фиксированная.")
     t = RecordingTransport()
-    deps.store.get_or_create_contact("42:demo")
-    process_batch("42:demo", ["скидка есть?"], t, deps)
+    deps.store.get_or_create_contact("telegram:42:demo")
+    process_batch("telegram:42:demo", ["скидка есть?"], t, deps)
     joined = " ".join(t.sent).casefold()
     assert "скидок нет" in joined                   # правда доставлена
     assert n.cards == []                            # не эскалировано
@@ -286,8 +286,8 @@ def test_owner_contact_promise_kept_when_card_delivered():
     n = FakeNotifier()
     deps = _deps(notifier=n, keywords=[], brain_reply="Дмитрий свяжется с вами.")
     t = RecordingTransport()
-    deps.store.get_or_create_contact("42:demo")
-    process_batch("42:demo", ["позовите владельца"], t, deps)
+    deps.store.get_or_create_contact("telegram:42:demo")
+    process_batch("telegram:42:demo", ["позовите владельца"], t, deps)
     joined = " ".join(t.sent)
     assert len(n.cards) == 1
     assert "владельц" in joined.casefold()   # участие владельца обещано — карточка дошла
@@ -300,8 +300,8 @@ def test_owner_contact_promise_stripped_when_card_not_delivered():
     n = _FailingNotifier()
     deps = _deps(notifier=n, keywords=[], brain_reply="Дмитрий свяжется с вами.")
     t = RecordingTransport()
-    deps.store.get_or_create_contact("42:demo")
-    process_batch("42:demo", ["позовите владельца"], t, deps)
+    deps.store.get_or_create_contact("telegram:42:demo")
+    process_batch("telegram:42:demo", ["позовите владельца"], t, deps)
     joined = " ".join(t.sent)
     assert joined.strip()                     # НЕ тишина
     assert "Дмитрий" not in joined            # владелец НЕ обещан (карточка не дошла)
@@ -312,8 +312,8 @@ def test_owner_contact_promise_stripped_when_no_notifier():
     # Нет канала доставки владельцу (notifier=None) → обещать его контакт нельзя.
     deps = _deps(notifier=None, keywords=[], brain_reply="Дмитрий свяжется с вами.")
     t = RecordingTransport()
-    deps.store.get_or_create_contact("42:demo")
-    process_batch("42:demo", ["позовите владельца"], t, deps)
+    deps.store.get_or_create_contact("telegram:42:demo")
+    process_batch("telegram:42:demo", ["позовите владельца"], t, deps)
     joined = " ".join(t.sent)
     assert joined.strip()
     assert "Дмитрий" not in joined
@@ -342,10 +342,10 @@ def test_fallback_card_name_is_bare_id_not_composite_key():
     # fallback самого раннера через display_name), а не внутренний ключ Store.
     n = FakeNotifier()
     deps = _deps(notifier=n)                       # notifier есть, escalation_card НЕ инъектим
-    _process(deps, "777:demo", "позови человека")
+    _process(deps, "telegram:777:demo", "позови человека")
     assert len(n.cards) == 1
     text = n.cards[0].text_html
-    assert "777:demo" not in text                 # composite key НЕ утекает
+    assert "telegram:777:demo" not in text                 # composite key НЕ утекает
     assert _card_line(text, "🔴 Горячий лид:") == "🔴 Горячий лид: 777"
 
 
@@ -356,7 +356,7 @@ def test_fallback_card_summary_is_lead_message_not_reason_on_keyword_only():
     # реплику лида, «Почему» — причину; это РАЗНЫЕ строки.
     n = FakeNotifier()
     deps = _deps(notifier=n)
-    _process(deps, "42:demo", "у меня жалоба на качество печати")
+    _process(deps, "telegram:42:demo", "у меня жалоба на качество печати")
     assert len(n.cards) == 1
     text = n.cards[0].text_html
     wants = _card_line(text, "Хочет:")
@@ -385,7 +385,7 @@ FUZZ_LEAD_INPUTS = [
 def test_escalation_card_survives_adversarial_lead_input(lead_text):
     n = FakeNotifier()
     deps = _deps(notifier=n)
-    _process(deps, "42:demo", lead_text)                 # НЕ должно бросить исключение
+    _process(deps, "telegram:42:demo", lead_text)                 # НЕ должно бросить исключение
     assert len(n.cards) == 1
     text = n.cards[0].text_html
     # HTML-спецсимволы лида экранированы: ни одного сырого тега/инъекции из текста
@@ -401,8 +401,8 @@ def test_escalation_path_handles_empty_and_blank_lead_input_without_crash():
     # выходит на coalesce раньше эскалации). Класс «пустой аргумент».
     n = FakeNotifier()
     deps = _deps(notifier=n)
-    _process(deps, "42:demo", "")           # пусто
-    _process(deps, "42:demo", "   \n\t ")   # только пробелы
+    _process(deps, "telegram:42:demo", "")           # пусто
+    _process(deps, "telegram:42:demo", "   \n\t ")   # только пробелы
     assert n.cards == []
 
 
@@ -417,10 +417,10 @@ def test_stale_active_card_reescalation_posts_new_notifying_card():
     now = [1000.0]
     n = FakeNotifier()
     deps = _deps_clock(lambda: now[0], notifier=n)
-    _process(deps, "42:demo", "позови человека")      # эскалация 1 → карточка
+    _process(deps, "telegram:42:demo", "позови человека")      # эскалация 1 → карточка
     assert len(n.cards) == 1
     now[0] += 3600.0                                    # час спустя — новый ход
-    _process(deps, "42:demo", "это жалоба")            # эскалация 2 → НОВАЯ карточка
+    _process(deps, "telegram:42:demo", "это жалоба")            # эскалация 2 → НОВАЯ карточка
     assert len(n.cards) == 2, "устаревший флаг → должна быть НОВАЯ карточка, не тихая правка"
     assert n.updates == [], "не тихий edit — владелец обязан получить пуш"
 
@@ -431,9 +431,9 @@ def test_reescalation_within_window_still_edits_not_duplicate():
     now = [1000.0]
     n = FakeNotifier()
     deps = _deps_clock(lambda: now[0], notifier=n)
-    _process(deps, "42:demo", "позови человека")
+    _process(deps, "telegram:42:demo", "позови человека")
     now[0] += 5.0                                       # в пределах окна
-    _process(deps, "42:demo", "снова позови")
+    _process(deps, "telegram:42:demo", "снова позови")
     assert len(n.cards) == 1
     assert len(n.updates) == 1
 
@@ -446,11 +446,11 @@ def test_dedup_edit_failure_reports_not_delivered_and_strips_owner_promise():
     n = FakeNotifier(update_ok=False)                   # правка карточки проваливается
     deps = _deps_clock(lambda: now[0], notifier=n, keywords=[],
                        brain_reply="Дмитрий свяжется с вами.")
-    _process(deps, "42:demo", "позовите владельца")    # эскалация 1: notify OK, флаг ставится
+    _process(deps, "telegram:42:demo", "позовите владельца")    # эскалация 1: notify OK, флаг ставится
     now[0] += 5.0                                        # в пределах окна → правка (провал)
     t = RecordingTransport()
-    deps.store.get_or_create_contact("42:demo")
-    process_batch("42:demo", ["и ещё вопрос, позовите"], t, deps)
+    deps.store.get_or_create_contact("telegram:42:demo")
+    process_batch("telegram:42:demo", ["и ещё вопрос, позовите"], t, deps)
     joined = " ".join(t.sent).casefold()
     assert joined.strip()                               # НЕ тишина
     assert "дмитрий" not in joined and "владельц" not in joined  # обещание снято
@@ -465,8 +465,8 @@ def test_owner_name_promise_on_keyword_escalation_stripped_when_not_delivered():
     n = _FailingNotifier()
     deps = _deps(notifier=n, brain_reply="Дмитрий вам поможет с этим.")
     t = RecordingTransport()
-    deps.store.get_or_create_contact("42:demo")
-    process_batch("42:demo", ["позови человека"], t, deps)   # keyword «позови»
+    deps.store.get_or_create_contact("telegram:42:demo")
+    process_batch("telegram:42:demo", ["позови человека"], t, deps)   # keyword «позови»
     joined = " ".join(t.sent)
     assert joined.strip()
     assert "Дмитрий" not in joined            # обещание участия владельца снято (карточка не дошла)
@@ -479,8 +479,8 @@ def test_honest_disclosure_owner_mention_survives_failed_delivery():
     n = _FailingNotifier()
     deps = _deps(notifier=n, keywords=[])
     t = RecordingTransport()
-    deps.store.get_or_create_contact("42:demo")
-    process_batch("42:demo", ["ты бот?"], t, deps)
+    deps.store.get_or_create_contact("telegram:42:demo")
+    process_batch("telegram:42:demo", ["ты бот?"], t, deps)
     joined = " ".join(t.sent).casefold()
     assert "бот" in joined or "ассистент" in joined or "виртуальн" in joined  # честное раскрытие
     assert "дмитрий" in joined or "владел" in joined      # владелец упомянут и НЕ вырезан
@@ -494,8 +494,8 @@ def test_suppress_reply_owner_reference_is_case_safe_no_bare_nominative():
     n = FakeNotifier()
     deps = _deps(notifier=n, keywords=[], brain_reply="Дмитрий свяжется с вами.")
     t = RecordingTransport()
-    deps.store.get_or_create_contact("42:demo")
-    process_batch("42:demo", ["позовите владельца"], t, deps)   # доставлено → обещание оставлено
+    deps.store.get_or_create_contact("telegram:42:demo")
+    process_batch("telegram:42:demo", ["позовите владельца"], t, deps)   # доставлено → обещание оставлено
     joined = " ".join(t.sent)
     assert "позову Дмитрий" not in joined            # сломанный именительный падеж ушёл
     assert "владельцем" in joined.casefold()          # падеж-безопасная формулировка
@@ -509,10 +509,10 @@ def test_owner_handoff_reply_posts_card_without_classifier():
     deps = _deps(notifier=n, classify=None, keywords=[],
                  brain_reply="Со скидками я не работаю. Лучше обсудить с владельцем Дмитрием. Что вы планируете?")
     t = RecordingTransport()
-    deps.store.get_or_create_contact("42:demo")
-    process_batch("42:demo", ["Дадите скидку на большой заказ?"], t, deps)
+    deps.store.get_or_create_contact("telegram:42:demo")
+    process_batch("telegram:42:demo", ["Дадите скидку на большой заказ?"], t, deps)
     assert len(n.cards) == 1                          # карточка владельцу ушла
-    assert deps.store.get_or_create_contact("42:demo")["state"] == "escalated"
+    assert deps.store.get_or_create_contact("telegram:42:demo")["state"] == "escalated"
 
 
 def test_owner_handoff_keeps_honest_refusal_when_delivered():
@@ -522,8 +522,8 @@ def test_owner_handoff_keeps_honest_refusal_when_delivered():
     deps = _deps(notifier=n, classify=None, keywords=[],
                  brain_reply="Со скидками я не работаю. Обсудим с владельцем.")
     t = RecordingTransport()
-    deps.store.get_or_create_contact("42:demo")
-    process_batch("42:demo", ["скидку?"], t, deps)
+    deps.store.get_or_create_contact("telegram:42:demo")
+    process_batch("telegram:42:demo", ["скидку?"], t, deps)
     joined = " ".join(t.sent).casefold()
     assert "со скидками я не работаю" in joined       # честный отказ сохранён
 
@@ -535,8 +535,8 @@ def test_owner_contact_reply_drops_trailing_sell_question():
     deps = _deps(notifier=n, classify=None, keywords=[],
                  brain_reply="Со скидками я не работаю. Лучше обсудить с владельцем Дмитрием. Что вы планируете?")
     t = RecordingTransport()
-    deps.store.get_or_create_contact("42:demo")
-    process_batch("42:demo", ["скидку?"], t, deps)
+    deps.store.get_or_create_contact("telegram:42:demo")
+    process_batch("telegram:42:demo", ["скидку?"], t, deps)
     joined = " ".join(t.sent)
     assert "Что вы планируете" not in joined          # хвостовой вопрос убран
     assert "обсудить с владельцем" in joined.casefold()  # сама передача осталась
@@ -548,8 +548,8 @@ def test_non_contact_reply_keeps_its_question():
     deps = _deps(notifier=n, classify=None, keywords=[],
                  brain_reply="Отлично! А что именно вы планируете снимать?")
     t = RecordingTransport()
-    deps.store.get_or_create_contact("42:demo")
-    process_batch("42:demo", ["расскажите про съёмку"], t, deps)
+    deps.store.get_or_create_contact("telegram:42:demo")
+    process_batch("telegram:42:demo", ["расскажите про съёмку"], t, deps)
     joined = " ".join(t.sent).casefold()
     assert "что именно вы планируете снимать" in joined   # вопрос сохранён
     assert n.cards == []                                  # и не эскалировано
@@ -562,8 +562,8 @@ def test_owner_handoff_promise_stripped_when_card_not_delivered():
     deps = _deps(notifier=n, classify=None, keywords=[],
                  brain_reply="Со скидками я не работаю. Обсудим с владельцем Дмитрием.")
     t = RecordingTransport()
-    deps.store.get_or_create_contact("42:demo")
-    process_batch("42:demo", ["скидку?"], t, deps)
+    deps.store.get_or_create_contact("telegram:42:demo")
+    process_batch("telegram:42:demo", ["скидку?"], t, deps)
     joined = " ".join(t.sent).casefold()
     assert joined.strip()
     assert "владельц" not in joined and "дмитри" not in joined   # обещание контакта снято
@@ -577,8 +577,8 @@ def test_owner_ref_config_customizes_reference():
     deps.cfg = dataclasses.replace(
         deps.cfg, settings=dataclasses.replace(deps.cfg.settings, owner_ref="менеджером"))
     t = RecordingTransport()
-    deps.store.get_or_create_contact("42:demo")
-    process_batch("42:demo", ["позовите владельца"], t, deps)
+    deps.store.get_or_create_contact("telegram:42:demo")
+    process_batch("telegram:42:demo", ["позовите владельца"], t, deps)
     joined = " ".join(t.sent).casefold()
     assert "менеджером" in joined
     assert "свяж" in joined                           # H2-детекция по глаголу сохраняется
@@ -606,8 +606,8 @@ def test_honest_mode_undelivered_card_keeps_honest_fact_in_fallback():
     # notifier=None → карточка заведомо не доставлена → H2-гейт переписывает ответ.
     deps = _deps(notifier=None, keywords=[], brain_reply="Свяжусь с владельцем и вернусь к вам.")
     t = RecordingTransport()
-    deps.store.get_or_create_contact("42:demo")
-    process_batch("42:demo", ["а сколько стоит?"], t, deps)
+    deps.store.get_or_create_contact("telegram:42:demo")
+    process_batch("telegram:42:demo", ["а сколько стоит?"], t, deps)
     joined = " ".join(t.sent)
     assert _honest_marker(deps) in joined
 
@@ -617,8 +617,8 @@ def test_honest_fallback_still_drops_the_owner_promise():
     # не обещаем, раз карточка до него не дошла.
     deps = _deps(notifier=None, keywords=[], brain_reply="Свяжусь с владельцем и вернусь к вам.")
     t = RecordingTransport()
-    deps.store.get_or_create_contact("42:demo")
-    process_batch("42:demo", ["а сколько стоит?"], t, deps)
+    deps.store.get_or_create_contact("telegram:42:demo")
+    process_batch("telegram:42:demo", ["а сколько стоит?"], t, deps)
     joined = " ".join(t.sent).casefold()
     assert "владельц" not in joined and "свяжу вас" not in joined
 
@@ -631,8 +631,8 @@ def test_free_mode_fallback_unchanged_no_honesty_added():
         deps.cfg,
         settings=dataclasses.replace(deps.cfg.settings, honesty_mode="free_owner_liability"))
     t = RecordingTransport()
-    deps.store.get_or_create_contact("42:demo")
-    process_batch("42:demo", ["а сколько стоит?"], t, deps)
+    deps.store.get_or_create_contact("telegram:42:demo")
+    process_batch("telegram:42:demo", ["а сколько стоит?"], t, deps)
     joined = " ".join(t.sent)
     assert _honest_marker(deps) not in joined
 
@@ -662,10 +662,10 @@ def _healthy_cr(profile=None, retried=False):
 def test_degraded_turn_records_contact_id():
     deps = _deps(notifier=FakeNotifier(), keywords=[],
                  classify=lambda history, profile=None: _degraded_cr())
-    _process(deps, "42:demo", "обычное сообщение")
+    _process(deps, "telegram:42:demo", "обычное сообщение")
     rows = list(deps.store._conn.execute(
         "SELECT contact_id, detail FROM control_events WHERE kind='classifier_error'"))
-    assert rows and rows[0][0] == "42:demo", "сбой записан без контакта — форензика слепа"
+    assert rows and rows[0][0] == "telegram:42:demo", "сбой записан без контакта — форензика слепа"
     assert "нет JSON" in rows[0][1]
 
 
@@ -674,11 +674,11 @@ def test_turn_saved_by_retry_is_recorded_as_recovered():
     спутала роль, и это обязано быть видно в БД и в счётчике порога."""
     deps = _deps(notifier=FakeNotifier(), keywords=[],
                  classify=lambda history, profile=None: _healthy_cr(retried=True))
-    _process(deps, "42:demo", "обычное сообщение")
+    _process(deps, "telegram:42:demo", "обычное сообщение")
     assert deps.store.count_events("classifier_error", since_ts=0.0) == 0
     rows = list(deps.store._conn.execute(
         "SELECT contact_id FROM control_events WHERE kind='classifier_recovered'"))
-    assert rows and rows[0][0] == "42:demo"
+    assert rows and rows[0][0] == "telegram:42:demo"
 
 
 def test_alert_lands_in_telegram_on_the_second_failure_of_the_day():
@@ -687,9 +687,9 @@ def test_alert_lands_in_telegram_on_the_second_failure_of_the_day():
     n = FakeNotifier()
     deps = _deps(notifier=n, keywords=[],
                  classify=lambda history, profile=None: _degraded_cr())
-    _process(deps, "42:demo", "первое")
+    _process(deps, "telegram:42:demo", "первое")
     assert [c for c in n.cards if c.kind == "alert"] == [], "алерт на первом сбое = шум"
-    _process(deps, "42:demo", "второе")
+    _process(deps, "telegram:42:demo", "второе")
     alerts = [c for c in n.cards if c.kind == "alert"]
     assert len(alerts) == 1, "два сбоя за сутки прошли мимо владельца"
 
@@ -701,7 +701,7 @@ def test_three_missed_profile_updates_on_one_contact_alert_separately():
     deps = _deps(notifier=n, keywords=[],
                  classify=lambda history, profile=None: _degraded_cr())
     for i in range(3):
-        _process(deps, "42:demo", f"сообщение {i}")
+        _process(deps, "telegram:42:demo", f"сообщение {i}")
     stale = [c for c in n.cards if c.kind == "alert" and "42" in c.text_html]
     assert stale, "серия пропусков профиля по контакту не дошла до владельца"
 
@@ -711,8 +711,8 @@ def test_profile_stale_alert_fires_once_per_streak():
     deps = _deps(notifier=n, keywords=[],
                  classify=lambda history, profile=None: _degraded_cr())
     for i in range(6):
-        _process(deps, "42:demo", f"сообщение {i}")
-    stale = _stale_profile_alerts(n, "42:demo")
+        _process(deps, "telegram:42:demo", f"сообщение {i}")
+    stale = _stale_profile_alerts(n, "telegram:42:demo")
     assert len(stale) == 1, f"алерт про профиль штормит владельца: {len(stale)} раз"
 
 
@@ -725,8 +725,8 @@ def test_healthy_turn_without_new_facts_breaks_the_streak():
     deps = _deps(notifier=n, keywords=[],
                  classify=lambda history, profile=None: results.pop(0))
     for i in range(5):
-        _process(deps, "42:demo", f"сообщение {i}")
-    assert _stale_profile_alerts(n, "42:demo") == [], "здоровый ход не оборвал серию пропусков"
+        _process(deps, "telegram:42:demo", f"сообщение {i}")
+    assert _stale_profile_alerts(n, "telegram:42:demo") == [], "здоровый ход не оборвал серию пропусков"
 
 
 # --- D4 (AUDIT): кулдаун алерта не должен сгорать на неудачной доставке -----
@@ -753,12 +753,12 @@ def test_degraded_alert_cooldown_is_not_burned_by_a_failed_delivery():
     def _global_alerts():
         return [c for c in n.cards if c.kind == "alert" and c.contact_id == ""]
 
-    _process(deps, "42:demo", "первое")
-    _process(deps, "42:demo", "второе")          # порог взят, доставка упала
+    _process(deps, "telegram:42:demo", "первое")
+    _process(deps, "telegram:42:demo", "второе")          # порог взят, доставка упала
     assert _global_alerts() == []
 
     n.fail = False
-    _process(deps, "42:demo", "третье")          # следующий сбой обязан добить
+    _process(deps, "telegram:42:demo", "третье")          # следующий сбой обязан добить
     assert _global_alerts(), (
         "кулдаун сгорел на неудачной доставке — владелец глух на сутки")
 
@@ -769,6 +769,6 @@ def test_degraded_alert_cooldown_holds_after_a_successful_delivery():
     deps = _deps(notifier=n, keywords=[],
                  classify=lambda history, profile=None: _degraded_cr())
     for i in range(4):
-        _process(deps, "42:demo", f"сообщение {i}")
+        _process(deps, "telegram:42:demo", f"сообщение {i}")
     globals_alerts = [c for c in n.cards if c.kind == "alert" and c.contact_id == ""]
     assert len(globals_alerts) == 1

@@ -33,8 +33,14 @@ from chatter.payments.settings import (
     assert_startable, client_ready_channels, load_payments, usable_channels)
 
 CLIENTS = Path(__file__).resolve().parents[2] / "chatter" / "clients"
-DRILL_CONTACT = "8849893367:volska"
-LIVE_CONTACT = "5551234:volska"
+# Форма ТРЁХСЕГМЕНТНАЯ, вместе с каноном `DRILL_CONTACTS` (спека web-c §4).
+# Литералом, а не выборкой из канона: список, выведенный из проверяемого кода,
+# согласен с ним по определению ([[jarvis-literal-lists-not-introspection]]),
+# и этот стенд перестал бы отличать «дрил-контакт» от «любой контакт» ровно в
+# тот день, когда канон опустеет. Расхождение с каноном держит
+# `test_payments_drill_gate.py`.
+DRILL_CONTACT = "telegram:8849893367:volska"
+LIVE_CONTACT = "telegram:5551234:volska"
 
 
 @pytest.fixture(scope="module")

@@ -15,7 +15,7 @@ from chatter.storage.db import Store
 @pytest.fixture()
 def store():
     s = Store(":memory:")
-    s.get_or_create_contact("777:demo")
+    s.get_or_create_contact("telegram:777:demo")
     return s
 
 
@@ -50,7 +50,7 @@ def test_paid_without_amount_records_the_fact(store):
 
     rows = store.payments_between(0.0, 1e12)
     assert len(rows) == 1
-    assert rows[0]["contact_id"] == "777:demo"
+    assert rows[0]["contact_id"] == "telegram:777:demo"
     assert rows[0]["amount_minor"] is None
 
 
@@ -60,7 +60,7 @@ def test_paid_with_amount_records_the_sum(store):
     rows = store.payments_between(0.0, 1e12)
     assert len(rows) == 1
     assert rows[0]["amount_minor"] == 75000
-    assert rows[0]["contact_id"] == "777:demo"
+    assert rows[0]["contact_id"] == "telegram:777:demo"
 
 
 def test_amount_then_correction_updates_same_payment(store):
@@ -77,7 +77,7 @@ def test_amount_then_correction_updates_same_payment(store):
 def test_payment_closes_the_funnel_as_bought(store):
     _route_panel(store, "paidamt:750:777:demo")
 
-    assert store.get_or_create_contact("777:demo")["state"] == "closed"
+    assert store.get_or_create_contact("telegram:777:demo")["state"] == "closed"
     trans = store.transitions_between(0.0, 1e12)
     assert trans and trans[-1]["to_state"] == "closed"
     assert trans[-1]["signal"] == "bought"
@@ -125,8 +125,8 @@ def store_with_open_card():
     from chatter.core.escalation import esc_active_key
 
     s = Store(":memory:")
-    s.get_or_create_contact("777:demo")
-    s.set_runtime_flag(esc_active_key("777:demo"),
+    s.get_or_create_contact("telegram:777:demo")
+    s.set_runtime_flag(esc_active_key("telegram:777:demo"),
                        f"bot:237616472:{_ESC_CARD}", ts=1000.0)
     return s
 
@@ -183,7 +183,7 @@ def test_esc_active_flag_does_not_influence_payment_identity(store_with_open_car
 
     _route_card(store_with_open_card, "paidamt:900:777:demo", card_msg_id=151)
     store_with_open_card.set_runtime_flag(
-        esc_active_key("777:demo"), "bot:237616472:999", ts=1001.0)
+        esc_active_key("telegram:777:demo"), "bot:237616472:999", ts=1001.0)
     _route_card(store_with_open_card, "paidamt:900:777:demo", card_msg_id=151)
 
     rows = store_with_open_card.payments_between(0.0, 1e12)

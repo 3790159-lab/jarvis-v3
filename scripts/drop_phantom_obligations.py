@@ -29,8 +29,9 @@ import time
 # Список обязан совпадать с drill_reset.DRILL_CONTACTS (сторож —
 # tests/test_drill_reset.py). Суффикс это ПЕРСОНА: демо-состав yarina даёт
 # тому же тестовому аккаунту другой contact_id.
-DRILL_CONTACTS = frozenset({"237616472:volska", "8849893367:volska",
-                            "8849893367:yarina"})
+DRILL_CONTACTS = frozenset({"telegram:237616472:volska",
+                            "telegram:8849893367:volska",
+                            "telegram:8849893367:yarina"})
 
 
 def snapshot(conn, contact: str) -> list[tuple]:

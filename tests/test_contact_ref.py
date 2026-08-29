@@ -41,7 +41,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from chatter.core.contact_ref import peer_of, slug_of, telegram_peer_of
+from chatter.core.contact_ref import (
+    channel_of,
+    peer_of,
+    slug_of,
+    telegram_peer_of,
+)
 
 import chatter.notify.control_bot as control_bot
 import chatter.run as chatter_run
@@ -51,8 +56,11 @@ from chatter.config.loader import ControlConfig
 from chatter.notify.base import CardHandle  # noqa: F401  (форма ответа notify)
 
 
-# Форма, на которой живут ОБЕ живые клиентки прямо сейчас: "<peer_id>:<slug>".
-TODAY = "12345:volska"
+# Форма после переезда волны 2 (пара C, §3.1):
+# "<channel>:<external_id>:<persona>". Двухсегментную форму разбор больше
+# не принимает — её понимает ровно один переводчик старых кнопок
+# (`upgrade_legacy_callback_contact`), и это единственная дверь.
+TODAY = "telegram:12345:volska"
 TODAY_PEER_STR = "12345"
 TODAY_PEER_INT = 12345
 TODAY_SLUG = "volska"
@@ -144,16 +152,19 @@ def test_slug_of_returns_the_persona_tail():
 # промолчит там, где код забыл ([[jarvis-literal-lists-not-introspection]]).
 # Отрицательная голова — не выдумка: chat_id групп и каналов в Telegram
 # отрицательный, и `f"{sender_id}:{slug}"` соберёт её так же.
-CANONICAL_FORMS = ("12345:volska", "777:demo", "777:demo2",
-                   "12345:yarina", "-1001234567890:demo")
+CANONICAL_FORMS = ("telegram:12345:volska", "telegram:777:demo",
+                   "telegram:777:demo2", "telegram:12345:yarina",
+                   "telegram:-1001234567890:demo")
 
 # Формы «на грани»: принять их или отвергнуть — решение реализации, сторож
 # не навязывает. Но ЧТО БЫ она ни решила, потерять кусок она не имеет права.
-BORDERLINE_FORMS = ("0:volska", "12345:VOLSKA", "12345:слуг-которого-нет")
+BORDERLINE_FORMS = ("telegram:0:volska", "telegram:12345:VOLSKA",
+                    "telegram:12345:слуг-которого-нет")
 
 
 def test_every_accepted_form_reassembles_into_the_original():
-    """Инвариант обратимости: `peer_of(x) + ":" + slug_of(x) == x`.
+    """Инвариант обратимости, расширенный §3.3 пары C:
+    `channel_of(x) + ":" + peer_of(x) + ":" + slug_of(x) == x`.
 
     Что сломается без него. Реализация вида «`split(":")`, голова `[0]`, хвост
     `[-1]`» на `"12345:abc:volska"` вернёт `"12345"` и `"volska"` — оба куска
@@ -168,11 +179,11 @@ def test_every_accepted_form_reassembles_into_the_original():
     accepted = []
     for form in CANONICAL_FORMS + BORDERLINE_FORMS:
         try:
-            head, tail = peer_of(form), slug_of(form)
+            chan, head, tail = channel_of(form), peer_of(form), slug_of(form)
         except ValueError:
             continue          # отвергнута — законный исход, судят сторожа 5/6
         accepted.append(form)
-        rebuilt = f"{head}:{tail}"
+        rebuilt = f"{chan}:{head}:{tail}"
         assert rebuilt == form, (
             f"разбор {form!r} НЕ обратим: peer_of={head!r}, slug_of={tail!r}, "
             f"собранное обратно {rebuilt!r} != исходного. Значит часть "

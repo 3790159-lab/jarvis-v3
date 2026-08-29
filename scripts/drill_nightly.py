@@ -41,7 +41,7 @@ TZ = ZoneInfo("Europe/Kyiv")
 DEFAULT_CLIENT_DIR = _ROOT / "chatter" / "clients" / "volska"
 DEFAULT_DB = _ROOT / ".secrets" / "demo.db"
 DEFAULT_SCENARIO = _ROOT / "docs" / "chatter" / "drills" / "d10-obligations.yaml"
-DEFAULT_CONTACT = "8849893367:volska"
+DEFAULT_CONTACT = "telegram:8849893367:volska"
 PEERS_FILE = Path(".secrets") / "drill_lead_peers.txt"
 LEAD_SESSION = Path(".secrets") / "drill_lead.session"
 

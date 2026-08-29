@@ -19,7 +19,7 @@ from chatter.transport.base import Transport
 
 CLIENTS = Path(__file__).resolve().parents[2] / "chatter" / "clients"
 OWNER = 237616472
-CONTACT = "42:demo"
+CONTACT = "telegram:42:demo"
 
 
 class _Silent(Transport):

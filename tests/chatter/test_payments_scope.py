@@ -20,8 +20,8 @@ from chatter.payments.scope import (
     ScopeConfigError, assert_pricing_usable, load_scope_texts, resolve_scope_text,
 )
 
-LIVE = "555000111:volska"
-DRILL = "8849893367:volska"
+LIVE = "telegram:555000111:volska"
+DRILL = "telegram:8849893367:volska"
 
 KNOWLEDGE = "- Створення логотипа — 300–400 $\n"
 

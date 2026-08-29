@@ -27,11 +27,11 @@ from chatter.connect.probes import _DRILL_TITLE_RE, _names_client
 _SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "drill_runner.py"
 
 SLUG = "volska"
-CONTACT = "237616472:volska"
+CONTACT = "telegram:237616472:volska"
 # Слаг, которого НЕТ внутри contact_id: иначе «отчёт назвал клиента» нельзя
 # отличить от «в отчёте случайно оказалась подстрока контакта».
 OTHER_SLUG = "yarina"
-OTHER_CONTACT = "8849893367:yarina"
+OTHER_CONTACT = "telegram:8849893367:yarina"
 
 
 def _load():

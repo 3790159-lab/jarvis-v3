@@ -35,7 +35,6 @@ _MTIME_BASE = 2_000_000_000
 _mtime_seq = count()
 
 OUT = "chatter/core/outgoing.py"
-CREF = "chatter/core/channel_ref.py"
 DB = "chatter/storage/db.py"
 PANEL = "app/routers/tamapi_dashboard.py"
 
@@ -70,6 +69,10 @@ GQ = "tests/chatter/test_outgoing_queue.py"
 #      наличие резерва.
 #    * переходный шов `channel_ref._transitional` угадывает канал вместо
 #      отказа: перекрыт сверкой слуга на странице по той же причине.
+#      🔴 СНЯТА С УЧЁТА 29.08: мержем пары C шов удалён целиком —
+#      `contact_ref` отвечает про канал сам, и мутировать больше нечего.
+#      Строка оставлена, чтобы счёт мишеней читался как история, а не как
+#      «кто-то тихо убрал неудобную».
 #    Обе «резервные» — не слепота сторожей, а глубина обороны, и записаны
 #    здесь именно так, чтобы завтра их не «починили» ослаблением резерва.
 
@@ -193,7 +196,7 @@ MUTATIONS = [
 
     # ── §2.1 разбор головы contact_id — ЧУЖОЙ, а не свой ────────────────
     ("доставка завела СВОЙ разбор головы contact_id", OUT,
-     [(b"        channel = channel_ref.channel_of(contact_id)\n"
+     [(b"        channel = contact_ref.channel_of(contact_id)\n"
        b"        deliverer = deliverer_for(channel)",
        b'        channel = contact_id.split(":")[0]\n'
        b"        deliverer = deliverer_for(channel)")],
