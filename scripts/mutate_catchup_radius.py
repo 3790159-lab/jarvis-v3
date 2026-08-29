@@ -41,11 +41,11 @@ MUTATIONS = [
        "            continue\n", "")],
      f"{TR}::test_a_message_older_than_the_catchup_cap_is_not_a_risk"),
 
-    ("пауза и взятый человеком диалог больше не считаются молчанием по решению", R,
+    ("пауза больше не считается молчанием по решению", R,
      [('            "deliberate_silence": bool(\n'
-       '                (state or "") in SILENT_BY_DECISION or took_over or muted),',
+       '                (state or "") in SILENT_BY_DECISION or muted),',
        '            "deliberate_silence": bool((state or "") in SILENT_BY_DECISION),')],
-     f"{TR}::test_paused_and_human_took_over_count_as_deliberate_silence"),
+     f"{TR}::test_paused_counts_as_deliberate_silence"),
 
     ("вердикт о паузе выведен заново — истёкший снуз стал вечным", R,
      [("        muted = is_muted({\"paused\": paused, \"pause_until\": pause_until},\n"

@@ -29,7 +29,7 @@ def test_get_or_create_contact_defaults(tmp_path):
     s = Store(tmp_path / "c.db")
     c = s.get_or_create_contact("u1")
     assert c["state"] == "new"
-    assert c["paused"] == 0 and c["human_took_over"] == 0
+    assert c["paused"] == 0 and "human_took_over" not in c.keys()
     # idempotent
     assert s.get_or_create_contact("u1")["state"] == "new"
 

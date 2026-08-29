@@ -20,8 +20,16 @@ NEW_CONTACT_COLUMNS = {
 }
 
 # Базовые колонки `contacts` арки 1/2 — то, что было ДО этой миграции.
-# Используется только тестом-стражем ниже, никогда — продовым кодом.
+# Используется только тестами-стражами ниже, никогда — продовым кодом.
+#
+# 🔴 ДВА МНОЖЕСТВА, А НЕ ОДНО, с 29.08. Раньше «схема арки 1/2» и «база, от
+# которой считаются добавленные колонки» были одним набором, и одно имя на две
+# вещи не мешало — пока вещи не разошлись. Удаление мёртвой `human_took_over`
+# их развело: в СТАРОЙ схеме колонка была (иначе фикстура миграции не старая),
+# в СЕГОДНЯШНЕЙ её нет. Одно имя на две вещи здесь дало бы ровно то, что дом
+# уже записал про два числа на одну вещь: меньшее гасит большее молча.
 ARC1_CONTACT_COLUMNS = {"contact_id", "state", "paused", "human_took_over"}
+BASE_CONTACT_COLUMNS = ARC1_CONTACT_COLUMNS - {"human_took_over"}
 
 
 def _columns(db_path: Path, table: str) -> set[str]:
@@ -123,9 +131,9 @@ def test_fresh_schema_columns_match_arc1_base_plus_added_columns(tmp_path):
     db = tmp_path / "drift_guard.db"
     Store(db).close()
     fresh_columns = _columns(db, "contacts")
-    expected = ARC1_CONTACT_COLUMNS | set(_ADDED_COLUMNS["contacts"])
+    expected = BASE_CONTACT_COLUMNS | set(_ADDED_COLUMNS["contacts"])
     assert fresh_columns == expected, (
-        f"колонки contacts из _SCHEMA разошлись с ARC1_CONTACT_COLUMNS | _ADDED_COLUMNS: "
+        f"колонки contacts из _SCHEMA разошлись с BASE_CONTACT_COLUMNS | _ADDED_COLUMNS: "
         f"лишние в _SCHEMA={fresh_columns - expected}, "
         f"отсутствуют в _SCHEMA={expected - fresh_columns}"
     )
@@ -187,11 +195,20 @@ def test_migration_from_explicit_old_schema_preserves_cyrillic_data(tmp_path):
     Store(db_path).close()   # первый прогон: миграция
     Store(db_path).close()   # второй прогон: ОБЯЗАН быть no-op, не падать
 
-    assert NEW_CONTACT_COLUMNS <= _columns(db_path, "contacts")
+    after_cols = _columns(db_path, "contacts")
+    assert NEW_CONTACT_COLUMNS <= after_cols
+    # 🔴 ПРИЁМКА ШАГА 3 (спека 29.08 §6). Фикстура стартует со СТАРОЙ схемы,
+    # где мёртвая колонка есть, — значит этот же тест доказывает, что открытие
+    # `Store` её снимает, и снимает НЕ ЦЕНОЙ ДАННЫХ: тексты сообщений и строка
+    # контакта сверяются ниже посимвольно. Проверка живёт здесь, а не отдельным
+    # тестом, ровно потому, что «колонки нет» и «данные целы» — одно
+    # утверждение, разорванное надвое оно зеленеет половинками.
+    assert "human_took_over" not in after_cols, (
+        "мёртвая колонка пережила перестройку: %r" % (sorted(after_cols),))
 
     check = sqlite3.connect(str(db_path))
     contact_row = check.execute(
-        "SELECT state, paused, human_took_over FROM contacts WHERE contact_id=?",
+        "SELECT state, paused FROM contacts WHERE contact_id=?",
         ("111222333",),
     ).fetchone()
     msg_rows = check.execute(
@@ -199,7 +216,7 @@ def test_migration_from_explicit_old_schema_preserves_cyrillic_data(tmp_path):
     ).fetchall()
     check.close()
 
-    assert contact_row == ("active", 0, 0)
+    assert contact_row == ("active", 0)
     assert [r[0] for r in msg_rows] == texts, "текст сообщений должен совпасть посимвольно, включая кириллицу"
 
     backups = list(db_path.parent.glob(f"{db_path.name}.pre-3a-*.bak"))

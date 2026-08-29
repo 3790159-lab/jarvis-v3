@@ -64,7 +64,7 @@ def test_existing_db_gets_new_table(tmp_path):
     conn = sqlite3.connect(path)
     conn.execute("CREATE TABLE contacts (contact_id TEXT PRIMARY KEY, state TEXT "
                  "NOT NULL DEFAULT 'new', paused INTEGER NOT NULL DEFAULT 0, "
-                 "human_took_over INTEGER NOT NULL DEFAULT 0)")
+                 "paused_at REAL)")
     conn.commit()
     conn.close()
     store = Store(path)

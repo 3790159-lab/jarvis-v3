@@ -34,22 +34,22 @@ NOW = 1_700_000_000.0
 def make_db(path: Path, rows, contacts=None) -> Path:
     """rows: (contact_id, role, ts_offset_seconds, text) — offset ОТ NOW назад.
 
-    contacts: (contact_id, state, paused, human_took_over[, pause_until]).
+    contacts: (contact_id, state, paused[, pause_until]).
     """
     con = sqlite3.connect(path)
     con.execute("create table messages (id integer primary key, contact_id text, "
                 "role text, text text, ts real)")
     con.execute("create table contacts (contact_id text primary key, state text, "
-                "paused integer, human_took_over integer, pause_until real)")
+                "paused integer, pause_until real)")
     for contact_id, role, back, text in rows:
         con.execute("insert into messages (contact_id, role, text, ts) values (?,?,?,?)",
                     (contact_id, role, text, NOW - back))
     for contact in (contacts or []):
-        contact_id, state, paused, took = contact[:4]
-        until = contact[4] if len(contact) > 4 else None
-        con.execute("insert into contacts (contact_id, state, paused, human_took_over, "
-                    "pause_until) values (?,?,?,?,?)",
-                    (contact_id, state, paused, took, until))
+        contact_id, state, paused = contact[:3]
+        until = contact[3] if len(contact) > 3 else None
+        con.execute("insert into contacts (contact_id, state, paused, "
+                    "pause_until) values (?,?,?,?)",
+                    (contact_id, state, paused, until))
     con.commit()
     con.close()
     return path
@@ -61,7 +61,7 @@ def test_a_dialog_whose_last_word_is_the_clients_is_named(tmp_path):
     db = make_db(tmp_path / "c.db", [
         ("telegram:111:yarina", "assistant", 7200, "Зв'яжу вас зі старшим майстром"),
         ("telegram:111:yarina", "user", 3600, "Покажіть договір, будь ласка"),
-    ], contacts=[("telegram:111:yarina", "escalated", 0, 0)])
+    ], contacts=[("telegram:111:yarina", "escalated", 0)])
 
     rows = radius.dialogs_at_risk(db, now=NOW)
 
@@ -81,7 +81,7 @@ def test_a_dialog_the_bot_already_answered_is_not_a_risk(tmp_path):
     db = make_db(tmp_path / "c.db", [
         ("telegram:222:volska", "user", 5400, "Скільки коштує полірування?"),
         ("telegram:222:volska", "assistant", 5000, "5 000–8 000 грн"),
-    ], contacts=[("telegram:222:volska", "active", 0, 0)])
+    ], contacts=[("telegram:222:volska", "active", 0)])
 
     assert radius.dialogs_at_risk(db, now=NOW) == []
 
@@ -95,12 +95,12 @@ def test_a_message_older_than_the_catchup_cap_is_not_a_risk(tmp_path):
     """
     db = make_db(tmp_path / "c.db", [
         ("telegram:333:yarina", "user", CATCHUP_MAX_AGE_SECONDS + 60, "давнє питання"),
-    ], contacts=[("telegram:333:yarina", "escalated", 0, 0)])
+    ], contacts=[("telegram:333:yarina", "escalated", 0)])
     assert radius.dialogs_at_risk(db, now=NOW) == []
 
     fresh = make_db(tmp_path / "d.db", [
         ("telegram:333:yarina", "user", CATCHUP_MAX_AGE_SECONDS - 60, "свіже питання"),
-    ], contacts=[("telegram:333:yarina", "escalated", 0, 0)])
+    ], contacts=[("telegram:333:yarina", "escalated", 0)])
     assert len(radius.dialogs_at_risk(fresh, now=NOW)) == 1
 
 
@@ -137,22 +137,28 @@ def test_a_measurement_that_did_not_happen_is_not_a_clean_one(tmp_path, kind):
         radius.dialogs_at_risk(target, now=NOW)
 
 
-def test_paused_and_human_took_over_count_as_deliberate_silence(tmp_path):
+def test_paused_counts_as_deliberate_silence(tmp_path):
     """Ловит: узкое понимание «бот молчит намеренно».
 
-    Эскалация — не единственный такой случай: пауза и взятый человеком диалог
-    означают ровно то же. Список состояний может расти, но каждое новое
-    обязано попадать сюда вместе с кодом.
+    Эскалация — не единственный такой случай: пауза означает ровно то же.
+    Список состояний может расти, но каждое новое обязано попадать сюда вместе
+    с кодом.
+
+    🔴 ВТОРОЙ СЛУЧАЙ ОТСЮДА УБРАН 29.08, и это не сужение проверки. Здесь
+    стоял `human_took_over` — колонка, в которую единицу не писал НИКТО
+    (замер спеки 29.08 §1). То есть проверка держала признак, недостижимый в
+    живой базе, и зеленела на состоянии, которого не бывает. Признак «диалогом
+    занят человек» остался ОДИН и он же настоящий: `paused` + `pause_source`.
     """
     db = make_db(tmp_path / "c.db", [
         ("telegram:444:yarina", "user", 600, "Ви ще тут?"),
         ("telegram:555:yarina", "user", 600, "Чекаю відповіді"),
-    ], contacts=[("telegram:444:yarina", "active", 1, 0), ("telegram:555:yarina", "active", 0, 1)])
+    ], contacts=[("telegram:444:yarina", "active", 1), ("telegram:555:yarina", "escalated", 0)])
 
     rows = {r["contact_id"]: r for r in radius.dialogs_at_risk(db, now=NOW)}
 
     assert rows["telegram:444:yarina"]["deliberate_silence"] is True, "пауза не учтена"
-    assert rows["telegram:555:yarina"]["deliberate_silence"] is True, "human_took_over не учтён"
+    assert rows["telegram:555:yarina"]["deliberate_silence"] is True, "эскалация не учтена"
 
 
 def test_a_registry_without_an_explicit_db_falls_back_like_the_runner(tmp_path):
@@ -183,7 +189,7 @@ def test_an_unexpired_snooze_is_deliberate_silence(tmp_path):
     """
     db = make_db(tmp_path / "c.db", [
         ("telegram:888:yarina", "user", 600, "то що по ціні?"),
-    ], contacts=[("telegram:888:yarina", "active", 1, 0, NOW + 1800)])
+    ], contacts=[("telegram:888:yarina", "active", 1, NOW + 1800)])
 
     rows = radius.dialogs_at_risk(db, now=NOW)
 
@@ -200,7 +206,7 @@ def test_an_expired_snooze_is_not_deliberate_silence(tmp_path):
     """
     db = make_db(tmp_path / "c.db", [
         ("telegram:999:yarina", "user", 600, "ще актуально?"),
-    ], contacts=[("telegram:999:yarina", "active", 1, 0, NOW - 60)])
+    ], contacts=[("telegram:999:yarina", "active", 1, NOW - 60)])
 
     rows = radius.dialogs_at_risk(db, now=NOW)
 
@@ -228,7 +234,7 @@ def test_the_riskiest_dialogs_are_printed_first(tmp_path):
     db = make_db(tmp_path / "c.db", [
         ("telegram:666:yarina", "user", 300, "просто чекаю"),
         ("telegram:777:yarina", "user", 7200, "передали старшому майстру?"),
-    ], contacts=[("telegram:666:yarina", "active", 0, 0), ("telegram:777:yarina", "escalated", 0, 0)])
+    ], contacts=[("telegram:666:yarina", "active", 0), ("telegram:777:yarina", "escalated", 0)])
 
     rows = radius.dialogs_at_risk(db, now=NOW)
     assert rows[0]["contact_id"] == "telegram:777:yarina", [r["contact_id"] for r in rows]

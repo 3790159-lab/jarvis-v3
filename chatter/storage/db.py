@@ -50,7 +50,6 @@ CREATE TABLE IF NOT EXISTS contacts (
     contact_id TEXT PRIMARY KEY,
     state TEXT NOT NULL DEFAULT 'new',
     paused INTEGER NOT NULL DEFAULT 0,
-    human_took_over INTEGER NOT NULL DEFAULT 0,
     paused_at REAL,
     pause_source TEXT,
     pause_msg_id INTEGER,
@@ -379,6 +378,12 @@ _CONTACT_ID_FLAG_PREFIXES: tuple[str, ...] = (
     "esc_active:", "profile_miss:", "profile_miss_alerted:",
 )
 
+# Мёртвая колонка, снимаемая переписью пары C (спека 29.08 §3 шаг 3).
+# ЛИТЕРАЛОМ и по имени: колонка удаляется из ЖИВЫХ баз клиенток, и «та, которой
+# нет в схеме» вычислялось бы из схемы — то есть согласилось бы с ней по
+# определению и промолчало в день, когда из схемы уедет что-то ещё.
+_DEAD_CONTACT_COLUMN = "human_took_over"
+
 # Таблицы, у которых ключ идемпотентности выставления переезжает в TEXT (§5).
 _ORIGIN_KEY_TABLES: tuple[str, ...] = ("quotes", "invoices")
 
@@ -512,6 +517,11 @@ class Store:
                 rebuild = self._origin_key_legacy_tables()
                 if rebuild:
                     self._assert_origin_rebuild_window(path, rebuild)
+                # Мёртвая колонка снимается ТОЙ ЖЕ транзакцией, что и перепись
+                # личности (решение владельца 29.08): у неё уже есть бэкап,
+                # сверка числа строк и один простой обеих клиенток. Отдельная
+                # миграция ради одной колонки стоила бы второй простой.
+                drop_dead = self._contacts_has_dead_column()
                 if legacy:
                     if pre_existing:
                         self._backup(path, tag="payments")
@@ -529,7 +539,7 @@ class Store:
                     if pre_existing:
                         self._backup(path)
                     self._apply_migration(missing)
-                if legacy_ids or legacy_keys or rebuild:
+                if legacy_ids or legacy_keys or rebuild or drop_dead:
                     # Бэкап ТОЛЬКО при РЕАЛЬНОЙ переписи существующей базы:
                     # `.bak` — это полная переписка лидов открытым файлом, и
                     # сыпать её на каждый рестарт значит плодить то, что никто
@@ -537,7 +547,7 @@ class Store:
                     if pre_existing:
                         self._backup(path, tag="web-c")
                     self._apply_identity_migration(legacy_ids, legacy_keys,
-                                                   rebuild)
+                                                   rebuild, drop_dead)
                     self._assert_identity_migrated()
         except BaseException:
             # BaseException, а не Exception: `KeyboardInterrupt` посреди
@@ -697,7 +707,45 @@ class Store:
                     "SELECT COUNT(*) FROM " + table).fetchone()[0]
         return out
 
-    def _apply_identity_migration(self, legacy_ids, legacy_keys, rebuild) -> None:
+    def _contacts_has_dead_column(self) -> bool:
+        """Жива ли ещё мёртвая колонка `human_took_over` в ЭТОЙ базе.
+
+        Спрашиваем базу, а не схему: схема — это то, какой таблица должна
+        быть, а перестраивать надо ту, какая она есть.
+        """
+        return (self._has_table("contacts")
+                and self._has_column("contacts", _DEAD_CONTACT_COLUMN))
+
+    def _drop_dead_contacts_column(self) -> None:
+        """Перестройка `contacts` без мёртвой колонки (спека 29.08 §3 шаг 3).
+
+        `ALTER TABLE DROP COLUMN` в SQLite этой версии есть, но перестройка
+        выбрана намеренно: `contacts` — таблица с PRIMARY KEY, и объявлять его
+        заново вместе с таблицей надёжнее, чем надеяться, что DROP COLUMN его
+        сохранит. Дом уже ходит этой дорогой (`_rebuild_origin_key`), и второй
+        способ на ту же вещь здесь не заводится.
+
+        Колонка мертва ЗАМЕРОМ, а не мнением: единицу в неё не писал никто, и
+        обе читавшие ветки были недостижимы. Поэтому данные не переносятся —
+        переносить нечего.
+        """
+        ddl = _schema_create_table("contacts").replace(
+            "CREATE TABLE IF NOT EXISTS contacts (",
+            "CREATE TABLE contacts__new (")
+        self._conn.execute(ddl)
+        fresh = [r["name"] for r in
+                 self._conn.execute("PRAGMA table_info(contacts__new)")]
+        old = {r["name"] for r in
+               self._conn.execute("PRAGMA table_info(contacts)")}
+        cols = [c for c in fresh if c in old]
+        self._conn.execute(
+            "INSERT INTO contacts__new (%s) SELECT %s FROM contacts"
+            % (", ".join(cols), ", ".join(cols)))
+        self._conn.execute("DROP TABLE contacts")
+        self._conn.execute("ALTER TABLE contacts__new RENAME TO contacts")
+
+    def _apply_identity_migration(self, legacy_ids, legacy_keys, rebuild,
+                                  drop_dead: bool = False) -> None:
         """ОДНА транзакция на всё: колонки, ключи флагов и перестройка таблиц.
 
         Причина конкретная и она про людей: панель читает ту же базу
@@ -726,6 +774,8 @@ class Store:
                     (prefix + upgrade_legacy_callback_contact(tail), key))
             for table in rebuild:
                 self._rebuild_origin_key(table)
+            if drop_dead:
+                self._drop_dead_contacts_column()
             after = self._row_counts()
             lost = {t: (before[t], after[t]) for t in before
                     if before.get(t) != after.get(t)}
@@ -775,6 +825,11 @@ class Store:
     def _assert_identity_migrated(self) -> None:
         """Проверка ПОСЛЕ. Миграция, о результате которой не спросили, — это
         надежда, а не миграция (`_assert_payments_rebuilt`, дословно)."""
+        if self._contacts_has_dead_column():
+            raise ContactIdMigrationBlocked(
+                "колонка %r осталась в `contacts` после перестройки: мёртвая "
+                "защита пережила собственное удаление и снова выглядит живой"
+                % (_DEAD_CONTACT_COLUMN,))
         left = self._legacy_contact_ids()
         keys = self._legacy_flag_keys()
         if left or keys:

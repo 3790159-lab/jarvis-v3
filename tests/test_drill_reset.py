@@ -37,8 +37,7 @@ def _db(path: Path) -> str:
     conn = sqlite3.connect(path)
     conn.executescript("""
         CREATE TABLE contacts (contact_id TEXT PRIMARY KEY, state TEXT NOT NULL
-            DEFAULT 'new', paused INTEGER NOT NULL DEFAULT 0,
-            human_took_over INTEGER NOT NULL DEFAULT 0, paused_at REAL,
+            DEFAULT 'new', paused INTEGER NOT NULL DEFAULT 0, paused_at REAL,
             pause_source TEXT, pause_msg_id INTEGER, pause_detail TEXT,
             pause_until REAL, last_human_out_ts REAL);
         CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -107,8 +106,8 @@ def _db(path: Path) -> str:
     """)
     for contact in (DRILL, CLIENT):
         conn.execute(
-            "INSERT INTO contacts (contact_id, state, paused, human_took_over,"
-            " paused_at, pause_source, pause_until) VALUES (?,'qualified',1,1,5.0,'stop',9.0)",
+            "INSERT INTO contacts (contact_id, state, paused,"
+            " paused_at, pause_source, pause_until) VALUES (?,'qualified',1,5.0,'stop',9.0)",
             (contact,))
         conn.execute("INSERT INTO messages (contact_id, role, text, ts)"
                      " VALUES (?,'in','привет',1.0)", (contact,))
@@ -159,7 +158,7 @@ def _counts(db: str, contact: str) -> dict:
                       "facts", "console_cards", "control_events"):
             out[table] = conn.execute(
                 f"SELECT COUNT(*) FROM {table} WHERE contact_id=?", (contact,)).fetchone()[0]
-        row = conn.execute("SELECT state, paused, human_took_over, paused_at,"
+        row = conn.execute("SELECT state, paused, paused_at,"
                            " pause_source, pause_until FROM contacts WHERE contact_id=?",
                            (contact,)).fetchone()
         out["contact_row"] = row
@@ -212,9 +211,9 @@ def test_apply_resets_funnel_stage_and_pause(tmp_path):
     # означал бы, что бот молчит и весь прогон честно упрётся в таймаут.
     db = _db(tmp_path / "c.db")
     _mod().main([db, "--contact", DRILL, "--apply"])
-    state, paused, took_over, paused_at, source, until = _counts(db, DRILL)["contact_row"]
+    state, paused, paused_at, source, until = _counts(db, DRILL)["contact_row"]
     assert state == "new"
-    assert paused == 0 and took_over == 0
+    assert paused == 0
     assert paused_at is None and source is None and until is None
 
 

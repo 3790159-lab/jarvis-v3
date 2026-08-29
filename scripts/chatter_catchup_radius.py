@@ -84,7 +84,7 @@ def dialogs_at_risk(db_path, *, now: float | None = None,
         rows = con.execute(
             """
             select m.contact_id, m.role, m.ts, m.text,
-                   c.state, c.paused, c.human_took_over, c.pause_until
+                   c.state, c.paused, c.pause_until
               from messages m
               join (select contact_id, max(ts) as ts
                       from messages group by contact_id) last
@@ -101,7 +101,7 @@ def dialogs_at_risk(db_path, *, now: float | None = None,
             pass
 
     out: list[dict] = []
-    for contact_id, role, ts, text, state, paused, took_over, pause_until in rows:
+    for contact_id, role, ts, text, state, paused, pause_until in rows:
         if role != "user":
             continue
         age = now - float(ts or 0)
@@ -117,7 +117,7 @@ def dialogs_at_risk(db_path, *, now: float | None = None,
             "age_hours": round(age / 3600, 1),
             "text": (text or "").strip()[:120],
             "deliberate_silence": bool(
-                (state or "") in SILENT_BY_DECISION or took_over or muted),
+                (state or "") in SILENT_BY_DECISION or muted),
             "state": state,
         })
     return sorted(out, key=lambda r: (-int(r["deliberate_silence"]), r["age_hours"]))

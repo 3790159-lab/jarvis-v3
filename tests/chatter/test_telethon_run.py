@@ -563,11 +563,15 @@ def test_C6_every_skip_is_reported_with_its_reason():
     никто не скажет, почему клиент остался без реплики."""
     now = 10_000.0
     seen: list[tuple[int, str]] = []
-    select_missed([_fresh_dialog(now, silent=True, reason="human_took_over")],
+    # Причина берётся из тех, что код РЕАЛЬНО отдаёт (`escalated` / `paused`).
+    # Здесь стояла `human_took_over` — причина, исчезнувшая вместе с мёртвой
+    # колонкой 29.08; проверка на несуществующей причине проверяла бы только
+    # то, что строка проходит насквозь.
+    select_missed([_fresh_dialog(now, silent=True, reason="escalated")],
                   allowlist=frozenset({ALLOWED}), now=now,
                   max_age_seconds=CATCHUP_MAX_AGE_SECONDS,
                   on_skip=lambda d, why: seen.append((d["sender_id"], why)))
-    assert seen == [(ALLOWED, "human_took_over")]
+    assert seen == [(ALLOWED, "escalated")]
 
 
 def test_a_skip_is_not_reported_for_a_dialog_that_had_nothing_to_answer():

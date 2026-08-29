@@ -128,7 +128,7 @@ RC_UNCOVERED_TABLE = 3
 # молчит, и весь прогон честно упирается в таймаут — «сброшенный» контакт
 # обязан быть говорящим.
 _CONTACT_RESET_SQL = (
-    "UPDATE contacts SET state='new', paused=0, human_took_over=0,"
+    "UPDATE contacts SET state='new', paused=0,"
     " paused_at=NULL, pause_source=NULL, pause_msg_id=NULL, pause_detail=NULL,"
     " pause_until=NULL, last_human_out_ts=NULL WHERE contact_id=?")
 
@@ -199,7 +199,7 @@ def counts(conn, contact: str) -> dict:
             f"SELECT COUNT(*) FROM {table} {_BY_INVOICE_WHERE}",
             (contact,)).fetchone()[0]
     row = conn.execute(
-        "SELECT state, paused, human_took_over FROM contacts WHERE contact_id=?",
+        "SELECT state, paused FROM contacts WHERE contact_id=?",
         (contact,)).fetchone()
     out["_contact"] = row
     return out
@@ -211,8 +211,8 @@ def _print_counts(title: str, c: dict) -> None:
     if row is None:
         print("  контакта нет в таблице contacts")
     else:
-        state, paused, took_over = row
-        print(f"  воронка: state={state}, paused={paused}, human_took_over={took_over}")
+        state, paused = row
+        print(f"  воронка: state={state}, paused={paused}")
     for table in (*_WIPE_TABLES, *_WIPE_BY_INVOICE):
         print(f"  {table}: {c[table]}")
 

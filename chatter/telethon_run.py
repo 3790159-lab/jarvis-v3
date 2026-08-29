@@ -1727,10 +1727,9 @@ class TelethonRunner:
     def _silence_by_decision(self, sender_id: int) -> tuple[bool, str]:
         """Молчал ли бот в этом диалоге ПО РЕШЕНИЮ, и по какому именно.
 
-        Три состояния, и все три означают «этим диалогом занимается человек»:
+        ДВА состояния, и оба означают «этим диалогом занимается человек»:
 
         * `escalated` — бот сам передал разговор старшему и ждёт его;
-        * `human_took_over` — человек уже пишет в диалог;
         * пауза и снуз («⏸ Ще 1год» из карточки) — вердикт берётся у
           `pause.is_muted`, ТОЙ ЖЕ функции, которой живой путь решает, молчать
           ли ему. Своей копии правила здесь нет намеренно: снуз живёт как
@@ -1756,8 +1755,6 @@ class TelethonRunner:
             return (False, "")
         if (row or {}).get("state") == "escalated":
             return (True, "escalated")
-        if (row or {}).get("human_took_over"):
-            return (True, "human_took_over")
         if is_muted(row, kill_switch=False, now=time.time()):
             return (True, "paused")
         return (False, "")

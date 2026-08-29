@@ -50,7 +50,7 @@ _OVERRIDES = {
     # §6.3 говорит именно про `pending`-строки.
     "outgoing_queue": {"status": "pending"},
     # §6.7: строка контакта до сброса заведомо НЕ в исходном состоянии.
-    "contacts": {"state": "qualified", "paused": 1, "human_took_over": 1},
+    "contacts": {"state": "qualified", "paused": 1},
 }
 
 
@@ -573,14 +573,14 @@ def test_contacts_row_survives_and_returns_to_the_initial_state(tmp_path, capsys
 
     conn = sqlite3.connect(db)
     try:
-        state, paused, took = conn.execute(
-            "SELECT state, paused, human_took_over FROM contacts"
+        state, paused = conn.execute(
+            "SELECT state, paused FROM contacts"
             " WHERE contact_id=?", (drill,)).fetchone()
     finally:
         conn.close()
-    assert (state, paused, took) == ("new", 0, 0), (
-        f"контакт не приведён к исходному: state={state}, paused={paused}, "
-        f"human_took_over={took}. Бот, оставшийся на паузе, промолчит весь прогон")
+    assert (state, paused) == ("new", 0), (
+        f"контакт не приведён к исходному: state={state}, paused={paused}. "
+        f"Бот, оставшийся на паузе, промолчит весь прогон")
 
 
 # ── ДЕТЕКТОР двойного имени: сверка на прогоне, а не только по данным ─────

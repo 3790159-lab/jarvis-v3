@@ -47,12 +47,12 @@ def _root(tmp_path: Path, rows) -> Path:
         # («⏸ Ще 1год») живёт именно в нём, и замер обязан спрашивать про него
         # ту же функцию, что раннер.
         con.execute("create table contacts (contact_id text primary key, state text, "
-                    "paused integer, human_took_over integer, pause_until real)")
+                    "paused integer, pause_until real)")
         now = time.time()
         for contact_id, role, back, text, state in rows:
             con.execute("insert into messages (contact_id, role, text, ts) values (?,?,?,?)",
                         (contact_id, role, text, now - back))
-            con.execute("insert or replace into contacts values (?,?,0,0,null)",
+            con.execute("insert or replace into contacts values (?,?,0,null)",
                         (contact_id, state))
         con.commit()
         con.close()
