@@ -1811,6 +1811,79 @@ def _devtask_format_failed_tests(failed: List[str], log_path: Optional[str]) -> 
     return text
 
 
+def _devtask_mutation_collect_ok(worktree: str, tests: List[str]) -> bool:
+    """True iff every guard test id in ``tests`` actually collects. A dangling
+    node-id (renamed/deleted test) must block the mutation gate BEFORE any
+    mutant is written — checked once, up front, never per-mutant."""
+    import subprocess as _sp
+    proc = _sp.run(
+        [sys.executable, "-m", "pytest", *tests, "--collect-only", "-q", "-p", "no:cacheprovider"],
+        cwd=worktree, capture_output=True, text=True, encoding="utf-8", errors="replace",
+        env=_devtask_pytest_env())
+    return proc.returncode == 0
+
+
+def _devtask_mutation_run_guard(worktree: str, tests: List[str]) -> bool:
+    """True iff the guard tests caught the mutant currently written to disk.
+
+    rc==1 AND "failed" in the combined output — the SAME criterion as
+    ``scripts/mutate_worktree_discipline.py.run`` (DEV-26): a mutation that
+    breaks COLLECTION returns rc 2/4/5, and "non-zero means caught" would
+    silently count a mutant that never even ran as killed. A timeout is
+    treated as NOT caught — honest ("could not confirm a red"), never a
+    silent pass."""
+    import subprocess as _sp
+    try:
+        proc = _regress_watch.run_guarded(
+            [sys.executable, "-m", "pytest", *tests, "-q", "--no-header", "-p", "no:cacheprovider"],
+            cwd=worktree, timeout_s=int(os.getenv("DEVTASK_MUTATION_TEST_TIMEOUT_S", "120")),
+            creationflags=(0x4000 if sys.platform == "win32" else 0),
+            env=_devtask_pytest_env(), state_dir=_REGRESS_WATCH_DIR, label="merge-gate-mutation")
+    except _sp.TimeoutExpired:
+        return False
+    out = (proc.stdout or "") + (getattr(proc, "stderr", "") or "")
+    return proc.returncode == 1 and "failed" in out
+
+
+def _devtask_mutation_revert(worktree: str, rel: str) -> None:
+    import subprocess as _sp
+    _sp.run(["git", "-C", worktree, "checkout", "--", rel], capture_output=True, text=True)
+
+
+def _devtask_run_mutation_gate(worktree: str, source_files: List[str], guard_tests: List[str]) -> dict:
+    """Real-IO wrapper around :func:`mutation_gate.run_mutation_gate` (DEV-97).
+
+    All the actual decision logic (skip/green/red/partial) lives in the pure,
+    independently-unit-tested module; this function only wires real
+    file/git/pytest IO to its injected seams. Kept as a MODULE-LEVEL function
+    (not inlined into ``_devtask_run_targeted``) so tests can monkeypatch the
+    whole gate the same way they already monkeypatch ``_regress_watch``.
+    """
+    from app.services.devtask import mutation_gate as _mg
+
+    def _read(rel: str) -> str:
+        with open(os.path.join(worktree, rel), encoding="utf-8") as f:
+            return f.read()
+
+    def _write_at(rel: str, source: str, stamp: float) -> None:
+        path = os.path.join(worktree, rel)
+        _mg.write_mutant(
+            write_text=lambda p, text: Path(p).write_text(text, encoding="utf-8"),
+            set_mtime=lambda p, s: os.utime(p, (s, s)),
+            path=path, source=source, stamp=stamp)
+
+    result = _mg.run_mutation_gate(
+        source_files, guard_tests,
+        read_text=_read,
+        write_mutant_at=_write_at,
+        revert=lambda rel: _devtask_mutation_revert(worktree, rel),
+        collect_ok=lambda tests: _devtask_mutation_collect_ok(worktree, tests),
+        run_guard=lambda tests: _devtask_mutation_run_guard(worktree, tests),
+        budget_s=float(os.getenv("DEVTASK_MUTATION_BUDGET_S", str(_mg.DEFAULT_BUDGET_S))))
+    return {"status": result.status, "reason": result.reason, "text": result.text,
+            "blocks_merge": result.blocks_merge, "tested": result.tested, "total": result.total}
+
+
 def _devtask_run_targeted(worktree: str, base_head: str, tid: Optional[str] = None) -> dict:
     """Targeted merge gate: run ONLY the tests mapping to the branch diff.
 
@@ -1867,8 +1940,21 @@ def _devtask_run_targeted(worktree: str, base_head: str, tid: Optional[str] = No
         summary.get("failed", 0), summary.get("passed", 0), summary.get("errors", 0))
     text = "🎯 таргет-тесты по диффу (%d файлов): %s %s" % (len(targets), icon, body)
     text += _devtask_format_failed_tests(failed_tests, log_path)
+    mutation = None
+    if ok:
+        # DEV-97: a green targeted run is not proof by itself (DEV-26 — three
+        # sentries stayed green on broken code). Mutate the diff's own source
+        # files and require the SAME targets to catch every mutant; a survivor
+        # flips the merge gate back to red.
+        from app.services.devtask import mutation_gate as _mg
+        source_files = _mg.select_source_files(
+            changed, exists=lambda rel: os.path.isfile(os.path.join(worktree, rel)))
+        mutation = _devtask_run_mutation_gate(worktree, source_files, targets)
+        text += "\n" + mutation["text"]
+        if mutation["blocks_merge"]:
+            ok = False
     return {"ok": ok, "mode": "targeted", "text": text,
-            "failed_tests": failed_tests, "log_path": log_path}
+            "failed_tests": failed_tests, "log_path": log_path, "mutation": mutation}
 
 
 def _devtask_run_targeted_combined(worktree: str, base_head: str, tid: Optional[str] = None) -> dict:
