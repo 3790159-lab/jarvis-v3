@@ -263,3 +263,45 @@ def test_log_entries_skips_unparseable_lines(tmp_path):
     entries = dq.log_entries()
     assert len(entries) == 1
     assert entries[0]["action"] == "added"
+
+
+# ── reap_orphans (DEV-96): a deleted worktree must not hold the lock forever ─
+def test_reap_orphans_marks_missing_worktree_orphaned(tmp_path):
+    dq = q.DevTaskQueue(base_dir=tmp_path)
+    tid = dq.add("t")
+    dq.set_status(tid, q.STATUS_AWAITING_REVIEW, worktree="C:/nope/gone")
+    reaped = dq.reap_orphans(exists=lambda p: False)
+    assert reaped == [tid]
+    assert dq.get(tid)["status"] == q.STATUS_ORPHANED
+
+
+def test_reap_orphans_leaves_existing_worktree_running(tmp_path):
+    dq = q.DevTaskQueue(base_dir=tmp_path)
+    tid = dq.add("t")
+    dq.set_status(tid, q.STATUS_RUNNING, worktree="C:/still/here")
+    reaped = dq.reap_orphans(exists=lambda p: True)
+    assert reaped == []
+    assert dq.get(tid)["status"] == q.STATUS_RUNNING
+
+
+def test_reap_orphans_ignores_terminal_and_queued_cards(tmp_path):
+    dq = q.DevTaskQueue(base_dir=tmp_path)
+    queued = dq.add("q")                                       # never got a worktree
+    merged = dq.add("m")
+    dq.set_status(merged, q.STATUS_MERGED, worktree="C:/nope/gone")
+    reaped = dq.reap_orphans(exists=lambda p: False)
+    assert reaped == []
+    assert dq.get(queued)["status"] == q.STATUS_QUEUED
+    assert dq.get(merged)["status"] == q.STATUS_MERGED
+
+
+def test_reap_orphans_no_active_cards_returns_empty(tmp_path):
+    dq = q.DevTaskQueue(base_dir=tmp_path)
+    assert dq.reap_orphans(exists=lambda p: False) == []
+
+
+def test_active_ignores_orphaned(tmp_path):
+    dq = q.DevTaskQueue(base_dir=tmp_path)
+    tid = dq.add("t")
+    dq.set_status(tid, q.STATUS_ORPHANED, worktree="C:/nope/gone")
+    assert dq.active() is None

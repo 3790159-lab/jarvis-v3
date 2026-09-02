@@ -50,6 +50,12 @@ def main(argv, queue=None) -> int:
         argv_cc = _r.build_argv(wt, session_uuid, prompt,
                                 model=_r.resolve_task_model(item.get("desc", "")))
         res = _r.run(argv=argv_cc, cwd=wt, report_path=report_path, stderr_path=stderr_path)
+        if res.get("report_present"):
+            # DEV-96: copy OUT of the worktree into the live tree's own task
+            # dir (sibling of cc_result.json/stderr.log) — the worktree is
+            # routinely deleted later (rollback/merge cleanup), and a report
+            # living only there would be lost with it.
+            _r.persist_report(report_path, str(task_dir / "report.md"))
     except Exception as exc:
         res = {"status": "failed", "reason": "launcher_error: %s" % exc}
     _r.write_cc_result(result_path, res)

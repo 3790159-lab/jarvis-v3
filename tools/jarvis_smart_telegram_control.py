@@ -1366,6 +1366,11 @@ def _devtask_dispatch(chat_id, desc: str) -> None:
     if not desc:
         send(chat_id, "Использование: /dev_task <описание задачи>")
         return
+    # DEV-96: a worktree can be deleted out-of-band (manual cleanup, disk
+    # pressure) while its card still claims running/awaiting_review — reap
+    # any such orphan BEFORE the lock check so it never blocks forever.
+    for oid in q.reap_orphans():
+        send(chat_id, "⚠️ Задача %s потеряла worktree, снята с блокировки." % oid)
     active = q.active()
     if active:
         send(chat_id, "⏳ Уже есть активная dev-задача %s (%s). Разберись с ней "
@@ -2059,6 +2064,13 @@ def _devtask_rollback(chat_id, tid: str) -> None:
         send(chat_id, "Задача %s уже завершена (%s) — откат не требуется." %
              (tid, item.get("status")))
         return
+    if item.get("status") == _q.STATUS_ORPHANED:
+        # DEV-96: worktree is already known gone — nothing to remove, and
+        # git_ops.remove_worktree() only silently no-ops on a missing path
+        # anyway, so don't pretend it did real work.
+        _devtask_queue().set_status(tid, _q.STATUS_ROLLED_BACK)
+        send(chat_id, "↩️ Задача %s закрыта (worktree уже был потерян — откатывать нечего)." % tid)
+        return
     try:
         _g.remove_worktree(tid)
     except Exception as exc:
@@ -2217,13 +2229,25 @@ def _devtask_boot_reconcile(base_dir=None, send_fn=None) -> None:
 
 
 def _devtask_details(chat_id, tid: str) -> None:
+    # DEV-96: report.md is read from the LIVE tree's task dir — CC writes it
+    # inside the worktree, but the launcher copies it out (persist_report)
+    # right after the STOP report is detected, so it survives worktree
+    # deletion (rollback/merge cleanup, or an orphaned card whose worktree
+    # vanished out-of-band).
     from pathlib import Path as _P
+    from app.services.devtask import queue as _q
     item = _devtask_queue().get(tid)
-    rp = (item or {}).get("report_path") or str(_P("state/dev_tasks") / tid / "report.md")
+    rp = _P(_devtask_state_dir()) / tid / "report.md"
     try:
-        txt = _P(rp).read_text(encoding="utf-8", errors="replace")
+        txt = rp.read_text(encoding="utf-8", errors="replace")
     except FileNotFoundError:
-        txt = "(отчёт не найден: %s)" % rp
+        txt = "(отчёта нет)"
+    if (item or {}).get("status") == _q.STATUS_ORPHANED:
+        send(chat_id, "📄 Задача %s (orphaned — worktree потерян):\n"
+             "Описание: %s\nWorktree был: %s\n\n%s" %
+             (tid, (item or {}).get("desc", "?"), (item or {}).get("worktree", "?"),
+              txt[:3800]))
+        return
     extra = ""
     gate_failed = (item or {}).get("gate_failed_tests")
     if gate_failed:

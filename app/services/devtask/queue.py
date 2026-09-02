@@ -23,6 +23,7 @@ STATUS_AWAITING_REVIEW = "awaiting_review"
 STATUS_MERGED = "merged"
 STATUS_ROLLED_BACK = "rolled_back"
 STATUS_FAILED = "failed"
+STATUS_ORPHANED = "orphaned"
 
 _ACTIVE_STATUSES = (STATUS_RUNNING, STATUS_AWAITING_REVIEW)
 _TERMINAL_STATUSES = (STATUS_MERGED, STATUS_ROLLED_BACK, STATUS_FAILED)
@@ -132,6 +133,31 @@ class DevTaskQueue:
             if data and data.get("status") in _ACTIVE_STATUSES:
                 return data
         return None
+
+    def reap_orphans(self, exists: Optional[Any] = None) -> List[str]:
+        """Flip any ``running``/``awaiting_review`` card whose recorded worktree
+        no longer exists on disk to ``orphaned`` (DEV-96) — a worktree can be
+        deleted out-of-band (manual cleanup, disk pressure) while the card still
+        claims the single-flight lock forever, since nothing else ever re-checks
+        it. Returns the ids that were transitioned, so the caller can notify.
+
+        ``exists`` is injectable (default ``os.path.isdir``) so tests never touch
+        real disk. A card with no recorded ``worktree`` is left alone (it hasn't
+        reached the worktree-setup step yet)."""
+        from app.services.block_l_common import load_json_safe
+        exists = exists or os.path.isdir
+        reaped: List[str] = []
+        for f in sorted(self._dir().glob("*.json"), key=lambda p: p.stat().st_mtime):
+            data = load_json_safe(f)
+            if not data or data.get("status") not in _ACTIVE_STATUSES:
+                continue
+            wt = data.get("worktree")
+            if not wt or exists(wt):
+                continue
+            task_id = data["id"]
+            self.set_status(task_id, STATUS_ORPHANED)
+            reaped.append(task_id)
+        return reaped
 
     def month_cost(self, now: datetime) -> float:
         """Sum of ``cost`` over cards whose ``created_at`` is in ``now``'s month.

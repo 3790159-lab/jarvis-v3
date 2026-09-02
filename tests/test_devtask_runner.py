@@ -439,3 +439,19 @@ def test_write_and_read_cc_result_roundtrip(tmp_path):
 
 def test_read_cc_result_missing_file_returns_none(tmp_path):
     assert r.read_cc_result(str(tmp_path / "missing.json")) is None
+
+
+# ── persist_report (DEV-96): worktree report survives worktree deletion ─────
+def test_persist_report_copies_content_to_dest(tmp_path):
+    src = tmp_path / "wt" / "report.md"
+    src.parent.mkdir()
+    src.write_text("VERDICT: READY", encoding="utf-8")
+    dest = tmp_path / "live" / "state" / "dev_tasks" / "T1" / "report.md"
+    assert r.persist_report(str(src), str(dest)) is True
+    assert dest.read_text(encoding="utf-8") == "VERDICT: READY"
+
+
+def test_persist_report_missing_source_returns_false_no_crash(tmp_path):
+    dest = tmp_path / "live" / "report.md"
+    assert r.persist_report(str(tmp_path / "no-such.md"), str(dest)) is False
+    assert not dest.exists()

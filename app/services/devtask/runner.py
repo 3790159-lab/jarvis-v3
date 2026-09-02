@@ -480,6 +480,26 @@ def is_process_alive(pid: int, *, marker: Optional[str] = None,
     return True
 
 
+def persist_report(src_path: str, dest_path: str) -> bool:
+    """Copy CC's STOP-contract report.md OUT of the worktree into the live
+    tree's ``state/dev_tasks/<id>/report.md`` (DEV-96) — the worktree is
+    routinely deleted on rollback/merge cleanup, and a report living only
+    there is lost with it. Best-effort: returns False (never raises) if the
+    source is missing or the copy fails; ``report_present`` already recorded
+    whether CC wrote the report — a failed copy must not overwrite that."""
+    try:
+        text = Path(src_path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    try:
+        dest = Path(dest_path)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(text, encoding="utf-8")
+    except OSError:
+        return False
+    return True
+
+
 def write_cc_result(path: str, result: dict) -> None:
     """Persist the launcher's ``run()`` result so the bot can read it later
     without ever having waited on the process (task req 2: state via files)."""
