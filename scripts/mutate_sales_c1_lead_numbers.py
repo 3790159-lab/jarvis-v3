@@ -31,7 +31,11 @@ _MTIME_BASE = 2_000_000_000
 _mtime_seq = count()
 
 D = "chatter/core/guardrails.py"
+L = "chatter/core/langdetect.py"
+
 G = "tests/test_sales_c1_lead_numbers.py"
+GD = "tests/test_sales_c1_formula_dedup.py"
+GL = "tests/test_sales_c1_reply_language.py"
 
 MUTATIONS = [
     # ── D2-1: число лида больше не обеспечено ────────────────────────────
@@ -78,6 +82,43 @@ MUTATIONS = [
      [(b"        if (digits and int(digits) >= 100",
        b"        if (digits and int(digits) >= 100000000")],
      G + "::test_bare_echo_of_lead_number_is_backed"),
+
+    # ── D2-3: одна формула — один раз на ответ ──────────────────────────
+    ("дедуп формул снят — редактор снова ставит константу трижды", D,
+     [(b"        if base in used:", b"        if False:")],
+     GD + "::test_three_identical_deadline_formulas_collapse_to_one"),
+
+    ("схлопнутая клауза не забирает свой разделитель", D,
+     [(b"            trimmed = _drop_trailing_delim(gap)",
+       b"            trimmed = gap")],
+     GD + "::test_three_identical_deadline_formulas_collapse_to_one"),
+
+    ("дедуп сравнивает НАПИСАНИЕ, а не базовую константу", D,
+     [(b"        phrase = base = table.get(reply_language, table[\"ru\"])",
+       b"        phrase = table.get(reply_language, table[\"ru\"])\n        base = phrase")],
+     GD + "::test_capitalised_first_and_lowercase_second_are_the_SAME_formula"),
+
+    ("ВСТРЕЧНАЯ: дедуп схлопывает РАЗНЫЕ формулы в одну", D,
+     [(b"    used: set[str] = set()", b"    used: set[str] = set()\n    _ = used")],
+     GD + "::test_different_formulas_both_survive"),
+
+    # ── D2-4: язык формулы = язык ответа ────────────────────────────────
+    ("язык формулы снова берётся из скалярки клиента", D,
+     [(b"    reply_language = detect_language(text, default=language)",
+       b"    reply_language = language")],
+     GL + "::test_russian_reply_gets_russian_formula_even_when_client_is_uk"),
+
+    ("детектор перестал различать украинские буквы", L,
+     [('_UK_ONLY = set("іїєґ")'.encode(), b"_UK_ONLY = set()")],
+     GL + "::test_detector_reads_the_alphabet"),
+
+    ("детектор перестал различать русские буквы", L,
+     [('_RU_ONLY = set("ыэъё")'.encode(), b"_RU_ONLY = set()")],
+     GL + "::test_detector_reads_the_alphabet"),
+
+    ("ВСТРЕЧНАЯ: без сигнала детектор выдумывает язык вместо фолбэка", L,
+     [(b"    return default", b'    return "en"')],
+     GL + "::test_no_signal_falls_back_to_default"),
 ]
 
 
