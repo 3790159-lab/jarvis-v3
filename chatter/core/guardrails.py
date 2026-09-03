@@ -160,6 +160,65 @@ def _numbers(text: str) -> set[str]:
     return {re.sub(r"\s", "", m.group()) for m in _NUMBER.finditer(text or "")}
 
 
+# --------------------------------------------------------------------------
+# C-1 / D2-1: число, названное лидом, — не выдумка бота
+# --------------------------------------------------------------------------
+#
+# `_findings` видит только `reply` и `knowledge`, поэтому бюджет самого лида
+# ловился правилом `large_number` как необеспеченный, клауза с ним заменялась
+# на «узгоджуємо індивідуально», а при неполной чистке ответ подавлялся
+# целиком. Пока это так, ни один playbook не заставит бота считать по вводным
+# клиента (спека sales-competence §1.2).
+#
+# ГРАНИЦА (§4 D2-1) реализована ДВУМЯ условиями, и оба обязательны:
+#   * число обязано ЗВУЧАТЬ ОТ ЛИДА — атрибуция в той же фразе («ви називали»,
+#     «ваш бюджет»); притяжательного местоимения самого по себе НЕ достаточно;
+#   * во фразе не должно быть утверждения О НАШЕЙ ЦЕНЕ («ціна», «вартість»,
+#     «коштує») — иначе лид продиктует «$100 за айдентику», а бот повторит это
+#     как нашу цену (Риск 5 спеки).
+# Нет атрибуции → поведение остаётся ДОСЛОВНО прежним. Это fail-closed:
+# отсутствие улики оставляет гардрейл включённым.
+_LEAD_ATTRIBUTION = re.compile(
+    r"(?:\bви\s+(?:називали|назвали|казали|говорили|згадували|дали|маєте)"
+    r"|\bвы\s+(?:называли|назвали|говорили|сказали|упоминали|дали)"
+    r"|\byou\s+(?:mentioned|said|named|gave|have)"
+    r"|\bваш\w*\s+(?:бюджет\w*|мет\w*|цел\w*|ціл\w*|орієнтир\w*|ориентир\w*)"
+    r"|\byour\s+(?:budget|goal|target)"
+    r"|\bза\s+ваш\w*\s+(?:дан\w*|цифр\w*|вступн\w*|вводн\w*)"
+    r")",
+    re.IGNORECASE,
+)
+
+# Утверждение о НАШЕЙ цене. Ветирует пропуск даже при живой атрибуции.
+_OUR_PRICE_ASSERTION = re.compile(
+    r"(?:ц[іе]н\w*|варт[іо]ст\w*|стоимост\w*|сто[ий]мост\w*|кошту\w*"
+    r"|обійд\w*|обойд\w*|прайс\w*|\bprice\b|\bcost\b)",
+    re.IGNORECASE,
+)
+
+
+def lead_numbers(texts) -> frozenset[str]:
+    """Числа, произнесённые ЛИДОМ в окне истории.
+
+    Нормализация та же, что у `_numbers` (пробелы внутри числа снимаются),
+    иначе «1 000» у лида и «1000» в ответе не встретятся, и правило не
+    сработает ровно там, где лид пишет по-человечески."""
+    out: set[str] = set()
+    for t in texts or ():
+        out |= _numbers(t or "")
+    return frozenset(out)
+
+
+def _lead_backed(fragment: str, number: str | None,
+                 lead_nums: frozenset[str]) -> bool:
+    """Обеспечено ли ЧИСЛОМ ЛИДА это конкретное место ответа."""
+    if not number or number not in lead_nums:
+        return False
+    if _OUR_PRICE_ASSERTION.search(fragment or ""):
+        return False
+    return _LEAD_ATTRIBUTION.search(fragment or "") is not None
+
+
 def _context_numbers(knowledge: str) -> tuple[set[str], set[str]]:
     """Числа knowledge по КОНТЕКСТУ (M1): (ценовые, срочные). Число «обеспечено»
     для ценового/срочного обещания, только если стоит в ТОМ ЖЕ контексте в
@@ -233,7 +292,8 @@ def _sentence_spans(text: str) -> list[tuple[int, int]]:
     return [(s, e) for s, e in spans if (text or "")[s:e].strip()]
 
 
-def _findings(reply: str, knowledge: str) -> list[_Finding]:
+def _findings(reply: str, knowledge: str, *,
+              lead_nums: frozenset[str] = frozenset()) -> list[_Finding]:
     """Все необеспеченные места ответа. `contains_unbacked_claim` — булев
     фасад над этим же разбором (поведение правил не меняется, добавились только
     позиции и причина, без которых невозможна точечная редакция)."""
@@ -250,8 +310,11 @@ def _findings(reply: str, knowledge: str) -> list[_Finding]:
 
     for m in _DEADLINE_NUM.finditer(text):
         num = re.sub(r"\s", "", m.group(1))
-        if num not in deadline_numbers:
-            out.append(_Finding(m.start(), m.end(), num, "deadline"))
+        if num in deadline_numbers:
+            continue
+        if _lead_backed(text, num, lead_nums):
+            continue
+        out.append(_Finding(m.start(), m.end(), num, "deadline"))
 
     for m in _DEADLINE_NO_NUM.finditer(text):
         stem = _stem_of(m.group(1), _TIME_UNIT_STEMS)
@@ -267,20 +330,26 @@ def _findings(reply: str, knowledge: str) -> list[_Finding]:
             num = re.sub(r"\s", "", m.group())
             is_time = num in time_nums
             expected = deadline_numbers if is_time else price_numbers
-            if num not in expected:
-                out.append(_Finding(s + m.start(), s + m.end(), num,
-                                    "deadline" if is_time else "price"))
+            if num in expected:
+                continue
+            if _lead_backed(sentence, num, lead_nums):
+                continue
+            out.append(_Finding(s + m.start(), s + m.end(), num,
+                                "deadline" if is_time else "price"))
 
     for m in _NUMBER.finditer(text):
         num = re.sub(r"\s", "", m.group())
         digits = re.sub(r"\D", "", num)
-        if digits and int(digits) >= 100 and num not in known_numbers:
+        if (digits and int(digits) >= 100
+                and num not in known_numbers
+                and num not in lead_nums):
             out.append(_Finding(m.start(), m.end(), num, "large_number"))
 
     return out
 
 
-def contains_unbacked_claim(reply: str, knowledge: str) -> bool:
+def contains_unbacked_claim(reply: str, knowledge: str, *,
+                            lead_numbers: frozenset[str] = frozenset()) -> bool:
     """Safety-net guardrail (spec §7): flags `reply` only when it makes a
     concrete, unbacked PRICE/DISCOUNT or DEADLINE claim, or states a large
     bare number, that `knowledge` does not support:
@@ -296,7 +365,7 @@ def contains_unbacked_claim(reply: str, knowledge: str) -> bool:
     alone. This is a NET for whatever the system prompt's "don't invent
     prices/deadlines" instruction missed -- not the primary defense.
     """
-    return bool(_findings(reply, knowledge))
+    return bool(_findings(reply, knowledge, lead_nums=lead_numbers))
 
 
 # --------------------------------------------------------------------------
@@ -377,7 +446,8 @@ class RedactionResult:
     clean: bool        # True ⇔ в `text` не осталось необеспеченных чисел
 
 
-def redact_unbacked(reply: str, knowledge: str, *, language: str = "ru") -> RedactionResult:
+def redact_unbacked(reply: str, knowledge: str, *, language: str = "ru",
+                    lead_numbers: frozenset[str] = frozenset()) -> RedactionResult:
     """Вырезать необеспеченные утверждения, сохранив всё остальное.
 
     `clean=False` означает «редакцией не спаслось» — вызывающий обязан
@@ -385,7 +455,7 @@ def redact_unbacked(reply: str, knowledge: str, *, language: str = "ru") -> Reda
     прогоняется через тот же `contains_unbacked_claim`, поэтому выдуманная
     цена/срок не может уехать лиду через эту дверь."""
     text = reply or ""
-    findings = _findings(text, knowledge)
+    findings = _findings(text, knowledge, lead_nums=lead_numbers)
     if not findings:
         return RedactionResult(text, (), True)
 
@@ -422,7 +492,8 @@ def redact_unbacked(reply: str, knowledge: str, *, language: str = "ru") -> Reda
 
     redacted = "".join(out)
     return RedactionResult(redacted, tuple(records),
-                           not contains_unbacked_claim(redacted, knowledge))
+                           not contains_unbacked_claim(
+                               redacted, knowledge, lead_numbers=lead_numbers))
 
 
 def within_hourly_limit(store: Store, contact_id: str, *, now: float, limit: int) -> bool:
