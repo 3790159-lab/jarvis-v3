@@ -1,6 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 import re
+from chatter.core.langdetect import detect_language
 from chatter.storage.db import Store
 
 _NUMBER = re.compile(r"\d[\d\s.,]*\d|\d")
@@ -430,6 +431,20 @@ def _starts_sentence(text: str, i: int) -> bool:
     return k < 0 or text[k] in ".!?…\n"
 
 
+_TRAILING_DELIM = re.compile(r"\s*[,;]\s*$")
+_LEADING_DELIM = re.compile(r"^\s*[,;]\s*")
+
+
+def _drop_trailing_delim(chunk: str) -> str:
+    """Снять ОДИН разделитель, которым удаляемая клауза крепилась слева."""
+    return _TRAILING_DELIM.sub("", chunk)
+
+
+def _drop_leading_delim(chunk: str) -> str:
+    """То же справа — для клаузы, у которой слева разделителя не было."""
+    return _LEADING_DELIM.sub(" " if chunk[:1].isspace() else "", chunk)
+
+
 @dataclass(frozen=True)
 class Redaction:
     """След одной редакции. PII-free by construction: ни текста лида, ни текста
@@ -455,6 +470,9 @@ def redact_unbacked(reply: str, knowledge: str, *, language: str = "ru",
     прогоняется через тот же `contains_unbacked_claim`, поэтому выдуманная
     цена/срок не может уехать лиду через эту дверь."""
     text = reply or ""
+    # D2-4: формула говорит на языке ОТВЕТА. `language` (скалярка клиента)
+    # остаётся фолбэком — нет сигнала, нет и перемены поведения.
+    reply_language = detect_language(text, default=language)
     findings = _findings(text, knowledge, lead_nums=lead_numbers)
     if not findings:
         return RedactionResult(text, (), True)
@@ -474,21 +492,40 @@ def redact_unbacked(reply: str, knowledge: str, *, language: str = "ru",
     records: list[Redaction] = []
     out: list[str] = []
     cursor = 0
+    # D2-3: одна формула — один раз на ответ. Сравниваем БАЗОВУЮ константу, а не
+    # написание: первая вставка в начале предложения приходит с большой буквы, и
+    # наивное сравнение строк пропустило бы повтор.
+    used: set[str] = set()
+    drop_next_delim = False
     for cs, ce, rule in spans:
         clause = text[cs:ce]
         lead_ws = clause[:len(clause) - len(clause.lstrip())]
         tail_ws = clause[len(clause.rstrip()):]
         table = _REDACTION_DEADLINE if rule == "deadline" else _REDACTION_PRICE
-        phrase = table.get(language, table["ru"])
-        if _starts_sentence(text, cs + len(lead_ws)):
-            phrase = phrase[0].upper() + phrase[1:]
-        out.append(text[cursor:cs])
-        out.append(f"{lead_ws}{phrase}{tail_ws}")
+        phrase = base = table.get(reply_language, table["ru"])
+        gap = text[cursor:cs]
+        if drop_next_delim:
+            gap = _drop_leading_delim(gap)
+            drop_next_delim = False
+        if base in used:
+            # Повтор: клауза УДАЛЯЕТСЯ вместе с формулой, а не заменяется на неё.
+            # Забираем разделитель, которым она крепилась к соседу, иначе
+            # остаётся «текст, , текст».
+            trimmed = _drop_trailing_delim(gap)
+            drop_next_delim = trimmed == gap
+            out.append(trimmed)
+        else:
+            used.add(base)
+            if _starts_sentence(text, cs + len(lead_ws)):
+                phrase = phrase[0].upper() + phrase[1:]
+            out.append(gap)
+            out.append(f"{lead_ws}{phrase}{tail_ws}")
         cursor = ce
         for f in findings:
             if cs <= f.start < ce:
                 records.append(Redaction(f.number, f.rule, len(clause.strip())))
-    out.append(text[cursor:])
+    tail = text[cursor:]
+    out.append(_drop_leading_delim(tail) if drop_next_delim else tail)
 
     redacted = "".join(out)
     return RedactionResult(redacted, tuple(records),
