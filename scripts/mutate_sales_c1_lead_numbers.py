@@ -36,6 +36,7 @@ L = "chatter/core/langdetect.py"
 G = "tests/test_sales_c1_lead_numbers.py"
 GD = "tests/test_sales_c1_formula_dedup.py"
 GL = "tests/test_sales_c1_reply_language.py"
+GR = "tests/chatter/test_guardrails_redaction.py"
 
 MUTATIONS = [
     # ── D2-1: число лида больше не обеспечено ────────────────────────────
@@ -94,12 +95,16 @@ MUTATIONS = [
      GD + "::test_three_identical_deadline_formulas_collapse_to_one"),
 
     ("дедуп сравнивает НАПИСАНИЕ, а не базовую константу", D,
-     [(b"        phrase = base = table.get(reply_language, table[\"ru\"])",
-       b"        phrase = table.get(reply_language, table[\"ru\"])\n        base = phrase")],
+     [(b"            used.add(base)\n"
+       b"            if _starts_sentence(text, cs + len(lead_ws)):\n"
+       b"                phrase = phrase[0].upper() + phrase[1:]",
+       b"            if _starts_sentence(text, cs + len(lead_ws)):\n"
+       b"                phrase = phrase[0].upper() + phrase[1:]\n"
+       b"            used.add(phrase)")],
      GD + "::test_capitalised_first_and_lowercase_second_are_the_SAME_formula"),
 
     ("ВСТРЕЧНАЯ: дедуп схлопывает РАЗНЫЕ формулы в одну", D,
-     [(b"    used: set[str] = set()", b"    used: set[str] = set()\n    _ = used")],
+     [(b"        if base in used:", b"        if used:")],
      GD + "::test_different_formulas_both_survive"),
 
     # ── D2-4: язык формулы = язык ответа ────────────────────────────────
@@ -107,6 +112,16 @@ MUTATIONS = [
      [(b"    reply_language = detect_language(text, default=language)",
        b"    reply_language = language")],
      GL + "::test_russian_reply_gets_russian_formula_even_when_client_is_uk"),
+
+    ("язык из скалярки — переписанный сторож редакции обязан покраснеть", D,
+     [(b"    reply_language = detect_language(text, default=language)",
+       b"    reply_language = language")],
+     GR + "::test_replacement_speaks_the_language_of_the_reply"),
+
+    ("язык из скалярки — сторож на все девять пар обязан покраснеть", D,
+     [(b"    reply_language = detect_language(text, default=language)",
+       b"    reply_language = language")],
+     GR + "::test_settings_language_never_decides_the_formula"),
 
     ("детектор перестал различать украинские буквы", L,
      [('_UK_ONLY = set("іїєґ")'.encode(), b"_UK_ONLY = set()")],

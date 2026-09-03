@@ -61,15 +61,71 @@ def test_redacted_text_is_grammatically_clean():
     assert t.count("(") == t.count(")"), f"скобки разъехались: {t!r}"
 
 
-@pytest.mark.parametrize("language,expected", [
-    ("uk", "узгоджуємо"),
-    ("ru", "согласовываем"),
-    ("en", "agreed"),
+# C-1 / D2-4 сменил контракт: язык формулы задаёт ЯЗЫК ОТВЕТА, а `language=`
+# (скалярка клиента) остаётся только фолбэком «нет сигнала — не менять
+# поведение». Прежний сторож брал ОДНУ украинскую реплику и трижды крутил
+# скалярку: украинский случай проходил СЛУЧАЙНО — языки совпали, — а два других
+# держали контракт, которого больше нет.
+#
+# Здесь языки разведены НАРОЗЬ: в каждом случае скалярка указывает не на тот
+# язык, на котором написан ответ.
+_FORMULA_MARK = {
+    "uk": "узгоджуємо",
+    "ru": "согласовываем",
+    "en": "agreed",
+}
+
+# Реплики на трёх языках, каждая с ОДНИМ необеспеченным числом (99) и одной
+# обеспеченной ценой. Различающие буквы обязательны: детектор читает алфавит,
+# и «срок 99 дней» без «ы/э/ъ/ё» неразличим с украинским по построению.
+# NB: английская реплика попадает под ЦЕНОВОЕ правило, а не под срочное —
+# `_DEADLINE_NUM` знает только «за/через/к», — поэтому маркер `agreed` взят
+# такой, что стоит в обеих английских формулах.
+_REPLY = {
+    "uk": "Стратегія - 600–800 $, термін 99 днів.",
+    "ru": "Мы посчитали: стратегия - 600–800 $, срок 99 дней.",
+    "en": "The strategy is 600–800 $, delivery in 99 days.",
+}
+
+
+@pytest.mark.parametrize("reply_language,settings_language", [
+    ("uk", "ru"),
+    ("ru", "uk"),
+    ("en", "uk"),
 ])
-def test_replacement_is_localised(language, expected):
-    reply = "Стратегія - 600–800 $, термін 99 днів."
-    res = redact_unbacked(reply, KNOWLEDGE, language=language)
-    assert expected in res.text
+def test_replacement_speaks_the_language_of_the_reply(reply_language,
+                                                      settings_language):
+    """Язык ответа и скалярка РАЗНЫЕ — формула обязана взять язык ответа."""
+    res = redact_unbacked(_REPLY[reply_language], KNOWLEDGE,
+                          language=settings_language)
+
+    assert _FORMULA_MARK[reply_language] in res.text, (
+        f"формула не на языке ответа ({reply_language}): {res.text!r}")
+    assert _FORMULA_MARK[settings_language] not in res.text, (
+        f"формула заговорила языком скалярки ({settings_language}): "
+        f"{res.text!r}")
+
+
+def test_settings_language_never_decides_the_formula():
+    """Сторож ровно на откат контракта: `reply_language = language`.
+
+    Одной удачной пары мало — на ней можно случайно совпасть, как совпал старый
+    `[uk-узгоджуємо]`. Проверяем ВСЕ девять пар (три языка ответа × три
+    скалярки): язык ответа обязан выигрывать всегда, а формулы двух других
+    языков — не появляться ни разу, включая случай, когда скалярка совпала."""
+    for reply_language, reply in _REPLY.items():
+        for settings_language in _FORMULA_MARK:
+            res = redact_unbacked(reply, KNOWLEDGE, language=settings_language)
+            where = (f"ответ {reply_language}, скалярка {settings_language} "
+                     f"-> {res.text!r}")
+
+            assert _FORMULA_MARK[reply_language] in res.text, (
+                "формулу выбрал не язык ответа: " + where)
+            for other, mark in _FORMULA_MARK.items():
+                if other == reply_language:
+                    continue
+                assert mark not in res.text, (
+                    f"в тексте формула чужого языка ({other}): " + where)
 
 
 def test_replacement_does_not_promise_owner_contact():
