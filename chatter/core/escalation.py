@@ -449,7 +449,7 @@ def deterministic_escalation(
     *, incoming_text: str, reply: str, knowledge: str, keywords: list[str],
     forbidden_terms=(), promise_terms=DEFAULT_PROMISE_TERMS,
     owner_id: str = "", owner_ref: str | None = None,
-    strict_knowledge: bool = True,
+    strict_knowledge: bool = True, lead_numbers: frozenset[str] = frozenset(),
 ) -> EscalationReason | None:
     """Слой 1 (спека §4): бесплатные детерминированные триггеры. Работают, даже
     если классификатор/сеть лежат. Возвращает ПЕРВЫЙ сработавший триггер, иначе
@@ -513,7 +513,8 @@ def deterministic_escalation(
     if in_hit:
         return EscalationReason(
             tag="forbidden_incoming", detail=f"лид упомянул запрещённое «{in_hit}»")
-    if contains_unbacked_claim(reply or "", knowledge or ""):
+    if contains_unbacked_claim(reply or "", knowledge or "",
+                               lead_numbers=lead_numbers):
         return EscalationReason(
             tag="unbacked_claim", detail="ответ обещал цену/срок вне базы знаний",
             suppress=True)

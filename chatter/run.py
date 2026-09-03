@@ -43,7 +43,7 @@ from chatter.payments.prompt import (  # noqa: F401
     UnsubstitutedPlaceholder, finalize, find_placeholders, has_disclaimer,
 )
 from chatter.core.guardrails import (
-    redact_unbacked, within_daily_cap, within_hourly_limit,
+    lead_numbers, redact_unbacked, within_daily_cap, within_hourly_limit,
 )
 from chatter.core.llm import AnthropicLLM, FakeLLM
 from chatter.core.pause import human_holds_dialog, is_attributed, is_muted
@@ -319,6 +319,24 @@ def _post_invoice_card(deps: "Deps", contact_id: str, note: OwnerNote, *,
         log.warning("не удалось записать карточку счёта %r", handle, exc_info=True)
 
 
+def _lead_numbers_for_turn(history, *, limits, incoming_text: str) -> frozenset[str]:
+    """Числа, которые лид назвал САМ, — окном той же ширины, что уходит в промпт.
+
+    C-1 / D2-1. Ширина не случайна: модель может пересказать только то, что
+    видела, поэтому окно промпта — честная граница обеспечения. Брать всю
+    историю значило бы обеспечивать бота числом, которого он на этом ходу не
+    видел; брать меньше — резать пересказ, который лид только что прочитал.
+
+    Текущее входящее добавляется ОТДЕЛЬНО: в истории его на этом ходу ещё нет,
+    а именно на него бот и отвечает."""
+    window = select_window(list(history or []),
+                           budget_tokens=limits.history_budget_tokens,
+                           max_messages=limits.history_max_messages)
+    texts = [m.get("text") or "" for m in window if m.get("role") == "user"]
+    texts.append(incoming_text or "")
+    return lead_numbers(texts)
+
+
 def _escalation_pass(
     deps: "Deps", contact_id: str, *, incoming_text: str, reply: str, now: float,
     disclosure_sent: bool = False,
@@ -331,12 +349,18 @@ def _escalation_pass(
     гардрейл-переписывание, как в арке 3A."""
     store = deps.store
     cfg = deps.cfg
+    # C-1 / D2-1: числа лида считаются обеспеченными — иначе бюджет, который
+    # назвал сам лид, режется как выдумка бота (спека sales-competence §1.2).
+    lead_nums = _lead_numbers_for_turn(
+        store.history(contact_id), limits=cfg.settings.limits,
+        incoming_text=incoming_text)
     det = deterministic_escalation(
         incoming_text=incoming_text, reply=reply,
         knowledge=cfg.knowledge, keywords=deps.escalation_keywords,
         forbidden_terms=cfg.settings.forbidden_terms,
         owner_id=cfg.settings.owner_id, owner_ref=cfg.settings.owner_ref,
-        strict_knowledge=cfg.settings.strict_knowledge)
+        strict_knowledge=cfg.settings.strict_knowledge,
+        lead_numbers=lead_nums)
     profile = store.get_profile(contact_id)
     slot_on = _obligations_enabled()
     cr = None
@@ -454,7 +478,8 @@ def _escalation_pass(
             # (безцифровое «дам скидку») она не видит — пропустить их через неё
             # значило бы проделать дыру в гардрейле, поэтому им по-прежнему
             # полное подавление.
-            redacted = (_try_redact(deps, contact_id, reply=reply, now=now)
+            redacted = (_try_redact(deps, contact_id, reply=reply, now=now,
+                                    lead_numbers=lead_nums)
                         if det.tag == "unbacked_claim" else None)
             if redacted is not None:
                 reply = redacted
@@ -577,14 +602,16 @@ def _owner_write_delivered(store, contact_id: str, *, slot_on: bool) -> bool:
                for o in store.get_obligations(contact_id))
 
 
-def _try_redact(deps: "Deps", contact_id: str, *, reply: str, now: float) -> str | None:
+def _try_redact(deps: "Deps", contact_id: str, *, reply: str, now: float,
+                lead_numbers: frozenset[str] = frozenset()) -> str | None:
     """P20 (D): вырезать необеспеченные числа, сохранив остальной ответ.
 
     None → редакцией не спаслось (или резать было нечего) ⇒ вызывающий обязан
     подавить ответ целиком. Лог PII-free: число-причина, правило и длина
     вырезанного куска — без текста лида и без текста ответа."""
     cfg = deps.cfg
-    res = redact_unbacked(reply, cfg.knowledge, language=cfg.settings.language)
+    res = redact_unbacked(reply, cfg.knowledge, language=cfg.settings.language,
+                          lead_numbers=lead_numbers)
     if not res.clean or not res.records:
         return None
     for r in res.records:
