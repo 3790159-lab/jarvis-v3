@@ -15,6 +15,15 @@ from dataclasses import dataclass, field
 
 import yaml
 
+from chatter.core import sales_checks
+from chatter.core.guardrails import _REDACTION_DEADLINE, _REDACTION_PRICE
+from chatter.core.langdetect import detect_language
+
+# Константы редакции — тот самый набор, который отчёт увидел трижды в
+# одной реплике. Берём ИЗ КОДА, а не переписываем: разойдутся — проверка
+# станет проверять собственную копию.
+_FORMULAS = tuple(_REDACTION_PRICE.values()) + tuple(_REDACTION_DEADLINE.values())
+
 # Словарь проверок ЗАКРЫТ намеренно. Как только понадобится произвольная
 # проверка, это сигнал, что она должна жить в тестах, а не в дриле: дрил
 # отвечает на вопрос «ведёт ли себя живая модель как договорились», а не
@@ -27,6 +36,17 @@ EXPECT_KEYS = {
     "classifier_errors",      # допустимое число сбоев классификатора за ход
     "card_delivered",         # появилась ли карточка владельцу
     "no_duplicate_reply",     # ровно один обработанный ход и лид не остался без ответа
+    # --- «продажность» (спека sales-competence §6.1). Открыт ровно на неё:
+    # все девять — про поведение ЖИВОЙ модели, то есть по назначению дрила.
+    "answers_before_escalating",  # есть содержание ДО упоминания владельца
+    "uses_lead_numbers",          # перечисленные числа лида прозвучали
+    "offer_range",                # назван диапазон + валюта
+    "questions_count",            # "2..4" — не допрос и не пустой ход
+    "next_step_with_sla",         # следующий шаг со сроком в ПОСЛЕДНЕЙ фразе
+    "no_escalation",              # карточки нет И владелец не помянут
+    "reply_language",             # uk | ru — ловит смешение языков
+    "empathy_max",                # счётчик эмпатии ЗА ДИАЛОГ
+    "no_repeated_formula",        # ни одна константа не вставлена дважды
 }
 
 
@@ -66,6 +86,13 @@ class Facts:
     # старые фикстуры продолжают собираться.
     obligations_bot: dict = field(default_factory=dict)
     obligations_bot_before: dict = field(default_factory=dict)
+    # --- факты «продажности». Умолчания пустые: старые фикстуры и старые
+    # сценарии обязаны собираться и считаться ровно как раньше.
+    reply_text: str = ""            # что РЕАЛЬНО ушло лиду за ход
+    lead_numbers: tuple = ()        # числа, произнесённые лидом в окне
+    knowledge_numbers: frozenset = frozenset()
+    owner_marks: tuple = ()         # как в этом клиенте зовут владельца
+    empathy_so_far: int = 0         # эмпатические зачины ЗА ДИАЛОГ
 
 
 @dataclass(frozen=True)
@@ -346,6 +373,94 @@ _CHECKS = {
     "card_delivered": _check_card,
     "no_duplicate_reply": _check_no_duplicate,
 }
+
+
+def _fmt(ok: bool, key: str, detail: str) -> CheckResult:
+    return CheckResult(key, ok, detail)
+
+
+def _check_answers_before(want: bool, f: Facts) -> CheckResult:
+    got = sales_checks.answers_before_escalating(
+        f.reply_text, knowledge_numbers=f.knowledge_numbers,
+        lead_nums=f.lead_numbers, owner_marks=f.owner_marks)
+    return _fmt(got == bool(want), "answers_before_escalating",
+                "содержание до упоминания владельца: %s (ждали %s)" % (got, want))
+
+
+def _check_uses_lead_numbers(want, f: Facts) -> CheckResult:
+    want = [str(x) for x in (want or [])]
+    got = sales_checks.uses_lead_numbers(f.reply_text, want)
+    missing = [n for n in want if n not in got]
+    return _fmt(not missing, "uses_lead_numbers",
+                "не прозвучали: %s" % (", ".join(missing) or "—"))
+
+
+def _check_offer_range(want: bool, f: Facts) -> CheckResult:
+    got = sales_checks.offer_range(f.reply_text)
+    return _fmt(got == bool(want), "offer_range",
+                "диапазон в ответе: %s (ждали %s)" % (got, want))
+
+
+def _check_questions_count(want, f: Facts) -> CheckResult:
+    got = sales_checks.questions_count(f.reply_text)
+    text = str(want)
+    if ".." in text:
+        lo, hi = (int(x) for x in text.split(".."))
+    else:
+        lo = hi = int(text)
+    return _fmt(lo <= got <= hi, "questions_count",
+                "вопросов %d, ждали %s" % (got, text))
+
+
+def _check_next_step_sla(want: bool, f: Facts) -> CheckResult:
+    got = sales_checks.next_step_with_sla(f.reply_text)
+    return _fmt(got == bool(want), "next_step_with_sla",
+                "срок в последней фразе: %s (ждали %s)" % (got, want))
+
+
+def _check_no_escalation(want: bool, f: Facts) -> CheckResult:
+    low = (f.reply_text or "").casefold()
+    named = any(m and m.casefold() in low for m in f.owner_marks)
+    got = (f.cards_delivered == 0) and not named
+    return _fmt(got == bool(want), "no_escalation",
+                "карточек %d, владелец помянут: %s" % (f.cards_delivered, named))
+
+
+def _check_reply_language(want: str, f: Facts) -> CheckResult:
+    got = detect_language(f.reply_text or "", default="")
+    return _fmt(got == str(want), "reply_language",
+                "язык ответа %r, ждали %r" % (got, want))
+
+
+def _check_empathy_max(want: int, f: Facts) -> CheckResult:
+    return _fmt(f.empathy_so_far <= int(want), "empathy_max",
+                "эмпатии за диалог %d, потолок %s" % (f.empathy_so_far, want))
+
+
+def _check_no_repeated_formula(want: bool, f: Facts) -> CheckResult:
+    dup = sales_checks.repeated_formula(f.reply_text, _FORMULAS)
+    got = dup is None
+    return _fmt(got == bool(want), "no_repeated_formula",
+                "повторена формула: %r" % (dup,) if dup else "повторов нет")
+
+
+# Регистрируем ПОСЛЕ определений: таблица объявлена выше, и дописывать её
+# там значило бы ссылаться на ещё не существующие функции.
+_CHECKS.update({
+    "answers_before_escalating": _check_answers_before,
+    "uses_lead_numbers": _check_uses_lead_numbers,
+    "offer_range": _check_offer_range,
+    "questions_count": _check_questions_count,
+    "next_step_with_sla": _check_next_step_sla,
+    "no_escalation": _check_no_escalation,
+    "reply_language": _check_reply_language,
+    "empathy_max": _check_empathy_max,
+    "no_repeated_formula": _check_no_repeated_formula,
+})
+
+# Ни один ключ словаря не имеет права остаться без реализации: сценарий с
+# необслуженным ключом молча не проверял бы ничего.
+assert set(_CHECKS) == EXPECT_KEYS, sorted(EXPECT_KEYS - set(_CHECKS))
 
 
 def check_step(expect: dict, facts: Facts) -> list[CheckResult]:
