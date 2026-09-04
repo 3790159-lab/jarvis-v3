@@ -86,3 +86,81 @@ def test_judge_is_stricter_than_the_guard_on_purpose():
 def test_retelling_detector_needs_the_number_present():
     assert retells_lead_number("Ви називали бюджет 1 250 $", "1250") is True
     assert retells_lead_number("Ви називали бюджет", "1250") is False
+
+
+# --- словарь §6.1: инструмент обязан краснеть на плохом и зеленеть на хорошем
+
+from chatter.core.guardrails import _REDACTION_DEADLINE, _REDACTION_PRICE
+from chatter.core import sales_checks as S
+
+FORMULAS = list(_REDACTION_PRICE.values()) + list(_REDACTION_DEADLINE.values())
+MARKS = ("керівниц", "керивниц", "руководител", "владельц", "передала")
+
+# Реплика из отчёта Артёма — ДОСЛОВНО, включая тройной повтор формулы.
+ARTEM = ("SMM-ведення (750–900 $/мес) в связке с рекламным бюджетом, точний "
+         "термін узгоджуємо індивідуально, зафиксировать KPI под ваши цифры "
+         "(точну вартість узгоджуємо індивідуально) точну вартість узгоджуємо "
+         "індивідуально, тут нужна керивныця.")
+
+# Эталон «как должно быть»: пять шагов §2.1 в одной реплике.
+GOOD = ("Айдентика для кав ярні у нас 700–900 $ — лого, шрифти, палітра і "
+        "брендгайд. Ваш бюджет 1000 $ цю вилку покриває. "
+        "Скільки у вас уже є матеріалів? І чи потрібен друк? "
+        "Пришліть відповідь — сьогодні до 18:00 зберу вам план.")
+
+
+def test_good_reply_passes_every_check():
+    """Встречный сторож на САМ ИНСТРУМЕНТ: если хоть одна проверка не умеет
+    зеленеть, порог «8 из 10» становится недостижимым, и приёмка врёт."""
+    assert S.answers_before_escalating(
+        GOOD, knowledge_numbers={"700", "900"}, lead_nums=["1000"],
+        owner_marks=MARKS) is True
+    assert S.offer_range(GOOD) is True
+    assert 2 <= S.questions_count(GOOD) <= 4
+    assert S.next_step_with_sla(GOOD) is True
+    assert S.empathy_openers(GOOD) <= 1
+    assert S.repeated_formula(GOOD, FORMULAS) is None
+    assert S.uses_lead_numbers(GOOD, ["1000"]) == ["1000"]
+
+
+def test_artem_transcript_is_caught_by_the_repeat_check():
+    """Дефект №8 отчёта: одна и та же константа трижды в одной реплике."""
+    assert S.repeated_formula(ARTEM, FORMULAS) is not None
+    assert S.questions_count(ARTEM) == 0
+    assert S.next_step_with_sla(ARTEM) is False
+
+
+def test_dead_end_reply_has_no_content_before_the_owner():
+    """Записанный ответ 4-knowledge-price: прямой вопрос о цене, которая ЕСТЬ
+    в knowledge, а в ответе — «уточню в керівниці» и ни одного числа."""
+    dead = ("Слушайте, я зараз не готова назвати точну цифру — хочу уточнити "
+            "в керівниці, щоб дати вам правильну суму, а не приблизну.")
+    assert S.answers_before_escalating(
+        dead, knowledge_numbers={"200", "700", "900"}, lead_nums=[],
+        owner_marks=MARKS) is False
+    assert S.empathy_openers(dead) == 1
+
+
+def test_sla_does_not_accept_vague_promises():
+    """«Найближчим часом» — то же «вам напишут», сроком это не является."""
+    assert S.next_step_with_sla("Повернуся найближчим часом.") is False
+    assert S.next_step_with_sla("Скоро відповім.") is False
+    assert S.next_step_with_sla("Відповім сьогодні до 18:00.") is True
+
+
+def test_sla_looks_at_the_last_sentence_only():
+    """Срок в середине, а в конце тупик — следующего шага НЕТ."""
+    assert S.next_step_with_sla(
+        "Сьогодні до 18:00 зберу дані. Далі чекайте відповіді.") is False
+
+
+def test_offer_range_needs_a_range_not_a_single_price():
+    assert S.offer_range("Айдентика 700–900 $") is True
+    assert S.offer_range("Рефайн логотипа 200 $") is False
+
+
+def test_content_after_the_owner_does_not_count():
+    """Порядок обязателен: «я передала, а ціна 700–900 $» — это не ответ."""
+    late = "Я вже передала керівниці. Ціна айдентики 700–900 $."
+    assert S.answers_before_escalating(
+        late, knowledge_numbers={"700", "900"}, owner_marks=MARKS) is False

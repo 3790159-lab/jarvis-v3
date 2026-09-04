@@ -96,3 +96,89 @@ def judge_our_price(raw_reply: str, delivered: str, number: str):
                 "утверждение о НАШЕЙ цене с числом лида ДОШЛО ДО ЛИДА")
     return ("ЗЕЛЁНОЕ",
             "модель назначила число нашей ценой — до лида это НЕ дошло")
+
+
+# --- Словарь проверок «продажности» (спека §6.1) -----------------------------
+#
+# Все предикаты — над ЗАПИСАННЫМ текстом. Ни один не спрашивает код о том, что
+# он собирался сделать: дрил судит поведение живой модели по тому, что реально
+# ушло лиду.
+
+# Диапазон-оффер: «700–900 $», «$700-900», «750 – 900 USD».
+_RANGE = re.compile(
+    r"\d[\d\s]*\s*[–—-]\s*\d[\d\s]*\s*(?:\$|€|грн|USD|usd)"
+    r"|(?:\$|€)\s*\d[\d\s]*\s*[–—-]\s*\d",
+    re.IGNORECASE)
+
+# Формы срока для «следующего шага». Намеренно узкий список: «скоро» и
+# «найближчим часом» сроком НЕ являются — это то же «вам напишут».
+_SLA = re.compile(
+    r"\d{1,2}:\d{2}"
+    r"|до\s+\d{1,2}"
+    r"|протягом\s+\d|в\s+течени[ие]\s+\d"
+    r"|за\s+\d+\s*(?:хвилин|минут|годин|часов)"
+    r"|\d+\s*(?:хвилин|минут|годин|часов|днів|дней|робочих)"
+    r"|сьогодні|сегодня|завтра|зранку|утром"
+    r"|понеділок|вівторок|середу|четвер|п.ятницю"
+    r"|понедельник|вторник|среду|четверг|пятницу",
+    re.IGNORECASE)
+
+# Эмпатические зачины. Считаются ЗА ДИАЛОГ (§2.3), не за ход.
+_EMPATHY = re.compile(
+    r"(?:^|[.!?]\s+)\s*(?:розумію|понимаю|гарне\s+питання|хороший\s+вопрос"
+    r"|чудове\s+питання|дякую\s+за\s+питання|слушайте|слухайте)",
+    re.IGNORECASE)
+
+
+def uses_lead_numbers(text: str, numbers) -> list:
+    """Какие из чисел лида реально прозвучали в ответе."""
+    return [n for n in (numbers or ()) if _has_number(text, n)]
+
+
+def offer_range(text: str) -> bool:
+    return bool(_RANGE.search(text or ""))
+
+
+def questions_count(text: str) -> int:
+    return (text or "").count("?")
+
+
+def next_step_with_sla(text: str) -> bool:
+    """Срок ищем в ПОСЛЕДНЕМ предложении: обещание в середине реплики, за
+    которым следует «чекайте відповіді», следующим шагом не является."""
+    parts = [s for s in re.split(r"(?<=[.!?])\s+", (text or "").strip()) if s]
+    return bool(_SLA.search(parts[-1])) if parts else False
+
+
+def empathy_openers(text: str) -> int:
+    return len(_EMPATHY.findall(text or ""))
+
+
+def repeated_formula(text: str, formulas) -> str | None:
+    """Первая константа, вставленная в реплику ДВАЖДЫ, либо None.
+
+    Прямой замер дефекта №8 отчёта: редактор ставил «точну вартість
+    узгоджуємо індивідуально» трижды в одном ответе."""
+    low = (text or "").casefold()
+    for f in formulas or ():
+        if f and low.count(f.casefold()) > 1:
+            return f
+    return None
+
+
+def answers_before_escalating(text: str, *, knowledge_numbers=(),
+                              lead_nums=(), owner_marks=()) -> bool:
+    """Есть ли СОДЕРЖАНИЕ до упоминания владельца.
+
+    Содержание — это число из knowledge или число лида. Порядок обязателен:
+    «я передала керівниці, а ціна 700–900 $» и «ціна 700–900 $, і я передала
+    керівниці» — разные реплики, и отчёт ругал именно первую."""
+    body = text or ""
+    cut = len(body)
+    for mark in owner_marks or ():
+        i = body.casefold().find((mark or "").casefold())
+        if mark and i != -1:
+            cut = min(cut, i)
+    head = body[:cut]
+    pool = {"".join(str(n).split()) for n in list(knowledge_numbers) + list(lead_nums)}
+    return any(_has_number(head, n) for n in pool)
