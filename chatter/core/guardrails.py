@@ -461,6 +461,79 @@ class RedactionResult:
     clean: bool        # True ⇔ в `text` не осталось необеспеченных чисел
 
 
+# --- D2-2: вилка из knowledge вместо отсылки к владельцу ---------------------
+#
+# «точну вартість узгоджуємо індивідуально» читается лидом как «мне не
+# ответили» — спека sales-competence §4 D2-2. Если для ТОЙ ЖЕ услуги в
+# knowledge есть законная вилка, лид обязан получить её.
+#
+# ГРАНИЦА, и она здесь главное: подставляем вилку ТОЛЬКО когда услуга в клаузе
+# опознана ОДНОЗНАЧНО. Ни одной услуги — отсылка остаётся; две с равным весом —
+# отсылка остаётся. Угадать услугу значит назвать цену SMM за фотосессию, а это
+# хуже отсылки: отсылка честна, а неверная цена — обещание.
+_RANGE_PREFIX = {
+    "ru": "ориентировочно",
+    "uk": "орієнтовно",
+    "en": "approximately",
+}
+
+# Строка прайса в knowledge: «- <услуга> — <числа><валюта>[, хвост]».
+_KNOWN_PRICE_LINE = re.compile(
+    r"^\s*[-*]\s*(?P<name>.+?)\s+[—–]\s+(?P<value>.+?)\s*$")
+# Из значения берём ТОЛЬКО ведущую денежную часть: у SMM за вилкой идёт
+# «. Ціна за місяць, мінімальний строк…», и тащить хвост в реплику нельзя.
+_MONEY_HEAD = re.compile(
+    r"^(\d[\d\s]*(?:[–—-]\s*\d[\d\s]*)?\s*(?:\$|€|грн|USD|usd))")
+
+
+def _stems(text: str) -> frozenset[str]:
+    """Опорные основы слов: первые 5 букв токена от 3 букв и длиннее.
+
+    Пять букв — не эстетика, а мост между uk и ru: «ведення»/«ведение» дают
+    один и тот же «веден», а без него русский ответ не нашёл бы украинскую
+    услугу в knowledge и вилка не подставилась бы ровно там, где нужна."""
+    out = set()
+    for tok in re.findall(r"[^\W\d_]+", (text or "").casefold(), re.UNICODE):
+        if len(tok) >= 3:
+            out.add(tok[:5])
+    return frozenset(out)
+
+
+def _price_ranges(knowledge: str) -> tuple[tuple[frozenset[str], str], ...]:
+    """(основы названия услуги, текст вилки) для каждой ЦЕНОВОЙ строки прайса.
+
+    Строки сроков («21 календарний день») сюда не попадают: у них нет валюты,
+    и подставлять их в ценовую клаузу нельзя."""
+    out = []
+    for line in (knowledge or "").splitlines():
+        m = _KNOWN_PRICE_LINE.match(line)
+        if not m:
+            continue
+        money = _MONEY_HEAD.match(m.group("value").strip())
+        if not money:
+            continue
+        stems = _stems(m.group("name"))
+        if stems:
+            out.append((stems, " ".join(money.group(1).split())))
+    return tuple(out)
+
+
+def _range_for_clause(clause: str, knowledge: str) -> str | None:
+    """Вилка для клаузы — или None, если услуга не опознана ОДНОЗНАЧНО."""
+    entries = _price_ranges(knowledge)
+    if not entries:
+        return None
+    seen = _stems(clause)
+    scored = sorted(((len(stems & seen), text) for stems, text in entries),
+                    key=lambda pair: pair[0], reverse=True)
+    best = scored[0]
+    if best[0] == 0:
+        return None                      # ни одной услуги не назвали
+    if len(scored) > 1 and scored[1][0] == best[0]:
+        return None                      # две услуги с равным весом — не гадаем
+    return best[1]
+
+
 def redact_unbacked(reply: str, knowledge: str, *, language: str = "ru",
                     lead_numbers: frozenset[str] = frozenset()) -> RedactionResult:
     """Вырезать необеспеченные утверждения, сохранив всё остальное.
@@ -503,6 +576,14 @@ def redact_unbacked(reply: str, knowledge: str, *, language: str = "ru",
         tail_ws = clause[len(clause.rstrip()):]
         table = _REDACTION_DEADLINE if rule == "deadline" else _REDACTION_PRICE
         phrase = base = table.get(reply_language, table["ru"])
+        # D2-2: ценовой клаузе с ОДНОЗНАЧНО опознанной услугой отдаём вилку
+        # из knowledge вместо отсылки. Срочные клаузы не трогаем: вилка цен
+        # вместо срока — ответ не на тот вопрос.
+        if rule != "deadline":
+            known_range = _range_for_clause(clause, knowledge)
+            if known_range:
+                prefix = _RANGE_PREFIX.get(reply_language, _RANGE_PREFIX["ru"])
+                phrase = base = f"{prefix} {known_range}"
         gap = text[cursor:cs]
         if drop_next_delim:
             gap = _drop_leading_delim(gap)
