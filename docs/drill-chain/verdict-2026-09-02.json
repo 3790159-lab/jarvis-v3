@@ -1,0 +1,15 @@
+{
+  "ran_at": 1788542871.253494,
+  "ok": true,
+  "expected": {
+    "dialogs": 13,
+    "messages": 445,
+    "last_message_at": 1788246564.892123
+  },
+  "actual": {
+    "dialogs": 13,
+    "messages": 445,
+    "last_message_at": 1788246564.892123
+  },
+  "detail": "дата 2026-09-02, объектов 3, баз сверено 2: снимок открыт настоящим слоем хранения (chatter.storage.db.Store), величины сошлись"
+}
