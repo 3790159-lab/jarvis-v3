@@ -82,7 +82,14 @@ def test_broken_yaml_is_rejected_with_context():
 def test_expect_vocabulary_is_the_documented_one():
     assert EXPECT_KEYS == {
         "cache", "obligations", "obligations_unchanged", "profile_contains",
-        "classifier_errors", "card_delivered", "no_duplicate_reply"}
+        "classifier_errors", "card_delivered", "no_duplicate_reply",
+        # Открыт 2026-09-05 ровно на «продажность» (спека sales-competence
+        # §6.1). Список остаётся ЛИТЕРАЛЬНЫМ: словарь, который растёт молча,
+        # перестаёт быть закрытым, а закрытость — единственное, что мешает
+        # завести в дрил произвольную проверку вместо теста.
+        "answers_before_escalating", "uses_lead_numbers", "offer_range",
+        "questions_count", "next_step_with_sla", "no_escalation",
+        "reply_language", "empathy_max", "no_repeated_formula"}
 
 
 # ── проверки: зелёный и красный случай на каждую ─────────────────────────────
