@@ -259,3 +259,21 @@ def test_substituted_range_is_itself_backed():
                           KNOWLEDGE, language="uk")
     assert res.clean is True
     assert not contains_unbacked_claim(res.text, KNOWLEDGE),         "подставленная вилка сама читается как выдумка"
+
+
+def test_price_line_tail_never_leaks_into_the_reply():
+    """Из строки прайса берём ДЕНЕЖНУЮ ГОЛОВУ, а не весь хвост.
+
+    В боевом knowledge у SMM за вилкой идёт «. Ціна за місяць, мінімальний
+    строк співпраці — від 2 місяців». Утащить это в реплику значит выдать
+    справочник за ответ — и заодно внести в текст число (2), которого клаузе
+    никто не обеспечивал."""
+    knowledge = ("# Ціни" + chr(10) +
+                 "- SMM-ведення — 750–900 $. Ціна за місяць, мінімальний "
+                 "строк співпраці — від 2 місяців" + chr(10))
+    res = redact_unbacked("SMM-ведення обійдеться вам у 1500 $ на місяць.",
+                          knowledge, language="uk")
+
+    assert "750–900 $" in res.text
+    assert "мінімальний строк" not in res.text, "хвост строки прайса утёк в реплику"
+    assert res.clean is True
