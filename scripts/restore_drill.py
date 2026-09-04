@@ -106,6 +106,22 @@ _ROOT = Path(__file__).resolve().parents[1]
 # первый ([[jarvis-two-numbers-for-one-thing]]).
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+# 🔴 СЕКРЕТЫ ДОЛЖЕН ПРИНЕСТИ ДРИЛ САМ, И ИМЕННО ЗДЕСЬ — ДО первого чтения
+# окружения. Замер 04.09.2026: пять переменных бакета (`R2_ACCOUNT_ID`,
+# `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`,
+# `R2_BACKUP_BUCKET`) живут ТОЛЬКО в `.env` — ни в User, ни в Machine их нет, —
+# а этот файл `env_bootstrap` не импортировал. Писатель бэкапа
+# (`scripts/state_backup.py`) импортирует, поэтому ЗАЛИВКА шла, а ПРОВЕРКА
+# молчала: задача падала с rc=2 «конфигурация бакета не собралась» с 30.08, и
+# единственным следом был `LastTaskResult=2` в планировщике.
+#
+# ⚠️ На `sitecustomize.py` в корне полагаться НЕЛЬЗЯ, хотя он тоже зовёт
+# `load_dotenv`: интерпретатор находит его, только если корень попал в
+# `sys.path` на старте (запуск ИЗ корня), а задача запускает скрипт ПО ПУТИ —
+# и тогда `sys.path[0]` это `scripts/`, а не корень. Один и тот же скрипт
+# работал бы из консоли и падал из планировщика — худший вид разницы.
+import app.env_bootstrap  # noqa: F401,E402  side-effect: грузит .env
+
 from cryptography.exceptions import UnsupportedAlgorithm  # noqa: E402
 from cryptography.hazmat.primitives import serialization  # noqa: E402
 from cryptography.hazmat.primitives.asymmetric import x25519  # noqa: E402
