@@ -96,18 +96,31 @@ def test_the_refusal_has_its_own_type_outside_the_backup_hierarchy():
 # Ошибка в эту сторону дороже первой: заблокировать ночную заливку значит
 # оставить клиентов без бэкапа, и узнаем мы об этом позже всех.
 
+# 🔴 ЗАГРУЗЧИК ЗДЕСЬ НЕ ПОДСТАВНОЙ, И ЭТО ГЛАВНОЕ В ЭТОМ СТОРОЖЕ.
+#
+# Первая редакция передавала свой `upload_file` — и мутационный гейт показал,
+# что она СЛЕПА: под мутантом «признак не спрашивается» условие превращается в
+# `True and upload_file is _REAL_UPLOAD`, а с подставным загрузчиком вторая
+# половина ложна, застава молчит, сторож зелен. То есть проверялась не та
+# ветка, ради которой сторож написан ([[jarvis-guard-must-execute-the-branch]]).
+#
+# Ночная задача ходит РОВНО так: настоящий загрузчик и никакого признака.
+# Значит и сторож обязан ходить так же.
+#
+# ТРИ ПОЯСА БЕЗОПАСНОСТИ, чтобы настоящий загрузчик ничего не залил:
+#   1. ключа и соли в окружении подпроцесса нет — фейл-клоуз на ключе стоит
+#      сразу за заставой и не пускает дальше;
+#   2. дерево пустое — клиентов нет вовсе;
+#   3. конфигурация R2 подменена заведомо негодной — даже сорвавшись с первых
+#      двух, обращение не уйдёт в наш бакет.
 _SUBPROCESS = """
 import sys
 sys.path.insert(0, {root!r})
 from pathlib import Path
 from app.services import state_backup as sb
 
-def _recorder(*a, **kw):
-    print("UPLOAD_CALLED")
-    return "x"
-
 try:
-    sb.run_client_backup(Path({tree!r}), upload_file=_recorder)
+    sb.run_client_backup(Path({tree!r}))
     print("RESULT:no-exception")
 except sb.ClientBackupRefused as exc:
     print("RESULT:ClientBackupRefused")
@@ -117,16 +130,24 @@ except Exception as exc:
 
 
 def test_without_the_pytest_marker_the_guard_stays_silent(empty_tree, tmp_path):
-    """Подпроцесс БЕЗ `PYTEST_CURRENT_TEST` — форма ночной задачи.
+    """Подпроцесс БЕЗ `PYTEST_CURRENT_TEST` и с НАСТОЯЩИМ загрузчиком —
+    ровно форма ночной задачи.
 
     Застава не смеет сработать: доказательством служит то, что процесс дошёл
-    до фейл-клоуза на ключе, то есть прошёл заставу насквозь. Сети нет —
-    загрузчик подставной, дерево пустое, ключа нет."""
+    до фейл-клоуза на ключе, то есть прошёл заставу насквозь. Про то, почему
+    загрузчик здесь не подставной и чем это обеспечено, — комментарий над
+    `_SUBPROCESS`."""
     env = {k: v for k, v in os.environ.items() if k != "PYTEST_CURRENT_TEST"}
     env.pop("JARVIS_BACKUP_PUBLIC_KEY", None)
     env.pop("JARVIS_BACKUP_KEY_SALT", None)
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
+    # третий пояс: заведомо негодный бакет
+    env["R2_ACCOUNT_ID"] = "guard"
+    env["R2_ACCESS_KEY_ID"] = "guard"
+    env["R2_SECRET_ACCESS_KEY"] = "guard"
+    env["R2_ENDPOINT"] = "https://guard.invalid"
+    env["R2_BACKUP_BUCKET"] = "guard-invalid-bucket"
 
     code = _SUBPROCESS.format(root=str(ROOT), tree=str(empty_tree))
     got = subprocess.run([sys.executable, "-c", code], cwd=tmp_path, env=env,
@@ -141,7 +162,6 @@ def test_without_the_pytest_marker_the_guard_stays_silent(empty_tree, tmp_path):
     assert "RESULT:ClientBackupRefused" in out, (
         "процесс не дошёл до фейл-клоуза на ключе — значит сторож не доказал, "
         "что застава его пропустила:\n" + out[-2000:])
-    assert "UPLOAD_CALLED" not in out, "сторож дошёл до загрузки — так нельзя"
 
 
 # ── 5. СКВОЗНОЙ: тот самый путь, что портил бакет ─────────────────────────
