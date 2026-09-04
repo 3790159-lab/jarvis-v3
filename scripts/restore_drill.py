@@ -395,7 +395,32 @@ def parse_manifest(raw: str) -> dict:
         entries.append({"rel_path": rel, "sha256": sha.strip().lower(),
                         "counts": counts})
 
-    if not any(e["counts"] is not None for e in entries):
+    # 🔴 ПОЛНОТА НАБОРА СЧИТАЕТСЯ ДО ОТКАЗА ПО ВЕЛИЧИНАМ, и порядок здесь —
+    # содержание, а не стиль. «Набор неполон» это ЗНАНИЕ о дефекте: мы точно
+    # видим, что часть объявленных объектов не описана. «Нет counts» — это
+    # незнание. Ответить незнанием там, где есть знание, значит промолчать о
+    # найденном дефекте: лампа на хосте увидела бы drill_never/drill_stale и
+    # прочитала аварию как «ноутбук был выключен».
+    expected = data.get("expected")
+    complete = data.get("complete")
+    incomplete: list[str] = []
+    if isinstance(expected, list):
+        have = {e["rel_path"] for e in entries}
+        # Сверяем СПИСКИ, а не только признак: `complete` может соврать,
+        # поимённое расхождение — нет.
+        gone = sorted(str(x) for x in expected if str(x) not in have)
+        if gone:
+            incomplete.append(
+                "набор неполон: манифест ожидает %d объектов, а описаны не "
+                "все — нет %s" % (len(expected), ", ".join(gone)))
+    if complete is False:
+        incomplete.append(
+            "манифест объявил себя неполным (complete: false): часть объектов "
+            "набора не описана, набор непроверяем целиком")
+
+    if not incomplete and not any(e["counts"] is not None for e in entries):
+        # Старый манифест без `expected`/`complete`: судить о полноте нечем,
+        # и «проверить нечем» остаётся честным ответом.
         raise DrillNotRun(
             "ни у одной записи манифеста нет counts: сверять величины не с "
             "чем. Дрил доказывает, что вернётся БАЗА (§4.3), а манифест без "
@@ -405,6 +430,9 @@ def parse_manifest(raw: str) -> dict:
     return {"generated_at": data.get("generated_at"),
             "key_fingerprint": fingerprint.strip().lower(),
             "count": data.get("count"),
+            "expected": expected,
+            "complete": complete,
+            "incomplete": incomplete,
             "files": entries}
 
 
@@ -726,6 +754,10 @@ def run_drill(
         expected_sets: list[dict] = []
         actual_sets: list[dict] = []
         checked = 0
+
+        # Неполнота набора — ПРОБЛЕМА (вердикт с ok=false, rc=1), а не отказ:
+        # см. `parse_manifest`.
+        problems.extend(manifest.get("incomplete") or [])
 
         declared = manifest.get("count")
         if isinstance(declared, int) and not isinstance(declared, bool):
