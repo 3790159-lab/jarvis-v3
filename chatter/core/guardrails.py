@@ -193,6 +193,7 @@ _LEAD_ATTRIBUTION = re.compile(
 # Утверждение о НАШЕЙ цене. Ветирует пропуск даже при живой атрибуции.
 _OUR_PRICE_ASSERTION = re.compile(
     r"(?:ц[іе]н\w*|варт[іо]ст\w*|стоимост\w*|сто[ий]мост\w*|кошту\w*"
+    r"|сумм?[аиуоеєіы]\w*|\bsum\b"
     r"|обійд\w*|обойд\w*|прайс\w*|\bprice\b|\bcost\b)",
     re.IGNORECASE,
 )
