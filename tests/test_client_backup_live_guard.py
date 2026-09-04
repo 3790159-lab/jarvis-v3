@@ -188,3 +188,23 @@ def test_the_script_path_that_corrupted_the_bucket_now_hits_the_guard(monkeypatc
 
     assert "manifest.json" in str(caught.value), (
         "сообщение отказа не называет, чем это грозит: %s" % caught.value)
+
+
+# ── 6. сравнение идёт с ОБЪЕКТОМ, а не с атрибутом модуля ─────────────────
+
+def test_patching_the_module_attribute_does_not_slip_past_the_guard(
+        empty_tree, monkeypatch):
+    """Тест подменил `r2_storage.upload_file` и НЕ передал аргумент.
+
+    Умолчание привязано на этапе определения функции, поэтому фактически
+    работает ОРИГИНАЛ — то есть заливка была бы настоящей. Застава,
+    сравнивающая с текущим атрибутом модуля, здесь бы промолчала и оказалась
+    декоративной: ровно тот случай, которым я вчера сам испортил манифест,
+    думая, что перехватил загрузку."""
+    from app.services import r2_storage
+
+    monkeypatch.setattr(r2_storage, "upload_file",
+                        lambda *a, **k: "подменено, но не используется")
+
+    with pytest.raises(sb.LiveClientBackupBlocked):
+        sb.run_client_backup(empty_tree)
