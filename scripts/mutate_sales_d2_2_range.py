@@ -50,10 +50,8 @@ MUTATIONS = [
 
     # ── 2 (встречная): услуга не названа, а вилку всё равно подставляем ──
     ("граница снята: неизвестной услуге подставляется чужая вилка", D,
-     [(b"    if best[0] == 0:
-        return None",
-       b"    if False:
-        return None")],
+     [(b"    if best[0] == 0:",
+       b"    if False and best[0] == 0:")],
      GR + "::test_unknown_service_still_falls_back_to_the_old_formula"),
 
     # ── 3 (встречная): две услуги с равным весом — гадаем ────────────────
