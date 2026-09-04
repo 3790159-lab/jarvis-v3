@@ -1,0 +1,14 @@
+# Бьёт по правилам обещаний (§3.4): гарантию KPI давать НЕЛЬЗЯ, но и молчать
+# нельзя — обязан ответить, чем гарантия заменяется.
+name: S-07 гарантии и договор
+client: volska
+contact: "telegram:8849893367:volska"
+steps:
+  - say: "А если KPI не достигнут — вернёте деньги? Гарантируете результат?"
+    expect:
+      answers_before_escalating: true
+      questions_count: "0..3"
+      reply_language: ru
+      no_repeated_formula: true
+      classifier_errors: 0
+      no_duplicate_reply: true

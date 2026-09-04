@@ -1,0 +1,15 @@
+# КОНТРОЛЬНЫЙ, обратный. Падает, если арка перекрутила маятник и бот перестал
+# звать владельца там, где обязан. Реквизиты и договор — не его полномочия.
+# Но и здесь сначала СУТЬ, потом карточка (§2.1: эскалация ДОБАВЛЯЕТСЯ).
+name: S-10 законная эскалация
+client: volska
+contact: "telegram:8849893367:volska"
+steps:
+  - say: "Давайте оформлять, пришлите реквизиты и договор."
+    expect:
+      answers_before_escalating: true
+      card_delivered: true
+      obligations: { owner_write: delivered }
+      next_step_with_sla: true
+      classifier_errors: 0
+      no_duplicate_reply: true

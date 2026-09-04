@@ -1,0 +1,43 @@
+# Бьёт по №7 (шаблонная эмпатия) и №8 (повторы). Шесть ходов подряд: счётчик
+# эмпатии считается ЗА ДИАЛОГ (§2.3), потолок ОДИН раз на весь сценарий.
+# В стенограмме было 4 «понимаю / гарне питання» из 8 реплик.
+name: S-09 эмпатия и самоповторы
+client: volska
+contact: "telegram:8849893367:volska"
+steps:
+  - say: "Здравствуйте, интересует продвижение."
+    expect:
+      empathy_max: 1
+      reply_language: ru
+      no_repeated_formula: true
+      classifier_errors: 0
+      no_duplicate_reply: true
+  - say: "У меня кофейня, бюджет пока не считал."
+    expect:
+      empathy_max: 1
+      no_repeated_formula: true
+      classifier_errors: 0
+  - say: "А что вообще входит в ведение?"
+    expect:
+      empathy_max: 1
+      answers_before_escalating: true
+      no_repeated_formula: true
+      classifier_errors: 0
+  - say: "Сколько это стоит в месяц?"
+    expect:
+      empathy_max: 1
+      offer_range: true
+      no_repeated_formula: true
+      classifier_errors: 0
+  - say: "А если бюджет 400 $?"
+    expect:
+      empathy_max: 1
+      uses_lead_numbers: ["400"]
+      no_repeated_formula: true
+      classifier_errors: 0
+  - say: "Хорошо, что дальше?"
+    expect:
+      empathy_max: 1
+      next_step_with_sla: true
+      no_repeated_formula: true
+      classifier_errors: 0

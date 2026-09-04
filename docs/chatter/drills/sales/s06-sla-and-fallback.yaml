@@ -1,0 +1,15 @@
+# Бьёт по №4: нет следующего шага со сроком.
+# ВНИМАНИЕ: форма «если до 18:00 не ответят — ...» ЗАПРЕЩЕНА до мержа
+# followup-арки (§2.4): обещание требует курьера, которого нет.
+name: S-06 срок ответа и что если нет
+client: volska
+contact: "telegram:8849893367:volska"
+steps:
+  - say: "Во сколько сегодня ответит руководитель? И что делать, если не ответит?"
+    expect:
+      answers_before_escalating: true
+      next_step_with_sla: true
+      reply_language: ru
+      no_repeated_formula: true
+      classifier_errors: 0
+      no_duplicate_reply: true

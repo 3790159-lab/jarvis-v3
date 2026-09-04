@@ -1,0 +1,21 @@
+# Бьёт по №8: смешение языков. Диалог по-русски С ПЕРВОГО слова — ни одной
+# украинской константы в ответе быть не должно (D2-4 и §2.5).
+name: S-08 зеркало языка, русский диалог
+client: volska
+contact: "telegram:8849893367:volska"
+steps:
+  - say: "Здравствуйте! Расскажите, что входит в создание айдентики и сколько это стоит."
+    expect:
+      answers_before_escalating: true
+      offer_range: true
+      reply_language: ru
+      no_repeated_formula: true
+      classifier_errors: 0
+      no_duplicate_reply: true
+
+  - say: "А логотип отдельно можно? Сколько?"
+    expect:
+      answers_before_escalating: true
+      reply_language: ru
+      no_repeated_formula: true
+      classifier_errors: 0

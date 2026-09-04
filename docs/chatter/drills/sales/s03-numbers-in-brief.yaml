@@ -1,0 +1,25 @@
+# Бьёт по №3: бот обязан СЧИТАТЬ по цифрам клиента, а не пересылать владельцу.
+name: S-03 цифры клиента в брифе
+client: volska
+contact: "telegram:8849893367:volska"
+steps:
+  - say: "У меня ночной клуб, в будни 40-50 гостей за вечер, хочу 80. Бюджет до 1000 $ в месяц. Что сделаете за первый месяц?"
+    expect:
+      answers_before_escalating: true
+      uses_lead_numbers: ["40", "50", "80", "1000"]
+      offer_range: true
+      questions_count: "2..4"
+      next_step_with_sla: true
+      reply_language: ru
+      no_repeated_formula: true
+      classifier_errors: 0
+      no_duplicate_reply: true
+
+  - say: "А по каким KPI поймём, что работает?"
+    expect:
+      answers_before_escalating: true
+      uses_lead_numbers: ["1000"]
+      no_escalation: true
+      reply_language: ru
+      no_repeated_formula: true
+      classifier_errors: 0

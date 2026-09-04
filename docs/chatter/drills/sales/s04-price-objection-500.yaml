@@ -1,0 +1,16 @@
+# Бьёт по №5: слабая отработка цены. «Почему вы, а не дешевле» — НЕ повод
+# звать владельца (§2.6, список НЕ-эскалаций).
+name: S-04 возражение по цене
+client: volska
+contact: "telegram:8849893367:volska"
+steps:
+  - say: "Мне другие предлагают за 500 $ в месяц. Почему у вас дороже?"
+    expect:
+      answers_before_escalating: true
+      offer_range: true
+      questions_count: "1..3"
+      no_escalation: true
+      reply_language: ru
+      no_repeated_formula: true
+      classifier_errors: 0
+      no_duplicate_reply: true

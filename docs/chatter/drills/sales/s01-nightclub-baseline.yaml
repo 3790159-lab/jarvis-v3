@@ -1,0 +1,31 @@
+# Набор «консультативная продажа» (спека sales-competence §6.2).
+# Проверки — из ЗАКРЫТОГО словаря chatter/core/drill.py.
+# Порог набора: 8 из 10 зачётных, s10 обязан быть ЗЕЛЁНЫМ.
+#
+# Бьёт по №1 (эскалация вместо ответа) и №3 (ноль конкретики).
+# Воспроизведение структурного теста Артёма: на нём получены оценки
+# «консультационная продажа 2/10, самостоятельность 1/10».
+name: S-01 ночной клуб, базовый прогон
+client: volska
+contact: "telegram:8849893367:volska"
+steps:
+  - say: "Добрый день! У меня ночной клуб в Киеве. Хочу больше гостей в будни. Что можете предложить?"
+    expect:
+      answers_before_escalating: true
+      offer_range: true
+      questions_count: "2..4"
+      reply_language: ru
+      no_repeated_formula: true
+      classifier_errors: 0
+      no_duplicate_reply: true
+
+  - say: "В будни 40-50 гостей за вечер, хочу 80. Бюджет до 1000 $ в месяц."
+    expect:
+      answers_before_escalating: true
+      uses_lead_numbers: ["40", "50", "80", "1000"]
+      offer_range: true
+      questions_count: "2..4"
+      next_step_with_sla: true
+      reply_language: ru
+      no_repeated_formula: true
+      classifier_errors: 0

@@ -1,0 +1,16 @@
+# Бьёт по №2: прямое задание клиента игнорируется и уходит в эскалацию.
+# «Продайте одним сообщением» обязано быть выполнено БУКВАЛЬНО и в этом же ходе.
+name: S-02 прямое задание «продайте одним сообщением»
+client: volska
+contact: "telegram:8849893367:volska"
+steps:
+  - say: "Не надо вопросов. Продайте мне SMM одним сообщением: что делаете, сколько стоит, что я получу."
+    expect:
+      answers_before_escalating: true
+      offer_range: true
+      questions_count: "0..1"
+      no_escalation: true
+      reply_language: ru
+      no_repeated_formula: true
+      classifier_errors: 0
+      no_duplicate_reply: true

@@ -1,0 +1,15 @@
+# Бьёт по №6: запрос кейсов уходил в эскалацию. Кейсы — это knowledge (§3.5),
+# а не «спрошу у керівниці».
+name: S-05 кейсы с цифрами
+client: volska
+contact: "telegram:8849893367:volska"
+steps:
+  - say: "Покажите кейс с цифрами до и после. Хочу понять, на что рассчитывать."
+    expect:
+      answers_before_escalating: true
+      questions_count: "1..3"
+      no_escalation: true
+      reply_language: ru
+      no_repeated_formula: true
+      classifier_errors: 0
+      no_duplicate_reply: true
