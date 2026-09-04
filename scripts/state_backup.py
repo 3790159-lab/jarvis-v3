@@ -115,6 +115,14 @@ def main(argv=None) -> int:
     client_error: Exception | None = None
     try:
         client_result = sb.run_client_backup(_ROOT)
+    except sb.LiveClientBackupBlocked:
+        # 🔴 ОТКАЗ ЗАСТАВЫ ПРОБРАСЫВАЕТСЯ, А НЕ СТАНОВИТСЯ СТРОКОЙ СВОДКИ.
+        # Широкий `except Exception` ниже превратил бы его в обычное
+        # «клиентский набор упал» — то есть сторож, поставленный ровно на
+        # этот случай, утонул бы в собственном рапорте. Ночной задачи это не
+        # касается: под ней признака теста нет и застава молчит по построению
+        # (доказано встречным сторожем).
+        raise
     except sb.ClientBackupRefused as exc:
         client_refused = str(exc)
         logger.warning("state_backup: клиентский набор НЕ отправлен: %s", exc)
