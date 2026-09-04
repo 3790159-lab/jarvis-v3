@@ -39,6 +39,12 @@ _WINDOW = S + "::test_lead_numbers_for_turn_takes_lead_messages_and_current_inco
 _VERBATIM = S + "::test_retelling_lead_budget_reaches_the_lead_verbatim"
 _OURPRICE = S + "::test_our_price_from_lead_number_still_does_not_reach_the_lead"
 
+# Сторожа, дописанные после первого прогона (04.09, 4/7): мишени 1, 4 и 5 были
+# слепы не потому, что код неверен, а потому, что случая не было вовсе.
+_EDGE = S + "::test_lead_numbers_stop_at_the_edge_of_the_prompt_window"
+_FROM_HISTORY = S + "::test_lead_number_from_stored_history_reaches_the_lead_verbatim"
+_MIXED = S + "::test_mixed_reply_keeps_the_lead_number_and_cuts_only_the_invented_deadline"
+
 MUTATIONS = [
     # ── откуда берутся числа лида ────────────────────────────────────────
     ("1. окно истории снято — обеспечиваем числом, которого бот не видел", R,
@@ -46,7 +52,7 @@ MUTATIONS = [
        b"                           budget_tokens=limits.history_budget_tokens,\n"
        b"                           max_messages=limits.history_max_messages)",
        b"    window = list(history or [])")],
-     _WINDOW),
+     _EDGE),
 
     ("2. фильтр роли снят — числа БОТА начинают обеспечивать бота", R,
      [(b'    texts = [m.get("text") or "" for m in window if m.get("role") == "user"]',
@@ -61,7 +67,7 @@ MUTATIONS = [
     ("4. источник истории подменён пустым — числа лида взять неоткуда", R,
      [(b"        store.history(contact_id), limits=cfg.settings.limits,",
        b"        [], limits=cfg.settings.limits,")],
-     _VERBATIM),
+     _FROM_HISTORY),
 
     # ── доезжают ли до ОБОИХ потребителей ────────────────────────────────
     ("5. редакция не получает числа лида — режет то, что назвал сам лид", R,
@@ -69,7 +75,7 @@ MUTATIONS = [
        b"                                    lead_numbers=lead_nums)",
        b"            redacted = (_try_redact(deps, contact_id, reply=reply, now=now,\n"
        b"                                    lead_numbers=frozenset())")],
-     _VERBATIM),
+     _MIXED),
 
     ("6. детерминированная эскалация не получает числа лида — шов мёртв", R,
      [(b"        strict_knowledge=cfg.settings.strict_knowledge,\n"
