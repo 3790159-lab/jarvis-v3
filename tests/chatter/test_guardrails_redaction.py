@@ -213,9 +213,11 @@ def test_redaction_gives_the_range_instead_of_a_referral():
 
 def test_range_substitution_speaks_the_language_of_the_reply():
     """D2-4 не отменяется: приставка к вилке — на языке ОТВЕТА."""
-    res = redact_unbacked("SMM-ведение обойдётся вам в 1500 $ в месяц.",
+    # Берём услугу, у которой РАЗЛИЧАЮТСЯ все слова: «SMM» совпадает в обоих
+    # языках побуквенно и тащил бы сторожа зелёным даже без моста основ.
+    res = redact_unbacked("Маркетинговая стратегия обойдётся вам в 1500 $.",
                           KNOWLEDGE, language="uk")
-    assert "750–900 $" in res.text
+    assert "600–800 $" in res.text, "мост uk/ru не сработал"
     assert "ориентировочно" in res.text.casefold(),         "русский ответ получил не русскую приставку"
 
 
@@ -226,12 +228,17 @@ def test_unknown_service_still_falls_back_to_the_old_formula():
 
     Без этого сторожа реализация «подставить первую попавшуюся вилку» прошла бы
     позитивный тест и назвала бы цену SMM за фотосессию."""
+    # Прайс с ОДНОЙ услугой намеренно: когда услуг несколько, ноль
+    # совпадений даёт НИЧЬЮ, и её ловит проверка неоднозначности — тогда
+    # сторож зеленел бы, даже если правило «ни одной услуги» снято.
+    # Гейт показал это слепым, сторож переписан на боевую форму.
+    one_service = "# Ціни" + chr(10) + "- SMM-ведення — 750–900 $" + chr(10)
     reply = "Фотосесія обійдеться вам у 1500 $."
-    res = redact_unbacked(reply, KNOWLEDGE, language="uk")
+    res = redact_unbacked(reply, one_service, language="uk")
 
     assert "1500" not in res.text
     assert "узгоджуємо індивідуально" in res.text,         "для неизвестной услуги подставлена чужая вилка"
-    assert "750–900" not in res.text and "600–800" not in res.text
+    assert "750–900" not in res.text
 
 
 def test_ambiguous_service_falls_back_to_the_old_formula():
@@ -245,12 +252,15 @@ def test_ambiguous_service_falls_back_to_the_old_formula():
 
 def test_deadline_clause_never_gets_a_price_range():
     """Срочная клауза остаётся срочной формулой: вилка цен там — бессмыслица."""
-    reply = "Маркетингова стратегія — 600–800 $, зробимо за 99 днів."
+    # Срочная клауза НАЗЫВАЕТ услугу: без имени услуга не опознаётся,
+    # вилка не подставилась бы и без правила — ветка не исполнялась.
+    reply = "Маркетингова стратегія — 600–800 $, стратегію зробимо за 99 днів."
     res = redact_unbacked(reply, KNOWLEDGE, language="uk")
 
     assert "99" not in res.text
     assert "термін узгоджуємо індивідуально" in res.text
     assert "600–800 $" in res.text, "обеспеченная цена не имела права погибнуть"
+    assert res.text.count("600–800") == 1, "вилка цен подставлена в СРОЧНУЮ клаузу"
 
 
 def test_substituted_range_is_itself_backed():
