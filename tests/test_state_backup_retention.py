@@ -415,6 +415,33 @@ def _run_main(monkeypatch, rotate):
     return rc, captured.get("text", "")
 
 
+@pytest.fixture(autouse=True)
+def _no_live_client_backup(monkeypatch):
+    """Клиентская заливка НЕ должна исполняться из этих тестов.
+
+    Замер 04.09.2026: `main()` зовёт `sb.run_client_backup(_ROOT)`, и ни один
+    тест этого файла его не подменял — а `.env` в worktree ссылка на живой,
+    значит ключи R2 боевые. Каждый полный прогон суиты заливал один объект и
+    ПЕРЕЗАПИСЫВАЛ боевой `manifest.json` описанием из одной записи, оставляя
+    клиентские базы неописанными.
+
+    Тот же класс ошибки, что уже описан ниже про `rotate_old_backups`, только
+    другой шов. Теперь его держит ещё и застава в `run_client_backup`
+    (`LiveClientBackupBlocked`), но полагаться на неё здесь нельзя: тесты
+    обязаны быть герметичными сами по себе, а застава — последний рубеж.
+
+    Отказ по `ClientBackupRefused` выбран намеренно: это штатное «клиентского
+    набора здесь нет», rc задачи оно не портит и сводку не ломает.
+    """
+    from app.services import state_backup as sb
+
+    def _refuse(*_a, **_kw):
+        raise sb.ClientBackupRefused(
+            "тестовое окружение: клиентский набор не трогаем")
+
+    monkeypatch.setattr(sb, "run_client_backup", _refuse)
+
+
 def test_script_names_every_prefix_with_its_keep_days(monkeypatch):
     """Без него: в отчёте одно число «удалено N объектов», и по какому набору прошлись 14 суток, а по какому 365, из него не узнать."""
     deleted = {STATE: [_key(STATE, 40, "users.json")], CLIENT: []}

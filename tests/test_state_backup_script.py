@@ -1,14 +1,22 @@
 # -*- coding: utf-8 -*-
 """Tests for the standalone daily state backup job (scripts/state_backup.py).
 
-Every network/R2 seam is mocked — no real Telegram or R2 call is ever made
-under pytest. Mirrors tests/test_morning_digest_script.py.
+Mirrors tests/test_morning_digest_script.py.
+
+🔴 УТВЕРЖДЕНИЕ «Every network/R2 seam is mocked» ЗДЕСЬ СТОЯЛО И БЫЛО НЕВЕРНЫМ.
+Замер 04.09.2026: `main()` зовёт `sb.run_client_backup(_ROOT)`, которого ни
+один тест не подменял, и каждый полный прогон суиты делал НАСТОЯЩУЮ заливку в
+боевой бакет — перезаписывая `manifest.json` описанием из одной записи.
+Заглушка живёт теперь в автоиспользуемой фикстуре ниже; утверждение
+переписано так, чтобы оно называло МЕХАНИЗМ, а не обещание.
 """
 from __future__ import annotations
 
 import importlib.util
 import sys
 from pathlib import Path
+
+import pytest
 
 _SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "state_backup.py"
 
@@ -19,6 +27,33 @@ def _load_module():
     sys.modules["state_backup_script"] = mod
     spec.loader.exec_module(mod)
     return mod
+
+
+@pytest.fixture(autouse=True)
+def _no_live_client_backup(monkeypatch):
+    """Клиентская заливка НЕ должна исполняться из этих тестов.
+
+    Замер 04.09.2026: `main()` зовёт `sb.run_client_backup(_ROOT)`, и ни один
+    тест этого файла его не подменял — а `.env` в worktree ссылка на живой,
+    значит ключи R2 боевые. Каждый полный прогон суиты заливал один объект и
+    ПЕРЕЗАПИСЫВАЛ боевой `manifest.json` описанием из одной записи, оставляя
+    клиентские базы неописанными.
+
+    Тот же класс ошибки, что уже описан ниже про `rotate_old_backups`, только
+    другой шов. Теперь его держит ещё и застава в `run_client_backup`
+    (`LiveClientBackupBlocked`), но полагаться на неё здесь нельзя: тесты
+    обязаны быть герметичными сами по себе, а застава — последний рубеж.
+
+    Отказ по `ClientBackupRefused` выбран намеренно: это штатное «клиентского
+    набора здесь нет», rc задачи оно не портит и сводку не ломает.
+    """
+    from app.services import state_backup as sb
+
+    def _refuse(*_a, **_kw):
+        raise sb.ClientBackupRefused(
+            "тестовое окружение: клиентский набор не трогаем")
+
+    monkeypatch.setattr(sb, "run_client_backup", _refuse)
 
 
 # ── send_telegram: shared test-isolation guard ───────────────────────────────

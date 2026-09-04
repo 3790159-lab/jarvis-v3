@@ -142,3 +142,49 @@ def test_without_the_pytest_marker_the_guard_stays_silent(empty_tree, tmp_path):
         "процесс не дошёл до фейл-клоуза на ключе — значит сторож не доказал, "
         "что застава его пропустила:\n" + out[-2000:])
     assert "UPLOAD_CALLED" not in out, "сторож дошёл до загрузки — так нельзя"
+
+
+# ── 5. СКВОЗНОЙ: тот самый путь, что портил бакет ─────────────────────────
+#
+# Пункты 1–4 проверяют функцию. Этот — весь ход целиком: `main()` скрипта,
+# ровно с тем набором подмен, который стоял в
+# `test_state_backup_script.py::test_main_success_...` и который заливал
+# по-настоящему. Единственное прямое доказательство, что застава работает на
+# БОЕВОМ случае, а не на выдуманном.
+#
+# Сам тот тест теперь герметичен (подменяет `run_client_backup` фикстурой), и
+# именно поэтому нужен ЭТОТ сторож: если герметичность когда-нибудь снимут,
+# упереться должно в заставу, а не в боевой бакет.
+
+def _load_script():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "state_backup_script_under_guard", ROOT / "scripts" / "state_backup.py")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["state_backup_script_under_guard"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_the_script_path_that_corrupted_the_bucket_now_hits_the_guard(monkeypatch):
+    """`main()` обязан ПРОБРОСИТЬ отказ заставы, а не превратить его в строку.
+
+    В `main()` стоит широкий `except Exception`, который сделал бы из отказа
+    обычное «клиентский набор упал»: rc=1, строчка в сводке — и сторож,
+    поставленный ровно на этот случай, утонул бы в собственном рапорте."""
+    mod = _load_script()
+
+    result = sb.BackupResult(date="2026-07-15", uploaded=["users.json"],
+                             manifest_key="backups/state/2026-07-15/manifest.json",
+                             total_bytes=100)
+    monkeypatch.setattr(sb, "run_backup", lambda root: result)
+    monkeypatch.setattr(sb, "rotate_all_backups",
+                        lambda: {"backups/state": [], "backups/client": []})
+    monkeypatch.setattr(mod, "send_telegram", lambda text: True)
+    # `run_client_backup` НАМЕРЕННО не подменяем — это и есть боевой случай.
+
+    with pytest.raises(sb.LiveClientBackupBlocked) as caught:
+        mod.main([])
+
+    assert "manifest.json" in str(caught.value), (
+        "сообщение отказа не называет, чем это грозит: %s" % caught.value)
