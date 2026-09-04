@@ -190,3 +190,72 @@ def test_collateral_inside_one_clause_is_reported():
     assert res.clean is True
     assert "99" not in res.text
     assert "Портфоліо надішлю окремо" in res.text, "соседнее предложение уцелело"
+
+
+# --- D2-2: редакция в ДИАПАЗОН, а не в отсылку к владельцу -------------------
+#
+# Спека sales-competence §4 D2-2. Мотив прямой: «точну вартість узгоджуємо
+# індивідуально» — это ОТСЫЛКА, она читается лидом как «мне не ответили».
+# Если для той же услуги в knowledge есть законная вилка, лид обязан получить
+# ЕЁ, а не адрес владельца. При неоднозначности — падаем на старую формулу.
+
+
+def test_redaction_gives_the_range_instead_of_a_referral():
+    """Услуга в клаузе опознана → вместо отсылки уходит вилка из knowledge."""
+    reply = "SMM-ведення обійдеться вам у 1500 $ на місяць."
+    res = redact_unbacked(reply, KNOWLEDGE, language="uk")
+
+    assert res.clean is True
+    assert "1500" not in res.text, "выдуманная цена обязана уйти"
+    assert "750–900 $" in res.text, "вилка из knowledge не подставлена"
+    assert "узгоджуємо індивідуально" not in res.text,         "отсылка к владельцу осталась там, где есть законная вилка"
+
+
+def test_range_substitution_speaks_the_language_of_the_reply():
+    """D2-4 не отменяется: приставка к вилке — на языке ОТВЕТА."""
+    res = redact_unbacked("SMM-ведение обойдётся вам в 1500 $ в месяц.",
+                          KNOWLEDGE, language="uk")
+    assert "750–900 $" in res.text
+    assert "ориентировочно" in res.text.casefold(),         "русский ответ получил не русскую приставку"
+
+
+# --- встречные сторожа: без них подстановка вилки станет враньём -------------
+
+def test_unknown_service_still_falls_back_to_the_old_formula():
+    """Услуги в knowledge нет → вилку брать НЕОТКУДА, отсылка остаётся.
+
+    Без этого сторожа реализация «подставить первую попавшуюся вилку» прошла бы
+    позитивный тест и назвала бы цену SMM за фотосессию."""
+    reply = "Фотосесія обійдеться вам у 1500 $."
+    res = redact_unbacked(reply, KNOWLEDGE, language="uk")
+
+    assert "1500" not in res.text
+    assert "узгоджуємо індивідуально" in res.text,         "для неизвестной услуги подставлена чужая вилка"
+    assert "750–900" not in res.text and "600–800" not in res.text
+
+
+def test_ambiguous_service_falls_back_to_the_old_formula():
+    """Клауза называет ДВЕ услуги — какая из вилок её, неизвестно."""
+    reply = "SMM-ведення і маркетингова стратегія разом коштуватимуть 1500 $."
+    res = redact_unbacked(reply, KNOWLEDGE, language="uk")
+
+    assert "1500" not in res.text
+    assert "узгоджуємо індивідуально" in res.text,         "при двух услугах выбрана одна вилка — это угадывание"
+
+
+def test_deadline_clause_never_gets_a_price_range():
+    """Срочная клауза остаётся срочной формулой: вилка цен там — бессмыслица."""
+    reply = "Маркетингова стратегія — 600–800 $, зробимо за 99 днів."
+    res = redact_unbacked(reply, KNOWLEDGE, language="uk")
+
+    assert "99" not in res.text
+    assert "термін узгоджуємо індивідуально" in res.text
+    assert "600–800 $" in res.text, "обеспеченная цена не имела права погибнуть"
+
+
+def test_substituted_range_is_itself_backed():
+    """Подставленная вилка обязана проходить тот же гардрейл (clean не врёт)."""
+    res = redact_unbacked("SMM-ведення обійдеться вам у 1500 $ на місяць.",
+                          KNOWLEDGE, language="uk")
+    assert res.clean is True
+    assert not contains_unbacked_claim(res.text, KNOWLEDGE),         "подставленная вилка сама читается как выдумка"
