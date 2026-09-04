@@ -889,6 +889,18 @@ def run_client_backup(
     config = config or load_backup_config()
 
     entries: list[dict] = []
+    # 🔴 ОЖИДАЕМЫЙ состав набора — ЛИТЕРАЛЬНО ИЗ РЕЕСТРА, а не пересказ того,
+    # что случилось. Замер 04.09.2026: манифест описывал только случившееся, и
+    # частичный прогон выглядел как законное описание ЦЕЛОГО набора — одна
+    # запись при трёх объектах в бакете. Отличить «набор из одного файла» от
+    # «набор из трёх, залился один» читатель не мог, и проба по листингу
+    # показала бы зелёное ([[jarvis-literal-lists-not-introspection]]).
+    #
+    # Сюда попадает и то, чего НЕТ НА ДИСКЕ (`cset.missing`): такой объект
+    # обязан быть в бакете, и его отсутствие — дефект, а не «так задумано».
+    # Не попадает отданное дедупликацией: тот файл ожидается под ДРУГИМ
+    # псевдонимом и уже посчитан там.
+    declared: list[str] = []
     day_prefix = f"{CLIENT_PREFIX}/{date_str}/"
     # Временный каталог проходит ТО ЖЕ сито, что песочница дрила: корень из
     # TMPDIR/TEMP/TMP в момент вызова, отказ на дерево репозитория и на
@@ -934,6 +946,7 @@ def run_client_backup(
             for miss in cset.missing:
                 kind = "requisites" if miss.endswith("requisites.yaml") else "db"
                 rel_missing = keys[kind][len(day_prefix):]
+                declared.append(rel_missing)
                 result.failed.append({
                     "rel_path": rel_missing,
                     "error": f"файла нет на диске: {miss} (клиент {cset.slug})",
@@ -951,6 +964,7 @@ def run_client_backup(
                     continue
                 key = keys[kind]
                 rel = key[len(day_prefix):]
+                declared.append(rel)
                 try:
                     counts: dict | None = None
                     if kind == "db":
@@ -988,11 +1002,17 @@ def run_client_backup(
                         key, cset.slug, exc)
                     result.failed.append({"rel_path": rel, "error": str(exc)})
 
+        expected_rel = sorted(set(declared))
+        got_rel = sorted({e["rel_path"] for e in entries})
         manifest = {
             "generated_at": now.isoformat(),
             "key_fingerprint": fingerprint,
             "count": len(entries),
             "total_bytes": sum(e["size"] for e in entries),
+            # `expected` и `complete` — то, чего не хватало читателю: без них
+            # частичный прогон неотличим от полного набора из одного файла.
+            "expected": expected_rel,
+            "complete": expected_rel == got_rel,
             "files": entries,
         }
         manifest_key = _client_manifest_key(date_str)

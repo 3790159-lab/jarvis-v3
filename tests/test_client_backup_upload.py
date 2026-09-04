@@ -1417,3 +1417,63 @@ def test_script_with_a_failed_client_upload_says_so_and_fails(monkeypatch, keys)
         f"Владелец увидит красное и не узнает, клиентский это набор или "
         f"`state`; действия у них разные."
     )
+
+
+# ══ ПОЛНОТА НАБОРА: манифест несёт ОЖИДАЕМЫЙ состав, а не только случившийся ══
+#
+# Замер 04.09.2026. Манифест описывал ТО, ЧТО СЛУЧИЛОСЬ, и потому частичный
+# прогон выглядел как законное описание целого набора: одна запись при трёх
+# объектах в бакете, и ни один читатель не мог отличить «набор из одного файла»
+# от «набор из трёх, залился один». Проба «по листингу» показала бы зелёное.
+#
+# 🔴 КАКУЮ ВЕТКУ ЭТИ СТОРОЖА ИСПОЛНЯЮТ: построение `expected` из РЕЕСТРА
+# клиентов (литерально) и вычисление `complete` сравнением с фактически
+# залитым. Именно поэтому второй сторож ломает набор НАМЕРЕННО: на целом
+# наборе `expected` и `files` совпадают, и подмена одного другим прошла бы
+# незамеченной ([[jarvis-literal-lists-not-introspection]]).
+
+def _rel_kinds(names) -> list[str]:
+    """Виды объектов без псевдонимов: «db» / «requisites.yaml»."""
+    return sorted(str(n).rsplit("/", 1)[-1] for n in names)
+
+
+def test_manifest_declares_the_expected_set_and_calls_itself_complete(
+        tmp_path, keys):
+    """Целый набор: `expected` перечисляет всё, что обязано лежать, и `complete`."""
+    root = _repo_tree(tmp_path)
+    bucket = _Bucket()
+    _run(root, bucket, keys["env"])
+
+    manifest, _ = _manifest(bucket)
+
+    expected = manifest.get("expected")
+    assert isinstance(expected, list), (
+        "в манифесте нет списка expected — читатель не может отличить "
+        "«набор из одного файла» от «залился один из трёх»")
+    assert _rel_kinds(expected) == ["db", "db", "requisites.yaml",
+                                    "requisites.yaml"], expected
+    assert manifest.get("complete") is True, manifest.get("complete")
+
+
+def test_a_partial_run_declares_itself_incomplete(tmp_path, keys):
+    """У клиента нет реквизитов: объект не уедет, но ОЖИДАЛСЯ.
+
+    Здесь `expected` и `files` РАСХОДЯТСЯ — и только на таком наборе видно,
+    что список строится по реестру, а не пересказывает случившееся."""
+    root = _repo_tree(tmp_path, without_requisites=(SLUG_B,))
+    bucket = _Bucket()
+    _run(root, bucket, keys["env"])
+
+    manifest, _ = _manifest(bucket)
+    expected = manifest.get("expected")
+    files = [e["rel_path"] for e in manifest["files"]]
+
+    assert isinstance(expected, list), "в манифесте нет списка expected"
+    assert _rel_kinds(expected) == ["db", "db", "requisites.yaml",
+                                    "requisites.yaml"], (
+        "expected пересказывает случившееся вместо реестра: %r" % (expected,))
+    assert set(expected) != set(files), (
+        "expected совпал с files на ЗАВЕДОМО неполном наборе — значит он из "
+        "них и построен, и полноту им не доказать")
+    assert manifest.get("complete") is False, (
+        "неполный набор объявил себя полным: %r" % (manifest.get("complete"),))
