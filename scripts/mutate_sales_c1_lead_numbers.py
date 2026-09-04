@@ -134,6 +134,11 @@ MUTATIONS = [
     ("ВСТРЕЧНАЯ: без сигнала детектор выдумывает язык вместо фолбэка", L,
      [(b"    return default", b'    return "en"')],
      GL + "::test_no_signal_falls_back_to_default"),
+    # ── вето обязано знать ДЕНЬГИ словом, а не только «ціна» ────────────
+    ("вето не знает слова «сума» — бюджет лида становится нашим прайсом", D,
+     [(b'    r"|\xd1\x81\xd1\x83\xd0\xbc\xd0\xbc?[\xd0\xb0\xd0\xb8\xd1\x83\xd0\xbe\xd0\xb5\xd1\x94\xd1\x96\xd1\x8b]\\w*|\\bsum\\b"',
+       b'    r"|(?!x)x"')],
+     G + "::test_lead_number_named_as_our_sum_stays_flagged"),
 ]
 
 
