@@ -349,21 +349,77 @@ def execute_plan(
 # Result synthesis
 # ---------------------------------------------------------------------------
 
+# Ключи, под которыми агенты отдают сделанное. Списки ЛИТЕРАЛЬНЫЕ и ЗАМЕРЕНЫ
+# живыми вызовами 06.09.2026, а не взяты из `output_format` каталога: каталог
+# для smart_table обещает `file_path`/`drive_url`, а боевой ответ несёт
+# `xlsx_path`, `csv_path`, `table_path`, `json_path`. Список пополняется только
+# вместе с замером нового агента.
+_TEXT_KEYS = ("answer", "plan", "text")
+_ARTIFACT_KEYS = (
+    "xlsx_path",
+    "csv_path",
+    "table_path",
+    "json_path",
+    "artifact_path",
+    "file_path",
+    "path",
+    "drive_url",
+)
+
+
+def describe_result(result: Optional[Dict[str, Any]]) -> str:
+    """Человекочитаемое описание результата шага.
+
+    Текст — как есть. Текста нет, но есть артефакт — назвать файл и объём:
+    «работа сделана» без имени файла человек проверить не может, а именно это
+    и выдавал синтез раньше («Результат получен.», 18 символов, DEV-101).
+    """
+    result = result or {}
+
+    for key in _TEXT_KEYS:
+        value = result.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+
+    paths: List[str] = []
+    for key in _ARTIFACT_KEYS:
+        value = result.get(key)
+        if isinstance(value, str) and value.strip() and value not in paths:
+            paths.append(value)
+
+    if not paths:
+        return "Результат получен."
+
+    parts = [f"Готово: {paths[0]}"]
+    rows = result.get("rows_count")
+    if isinstance(rows, int):
+        parts.append(f"строк: {rows}")
+    columns = result.get("columns")
+    if isinstance(columns, (list, tuple)):
+        parts.append(f"колонок: {len(columns)}")
+    if len(paths) > 1:
+        parts.append(f"ещё файлов: {len(paths) - 1}")
+    return " — ".join(parts[:1]) + (", " + ", ".join(parts[1:]) if len(parts) > 1 else "")
+
+
 def synthesize_results(query: str, agent_results: List[Dict[str, Any]]) -> str:
     """Combine multiple agent results into a coherent final answer via LLM."""
     if not agent_results:
         return "Нет результатов для синтеза."
 
     if len(agent_results) == 1:
-        r = agent_results[0].get("result", {})
-        return r.get("answer") or r.get("plan") or r.get("text") or "Результат получен."
+        return describe_result(agent_results[0].get("result", {}))
 
     # Build context block
     parts = []
     for i, ar in enumerate(agent_results, 1):
         agent_id = ar.get("agent", f"agent_{i}")
         result = ar.get("result", {})
-        content = result.get("answer") or result.get("plan") or result.get("text") or str(result)[:300]
+        content = describe_result(result)
+        if content == "Результат получен." and result:
+            # Ни текста, ни известного артефакта — отдаём сырое, чтобы синтез
+            # видел хоть что-то, а не общую фразу.
+            content = str(result)[:300]
         cfg = get_agent(agent_id) or {}
         label = cfg.get("label", agent_id)
         parts.append(f"Агент {i} ({label}):\n{content}")
@@ -403,7 +459,7 @@ def synthesize_results(query: str, agent_results: List[Dict[str, Any]]) -> str:
         result = ar.get("result", {})
         cfg = get_agent(agent_id) or {}
         label = cfg.get("label", agent_id)
-        content = result.get("answer") or result.get("plan") or "нет ответа"
+        content = describe_result(result)
         lines.append(f"**{label}:**\n{content[:400]}")
     return "\n\n".join(lines)
 
