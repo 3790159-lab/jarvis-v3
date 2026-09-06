@@ -46,7 +46,6 @@ import os
 from typing import Any, Dict, List
 
 from fastapi import FastAPI, HTTPException, Request
-from app.routers import claude_ecosystem
 from fastapi.middleware.cors import CORSMiddleware
 
 
@@ -108,7 +107,6 @@ except Exception as _file_tools_exc:
 if _jarvis_v5_content_factory_available:
     app.include_router(jarvis_v5_content_factory_router)
 app.include_router(jarvis_live_operator_router)
-app.include_router(claude_ecosystem.router)
 app.include_router(time_brain.router)
 
 try:
