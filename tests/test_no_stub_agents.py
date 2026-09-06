@@ -55,9 +55,23 @@ def test_every_removed_file_stays_removed():
     assert not alive, "вернулись удалённые файлы каскада DEV-100: " + ", ".join(alive)
 
 
-def test_agents_package_directory_is_gone():
-    """Не только файлы: сам каталог не должен возвращаться пустым."""
-    assert not (ROOT / "app" / "agents").exists()
+def test_agents_package_has_no_sources_left():
+    """Не только перечисленные файлы: в каталоге не должно остаться ИСХОДНИКОВ.
+
+    Строгое «каталога нет» здесь было бы сторожем, который врёт по среде:
+    `git rm -r` снимает отслеживаемые файлы, но `__pycache__` не отслеживается
+    и остаётся на диске — в этом дереве он и остался, а в свежем клоне его нет.
+    Такой сторож краснел бы в проде из-за остатка сборки, а не из-за кода.
+
+    Остаток без исходников пакетом не является: импортировать из голого
+    `__pycache__` нечего, `import app.agents` падает — это и проверяет
+    `test_app_main_still_imports` вместе с остальными.
+    """
+    folder = ROOT / "app" / "agents"
+    if not folder.exists():
+        return
+    leftovers = sorted(p.name for p in folder.iterdir() if p.name != "__pycache__")
+    assert not leftovers, "в app/agents остались файлы: " + ", ".join(leftovers)
 
 
 def test_nothing_imports_the_removed_modules():
