@@ -52,6 +52,8 @@ AGENTS: Dict[str, Dict[str, Any]] = {
         "model": "claude-sonnet-4-6",
         "health_check": None,
         "capabilities": ["code_generation", "code_review", "architecture_design", "refactoring", "engineering"],
+        # Транспорт: не HTTP-эндпоинт, а адаптер из agent_adapters (CLI `claude -p`).
+        "adapter": "claude_code_bridge",
         "input_format": {"prompt": "str", "system": "str"},
         "output_format": {"text": "str"},
         "cost_tier": "high",
@@ -68,6 +70,8 @@ AGENTS: Dict[str, Dict[str, Any]] = {
         "model": "gpt-4o-mini",
         "health_check": None,
         "capabilities": ["reasoning", "classification", "summarization", "chat"],
+        # Транспорт: адаптер OpenAI-совместимого HTTP из agent_adapters.
+        "adapter": "openai_compatible_http",
         "input_format": {"prompt": "str"},
         "output_format": {"text": "str"},
         "cost_tier": "low",
@@ -90,7 +94,13 @@ AGENTS: Dict[str, Dict[str, Any]] = {
         "cost_per_use": 0.01,
         "speed_tier": "fast",
         "speed_sec": (5, 15),
-        "available": True,
+        "available": False,
+        "unavailable_reason": (
+            "транспорта нет: ни endpoint, ни adapter. Тот же провайдер уже "
+            "работает через internet_research (/api/jarvis/tools/internet/research), "
+            "поэтому подключать второй путь незачем — это дубль, а не пробел. "
+            "Снят 06.09.2026."
+        ),
         "label": "Perplexity sonar-pro",
         "note": "веб-исследование с источниками и цитатами",
     },
@@ -184,7 +194,12 @@ AGENTS: Dict[str, Dict[str, Any]] = {
         "cost_per_use": 0.0,
         "speed_tier": "instant",
         "speed_sec": (0, 1),
-        "available": True,
+        "available": False,
+        "unavailable_reason": (
+            "транспорта нет: ни endpoint, ни adapter, ни ветки в _call_agent. "
+            "Запись в Vault существует в других местах кода, но через меш "
+            "недостижима. Снят 06.09.2026."
+        ),
         "label": "Obsidian заметки",
         "note": "экспорт в Obsidian Vault (Markdown)",
     },
@@ -198,7 +213,13 @@ AGENTS: Dict[str, Dict[str, Any]] = {
         "cost_per_use": 0.0,
         "speed_tier": "medium",
         "speed_sec": (3, 15),
-        "available": True,
+        "available": False,
+        "unavailable_reason": (
+            "транспорта нет: `endpoint` не объявлен, SDK-ветки в _call_agent "
+            "тоже нет. Сторож test_all_http_agents_have_endpoint держал его в "
+            "исключениях как «использует SDK» — исключение оказалось "
+            "неоплаченным. Снят 06.09.2026."
+        ),
         "label": "Google Drive",
         "note": "загрузка файлов, получение ссылок",
     },
