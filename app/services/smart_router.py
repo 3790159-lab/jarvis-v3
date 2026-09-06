@@ -243,6 +243,22 @@ def _call_agent(agent_id: str, query: str) -> Dict[str, Any]:
                 return {"answer": f"✅ n8n workflow запущен. Execution ID: {exec_id}", "execution_id": exec_id}
             except Exception as e_n8n:
                 return {"_error": f"n8n trigger failed: {e_n8n}"}
+        # Агенты без HTTP-эндпоинта, но с адаптером: транспорт есть, он просто
+        # не HTTP. Отказ адаптера — это `_error`, а не заглушка: он ОТВЕТИЛ.
+        adapter_name = cfg.get("adapter")
+        if adapter_name:
+            try:
+                from app.services.agent_adapters import invoke_adapter
+                res = invoke_adapter(adapter_name, {"prompt": query, "message": query})
+            except Exception as exc:
+                return {"_error": f"{adapter_name}: {exc}"}
+            if not res.get("ok"):
+                return {"_error": f"{adapter_name}: {res.get('error') or 'адаптер вернул отказ без причины'}"}
+            text = (res.get("output") or {}).get("text") or ""
+            if not text.strip():
+                return {"_error": f"{adapter_name}: пустой ответ"}
+            return {"answer": text, "adapter": adapter_name, "raw": res}
+
         # Non-HTTP agents return stub
         return {"answer": f"[{agent_id}] не имеет HTTP endpoint — требует прямого вызова", "_stub": True}
 
@@ -264,6 +280,17 @@ def _call_agent(agent_id: str, query: str) -> Dict[str, Any]:
         return json.loads(resp.read())
     except Exception as e:
         return {"_error": str(e)}
+
+
+def step_failed(result: Dict[str, Any]) -> bool:
+    """True, если шаг НЕ сделал работы.
+
+    Два случая, а не один. `_error` — транспорт ответил отказом. `_stub` —
+    транспорта нет вовсе: `_call_agent` вернул строку «не имеет HTTP endpoint».
+    Второй случай раньше считался успехом, потому что `_error` в нём пуст, и
+    план рапортовал «✅ готово (0.0s)» о шаге, которого не было.
+    """
+    return bool(result.get("_error")) or bool(result.get("_stub"))
 
 
 def execute_plan(
@@ -289,10 +316,14 @@ def execute_plan(
         result = _call_agent(step.agent_id, step.input_query)
         step.duration_sec = round(time.time() - t0, 1)
         step.result = result
-        if result.get("_error"):
+        if step_failed(result):
             step.status = "error"
-            errors.append(f"{label}: {result['_error']}")
-            _notify(f"❌ [{step.step_num}/{len(plan.steps)}] {label}: ошибка")
+            reason = result.get("_error") or (
+                f"нет транспорта: агент {step.agent_id} объявлен доступным, "
+                f"но вызвать его нечем"
+            )
+            errors.append(f"{label}: {reason}")
+            _notify(f"❌ [{step.step_num}/{len(plan.steps)}] {label}: {reason}")
         else:
             step.status = "done"
             any_ok = True
