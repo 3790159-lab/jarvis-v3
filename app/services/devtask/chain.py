@@ -217,12 +217,11 @@ def next_step(chain: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return None
     for step in sorted(chain["steps"], key=lambda s: s["step_no"]):
         if step["status"] == STEP_PENDING:
-            if step["step_no"] == 1:
-                return step
-            prev = next(s for s in chain["steps"] if s["step_no"] == step["step_no"] - 1)
-            if prev["status"] in _STEP_DONE_STATES:
-                return step
-            return None
+            # Досюда доходим, только если ВСЕ предыдущие шаги доделаны: любой
+            # недоделанный обрывает цикл проверкой ниже. Отдельная проверка
+            # предшественника здесь была бы мёртвым кодом — мутационный гейт
+            # её и поймал (мишень 3, первый прогон).
+            return step
         if step["status"] not in _STEP_DONE_STATES:
             return None
     return None
