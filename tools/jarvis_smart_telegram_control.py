@@ -1504,6 +1504,164 @@ def _devtask_is_terminal(item: Dict[str, Any]) -> bool:
     return item.get("status") in _q._TERMINAL_STATUSES
 
 
+# ── Цепочка зависимых задач (спека 2026-09-07, ОК владельца) ──────────────
+#
+# Автопродвижение ДА, автомерж в транк НИКОГДА, удаление всегда через человека.
+# Цена ошибки автомата в мерже и удалении слишком высока, поэтому обе двери
+# закрыты кодом, а не дисциплиной.
+
+
+def _devtask_chain_store():
+    from app.services.devtask.chain import ChainStore
+    return ChainStore(_devtask_state_dir())
+
+
+def _devtask_base_for(tid: str) -> str:
+    """База worktree шага — в ней весь смысл варианта C.
+
+    Одиночная задача и первый шаг цепочки ветвятся от prod_head. Остальные —
+    от ВЕТКИ предыдущего шага, иначе шаг N не увидит кода шага N−1.
+
+    Пропавший план цепочки — ОТКАЗ, а не молчаливый откат к prod_head: такой
+    откат выглядел бы как успешный старт, а обнаружился бы человеком в отчёте,
+    когда шаг уже сделал работу не над тем деревом.
+    """
+    from app.services.devtask import git_ops as _g, chain as _ch
+    prod = _g.prod_head()
+    item = _devtask_queue().get(tid) or {}
+    cid = item.get("chain_id")
+    if not cid:
+        return prod
+    chain = _devtask_chain_store().get(cid)
+    if chain is None:
+        raise _ch.ChainStateError(
+            "план цепочки %s не найден — база шага %s неизвестна" % (cid, tid))
+    return _ch.base_for_step(chain, int(item.get("step_no") or 1), prod)
+
+
+def _devtask_chain_advance(tid: str, verdict: dict) -> None:
+    """Шаг дошёл до СТОПа: остановить цепочку или завести следующий шаг.
+
+    Не мержит и не удаляет — ни при каком вердикте. Остановка ничего не сносит:
+    сделанное остаётся на диске, разбирает человек.
+    """
+    from app.services.devtask import chain as _ch
+    q = _devtask_queue()
+    item = q.get(tid) or {}
+    cid = item.get("chain_id")
+    if not cid:
+        return
+    store = _devtask_chain_store()
+    chain = store.get(cid)
+    if chain is None or chain.get("status") != _ch.CHAIN_RUNNING:
+        return
+    step_no = int(item.get("step_no") or 1)
+    store.set_step_status(cid, step_no, _ch.STEP_AWAITING_REVIEW)
+
+    reason = _ch.stop_reason(verdict or {})
+    if reason:
+        store.stop(cid, reason)
+        send(ALLOWED_CHAT_ID,
+             "⛔ Цепочка «%s» остановлена на шаге %d: %s. "
+             "Ничего не снесено, ветки и отчёты на месте — разбирай руками."
+             % (chain.get("title") or cid, step_no, reason))
+        return
+
+    chain = store.get(cid)
+    nxt = _ch.next_step(chain)
+    if nxt is None:
+        if _ch.is_exhausted(chain):
+            store.finish(cid)
+            send(ALLOWED_CHAT_ID,
+                 "🏁 Цепочка «%s» прошла весь объявленный план (%d шагов). "
+                 "В транк не смержено ничего — мерж за тобой."
+                 % (chain.get("title") or cid, len(chain["steps"])))
+        return
+    if not chain.get("auto_advance"):
+        send(ALLOWED_CHAT_ID,
+             "⏸ Цепочка «%s»: шаг %d готов, автопродвижение выключено."
+             % (chain.get("title") or cid, step_no))
+        return
+
+    ntid = q.add(nxt["desc"], requested_by=item.get("requested_by"),
+                 chain_id=cid, step_no=nxt["step_no"], after=tid)
+    store.attach_task(cid, nxt["step_no"], ntid)
+    send(ALLOWED_CHAT_ID,
+         "▶️ Цепочка «%s»: шаг %d из %d стартует от ветки шага %d."
+         % (chain.get("title") or cid, nxt["step_no"], len(chain["steps"]), step_no))
+    _devtask_confirm(ALLOWED_CHAT_ID, ntid)
+
+
+def _devtask_chain_verdict(item: dict, res: dict) -> dict:
+    """Вердикт шага для решения о продвижении.
+
+    Гейт гоняется ЗДЕСЬ, а не при мерже. На автопродвижении человека рядом нет,
+    а таргет-тесты по объединённому коду сегодня запускает кнопка мержа —
+    значит без этого прогона условие «красный гейт останавливает цепочку» было
+    бы театром: оно никогда бы не сработало.
+    """
+    from app.services.devtask import git_ops as _g
+    res = res or {}
+    try:
+        gate = _devtask_run_targeted_combined(
+            item.get("worktree"), item.get("base_head"), tid=item.get("id")) or {}
+    except Exception as exc:
+        # Отказ САМОГО гейта — это не зелёный свет. Считаем красным и говорим
+        # причину: молчащая проверка опаснее красной.
+        gate = {"ok": False, "text": "гейт не отработал: %s" % exc}
+    try:
+        deletions = _g.deleted_paths(item.get("base_head") or "",
+                                     item.get("branch") or "")
+    except Exception:
+        # Не смогли спросить git — считаем, что удаления ЕСТЬ. Ошибка в эту
+        # сторону стоит остановки цепочки, в обратную — снесённого файла.
+        deletions = ["<не удалось проверить диф>"]
+    return {
+        "gate_ok": bool(gate.get("ok")),
+        "merge_conflict": gate.get("mode") == "merge_commit" and not gate.get("ok"),
+        "has_deletions": bool(deletions),
+        "deleted_paths": deletions,
+        "rate_limited": bool(res.get("rate_limited")),
+        "step_elapsed_s": _devtask_elapsed_s(item.get("started_at")),
+        "chain_elapsed_s": _devtask_chain_elapsed_s(item.get("chain_id")),
+        "preflight_ok": True,
+        "worktree_ok": True,
+        "process_alive": True,
+    }
+
+
+def _devtask_elapsed_s(started_at) -> float:
+    if not started_at:
+        return 0.0
+    try:
+        return (datetime.utcnow() - datetime.fromisoformat(started_at)).total_seconds()
+    except Exception:
+        return 0.0
+
+
+def _devtask_chain_elapsed_s(chain_id) -> float:
+    if not chain_id:
+        return 0.0
+    chain = _devtask_chain_store().get(chain_id) or {}
+    return _devtask_elapsed_s(chain.get("created_at"))
+
+
+def _devtask_chain_step_done(tid: str, res: dict) -> None:
+    """Хвост шага цепочки: считается в СВОЁМ потоке.
+
+    Гейт идёт минуты, а поллер блокировать нельзя — это записано в коде рядом
+    с worktree-setup и верно здесь ровно так же.
+    """
+    try:
+        item = _devtask_queue().get(tid) or {}
+        _devtask_chain_advance(tid, _devtask_chain_verdict(item, res))
+    except Exception as exc:
+        logger.exception("chain advance failed for %s", tid)
+        send(ALLOWED_CHAT_ID,
+             "❌ Цепочка: продвижение после шага %s сорвалось — %s. "
+             "Следующий шаг НЕ запущен." % (tid, exc))
+
+
 def _devtask_confirm(chat_id, tid: str) -> None:
     q = _devtask_queue()
     item = q.get(tid)
@@ -1649,6 +1807,12 @@ def _devtask_poll_active() -> None:
             "🛠 Dev-задача %s дошла до СТОП. Проверь отчёт и выбери действие.\n"
             "Стоимость: %s" % (tid, res.get("cost")),
             _devtask_review_keyboard(tid))
+        # Шаг цепочки: решение о продвижении считается в СВОЁМ потоке — гейт
+        # идёт минуты, а поллер блокировать нельзя. Кнопки владельцу уже ушли:
+        # автопродвижение их не отменяет и в транк по-прежнему не мержит.
+        if (item or {}).get("chain_id"):
+            threading.Thread(target=_devtask_chain_step_done, args=(tid, res),
+                             daemon=True, name="chain-advance-%s" % tid).start()
     else:
         # cc_error / no_report: partial spend may still have been billed —
         # persist it so month_cost() counts spend even on doomed runs.

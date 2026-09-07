@@ -236,3 +236,33 @@ def test_stopped_chain_records_the_reason(store, three):
 def test_stopped_chain_yields_no_next_step(store, three):
     store.stop(three["id"], ch.STOP_RATE_LIMIT)
     assert ch.next_step(store.get(three["id"])) is None
+
+
+# ── §2 поля карточки: цепочка живёт в обычной DevTask ──────────────────────
+
+def test_plain_task_card_has_empty_chain_fields(tmp_path):
+    """Обычная задача не должна отличаться поведением — только пустыми полями."""
+    from app.services.devtask.queue import DevTaskQueue
+    q = DevTaskQueue(base_dir=tmp_path)
+    item = q.get(q.add("обычная задача"))
+    assert item["chain_id"] is None
+    assert item["step_no"] is None
+    assert item["after"] is None
+
+
+def test_chain_step_card_carries_the_chain_fields(tmp_path):
+    from app.services.devtask.queue import DevTaskQueue
+    q = DevTaskQueue(base_dir=tmp_path)
+    tid = q.add("шаг 2", chain_id="chain_x", step_no=2, after="t1")
+    item = q.get(tid)
+    assert item["chain_id"] == "chain_x"
+    assert item["step_no"] == 2
+    assert item["after"] == "t1"
+
+
+def test_chain_fields_do_not_disturb_the_branch_name(tmp_path):
+    """Ветка шага — та же формула `devtask-<id>`, что у одиночной задачи."""
+    from app.services.devtask.queue import DevTaskQueue
+    q = DevTaskQueue(base_dir=tmp_path)
+    tid = q.add("шаг 1", chain_id="chain_x", step_no=1)
+    assert q.get(tid)["branch"] == ch.branch_for_task(tid)

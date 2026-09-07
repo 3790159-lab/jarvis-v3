@@ -20,7 +20,7 @@ WT_ROOT = "C:/jarvis_worktrees"
 
 # only these git verbs may ever run from here (checkout only populates a fresh,
 # empty worktree — no data loss — and is spawned detached, see _spawn_detached_checkout)
-_ALLOWED_VERBS = {"worktree", "rev-parse", "merge-base", "merge", "branch", "checkout"}
+_ALLOWED_VERBS = {"worktree", "rev-parse", "merge-base", "merge", "branch", "checkout", "diff"}
 
 # The mass checkout (~10k files) is killed when it runs as a direct child of the
 # LIVE bot process (proven: fails 2/2 from the bot, succeeds in every standalone
@@ -94,6 +94,21 @@ def create_worktree(task_id: str, base: str, *, run=subprocess.run, spawn_checko
     except Exception:
         pass
     raise RuntimeError(f"worktree checkout did not complete within {timeout_s}s for {wt}")
+
+
+def deleted_paths(base_head: str, branch: str, *, run=subprocess.run,
+                  root: str = PROD_REPO):
+    """Файлы, УДАЛЁННЫЕ веткой относительно её базы.
+
+    Признак берётся из git, а не из текста отчёта CC: отчёт пишет модель, и
+    доверять ему в вопросе «что снесено» нельзя. Цепочка на непустом списке
+    останавливается даже при зелёном гейте (спека §5.4, слово владельца:
+    удаление всегда через человека).
+    """
+    res = _git(root, run, "diff", "--diff-filter=D", "--name-only",
+               f"{base_head}..{branch}")
+    return [line.strip() for line in (getattr(res, "stdout", "") or "").splitlines()
+            if line.strip()]
 
 
 def prod_head(*, run=subprocess.run, root: str = PROD_REPO) -> str:

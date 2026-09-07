@@ -174,6 +174,13 @@ class ChainStore:
         self._step(chain, step_no)["status"] = status
         return self._save(chain)
 
+    def finish(self, chain_id: str) -> Dict[str, Any]:
+        """Объявленный план пройден. Не мерж и не откат — просто конец плана."""
+        chain = self._require(chain_id)
+        chain["status"] = CHAIN_DONE
+        chain["finished_at"] = datetime.utcnow().isoformat()
+        return self._save(chain)
+
     def stop(self, chain_id: str, reason: str) -> Dict[str, Any]:
         """Остановка ничего не сносит: сделанное остаётся на диске нетронутым."""
         chain = self._require(chain_id)

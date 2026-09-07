@@ -62,7 +62,9 @@ class DevTaskQueue:
             pass
 
     # ── api ────────────────────────────────────────────────────────────────
-    def add(self, desc: str, requested_by: Optional[str] = None) -> str:
+    def add(self, desc: str, requested_by: Optional[str] = None,
+            chain_id: Optional[str] = None, step_no: Optional[int] = None,
+            after: Optional[str] = None) -> str:
         # Time prefix keeps mtime/sort order human-readable; a uuid suffix
         # guarantees uniqueness even when two adds land in the same clock tick
         # (Windows utcnow() ~15ms resolution makes bare "%f" collide).
@@ -84,6 +86,12 @@ class DevTaskQueue:
             # thread the bot would otherwise have to keep alive).
             "cc_pid": None,
             "started_at": None,
+            # Цепочка (спека 2026-09-07): у одиночной задачи все три пусты, и
+            # она ничем не отличается от прежней. `after` — id предыдущего
+            # шага; именно из его ВЕТКИ берётся база worktree этого шага.
+            "chain_id": chain_id,
+            "step_no": step_no,
+            "after": after,
         }
         self._save(item)
         self._log("added", task_id, {"desc": desc})
